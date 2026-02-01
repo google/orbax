@@ -209,6 +209,10 @@ def batched_serialization_requests(
     if info.skip_deserialize:
       return
 
+    if not isinstance(arg, (SaveArgs, RestoreArgs)):
+      if tree_utils.is_empty_node(arg):
+        return
+
     if isinstance(arg, RestoreArgs):
       assert isinstance(value, tree_metadata.ValueMetadataEntry), type(value)
       metadata_restore_type = value.value_type
@@ -825,7 +829,10 @@ class BasePyTreeCheckpointHandler(
       self, item: PyTree, value_metadata_tree: PyTree, restore_args: PyTree
   ) -> Tuple[PyTree, PyTree]:
     """Restores leaves specified in `item`. Skips omitted leaves."""
-    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+    serialized_item = tree_metadata.serialize_tree(
+        item,
+        pytree_metadata_options=self._pytree_metadata_options,
+    )
 
     if not self._pytree_metadata_options.support_rich_types:
       # Replace empty containers with scalar values (zeros). During saving,
@@ -854,7 +861,10 @@ class BasePyTreeCheckpointHandler(
       self, item: PyTree, value_metadata_tree: PyTree
   ) -> PyTree:
     """Restores leaves from `item`, except for those marked as placeholders."""
-    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+    serialized_item = tree_metadata.serialize_tree(
+        item,
+        pytree_metadata_options=self._pytree_metadata_options,
+    )
     diff = (
         tree_structure_utils.tree_difference(
             serialized_item,
@@ -1025,7 +1035,9 @@ class BasePyTreeCheckpointHandler(
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
       # actual data to be restored, but are needed to maintain the structure.
-      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
+      serialized_item = tree_metadata.serialize_tree(
+          item, self._pytree_metadata_options
+      )
       diff = tree_structure_utils.tree_difference(
           serialized_item,
           value_metadata_tree,
@@ -1048,6 +1060,19 @@ class BasePyTreeCheckpointHandler(
     restore_args = tree_metadata.serialize_tree(
         restore_args, self._pytree_metadata_options
     )
+    if item is not None:
+      try:
+        value_metadata_tree_deserialized = tree_utils.deserialize_tree(
+            value_metadata_tree, item
+        )
+        restore_args_deserialized = tree_utils.deserialize_tree(
+            restore_args, item
+        )
+        value_metadata_tree = value_metadata_tree_deserialized
+        restore_args = restore_args_deserialized
+      except ValueError:
+        pass
+
     param_infos = self._get_param_infos(
         item=value_metadata_tree,
         directory=directory,
