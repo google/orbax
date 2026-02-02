@@ -66,7 +66,7 @@ def sync_global_data(
   all_padded_data_np = all_padded_data_np.reshape(jax.process_count(), -1)
 
   for i in range(len(all_lens)):
-    length = int(all_lens[i])
+    length = int(all_lens[i].item())
     valid_bytes = all_padded_data_np[i, :length]
     data_str = valid_bytes.tobytes().decode('utf-8')
     global_data.append(json.loads(data_str))
