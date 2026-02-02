@@ -522,21 +522,25 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     Args:
       aggregate_filename: name that the aggregated checkpoint should be saved
         as.
-      save_concurrent_gb: max concurrent GB that are allowed for writing. Can
-        help to reduce the possibility of OOM's when large checkpoints are
-        saved.
-      restore_concurrent_gb: max concurrent GB that are allowed for writing. Can
-        help to reduce the possibility of OOM's when large checkpoints are
+      save_concurrent_gb: max concurrent GB that are allowed to be writing to
+        disk at any given time. This limits the amount of data currently being
+        written to disk, which can help to reduce the possibility of OOM's when
+        large checkpoints are saved. Note that this does NOT limit
+        device-to-host transfer, meaning that the limit specified here may still
+        be exceeded by the total memory usage of the process.
+      restore_concurrent_gb: max concurrent GB that are allowed to be restored.
+        Can help to reduce the possibility of OOM's when large checkpoints are
         restored.
       save_device_host_concurrent_gb: max concurrent GB allowed to be
         transferred from device to host memory at once when saving, defined on a
         per-worker basis. When the limit is reached, arrays must be finished
         writing to the checkpoint before a new array can start being
-        transferred. This option is a stronger version of `save_concurrent_gb`,
-        which only attempts to limit memory usage after all shards have already
-        been transferred to host memory. Note that asynchronous saves may not be
+        transferred. This option is a stronger version of `save_concurrent_gb`.
+        Unlike `save_concurrent_gb` which only limits the amount of data
+        currently being written to disk, this option limits the amount of data
+        transferred from device to host. Note that asynchronous saves may not be
         truly asynchronous with this option enabled, as we have to block on some
-        array writes before beginning others.
+        array writes before beginning others. Also see `is_prioritized_key_fn`.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
@@ -565,6 +569,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
     """
+
     self._aggregate_handler = MsgpackHandler(
         primary_host=multiprocessing_options.primary_host,
         pytree_metadata_options=pytree_metadata_options,

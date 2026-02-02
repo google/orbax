@@ -86,9 +86,12 @@ class StandardCheckpointHandler(
     """Creates StandardCheckpointHandler.
 
     Args:
-      save_concurrent_gb: max concurrent GB that are allowed to be saved. Can
-        help to reduce the possibility of OOM's when large checkpoints are
-        saved.
+      save_concurrent_gb: max concurrent GB that are allowed to be writing to
+        disk at any given time. This limits the amount of data currently being
+        written to disk, which can help to reduce the possibility of OOM's when
+        large checkpoints are saved. Note that this does NOT limit
+        device-to-host transfer, meaning that the limit specified here may still
+        be exceeded by the total memory usage of the process.
       restore_concurrent_gb: max concurrent GB that are allowed to be restored.
         Can help to reduce the possibility of OOM's when large checkpoints are
         restored.
@@ -97,6 +100,7 @@ class StandardCheckpointHandler(
         namedtuple in pytree metadata.
       use_ocdbt: Whether to enable Tensorstore OCDBT driver.
     """
+
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
     self._impl = pytree_checkpoint_handler.PyTreeCheckpointHandler(
         save_concurrent_gb=save_concurrent_gb,
