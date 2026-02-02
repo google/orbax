@@ -28,6 +28,7 @@ from etils import epath
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import protocol
+from orbax.checkpoint.experimental.emergency.p2p import utils
 
 
 class _ThreadingTCPServer(socketserver.ThreadingTCPServer):
@@ -142,16 +143,6 @@ class P2PNode:
     self._thread.join(timeout=2.0)
     self._thread = None
 
-  def _get_stored_process_index(self, step_path: epath.Path) -> int | None:
-    """Returns the process index of the shard stored in the given step path."""
-    item_path = step_path / constants.STATE_SUBDIR
-    if item_path.exists():
-      for path in item_path.glob(f'{constants.PROCESS_SUBDIR_PREFIX}*'):
-        if path.is_dir():
-          # Format: ocdbt.process_0, ocdbt.process_12, etc.
-          return int(path.name.split('_')[-1])
-    return None
-
   def handle_get_manifest(
       self, payload: dict[str, Any]
   ) -> list[dict[str, Any]]:
@@ -175,7 +166,7 @@ class P2PNode:
       logging.error('Step directory not found for step=%d: %s', step, step_dir)
       return []
 
-    stored_process_index = self._get_stored_process_index(step_dir)
+    stored_process_index = utils.detect_process_index(self.directory, step)
 
     # If process_index is specified, only return manifest if it matches.
     if req_process_index != stored_process_index:
