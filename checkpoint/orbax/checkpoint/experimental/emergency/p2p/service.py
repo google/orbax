@@ -15,6 +15,7 @@
 """Defines the internal P2P Node service for serving checkpoint shards."""
 
 import concurrent.futures
+import functools
 import shutil
 import socket
 import socketserver
@@ -32,14 +33,24 @@ from orbax.checkpoint.experimental.emergency.p2p import protocol
 class _ThreadingTCPServer(socketserver.ThreadingTCPServer):
   """A ThreadingTCPServer that holds a reference to a P2PNode."""
 
-  service: 'P2PNode'
-
 
 @final
 class NodeHandler(socketserver.BaseRequestHandler):
   """Handles incoming Data Plane requests."""
 
   server: _ThreadingTCPServer
+  _service: 'P2PNode'
+
+  def __init__(
+      self,
+      request: Any,
+      client_address: Any,
+      server: socketserver.BaseServer,
+      *,
+      service: 'P2PNode',
+  ):
+    self._service = service
+    super().__init__(request, client_address, server)
 
   def setup(self):
     protocol.optimize_socket(self.request)
@@ -49,16 +60,24 @@ class NodeHandler(socketserver.BaseRequestHandler):
       opcode, payload = protocol.TCPMessage.recv(self.request)
 
       if opcode == protocol.OP_GET_MANIFEST:
-        resp = self.server.service.handle_get_manifest(payload)
+        resp = self._service.handle_get_manifest(payload)
         protocol.TCPMessage.send_json(
             self.request, protocol.OP_RESPONSE_JSON, resp
         )
-
       elif opcode == protocol.OP_DOWNLOAD_FILE:
-        self.server.service.handle_download(self.request, payload)
-
+        self._service.handle_download(self.request, payload)
     except (OSError, ValueError) as e:
       logging.error('P2P Handshake Error [%s]: %s', self.client_address, e)
+
+
+def _get_primary_ip():
+  """Returns the primary IP address of the host, preferring IPv4."""
+  addrinfos = socket.getaddrinfo(socket.gethostname(), None)
+  for family, _, _, _, sockaddr in addrinfos:
+    if family in [socket.AF_INET, socket.AF_INET6]:
+      return family, sockaddr[0]
+
+  raise ValueError('Failed to detect the primary IP address')
 
 
 @final
@@ -85,10 +104,14 @@ class P2PNode:
     self.directory = epath.Path(directory)
     self.process_index = multihost.process_index()
 
-    self.server = _ThreadingTCPServer(('0.0.0.0', 0), NodeHandler)
-    self.server.service = self
+    family, self.ip = _get_primary_ip()
+    handler = functools.partial(NodeHandler, service=self)
+    if family == socket.AF_INET6:
+      _ThreadingTCPServer.address_family = socket.AF_INET6
+      self.server = _ThreadingTCPServer(('::', 0), handler)
+    else:
+      self.server = _ThreadingTCPServer(('0.0.0.0', 0), handler)
 
-    self.ip = socket.getaddrinfo(socket.gethostname(), None)[0][4][0]
     # Capture the actual port assigned by the OS
     self.port = self.server.server_address[1]
 
@@ -140,19 +163,29 @@ class P2PNode:
     Returns:
       A list of file metadata dicts, containing rel_path and size.
     """
+    logging.info('handle_get_manifest %s', payload)
     step = payload.get('step')
     req_process_index = payload.get('process_index')
-    if step is None or req_process_index is  None:
+    if step is None or req_process_index is None:
+      logging.error('Received incomplete GET_MANIFEST request: %s', payload)
       return []
 
     step_dir = self.directory / str(step)
     if not step_dir.exists():
+      logging.error('Step directory not found for step=%d: %s', step, step_dir)
       return []
 
     stored_process_index = self._get_stored_process_index(step_dir)
 
     # If process_index is specified, only return manifest if it matches.
     if req_process_index != stored_process_index:
+      logging.error(
+          'Requested process_index=%d does not match stored process_index=%s'
+          ' for step=%d',
+          req_process_index,
+          stored_process_index,
+          step,
+      )
       return []
 
     files = []
@@ -164,6 +197,12 @@ class P2PNode:
             'rel_path': str(rel_path),
             'size': abs_path.stat().length,
         })
+    if not files:
+      logging.error(
+          'No files found for step=%d, process_index=%d',
+          step,
+          req_process_index,
+      )
     return files
 
   def handle_download(self, sock, payload: dict[str, Any]):
@@ -178,7 +217,7 @@ class P2PNode:
     rel_path_str = payload.get('rel_path')
 
     if not rel_path_str or '..' in rel_path_str or rel_path_str.startswith('/'):
-      logging.warning('Blocked unsafe P2P path request: %s', rel_path_str)
+      logging.error('Blocked unsafe P2P path request: %s', rel_path_str)
       protocol.TCPMessage.send_file(sock, epath.Path('__INVALID__'))
       return
 
@@ -186,7 +225,7 @@ class P2PNode:
     if full_path.exists() and full_path.is_file():
       protocol.TCPMessage.send_file(sock, full_path)
     else:
-      logging.warning('Requested file not found: %s', full_path)
+      logging.error('Requested file not found: %s', full_path)
       protocol.TCPMessage.send_file(sock, epath.Path('__MISSING__'))
 
   def fetch_shard_from_peer(
@@ -198,9 +237,9 @@ class P2PNode:
       ip: The IP address of the peer to fetch from.
       port: The port of the peer to fetch from.
       step: The checkpoint step to fetch.
-      stored_process_index: The process index of the shard to fetch. This is
-        the process index whose checkpoint data is stored on the peer and is
-        being requested.
+      stored_process_index: The process index of the shard to fetch. This is the
+        process index whose checkpoint data is stored on the peer and is being
+        requested.
 
     Returns:
       True if the shard was fetched successfully, False otherwise.
@@ -215,7 +254,15 @@ class P2PNode:
     )
 
     if not manifest:
-      logging.warning('Failed to get manifest from %s', ip)
+      logging.error(
+          'Failed to get manifest from peer %s:%d for step=%d,'
+          ' process_index=%d. The peer may not have the requested shard or it'
+          ' returned an empty manifest.',
+          ip,
+          port,
+          step,
+          stored_process_index,
+      )
       return False
 
     # TODO(exlin): Remove this directory once the transfer is globally completed
@@ -242,7 +289,14 @@ class P2PNode:
 
         results = [f.result() for f in concurrent.futures.as_completed(futures)]
         if any(r == 0 and m['size'] > 0 for r, m in zip(results, manifest)):
-          logging.error('Incomplete download from peer. Aborting.')
+          logging.error(
+              'Incomplete download from peer %s:%d for step=%d,'
+              ' process_index=%d. Aborting.',
+              ip,
+              port,
+              step,
+              stored_process_index,
+          )
           return False
 
         total_bytes = sum(results)

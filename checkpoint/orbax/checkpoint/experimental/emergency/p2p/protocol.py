@@ -19,6 +19,7 @@ import json
 import socket
 import struct
 from typing import Any, Final
+from absl import logging
 from etils import epath
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from typing_extensions import Self
@@ -68,8 +69,8 @@ def optimize_socket(sock: socket.socket) -> None:
     sock.setsockopt(
         socket.SOL_SOCKET, socket.SO_SNDBUF, constants.SOCKET_BUFFER_SIZE
     )
-  except OSError:
-    pass
+  except OSError as e:
+    logging.error('Failed to optimize socket: %s', e)
 
 
 class TCPMessage:
@@ -102,7 +103,8 @@ class TCPMessage:
     """
     try:
       filesize = filepath.stat().length
-    except OSError:
+    except OSError as e:
+      logging.error('Failed to stat file %s, sending size 0: %s', filepath, e)
       header = _HEADER_STRUCT.pack(OP_FILE_STREAM, 8)
       sock.sendall(header + struct.pack('!Q', 0))
       return
@@ -114,8 +116,10 @@ class TCPMessage:
     with filepath.open('rb') as f:
       try:
         sock.sendfile(f)
-      except (BrokenPipeError, ConnectionResetError):
-        pass
+      except (BrokenPipeError, ConnectionResetError) as e:
+        logging.error(
+            'Connection closed while sending file %s: %s', filepath, e
+        )
 
   @staticmethod
   def recv(sock: socket.socket) -> tuple[int, Any]:
@@ -132,19 +136,39 @@ class TCPMessage:
       A tuple of (opcode, data). If an error occurs, (OP_ERROR, None) is
       returned.
     """
+    try:
+      peer = str(sock.getpeername())
+    except OSError:
+      peer = 'unknown'
     header_data = TCPMessage._recv_exact(sock, _HEADER_SIZE)
     if not header_data:
+      logging.error('Failed to receive header from peer=%s', peer)
       return OP_ERROR, None
-    opcode, length = _HEADER_STRUCT.unpack(header_data)
+    try:
+      opcode, length = _HEADER_STRUCT.unpack(header_data)
+    except struct.error as e:
+      logging.error('Failed to unpack header from peer=%s: %s', peer, e)
+      return OP_ERROR, None
 
     if opcode == OP_FILE_STREAM:
       size_data = TCPMessage._recv_exact(sock, 8)
       if not size_data:
+        logging.error('Failed to receive filesize from peer=%s', peer)
         return OP_ERROR, None
-      return opcode, struct.unpack('!Q', size_data)[0]
+      try:
+        return opcode, struct.unpack('!Q', size_data)[0]
+      except struct.error as e:
+        logging.error('Failed to unpack filesize from peer=%s: %s', peer, e)
+        return OP_ERROR, None
 
     payload_data = TCPMessage._recv_exact(sock, length)
     if not payload_data:
+      logging.error(
+          'Failed to receive payload of length %d from peer=%s for opcode=%d',
+          length,
+          peer,
+          opcode,
+      )
       return OP_ERROR, None
 
     if length == 0:
@@ -152,7 +176,13 @@ class TCPMessage:
 
     try:
       return opcode, json.loads(payload_data.decode('utf-8'))
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+      logging.error(
+          'Failed to decode JSON payload from peer=%s for opcode=%d: %s',
+          peer,
+          opcode,
+          e,
+      )
       return OP_ERROR, None
 
   @staticmethod
@@ -203,8 +233,24 @@ class TCPClient:
         resp_op, resp_data = TCPMessage.recv(sock)
         if resp_op == OP_RESPONSE_JSON:
           return resp_data
-        return None
-    except OSError:
+        else:
+          logging.error(
+              'Received unexpected opcode %d from %s:%d in response to'
+              ' opcode=%d',
+              resp_op,
+              host,
+              port,
+              opcode,
+          )
+          return None
+    except OSError as e:
+      logging.error(
+          'Failed to connect to or communicate with %s:%d for opcode=%d: %s',
+          host,
+          port,
+          opcode,
+          e,
+      )
       return None
 
   @staticmethod
@@ -230,7 +276,23 @@ class TCPClient:
         TCPMessage.send_json(sock, OP_DOWNLOAD_FILE, {'rel_path': rel_path})
         opcode, filesize = TCPMessage.recv(sock)
 
-        if opcode != OP_FILE_STREAM or filesize == 0:
+        if opcode != OP_FILE_STREAM:
+          logging.error(
+              'Received unexpected opcode %d from %s:%d when downloading %s',
+              opcode,
+              host,
+              port,
+              rel_path,
+          )
+          return 0
+        if filesize == 0:
+          logging.error(
+              'Peer %s:%d reported filesize=0 for %s. This may indicate the'
+              ' file is missing or invalid on the peer.',
+              host,
+              port,
+              rel_path,
+          )
           return 0
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,10 +302,33 @@ class TCPClient:
             to_read = min(constants.CHUNK_SIZE, filesize - received)
             chunk = sock.recv(to_read)
             if not chunk:
+              logging.error(
+                  'Connection closed prematurely by peer %s:%d while'
+                  ' downloading %s. Received %d/%d bytes.',
+                  host,
+                  port,
+                  rel_path,
+                  received,
+                  filesize,
+              )
               break
             f.write(chunk)
             received += len(chunk)
 
-        return received if received == filesize else 0
-    except OSError:
+        if received != filesize:
+          logging.error(
+              'Failed to download %s from %s:%d. Expected %d bytes, received'
+              ' %d.',
+              rel_path,
+              host,
+              port,
+              filesize,
+              received,
+          )
+          return 0
+        return received
+    except OSError as e:
+      logging.error(
+          'Failed to download %s from %s:%d: %s', rel_path, host, port, e
+      )
       return 0
