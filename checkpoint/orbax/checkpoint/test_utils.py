@@ -832,3 +832,83 @@ def is_compression_used(
 
   else:
     return read_spec['metadata']['compressor'] is not None
+
+
+class MockDeferredWritableTemporaryPath(
+    atomicity.DeferredWritableTemporaryPath
+):
+  """Mock DeferredWritableTemporaryPath for testing deferred path resolution."""
+
+  instances = []
+
+  def __init__(
+      self,
+      final_path: epath.Path,
+      *,
+      checkpoint_metadata_store=None,
+      file_options=None,
+  ):
+    from orbax.checkpoint.google.path import tfhub_atomicity  # pylint: disable=g-import-not-at-top
+
+    self._deferred_path = tfhub_atomicity.DeferredPath()
+    super().__init__(
+        temporary_path=None,
+        final_path=final_path,
+        checkpoint_metadata_store=checkpoint_metadata_store,
+        file_options=file_options,
+    )
+    MockDeferredWritableTemporaryPath.instances.append(self)
+
+  @property
+  def deferred_path(self):
+    return self._deferred_path
+
+  def get_awaitable_path(self):
+    return self._deferred_path
+
+  def get(self):
+    if self._tmp_path is None:
+      raise ValueError(
+          'Temporary path has not been created yet. Please call `create` first.'
+      )
+    return self._tmp_path
+
+  def get_final(self):
+    return self._final_path
+
+  async def create(self):
+    self._tmp_path = await self._deferred_path.await_creation()
+    self._tmp_path.mkdir(parents=True, exist_ok=True)
+    return self._tmp_path
+
+  async def finalize(self, **kwargs):
+    pass
+
+  @classmethod
+  def from_final(
+      cls,
+      final_path,
+      *,
+      checkpoint_metadata_store=None,
+      file_options=None,
+      use_snapshot=None,
+  ):
+    return cls(
+        final_path,
+        checkpoint_metadata_store=checkpoint_metadata_store,
+        file_options=file_options,
+    )
+
+  @classmethod
+  def from_temporary(
+      cls, temporary_path, *, file_options=None, use_snapshot=None
+  ):
+    raise NotImplementedError
+
+  @classmethod
+  async def validate(cls, temporary_path):
+    pass
+
+  @classmethod
+  async def validate_final(cls, final_path):
+    pass
