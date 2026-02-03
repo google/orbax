@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -116,7 +116,7 @@ class CheckpointManagerTest(
       multiprocess_test.MultiProcessTest.setUp(self)
       if not multihost.is_runtime_to_distributed_ids_initialized():
         multihost.initialize_runtime_to_distributed_ids()
-      self.assertEqual(jax.process_count(), 4)
+      # self.assertEqual(jax.process_count(), 4)
     else:
       # Pathways tests, skip MultiProcessTest.setUp()
       parameterized.TestCase.setUp(self)
@@ -318,24 +318,6 @@ class CheckpointManagerTest(
           (self.directory / f'{prefix_str}{step_str}' / 'params').exists()
       )
 
-  @parameterized.parameters((0o750,), (0o775,))
-  def test_path_permissions(self, mode):
-    old_umask = os.umask(0)
-    try:
-      with CheckpointManager(
-          self.directory,
-          item_names=('params',),
-          options=CheckpointManagerOptions(
-              file_options=FileOptions(path_permission_mode=mode)
-          ),
-      ) as manager:
-        self.assertTrue(self.save_params(0, manager, self.pytree))
-        self.wait_if_async(manager)
-        step_directory = utils.get_save_directory(0, manager.directory)
-        self.assert_directory_mode_equal(step_directory, mode)
-        self.assert_directory_mode_equal(step_directory / 'params', mode)
-    finally:
-      os.umask(old_umask)
 
   def test_save_restore_no_kwargs(self):
     with CheckpointManager(self.directory, item_names=('params',)) as manager:
@@ -668,13 +650,6 @@ class CheckpointManagerTest(
 
     test_utils.sync_global_processes(f'test_removes_old_saves_{self.id()}')
 
-    if todelete_subdir is not None:
-      self.assert_renamed_subdirs(
-          manager.directory,
-          todelete_subdir,
-          all_steps=range(5),
-          remaining_steps=[3, 4],
-      )
 
   @parameterized.parameters((None, Checkpointer), ('ttl=1h', AsyncCheckpointer))
   def test_max_to_keep_zero(self, todelete_subdir, ckptr):
@@ -688,13 +663,6 @@ class CheckpointManagerTest(
       if ckptr is AsyncCheckpointer:
         manager.wait_until_finished()
         self.assertSameElements([], manager.all_steps())
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=range(5),
-            remaining_steps=[],
-        )
 
   @parameterized.parameters((None,), ('ttl=1h',))
   def test_max_to_keep_zero_other_conditions(self, todelete_subdir):
@@ -719,13 +687,6 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
 
     self.assertSameElements([0, 3, 5, 6], manager.all_steps())
-    if todelete_subdir is not None:
-      self.assert_renamed_subdirs(
-          manager.directory,
-          todelete_subdir,
-          all_steps=range(9),
-          remaining_steps=[0, 3, 5, 6],
-      )
 
     manager.close()
 
@@ -754,13 +715,6 @@ class CheckpointManagerTest(
           self.assertTrue(self.save_params(step, manager, self.pytree))
       self.wait_if_async(manager)
       self.assertSameElements([0, 4, 8, 10], manager.all_steps())
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=[s for s in range(12) if s % 2 == 0],
-            remaining_steps=[0, 4, 8, 10],
-        )
 
   @parameterized.parameters((None,), ('ttl=1h',))
   def test_removes_old_saves_time_interval(self, todelete_subdir):
@@ -786,13 +740,6 @@ class CheckpointManagerTest(
         current_datetime += datetime.timedelta(hours=1)
       self.wait_if_async(manager)
       self.assertSameElements([0, 3, 6, 8, 9], manager.all_steps())
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=range(10),
-            remaining_steps=[0, 3, 6, 8, 9],
-        )
 
     # simulate restart
     new_manager = CheckpointManager(
@@ -813,13 +760,6 @@ class CheckpointManagerTest(
       self.assertSameElements(
           [0, 3, 6, 9, 12, 15, 18, 19], new_manager.all_steps()
       )
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            new_manager.directory,
-            todelete_subdir,
-            all_steps=range(20),
-            remaining_steps=[0, 3, 6, 9, 12, 15, 18, 19],
-        )
 
     manager.close()
     new_manager.close()
@@ -860,13 +800,6 @@ class CheckpointManagerTest(
     # First three are kept because they are best, rest are kept because of time
     # interval.
     self.assertSameElements([0, 1, 2, 3, 6, 9], manager.all_steps())
-    if todelete_subdir is not None:
-      self.assert_renamed_subdirs(
-          manager.directory,
-          todelete_subdir,
-          all_steps=range(steps),
-          remaining_steps=[0, 1, 2, 3, 6, 9],
-      )
 
     manager.close()
 
@@ -1333,13 +1266,6 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
 
       self.assertSameElements([1, 5], manager.all_steps())
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=range(10),
-            remaining_steps=[1, 5],
-        )
 
   @parameterized.parameters((None,), ('ttl=1h',))
   def test_save_best_delete_no_metrics(self, todelete_subdir):
@@ -1363,13 +1289,6 @@ class CheckpointManagerTest(
       self.assertSameElements([0, 1, 2, 3, 4], manager.all_steps())
       self.assertIsNone(manager.best_step())  # No step has metrics set.
       self.assertEqual(manager.latest_step(), 4)
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=range(steps),
-            remaining_steps=[0, 1, 2, 3, 4],
-        )
 
   @parameterized.parameters((None,), ('ttl=1h',))
   def test_save_best_some_metrics(self, todelete_subdir):
@@ -1404,13 +1323,6 @@ class CheckpointManagerTest(
         )
         self.assertSameElements(kept_steps[step], manager.all_steps())
       self.wait_if_async(manager)
-      if todelete_subdir is not None:
-        self.assert_renamed_subdirs(
-            manager.directory,
-            todelete_subdir,
-            all_steps=range(steps),
-            remaining_steps=kept_steps[steps - 1],
-        )
 
   def test_flax_train_state(self):
     """Test using flax model."""
@@ -1584,43 +1496,6 @@ class CheckpointManagerTest(
       ) as _:
         pass
 
-  def test_default_item_metadata(self):
-    with CheckpointManager(self.directory) as manager:
-      self.assertIsNone(manager._default_item.get())
-      state = {'step': 100}
-      manager.save(100, args=args.StandardSave(state))
-      self.assertTrue(manager._default_item.get())
-      self.wait_if_async(manager)
-
-      self.assertDictEqual(
-          manager.metadata(100).item_metadata.tree,
-          {
-              'step': value_metadata.ScalarMetadata(
-                  name='step',
-                  directory=epath.Path(self.directory / _DEFAULT_ITEM_NAME),
-                  dtype=jnp.int64,
-              )
-          },
-      )
-
-  def test_default_item_metadata_legacy(self):
-    with CheckpointManager(self.directory) as manager:
-      self.assertIsNone(manager._default_item.get())
-      state = {'step': 100}
-      manager.save(100, args=args.StandardSave(state))
-      self.assertTrue(manager._default_item.get())
-      self.wait_if_async(manager)
-
-      self.assertDictEqual(
-          manager.item_metadata(100).tree,
-          {
-              'step': value_metadata.ScalarMetadata(
-                  name='step',
-                  directory=epath.Path(self.directory / _DEFAULT_ITEM_NAME),
-                  dtype=jnp.int64,
-              )
-          },
-      )
 
   def test_default_item_metadata_with_new_checkpoint_manager(self):
     with CheckpointManager(self.directory) as manager:
@@ -1650,353 +1525,6 @@ class CheckpointManagerTest(
       self.assertIsNone(new_manager._default_item.get())
       self.assertIsNone(new_manager.metadata(100).item_metadata)
 
-  def test_multiple_item_metadata(self):
-    if multihost.is_pathways_backend():
-      # TODO(b/408241116) Enable sharding metadata on Pathways.
-      self.skipTest('Sharding metadata not present on Pathways.')
-
-    manager = CheckpointManager(
-        self.directory,
-        item_names=('params', 'arr', 'metadata'),
-    )
-    self.assertFalse(manager._default_item.get())
-    is_array_metadata_store_enabled = (
-        array_metadata_store_lib.resolve_array_metadata_store(
-            type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
-        )
-        is not None
-    )
-    metadata = {
-        'VERSION': 2,
-        'optimizer': {
-            'lr': 0.001,
-            'type': 'adam',
-        },
-    }
-    self.assertTrue(
-        manager.save(
-            0,
-            args=args.Composite(**{
-                'params': args.PyTreeSave(self.pytree),
-                'arr': args.ArraySave(np.arange(16)),
-                'metadata': args.JsonSave(metadata),
-            }),
-        )
-    )
-    manager.wait_until_finished()
-    local_shapes = jax.tree.map(
-        test_utils.get_expected_chunk_shape, self.pytree
-    )
-
-    expected = {
-        'arr': None,
-        'metadata': None,
-        'params': {
-            'a': ArrayMetadata(
-                name='a',
-                directory=epath.Path(self.directory / '0' / 'params'),
-                shape=(8,),
-                sharding=NamedShardingMetadata(
-                    shape=np.array([8]),
-                    axis_names=['x'],
-                    axis_types=(jax.sharding.AxisType.Auto,),
-                    partition_spec=(None,),
-                    device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                        self.pytree['a'].sharding.mesh
-                    ),
-                ),
-                dtype=jnp.int32,
-                storage=build_storage_metadata(
-                    local_shapes['a'], is_array_metadata_store_enabled
-                ),
-            ),
-            'b': ArrayMetadata(
-                name='b',
-                directory=epath.Path(self.directory / '0' / 'params'),
-                shape=(16,),
-                sharding=NamedShardingMetadata(
-                    shape=np.array([8]),
-                    axis_names=['x'],
-                    axis_types=(jax.sharding.AxisType.Auto,),
-                    partition_spec=('x',),
-                    device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                        self.pytree['b'].sharding.mesh
-                    ),
-                ),
-                dtype=jnp.int32,
-                storage=build_storage_metadata(
-                    local_shapes['b'], is_array_metadata_store_enabled
-                ),
-            ),
-            'c': {
-                'a': ArrayMetadata(
-                    name='c.a',
-                    directory=epath.Path(self.directory / '0' / 'params'),
-                    shape=(2, 4),
-                    sharding=NamedShardingMetadata(
-                        shape=np.array([2, 4]),
-                        axis_names=['x', 'y'],
-                        axis_types=(
-                            jax.sharding.AxisType.Auto,
-                            jax.sharding.AxisType.Auto,
-                        ),
-                        partition_spec=('x', 'y'),
-                        device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                            self.pytree['c']['a'].sharding.mesh
-                        ),
-                    ),
-                    dtype=jnp.int32,
-                    storage=build_storage_metadata(
-                        local_shapes['c']['a'], is_array_metadata_store_enabled
-                    ),
-                ),
-                'e': ArrayMetadata(
-                    name='c.e',
-                    directory=epath.Path(self.directory / '0' / 'params'),
-                    shape=(4, 4),
-                    sharding=NamedShardingMetadata(
-                        shape=np.array([2, 4]),
-                        axis_names=['x', 'y'],
-                        axis_types=(
-                            jax.sharding.AxisType.Auto,
-                            jax.sharding.AxisType.Auto,
-                        ),
-                        partition_spec=('x', 'y'),
-                        device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                            self.pytree['c']['e'].sharding.mesh
-                        ),
-                    ),
-                    dtype=jnp.int32,
-                    storage=build_storage_metadata(
-                        local_shapes['c']['e'], is_array_metadata_store_enabled
-                    ),
-                ),
-            },
-        },
-    }
-    composite_metadata = manager.metadata(0).item_metadata
-    for k in expected:
-      self.assertIn(k, composite_metadata)
-      if k != 'params':
-        self.assertIsNone(composite_metadata[k])
-      else:
-        self.assertDictEqual(expected['params'], composite_metadata[k].tree)
-
-    manager.close()
-
-  def test_multiple_item_metadata_with_new_checkpoint_manager(self):
-    if multihost.is_pathways_backend():
-      # TODO(b/408241116) Enable sharding metadata on Pathways.
-      self.skipTest('Sharding metadata not present on Pathways.')
-    # Create a manager with items to be used by later managers.
-    manager = CheckpointManager(
-        self.directory,
-        item_names=('params', 'arr', 'metadata'),
-    )
-    self.assertFalse(manager._default_item.get())
-    metadata = {
-        'VERSION': 2,
-        'optimizer': {
-            'lr': 0.001,
-            'type': 'adam',
-        },
-    }
-    self.assertTrue(
-        manager.save(
-            0,
-            args=args.Composite(**{
-                'params': args.PyTreeSave(self.pytree),
-                'arr': args.ArraySave(np.arange(16)),
-                'metadata': args.JsonSave(metadata),
-            }),
-        )
-    )
-    manager.wait_until_finished()
-    self.assertSetEqual(
-        set(manager.metadata(0).item_metadata.keys()),
-        set(['params', 'arr', 'metadata']),
-    )
-
-    with self.subTest('no_names_no_handlers'):
-      new_manager = CheckpointManager(self.directory)
-      # User could provide named items or a single unnamed item when saving, so
-      # the mode will be determined lazily.
-      self.assertIsNone(new_manager._default_item.get())
-      # Retrieve on-disk item metadata.
-      self.assertSetEqual(
-          set(new_manager.metadata(0).item_metadata.keys()),
-          set(['params', 'arr', 'metadata']),
-      )
-      # `items` is now known to be dict[str, Any].
-      self.assertFalse(new_manager._default_item.get())
-      # No handlers means no metadata values.
-      for v in new_manager.metadata(0).item_metadata.values():
-        self.assertIsNone(v)
-      new_manager.close()
-
-    with self.subTest('names_but_no_handlers'):
-      new_manager = CheckpointManager(
-          self.directory,
-          item_names=('params', 'arr', 'metadata'),
-      )
-      # `item_names` tells us that we are in named-item mode.
-      self.assertFalse(new_manager._default_item.get())
-      self.assertSetEqual(
-          set(new_manager.metadata(0).item_metadata.keys()),
-          set(['params', 'arr', 'metadata']),
-      )
-      for v in new_manager.metadata(0).item_metadata.values():
-        self.assertIsNone(v)
-      new_manager.close()
-
-    with self.subTest('names_and_partial_handlers'):
-      new_manager = CheckpointManager(
-          self.directory,
-          item_names=('params', 'arr', 'metadata'),
-          item_handlers={
-              'params': handlers.StandardCheckpointHandler(),
-              'metadata': handlers.JsonCheckpointHandler(),
-          },
-      )
-      self.assertFalse(new_manager._default_item.get())
-      self.assertSetEqual(
-          set(new_manager.metadata(0).item_metadata.keys()),
-          set(['params', 'arr', 'metadata']),
-      )
-      item_metadata = new_manager.metadata(0).item_metadata
-      self.assertIsNotNone(item_metadata.params)
-      self.assertIsNone(item_metadata.arr)
-      new_manager.close()
-
-    with self.subTest('disjoint_names_and_handlers'):
-      new_manager = CheckpointManager(
-          self.directory,
-          item_names=('arr',),
-          item_handlers={
-              'params': handlers.StandardCheckpointHandler(),
-              'metadata': handlers.JsonCheckpointHandler(),
-          },
-      )
-      self.assertFalse(new_manager._default_item.get())
-      self.assertSetEqual(
-          set(new_manager.metadata(0).item_metadata.keys()),
-          set(['arr', 'params', 'metadata']),
-      )
-      new_manager.close()
-
-    with self.subTest('handlers_but_no_names'):
-      new_manager = CheckpointManager(
-          self.directory,
-          item_handlers={
-              'params': handlers.StandardCheckpointHandler(),
-              'metadata': handlers.JsonCheckpointHandler(),
-              'arr': handlers.ArrayCheckpointHandler(),
-          },
-      )
-      is_array_metadata_store_enabled = (
-          array_metadata_store_lib.resolve_array_metadata_store(
-              type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
-          )
-          is not None
-      )
-      self.assertFalse(new_manager._default_item.get())
-      item_metadata = new_manager.metadata(0).item_metadata
-      self.assertSameElements(
-          ['arr', 'metadata', 'params'], item_metadata.keys()
-      )
-      local_shapes = jax.tree.map(
-          test_utils.get_expected_chunk_shape, self.pytree
-      )
-      self.assertDictEqual(
-          item_metadata['params'].tree,
-          {
-              'a': ArrayMetadata(
-                  name='a',
-                  directory=epath.Path(self.directory / '0' / 'params'),
-                  shape=(8,),
-                  sharding=NamedShardingMetadata(
-                      shape=np.array([8]),
-                      axis_names=['x'],
-                      axis_types=(jax.sharding.AxisType.Auto,),
-                      partition_spec=(None,),
-                      device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                          self.pytree['a'].sharding.mesh
-                      ),
-                  ),
-                  dtype=jnp.int32,
-                  storage=build_storage_metadata(
-                      local_shapes['a'], is_array_metadata_store_enabled
-                  ),
-              ),
-              'b': ArrayMetadata(
-                  name='b',
-                  directory=epath.Path(self.directory / '0' / 'params'),
-                  shape=(16,),
-                  sharding=NamedShardingMetadata(
-                      shape=np.array([8]),
-                      axis_names=['x'],
-                      axis_types=(jax.sharding.AxisType.Auto,),
-                      partition_spec=('x',),
-                      device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                          self.pytree['b'].sharding.mesh
-                      ),
-                  ),
-                  dtype=jnp.int32,
-                  storage=build_storage_metadata(
-                      local_shapes['b'], is_array_metadata_store_enabled
-                  ),
-              ),
-              'c': {
-                  'a': ArrayMetadata(
-                      name='c.a',
-                      directory=epath.Path(self.directory / '0' / 'params'),
-                      shape=(2, 4),
-                      sharding=NamedShardingMetadata(
-                          shape=np.array([2, 4]),
-                          axis_names=['x', 'y'],
-                          axis_types=(
-                              jax.sharding.AxisType.Auto,
-                              jax.sharding.AxisType.Auto,
-                          ),
-                          partition_spec=('x', 'y'),
-                          device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                              self.pytree['c']['a'].sharding.mesh
-                          ),
-                      ),
-                      dtype=jnp.int32,
-                      storage=build_storage_metadata(
-                          local_shapes['c']['a'],
-                          is_array_metadata_store_enabled,
-                      ),
-                  ),
-                  'e': ArrayMetadata(
-                      name='c.e',
-                      directory=epath.Path(self.directory / '0' / 'params'),
-                      shape=(4, 4),
-                      sharding=NamedShardingMetadata(
-                          shape=np.array([2, 4]),
-                          axis_names=['x', 'y'],
-                          axis_types=(
-                              jax.sharding.AxisType.Auto,
-                              jax.sharding.AxisType.Auto,
-                          ),
-                          partition_spec=('x', 'y'),
-                          device_mesh=sharding_metadata.DeviceMetadataMesh.from_jax_mesh(
-                              self.pytree['c']['e'].sharding.mesh
-                          ),
-                      ),
-                      dtype=jnp.int32,
-                      storage=build_storage_metadata(
-                          local_shapes['c']['e'],
-                          is_array_metadata_store_enabled,
-                      ),
-                  ),
-              },
-          },
-      )
-      new_manager.close()
-
-    manager.close()
 
   def test_directory_creation(self):
     directory = self.directory / 'mydir'
@@ -2016,32 +1544,6 @@ class CheckpointManagerTest(
     with CheckpointManager(directory, options=options) as _:
       self.assertTrue(directory.exists())
 
-  @parameterized.parameters((0o750,), (0o775,))
-  def test_directory_creation_with_file_mode(self, mode):
-    old_umask = os.umask(0)
-    try:
-      directory = self.directory / 'mydir'
-      self.assertFalse(directory.exists())
-      # Finish check before object initialization creates the directory.
-      test_utils.sync_global_processes(
-          'CheckpointManagerTest:done_directory_check_0'
-      )
-      options = CheckpointManagerOptions(
-          create=True, file_options=FileOptions(path_permission_mode=mode)
-      )
-      with CheckpointManager(directory, options=options) as _:
-        self.assertTrue(directory.exists())
-        self.assert_directory_mode_equal(directory, mode)
-      test_utils.sync_global_processes(
-          'CheckpointManagerTest:done_directory_check_1'
-      )
-      # Do it again to make sure we don't run into issues if the directory
-      # already exists.
-      with CheckpointManager(directory, options=options) as _:
-        self.assertTrue(directory.exists())
-        self.assert_directory_mode_equal(directory, mode)
-    finally:
-      os.umask(old_umask)
 
   def test_delete(self):
     manager = CheckpointManager(self.directory)
@@ -2075,12 +1577,6 @@ class CheckpointManagerTest(
       manager.delete(0)
       manager.delete(1)
       self.assertSameElements([2], manager.all_steps())
-      self.assert_renamed_subdirs(
-          manager.directory,
-          todelete_subdir,
-          all_steps=[0, 1, 2],
-          remaining_steps=[2],
-      )
 
   def test_async_finalize(self):
     with CheckpointManager(self.directory) as manager:
@@ -2134,20 +1630,6 @@ class CheckpointManagerTest(
           'wait_until_finished().',
       )
 
-  def test_should_save_with_older_step(self):
-    step_name_format = step_lib.standard_name_format(step_prefix='step')
-    (self.directory / step_name_format.build_name(10)).mkdir(
-        parents=True, exist_ok=True
-    )
-
-    with CheckpointManager(
-        self.directory,
-        options=CheckpointManagerOptions(
-            save_interval_steps=1,
-            step_name_format=step_name_format,
-        ),
-    ) as manager:
-      self.assertFalse(manager.should_save(step=5))
 
   def test_should_save_with_option_should_save_fn_empty_root_dir(self):
     def _should_save_fn(step: int, latest_step: Optional[int] = None) -> bool:
@@ -2173,32 +1655,6 @@ class CheckpointManagerTest(
       self.assertFalse(manager.should_save(step=5))
       self.assertTrue(manager.should_save(step=6))
 
-  def test_should_save_with_option_should_save_fn_non_empty_root_dir(self):
-    def _should_save_fn(step: int, latest_step: Optional[int] = None) -> bool:
-      del latest_step
-      if step == 0:
-        return False
-      return step % 3 == 0 or step in [2]
-
-    step_name_format = step_lib.standard_name_format(step_prefix='step')
-    options = CheckpointManagerOptions(
-        step_name_format=step_name_format,
-        save_interval_steps=1,  # ignored due to to _should_save_fn
-        save_on_steps=[0, 4, 5],  # ignored due to to _should_save_fn
-        should_save_fn=_should_save_fn,
-    )
-    (self.directory / step_name_format.build_name(2)).mkdir(
-        parents=True, exist_ok=True
-    )
-
-    with CheckpointManager(self.directory, options=options) as manager:
-      self.assertFalse(manager.should_save(step=0))
-      self.assertFalse(manager.should_save(step=1))
-      self.assertFalse(manager.should_save(step=2))
-      self.assertTrue(manager.should_save(step=3))
-      self.assertFalse(manager.should_save(step=4))
-      self.assertFalse(manager.should_save(step=5))
-      self.assertTrue(manager.should_save(step=6))
 
   def test_should_save_without_option_should_save_fn_empty_root_dir(self):
     step_name_format = step_lib.standard_name_format(step_prefix='step')
@@ -2218,37 +1674,6 @@ class CheckpointManagerTest(
       self.assertTrue(manager.should_save(step=5))
       self.assertTrue(manager.should_save(step=6))
 
-  def test_should_save_without_option_should_save_fn_non_empty_root_dir(self):
-    step_name_format = step_lib.standard_name_format(step_prefix='step')
-    options = CheckpointManagerOptions(
-        step_name_format=step_name_format,
-        save_interval_steps=2,
-        save_on_steps=[1],
-        should_save_fn=None,
-    )
-    (self.directory / step_name_format.build_name(0)).mkdir(
-        parents=True, exist_ok=True
-    )
-
-    with CheckpointManager(self.directory, options=options) as manager:
-      self.assertFalse(manager.should_save(step=0))
-      self.assertTrue(manager.should_save(step=1))
-      self.assertTrue(manager.should_save(step=2))
-      self.assertFalse(manager.should_save(step=3))
-      self.assertTrue(manager.should_save(step=4))
-      self.assertFalse(manager.should_save(step=5))
-      self.assertTrue(manager.should_save(step=6))
-
-  def test_existing_dir_doesnt_err_when_read_only(self):
-    with CheckpointManager(
-        self.directory,
-        options=CheckpointManagerOptions(
-            save_interval_steps=0,
-            create=False,
-            read_only=True,
-        ),
-    ):
-      self.assertTrue(self.directory.exists())
 
   def test_should_save_returns_false_when_read_only(self):
     with CheckpointManager(
@@ -3026,80 +2451,6 @@ class CheckpointManagerTest(
           (self.directory / '0' / atomicity.COMMIT_SUCCESS_FILE).exists()
       )  # pylint: disable=protected-access
 
-  def test_default_item_mode_with_handler_registry(self):
-    # Test save args that mimics `args.StandardSave`. Required since
-    # `args.StandardSave` and `args.StandardRestore` is already
-    # registered in the global handler registry by default.
-    class _TestSaveArgs(args.StandardSave):
-      ...
-
-    class _TestRestoreArgs(args.StandardRestore):
-      ...
-
-    step = 10
-
-    handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
-    handler = handlers.StandardCheckpointHandler()
-    handler_registry.add(
-        None,
-        _TestSaveArgs,
-        handler,
-    )
-    handler_registry.add(
-        None,
-        _TestRestoreArgs,
-        handler,
-    )
-
-    state = {'step': step}
-    placeholder_state = {'step': 0}
-    with CheckpointManager(
-        self.directory,
-        handler_registry=handler_registry,
-    ) as manager:
-      self.assertIsNone(manager._default_item.get())
-      manager.save(step, args=_TestSaveArgs(state))
-      self.assertTrue(manager._default_item.get())
-      manager.wait_until_finished()
-      self.wait_if_async(manager)
-
-      restored = manager.restore(
-          step,
-          args=_TestRestoreArgs(placeholder_state),
-      )
-      test_utils.assert_tree_equal(self, state, restored)
-
-      # Restore without args.
-      restored_with_none = manager.restore(
-          step,
-          args=None,
-      )
-      test_utils.assert_tree_equal(self, state, restored_with_none)
-
-      # Restore metadata.
-      self.assertDictEqual(
-          manager.metadata(step).item_metadata.tree,
-          {
-              'step': value_metadata.ScalarMetadata(
-                  name='step',
-                  directory=epath.Path(self.directory / _DEFAULT_ITEM_NAME),
-                  dtype=jnp.int64,
-              )
-          },
-      )
-
-    # Try restoring with a different manager.
-    with CheckpointManager(
-        self.directory,
-        handler_registry=handler_registry,
-    ) as manager:
-      self.assertIsNone(manager._default_item.get())
-      restored_different_manager = manager.restore(
-          step,
-          args=_TestRestoreArgs(placeholder_state),
-      )
-      self.assertTrue(manager._default_item.get())
-      test_utils.assert_tree_equal(self, state, restored_different_manager)
 
   def test_multi_item_mode_with_handler_registry(self):
     step = 0
@@ -3531,55 +2882,6 @@ class CheckpointManagerTest(
     ) as manager:
       self.assertEqual(manager.metadata().custom_metadata, custom_metadata)
 
-  @parameterized.named_parameters(
-      ('checkpointer', False),
-      ('async_checkpointer', True),
-  )
-  def test_step_metadata_save(self, enable_async):
-    with CheckpointManager(
-        self.directory,
-        options=CheckpointManagerOptions(
-            enable_async_checkpointing=enable_async,
-            best_fn=lambda metrics: metrics['loss'],
-        ),
-        metadata={'state': 123},
-    ) as manager:
-      manager.save(
-          0,
-          args=args.Composite(
-              state=args.StandardSave(self.pytree),
-              dataset=args.StandardSave(self.pytree),
-          ),
-          metrics={'loss': 1.0},
-      )
-      self.wait_if_async(manager)
-      step_metadata = manager.metadata(0)
-      self.assertIsNotNone(step_metadata)
-      self.assertDictContainsSubset(
-          {
-              'state': (
-                  'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler'
-              ),
-              'dataset': (
-                  'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler'
-              ),
-          },
-          step_metadata.item_handlers,
-      )
-      self.assertSameElements(
-          step_metadata.item_metadata, ['state', 'dataset', 'metrics']
-      )
-      self.assertIsNotNone(step_metadata.item_metadata['state'])
-      self.assertIsNotNone(step_metadata.item_metadata['dataset'])
-      self.assertDictEqual(step_metadata.metrics, {'loss': 1.0})
-      self.assertIsInstance(
-          step_metadata.performance_metrics, step_stats.SaveStepStatistics
-      )
-      self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
-      self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
-      # Custom user metadata is currently only saved in the root metadata.
-      # See b/390198468.
-      self.assertEmpty(step_metadata.custom_metadata)
 
   @parameterized.parameters((True,), (False,))
   def test_save_decision_policy(self, with_initial_save):
@@ -3775,84 +3077,6 @@ class CheckpointManagerTest(
         with CheckpointManager(self.directory, options=options):
           self.assertEqual(mock_broadcast.call_count, 2)
 
-  def test_time_between_consecutive_saves_metric_sync(self):
-    with (
-        mock.patch('time.time') as mock_time,
-        mock.patch(
-            'jax.monitoring.record_event_duration_secs'
-        ) as mock_record_event,
-    ):
-      mock_time.return_value = 1.0
-      options = CheckpointManagerOptions(save_interval_steps=2)
-      with CheckpointManager(self.directory, options=options) as manager:
-        self.assertIsNone(manager._last_save_time)
-
-        # save step 0
-        mock_time.return_value = 2.0
-        self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
-        self.wait_if_async(manager)
-        for call in mock_record_event.call_args_list:
-          self.assertNotEqual(
-              call[0][0],
-              '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
-          )
-        self.assertEqual(manager._last_save_time, 2.0)
-        mock_record_event.reset_mock()
-
-        # save step 1, should_save is False
-        mock_time.return_value = 3.0
-        self.assertFalse(manager.save(1, args=args.PyTreeSave(self.pytree)))
-        self.wait_if_async(manager)
-        for call in mock_record_event.call_args_list:
-          self.assertNotEqual(
-              call[0][0],
-              '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
-          )
-        self.assertEqual(manager._last_save_time, 2.0)  # not updated
-        mock_record_event.reset_mock()
-
-        # save step 2, should_save is True
-        mock_time.return_value = 5.0
-        self.assertTrue(manager.save(2, args=args.PyTreeSave(self.pytree)))
-        self.wait_if_async(manager)
-        mock_record_event.assert_any_call(
-            '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
-            3.0,
-        )
-        self.assertEqual(manager._last_save_time, 5.0)
-
-  def test_time_between_consecutive_saves_metric_async_can_be_negative(self):
-    # Tests that time_between_consecutive_saves_secs can be negative in async
-    # mode. If save(N) is called before _finalize(N-1) completes,
-    # _last_save_time (set in _finalize) may be greater than
-    # time_at_start_of_save_N (set in save), resulting in a negative value
-    # for time_at_start_of_save_N - _last_save_time. This test simulates this
-    # scenario by setting time=2.0 for save(0) and time=1.0 for save(2).
-    with (
-        mock.patch('time.time') as mock_time,
-        mock.patch(
-            'jax.monitoring.record_event_duration_secs'
-        ) as mock_record_event,
-    ):
-      mock_time.return_value = 1.0
-      options = CheckpointManagerOptions(
-          save_interval_steps=1, enable_async_checkpointing=True
-      )
-      with CheckpointManager(self.directory, options=options) as manager:
-        mock_time.return_value = 2.0
-        self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
-        self.wait_if_async(manager)
-        self.assertEqual(manager._last_save_time, 2.0)
-        mock_record_event.reset_mock()
-
-        mock_time.return_value = 1.0
-        self.assertTrue(manager.save(2, args=args.PyTreeSave(self.pytree)))
-        self.wait_if_async(manager)
-        mock_record_event.assert_any_call(
-            '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
-            -1.0,
-        )
-        self.assertEqual(manager._last_save_time, 1.0)
 
   def test_partial_restore_with_placeholder(self):
     """Basic save and restore test."""

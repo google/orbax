@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -268,6 +268,11 @@ _VERBOSE = flags.DEFINE_boolean(
 )
 _V_LEVEL = flags.DEFINE_integer(
     'v_level', None, 'Verbosity level for the benchmark binary (e.g., 1).'
+)
+_PYTHON_COMMAND = flags.DEFINE_string(
+    'python_command',
+    None,
+    'Python command to use for the workload.',
 )
 
 # --- Pathways Flags ---
@@ -552,22 +557,25 @@ def construct_workload_command(
 
   env_cmd = ' && '.join(env_vars) + ' && ' if env_vars else ''
 
-  python_args = [
-      f'python3 {benchmark_binary_path}',
-      f'--config_file={config_file}',
-      f'--output_directory={os.path.join(output_directory, run_id)}',
-      '--alsologtostderr',
-  ]
-  if v_level is not None:
-    python_args.append(f'--v={v_level}')
+  if _PYTHON_COMMAND.value:
+    python_cmd = _PYTHON_COMMAND.value
+  else:
+    python_args = [
+        f'python3 {benchmark_binary_path}',
+        f'--config_file={config_file}',
+        f'--output_directory={os.path.join(output_directory, run_id)}',
+        '--alsologtostderr',
+    ]
+    if v_level is not None:
+      python_args.append(f'--v={v_level}')
 
-  python_cmd = ' '.join(python_args)
-  if enable_pathways:
-    python_cmd = (
-        'python3 -c "import pathwaysutils;'
-        ' pathwaysutils.initialize()" && '
-        + python_cmd
-    )
+    python_cmd = ' '.join(python_args)
+    if enable_pathways:
+      python_cmd = (
+          'python3 -c "import pathwaysutils;'
+          ' pathwaysutils.initialize()" && '
+          + python_cmd
+      )
 
   return f'{env_cmd}{python_cmd}'
 
@@ -722,7 +730,9 @@ def main(argv: Sequence[str]) -> None:
   )
 
   if _WORKLOAD_NAME.value is not None:
-    workload_name = _WORKLOAD_NAME.value
+    workload_name = f'{_WORKLOAD_NAME.value[:15]}-{timestamp}'.replace(
+        '_', '-'
+    ).lower()
   else:
     if _ENABLE_PATHWAYS.value:
       # XPK for pathways requires workload name < 25 chars.
