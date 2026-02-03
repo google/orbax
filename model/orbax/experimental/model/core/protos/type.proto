@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package orbax_model_type;
 
-import "tensorflow/compiler/xla/xla_data.proto";
+import "orbax/experimental/model/core/protos/xla_data.proto";
 
 message FunctionSignature {
   Type input = 1;

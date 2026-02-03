@@ -21,7 +21,7 @@ from typing import Any, Optional, Sequence, Tuple, TypeAlias
 import numpy as np
 from orbax.experimental.model.core.python import tree_util
 
-from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
+from orbax.experimental.model.core.protos import xla_data_pb2
 
 
 Sharding: TypeAlias = xla_data_pb2.OpSharding

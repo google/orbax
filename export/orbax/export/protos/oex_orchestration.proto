@@ -1,3 +1,330 @@
 syntax = "proto3";
 
 package orbax_export_orchestration;
+
+import "orbax/experimental/model/core/protos/type.proto";
+
+// Role of a node in the pipeline, i.e., preprocessor, model, or postprocessor.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_PREPROCESSOR = 1;
+  ROLE_MODEL = 2;
+  ROLE_POSTPROCESSOR = 3;
+}
+
+// Multiple orchestration pipelines.
+//
+// A pipeline consists of a model function, a (optional) pre-processor and
+// a (optional) post-processor.
+message Pipelines {
+  // A map from pipeline name to pipeline.
+  //
+  // Pipeline names usually correspond to Servo service names, such as
+  // "serving_default".
+  map<string, Pipeline> name_to_pipeline = 1;
+}
+
+// An orchestration pipeline.
+message Pipeline {
+  // The overall (input and output) signature of the orchestration pipeline.
+  //
+  // The overall input signature will be the input signature of the
+  // pre-processor if present, otherwise the input signature of the model
+  // function minus the weights argument.
+  //
+  // The overall output signature will be the output signature of the
+  // post-processor if present, otherwise the output signature of the model
+  // function.
+  orbax_model_type.FunctionSignature signature = 1;
+
+  // An optional signature that is a (ordered) mapping from names to
+  // `TensorType`. This signature is useful for some execution environments that
+  // only support name-based calling conventions (e.g. Servomatic).
+  //
+  // The flattened list of `TensorType`s must match the `signature` field
+  // (defined above).
+  optional NamedSignature named_signature = 2;
+
+  // The names (in manifest) of the pre-processor functions. For multi-stage
+  // preprocessing, the preprocessors are exected in sequence. The output of the
+  // nth pre-processor serves as the input to the (n+1)th pre-processor. while
+  // multi-stage tf preprocessing is doable, we recommend consolidating the
+  // steps into a single module to optimize for latency.
+  repeated string pre_processor_names = 3 [deprecated = true];
+
+  // The model functions to be executed in the pipeline. The order of the
+  // model functions determines the order of execution. The output of the nth
+  // model function serves as the input to the (n+1)th model function.
+  // Currently, we ONLY support AT MOST ONE model function (thus, having no
+  // model functions is allowed). See b/421976850.
+  repeated BoundModelFunction model_functions = 4 [deprecated = true];
+
+  // The names (in manifest) of the post-processor functions. For multi-stage
+  // postprocessing, the postprocessors are exected in sequence. The output of
+  // the nth post-processor serves as the input to the (n+1)th post-processor.
+  // while multi-stage tf postprocessing is doable, we recommend consolidating
+  // the steps into a single module to optimize for latency.
+  repeated string post_processor_names = 5 [deprecated = true];
+
+  // The batch options for the model. If not set, the model will not be batched.
+  optional BatchOptions batch_options = 6;
+
+  // Defines the structure of the pipeline. Data processors and JAX
+  // models are all included in components. The order of the components
+  // determines the order of execution.
+  repeated Component components = 7;
+  // If true, indicates that the pipeline requires keyword arguments for
+  // execution. This is enabled when using graph-based orchestration, where
+  // user-provided input/output keys are used to define dependencies
+  // between data processors and JAX models during OEX export.
+  bool keyword_arguments_based = 8;
+}
+
+message Component {
+  // Name of the function in the manifest.
+  string function_name = 1;
+  // Role of the component in the pipeline, i.e., preprocessor, model, or
+  // postprocessor.
+  Role role = 2;
+  // The named_signature of the first and last components is used to derive the
+  // pipeline's named signature. For intermediate components, the named input
+  // signature is used by JSV to filter out unwanted named signatures for each
+  // kernel. The named output signature will be used to update the available
+  // tensor map of the ExecuteContext.
+  optional NamedSignature named_signature = 4;
+  // If set, specifies the name of the weights to be bound to this function.
+  // This field is primarily used for model functions and is typically omitted
+  // for data processors.
+  optional string weights_name = 5;
+}
+// A form of function signature where the input (and output) signature is a flat
+// list of `TensorType`s each associated with a name. This form of signature is
+// needed or useful for some execution environments that
+// only support name-based calling conventions (e.g. Servomatic).
+message NamedSignature {
+  optional NamedTensorTypeList inputs = 1;
+  optional NamedTensorTypeList outputs = 2;
+}
+
+// Represents a list of named tensor types for either inputs or outputs
+// of a function. This wrapper message is required to distinguish between
+// an absent list and an explicitly empty list.
+message NamedTensorTypeList {
+  repeated NamedTensorType named_tensor_types = 1;
+}
+
+message NamedTensorType {
+  string name = 1;
+  orbax_model_type.TensorType tensor_type = 2;
+  // Number of downstream consumers of this tensor. This value is computed
+  // by OEX during export and used by JSV to manage tensor cache eviction.
+  optional int32 consumer_count = 3;
+}
+
+// A bound model function.
+//
+// This message is used to represent a model function that has been bound to
+// a specific weights PyTree. This is needed because the model function will
+// need to be called with the weights as the 1st argument.
+message BoundModelFunction {
+  // The name (in manifest) of the model function.
+  string model_function_name = 1;
+
+  // The name (in manifest) of the value representing the weights PyTree.
+  // This PyTree will be given as the 1st arg to the model function.
+  optional string weights_name = 2;
+}
+
+message BatchOptions {
+  // The component of the model to batch.
+  enum BatchComponent {
+    BATCH_COMPONENT_UNSPECIFIED = 0;
+    // No batching.
+    NO_BATCHING = 1;
+    // The model function corresponds to `model_function_name` in the
+    // orchestration.
+    MODEL_FUNCTION = 2;
+    // This option batches all available components, which can be a
+    // pre-processor, model function and post-processor. The pre-processor and
+    // post-processor correspond to `pre_processor_name` and
+    // `post_processor_name` in the orchestration.
+    WHOLE_PIPELINE = 3;
+    // This option includes two components: pre-processor and model function.
+    PRE_PROCESSOR_AND_MODEL_FUNCTION = 4;
+    // This option includes two components: model function and post-processor.
+    MODEL_FUNCTION_AND_POST_PROCESSOR = 5;
+  }
+
+  // The component of the model to batch.
+  BatchComponent batch_component = 1;
+
+  // The maximum allowed batch size for any input.
+  int32 max_batch_size = 2;
+
+  // Maximum number of microseconds to wait before outputting an incomplete
+  // batch.
+  int32 batch_timeout_micros = 3;
+
+  // Optional list of allowed batch sizes. If left empty, all batch sizes no
+  // larger than `max_batch_size` are allowed. Otherwise, supplies a list of
+  // batch sizes, causing the op to pad batches up to one of those sizes. The
+  // entries must increase monotonically, and the final entry must be smaller
+  // than or equal to `max_batch_size`.
+  repeated int32 allowed_batch_sizes = 4;
+
+  // If false, an input task with a large size will be split into multiple
+  // smaller batch tasks and possibly put into different batches for processing.
+  // If true, each input task is put into one batch as a whole for processing.
+  // More padding will be needed.
+  bool disable_large_batch_splitting = 5;
+
+  // Number of scheduling threads for processing batches of work. Determines
+  // the number of batches processed in parallel. This should be roughly in line
+  // with the number of TPU cores available.
+  int32 num_batch_threads = 6;
+
+  // Maximum number of batches enqueued for processing before requests are
+  // failed fast.
+  int32 max_enqueued_batches = 7;
+
+  // An enum class containing possible values for the batch_padding_policy. It
+  // specifies the policy that a batch scheduler is using when deciding what to
+  // do when, say, 18 requests need to be batched, but only 16 and 32 batch
+  // sizes are allowed. The following options are available:
+  //
+  //   - PAD_UP: pad to size 32.
+  //   - BATCH_DOWN: schedule a batch of size 16 and leave 2 requests in the
+  //     batch buffer.
+  //   - MINIMIZE_TPU_COST_PER_REQUEST: a smarter greedy policy that chooses
+  //     to either PAD_UP or BATCH_DOWN so as to minimize the TPU costs per
+  //     real request. In this case, it would compare (batch_16_cost / 16) and
+  //     (batch_32_cost / 18).
+  enum BatchPaddingPolicy {
+    // If unspecified, PAD_UP will be used.
+    PADDING_POLICY_UNSPECIFIED = 0;
+    // Pad up to the next allowed batch size.
+    PAD_UP = 1;
+    // Batch down to a smaller allowed batch size.
+    //
+    // Batch down trimming will only perform if 1) the batch size does not equal
+    // to any of the allowed batch sizes, 2) there are smaller allowed batch
+    // sizes available and 3) no splitting is needed for an input task to fit
+    // into the batch. If the conditions are not met, the batch size will remain
+    // unchanged and be padded up to the next allowed batch size later.
+    //
+    // For example
+    // Case 1:
+    //     - Allowed batch sizes: {1, 2, 4}
+    //     - Input batch with task sizes: {1, 1, 1}
+    //     - The input batch (size 3) will be trimmed to 2 and the last task
+    //       with size 1 will be put into an out trimmed tasks queue.
+    // Case 2:
+    //     - Allowed batch sizes: {1, 2, 4}
+    //     - Input batch with task sizes: {1, 1, 1, 1}
+    //     - The input batch (size 4) will keep unchanged since the batch size
+    //       equals to the allowed batch size 4.
+    // Case 3:
+    //     - Allowed batch sizes: {4, 8}
+    //     - Input batch with task sizes: {1, 1, 1}
+    //     - The input batch (size 3) will keep unchanged since there is no
+    //       smaller allowed batch size available.
+    // Case 4:
+    //     - Allowed batch sizes: {1, 2, 4, 8}
+    //     - Input batch with task sizes: {1, 2}
+    //     - The input batch (size 3) will keep unchanged because the second
+    //       task with size 2 needs to be split to fit into the batch, but
+    //       splitting is not supported.
+    BATCH_DOWN = 2;
+    // Chooses to either PAD_UP or BATCH_DOWN so as to minimize the TPU costs
+    // per real request. The PAD_UP cost is calculated as pad_up_size_cost
+    // divided by batch_size (without padding). The BATCH_DOWN cost is
+    // calculated as batch_down_size_cost divided by batch_down_size.
+    //
+    // For example:
+    // An input batch has the following configs:
+    //     - Allowed batch sizes: {1, 2, 4}
+    //     - Input batch with task sizes: {1, 1, 1}
+    //     - Batch size 2 has a TPU cost of 60ms.
+    //     - Batch size 4 has a TPU cost of 120ms.
+    //
+    // The PAD_UP size is 4 and the PAD_UP cost is 120ms/3 = 40ms. The
+    // BATCH_DOWN size is 2 and the BATCH_DOWN cost is 60ms/2 = 30ms. Since 30ms
+    // < 40ms, BATCH_DOWN is chosen.
+    MINIMIZE_TPU_COST_PER_REQUEST = 3;
+  }
+
+  // The padding policy for the batch.
+  BatchPaddingPolicy batch_padding_policy = 8;
+
+  // The batch options for low priority inputs. If not provided, the priority
+  // batching is disabled. If priority batching is enabled, the low priority
+  // tasks will be added to a separate task queue, padded to high priority tasks
+  // or form low priority batches depending on different
+  // MixedPriorityBatchingPolicy.
+  message LowPriorityBatchOptions {
+    // The maximum allowed batch size for low priority inputs. Priority batching
+    // is disabled if this value is not greater than 0.
+    int32 max_batch_size = 1;
+    // Maximum number of microseconds to wait before outputting an incomplete
+    // low priority batch.
+    int32 batch_timeout_micros = 2;
+    // Optional list of allowed batch sizes for low priority batches. If left
+    // empty, all batch sizes no larger than `max_batch_size` are allowed.
+    // Otherwise, supplies a list of batch sizes, causing the op to pad batches
+    // up to one of those sizes. The entries must increase monotonically, and
+    // the final entry must be smaller than or equal to `max_batch_size`.
+    repeated int32 allowed_batch_sizes = 3;
+    // Maximum number of batches enqueued.
+    int32 max_enqueued_batches = 4;
+  }
+  LowPriorityBatchOptions low_priority_batch_options = 9;
+
+  // This class specifies the policy that a batch scheduler is using, when low
+  // priority batching is enabled and there are both high priority tasks and low
+  // priority tasks.
+  // TODO: b/417977029 - Add PRIORITY_MERGE.
+  enum MixedPriorityBatchingPolicy {
+    // If unspecified, LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE will be used.
+    MIXED_PRIORITY_BATCHING_POLICY_UNSPECIFIED = 0;
+    // Pad low priority inputs up to the max_batch_size.
+    //
+    // Example:
+    //     - batch_options.max_batch_size: 32
+    //     - batch_options.allowed_batch_sizes: {8, 16, 32}
+    //     - a high priority batch with total size 10.
+    //     - low priority task queue has 3 tasks with sizes {4, 6, 8}.
+    //
+    // The max_batch_size is 32, so the open space in the batch is 32 - 10 = 22.
+    // All 3 low priority tasks are padded to the high priority batch. The batch
+    // size becomes 28 and will be padded to the next allowed batch size 32.
+    LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE = 1;
+    // Pad low priority inputs up to the next allowed batch size.
+    //
+    // With the same example as above, the target batch size is 16, so the open
+    // space in the batch is 16 - 10 = 6. The first low priority task is padded
+    // to the high priority batch. The batch size becomes 14 and will be padded
+    // to the next allowed batch size 16.
+    LOW_PRIORITY_PADDING_WITH_NEXT_ALLOWED_BATCH_SIZE = 2;
+    // Keep low and high priority inputs in separate batches.
+    //
+    // With the same example as above, no low priority tasks will be padded to
+    // high priority batch. The high priority batch size is 10 and is padded to
+    // the next allowed batch size 16. The low priority tasks are kept in a
+    // separate batch with size 18. If the low priority allowed batch sizes are
+    // the same as the high priority ones, the low priority batch will be padded
+    // to the next allowed batch size 32.
+    PRIORITY_ISOLATION = 3;
+    // Merge low priority inputs into the high priority batch.
+    //
+    // With the same example as above, all 3 low priority tasks will be merged
+    // into the high priority batch with size 28 and be padded to the next
+    // allowed batch size 32. If large batch splitting is enabled and the total
+    // size of the merged batch is larger than the max_batch_size, the low
+    // priority tasks will be split. The remaining low priority tasks will stay
+    // in the low priority task queue and be processed in the next batch.
+    PRIORITY_MERGE = 4;
+  }
+
+  // The mixed priority batching policy for the batch scheduler.
+  MixedPriorityBatchingPolicy mixed_priority_batching_policy = 10;
+}
