@@ -83,6 +83,7 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
 WORKDIR /app/orbax_repo/checkpoint
 RUN pip install --no-cache-dir .
 RUN pip install --no-cache-dir pathwaysutils
+RUN pip install --no-cache-dir pytest
 
 # 5. Environment Setup
 # Set PYTHONPATH so 'import orbax' works from the correctly mapped directory
