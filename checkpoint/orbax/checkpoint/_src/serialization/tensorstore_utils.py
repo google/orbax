@@ -35,6 +35,7 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 import tensorstore as ts
 
 
@@ -649,7 +650,10 @@ def _get_json_tspec(
     raise ValueError('Must provide info.name and info.parent_dir.')
   parent_dir = info.parent_dir
   assert parent_dir is not None
-  directory = parent_dir.as_posix()
+  if isinstance(parent_dir, path_types.PathAwaitingCreation):
+    directory = parent_dir.path.as_posix()
+  else:
+    directory = parent_dir.as_posix()
   kvstore_tspec = build_kvstore_tspec(
       directory,
       name=info.name,
@@ -750,8 +754,13 @@ def build_array_read_spec(
   """Gets ArrayReadSpec for reading."""
   if info.name is None or info.parent_dir is None:
     raise ValueError('Must provide info.name and info.parent_dir.')
+  parent_dir = info.parent_dir
+  if isinstance(parent_dir, path_types.PathAwaitingCreation):
+    directory = parent_dir.path.as_posix()
+  else:
+    directory = parent_dir.as_posix()
   return ArrayReadSpec(
-      directory=info.parent_dir.as_posix(),
+      directory=directory,
       relative_array_filename=info.name,
       use_zarr3=info.use_zarr3,
       use_ocdbt=use_ocdbt,
@@ -779,7 +788,10 @@ def build_array_write_spec(
     raise ValueError('Must provide info.name and info.parent_dir.')
   parent_dir = info.parent_dir
   assert parent_dir is not None
-  directory = parent_dir.as_posix()
+  if isinstance(parent_dir, path_types.PathAwaitingCreation):
+    directory = parent_dir.path.as_posix()
+  else:
+    directory = parent_dir.as_posix()
 
   return ArrayWriteSpec(
       directory,
