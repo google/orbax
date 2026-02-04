@@ -392,6 +392,16 @@ def _get_possible_handlers(
   return possible_handlers
 
 
+def get_registered_handler_by_name(
+    registry: CheckpointableHandlerRegistry, checkpointable_name: str
+) -> CheckpointableHandler | None:
+  if registry.has(checkpointable_name):
+    return _construct_handler_instance(
+        checkpointable_name, registry.get(checkpointable_name)
+    )
+  return None
+
+
 def resolve_handler_for_save(
     registry: CheckpointableHandlerRegistry,
     checkpointable: Any,
@@ -444,20 +454,17 @@ def resolve_handler_for_load(
     abstract_checkpointable: Any | None,
     *,
     name: str,
-    handler_typestr: str,
+    handler_typestr: str | None,
 ) -> CheckpointableHandler:
   """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for loading.
 
-    1. If name is explicitly registered, return the handler.
-    2. Resolve based on the `abstract_checkpointable` (using
+    Resolve based on the `abstract_checkpointable` (using
       :py:meth:`~.v1._src.handlers.types.CheckpointableHandler.is_abstract_handleable`).
-    3. If `abstract_checkpointable` is None or not provided, all registered
-      handlers not scoped to a specific item name are potentially usable.
-    4. If multiple handlers are usable, return the handler with the matching
-      typestr. If no matching typestr is found, then the handler used for saving
-      may not be available now.
-    4. Return the *last* usable handler. This allows us to resolve the most
-       recently-registered handler.
+    1. If multiple handlers are usable, return the handler with the matching
+       handler typestr.
+    2. If no matching typestr is found or handler_typestr is None, all
+      registered handlers scoped to abstract_checkpointable are potentially
+      usable. Return the *last* usable handler.
 
   Raises:
     NoEntryError: If no compatible
@@ -471,15 +478,15 @@ def resolve_handler_for_load(
     abstract_checkpointable: An abstract checkpointable to resolve.
     name: The name of the checkpointable.
     handler_typestr: A :py:class:`~.v1.handlers.CheckpointableHandler` typestr
-      to guide resolution.
+      to guide resolution. If None, all handlers will be considered.
 
   Returns:
     A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
+  Raises:
+    NoEntryError: If no compatible
+    :py:class:`~.v1.handlers.CheckpointableHandler`
+    can be found.
   """
-  # If explicitly registered, use that first.
-  if registry.has(name):
-    return _construct_handler_instance(name, registry.get(name))
-
   def is_handleable_fn(
       handler: CheckpointableHandler, ckpt: Any
   ) -> bool | None:
@@ -492,15 +499,37 @@ def resolve_handler_for_load(
       handler_types.typestr(type(handler)) for handler in possible_handlers
   ]
 
-  try:
-    idx = possible_handler_typestrs.index(handler_typestr)
-    return possible_handlers[idx]
-  except ValueError:
-    logging.warning(
-        'No handler found for typestr %s. The checkpointable may be restored'
-        ' with different handler logic than was used for saving.',
-        handler_typestr,
-    )
+  if handler_typestr is not None:
+    try:
+      idx = possible_handler_typestrs.index(handler_typestr)
+      return possible_handlers[idx]
+    except ValueError:
+      logging.warning(
+          'No handler found for handler typestr \'%s\' given registered'
+          ' handlers for abstract_checkpointable of type: \'%s\'.',
+          handler_typestr,
+          abstract_checkpointable,
+      )
 
-  # Prefer the first handler in the absence of any other information.
-  return possible_handlers[-1]
+  # We don't want to return a random handler if we have neither
+  # abstract_checkpointable nor handler_typestr.
+  if abstract_checkpointable or handler_typestr:
+    logging.warning(
+        'Attempting to load checkpointable: %s using the last registered'
+        ' handler that handles abstract_checkpointable of type %s.',
+        name,
+        type(abstract_checkpointable),
+    )
+    # Prefer the last handler in the absence of any other information.
+    return possible_handlers[-1]
+  raise NoEntryError(
+      f'Could not identify a valid handler for the checkpointable: "{name}"'
+      f' and checkpointable type={type(abstract_checkpointable)}. Make sure'
+      ' to register a `CheckpointableHandler` for the object using'
+      ' `register_handler`, or by specifying a local registry'
+      ' (`CheckpointablesOptions`). If a handler is already registered,'
+      ' ensure that `is_handleable` correctly identifies the object as'
+      ' handleable.'
+  )
+
+

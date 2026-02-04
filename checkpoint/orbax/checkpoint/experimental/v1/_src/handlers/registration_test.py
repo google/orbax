@@ -185,7 +185,7 @@ class RegistrationTest(parameterized.TestCase):
       self, handler_type, checkpointable, name, handler_typestr
   ):
     local_registry = registration.local_registry()
-    local_registry.add(handler_type, name)
+    local_registry.add(handler_type)
     name = name or 'checkpointable_name'
     resolved_handler = registration.resolve_handler_for_load(
         local_registry,
@@ -210,7 +210,7 @@ class RegistrationTest(parameterized.TestCase):
           registration.local_registry(),
           None,
           name='checkpointable_name',
-          handler_typestr='unknown_class',
+          handler_typestr=handler_types.typestr(handler_utils.BazHandler),
       )
       self.assertIsInstance(resolved_handler, handler_utils.BazHandler)
     with self.subTest('in_order'):
@@ -223,7 +223,7 @@ class RegistrationTest(parameterized.TestCase):
           local_registry,
           None,
           name='checkpointable_name',
-          handler_typestr='unknown_class',
+          handler_typestr=handler_types.typestr(HandlerTwo),
       )
       self.assertIsInstance(resolved_handler, HandlerTwo)
     with self.subTest('with_typestr'):
@@ -247,7 +247,7 @@ class RegistrationTest(parameterized.TestCase):
           local_registry,
           None,
           name='checkpointable_name',
-          handler_typestr='unknown_class',
+          handler_typestr=handler_types.typestr(HandlerOne),
       )
       self.assertIsInstance(resolved_handler, HandlerOne)
 
@@ -262,14 +262,14 @@ class RegistrationTest(parameterized.TestCase):
           handler_typestr='unused',
       )
 
-  def test_resolve_handler_for_load_no_matching_name(self):
+  def test_resolve_handler_for_load_ignores_named_handlers(self):
     local_registry = registration.local_registry()
     local_registry.add(handler_utils.FooHandler, 'foo')
     with self.assertRaises(registration.NoEntryError):
       registration.resolve_handler_for_load(
           local_registry,
-          handler_utils.AbstractBar(),
-          name='foo1',
+          handler_utils.AbstractFoo(),
+          name='foo',
           handler_typestr='unused',
       )
 
@@ -283,6 +283,15 @@ class RegistrationTest(parameterized.TestCase):
           name='foo',
           handler_typestr='unused',
       )
+
+  def test_get_registered_handler_by_name(self):
+    local_registry = registration.local_registry()
+    local_registry.add(handler_utils.FooHandler, 'foo')
+    handler = registration.get_registered_handler_by_name(local_registry, 'foo')
+    self.assertIsInstance(handler, handler_utils.FooHandler)
+
+    handler = registration.get_registered_handler_by_name(local_registry, 'bar')
+    self.assertIsNone(handler)
 
 
 if __name__ == '__main__':

@@ -15,8 +15,9 @@
 """Defines free-function interface for loading."""
 
 import asyncio
+import functools
 import time
-from typing import Any
+from typing import Any, Awaitable, Protocol
 
 from absl import logging
 from orbax.checkpoint._src.logging import event_tracking
@@ -37,6 +38,17 @@ PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = ...
+
+
+class LoadFn(Protocol):
+  """Protocol for a two-phase load function used in `_load_impl`.
+
+  Is a callable that, when awaited, performs validation and setup, then
+  resolves to a second awaitable for the background load operation (I/O).
+  """
+
+  async def __call__(self) -> Awaitable[Any]:
+    ...
 
 
 def _standardize_abstract_checkpointables(abstract_checkpointables):
@@ -103,21 +115,26 @@ def load_pytree(
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout, checkpointable_name, path = asyncio.run(
+  layout = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
-  return _load_checkpointables_impl(
-      layout,
+  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
+
+  validation.validate_pytree_checkpointable_name(checkpointable_name)
+
+  loaded_contents = _load_impl(
       path,
-      abstract_checkpointables={
-          checkpointable_name: _standardize_abstract_checkpointables(
-              abstract_pytree
-          )
-      },
+      functools.partial(
+          layout.load_pytree,
+          path=path,
+          checkpointable_name=checkpointable_name,
+          abstract_pytree=abstract_pytree,
+      ),
       start_time=start_time,
-  )[checkpointable_name]
+  )
+  return loaded_contents
 
 
 def load_checkpointables(
@@ -181,51 +198,59 @@ def load_checkpointables(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
-  return _load_checkpointables_impl(
-      layout, path, abstract_checkpointables, start_time=start_time
-  )
-
-
-def _load_checkpointables_impl(
-    layout: checkpoint_layout.CheckpointLayout,
-    path: path_types.Path,
-    abstract_checkpointables: (
-        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
-    ) = None,
-    *,
-    start_time: float,
-) -> dict[str, Any]:
-  """Implementation of :py:func:`.load_checkpointables`.
-
-  Args:
-    layout: The layout to use for loading the checkpoint (Orbax, SafeTensors, or
-      other).
-    path: The path to the checkpoint.
-    abstract_checkpointables: A dictionary of abstract checkpointables.
-      Dictionary keys represent the names of the checkpointables, while the
-      values are the abstract checkpointable objects themselves.
-    start_time: The time when the loading process started.
-
-  Returns:
-    A dictionary of checkpointables. Dictionary keys represent the names of the
-    checkpointables, while the values are the checkpointable objects themselves.
-  """
-  context = context_lib.get_context()
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   validation.validate_abstract_checkpointables(abstract_checkpointables)
 
-  async def _load() -> dict[str, Any]:
-    load_awaitable = await layout.load(path, abstract_checkpointables)
+  if not hasattr(layout, 'load_checkpointables'):
+    raise NotImplementedError(
+        f'Layout {type(layout)} does not support loading checkpointables.'
+    )
+
+  return _load_impl(
+      path,
+      functools.partial(
+          layout.load_checkpointables,
+          path=path,
+          abstract_checkpointables=abstract_checkpointables,
+      ),
+      start_time=start_time,
+  )
+
+
+def _load_impl(
+    path: path_types.Path,
+    load_fn: LoadFn,
+    start_time: float,
+) -> dict[str, Any] | tree_types.PyTreeOf[tree_types.LeafType]:
+  """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load_pytree`.
+
+  Args:
+    path: The path to the checkpoint.
+    load_fn: A  function that returns an awaitable for loading the checkpoint
+      based on either :py:func:`.load_checkpointables` or
+      :py:func:`.load_pytree`.
+    start_time: The time when the loading process started.
+
+  Returns:
+    The loaded checkpointables or PyTree itself.
+  """
+  if not path:
+    raise ValueError('Path must not be None.')
+
+  ctx = context_lib.get_context()
+
+  async def _load() -> Any:
+    load_awaitable = await load_fn()
     result = await load_awaitable
     await multihost.sync_global_processes(
         multihost.unique_barrier_key(
-            'load_checkpointables',
-            prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+            '_load_impl',
+            prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
-        processes=context.multiprocessing_options.active_processes,
+        operation_id=ctx.operation_id(),
+        processes=ctx.multiprocessing_options.active_processes,
     )
     return result
 

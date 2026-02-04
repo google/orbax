@@ -31,9 +31,9 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
@@ -133,13 +133,10 @@ class _SaveResponse(AsyncResponse[None]):
         temporary_path.temporary_path.get_final(),
     )
 
-    handler = composite_handler.CompositeHandler(
-        context.checkpointables_options.registry
-    )
     handler_typestrs = {
         name: handler_types.typestr(type(handler))
-        for name, handler in handler.get_handlers_for_save(
-            checkpointables
+        for name, handler in orbax_layout.get_handlers_for_save(
+            context.checkpointables_options.registry, checkpointables
         ).items()
     }
 
@@ -264,7 +261,7 @@ async def _run_blocking_save(
     )
 
   layout_enum = context.checkpoint_layout
-  layout_class = registry.get_layout_class(layout_enum)
+  layout_class = await registry.get_layout_class(layout_enum)
   layout = layout_class()
   if (
       partial_save

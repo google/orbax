@@ -540,7 +540,7 @@ class SaveLoadTestBase:
 
       with self.subTest('load_checkpointables'):
         with self.assertRaisesRegex(
-            KeyError, 'Checkpointable "foo" was not found'
+            ValueError, 'Failed to load requested checkpointables.'
         ):
           ocp.load_checkpointables(
               self.directory, {'foo': handler_utils.AbstractFoo()}
@@ -651,7 +651,9 @@ class SaveLoadTestBase:
       loaded = ocp.load_checkpointables(self.directory)
       self.assertSameElements(['two'], loaded.keys())
 
-      with self.assertRaisesRegex(KeyError, 'not found in the checkpoint'):
+      with self.assertRaisesRegex(
+          ValueError, 'Failed to load requested checkpointables.'
+      ):
         ocp.load_checkpointables(self.directory, {'one': None})
 
 
@@ -806,12 +808,8 @@ class SaveLoadTestBase:
         self.assertEqual(1, loaded['point'].x)
         self.assertEqual(2, loaded['point'].y)
       with self.subTest('No abstract_checkpointable'):
-        with self.assertRaisesRegex(
-            ValueError,
-            'To restore a `StatefulCheckpointable`, you must pass an instance'
-            ' of the object.',
-        ):
-          ocp.load_checkpointables(self.directory)
+        loaded = ocp.load_checkpointables(self.directory)
+        self.assertIsNone(loaded['point'])
 
     def test_checkpointable_missing_load(self):
 

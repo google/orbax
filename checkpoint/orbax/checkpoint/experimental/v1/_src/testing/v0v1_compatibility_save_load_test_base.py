@@ -151,12 +151,12 @@ class CompatibilitySaveLoadTestBase:
             checkpointable_name=None,
         )
         test_utils.assert_tree_equal(self, self.pytree, loaded)
-        loaded = ocp.load_pytree(
-            step_dir,
-            self.abstract_pytree if with_abstract_pytree else None,
-            checkpointable_name=None,
-        )
-        test_utils.assert_tree_equal(self, self.pytree, loaded)
+        with self.assertRaises(InvalidLayoutError):
+          ocp.load_pytree(
+              step_dir,
+              self.abstract_pytree if with_abstract_pytree else None,
+              checkpointable_name=None,
+          )
         with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(
               self.root_directory,
@@ -215,13 +215,11 @@ class CompatibilitySaveLoadTestBase:
         test_utils.assert_tree_same_structure(
             self, self.abstract_pytree, loaded.metadata
         )
-        loaded = ocp.pytree_metadata(
-            step_dir,
-            checkpointable_name=None,
-        )
-        test_utils.assert_tree_same_structure(
-            self, self.abstract_pytree, loaded.metadata
-        )
+        with self.assertRaises(InvalidLayoutError):
+          ocp.pytree_metadata(
+              step_dir,
+              checkpointable_name=None,
+          )
         with self.assertRaises(InvalidLayoutError):
           ocp.pytree_metadata(
               self.root_directory,
@@ -273,8 +271,8 @@ class CompatibilitySaveLoadTestBase:
       with self.subTest('error_with_checkpoint_path'):
         with self.assertRaisesRegex(
             ValueError,
-            'which are expected to match the keys given by the'
-            ' _CHECKPOINT_METADATA file',
+            'Checkpoint metadata indicates that this checkpoint is a top-level'
+            ' saved PyTree.',
         ):
           ocp.load_checkpointables(
               self.ckpt_directory, abstract_checkpointables
