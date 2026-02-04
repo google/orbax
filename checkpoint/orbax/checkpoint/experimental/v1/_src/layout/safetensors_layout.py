@@ -16,7 +16,7 @@
 
 import collections
 import json
-from typing import Any, Awaitable, Sequence, cast
+from typing import Any, Awaitable, Sequence
 
 import jax
 import numpy as np
@@ -50,6 +50,8 @@ def _get_dtypes() -> dict[str, Any]:
       "F32": np.float32,
       "F64": np.float64,
       "BF16": jax.numpy.bfloat16,
+      "F8_E4M3": jax.numpy.float8_e4m3fn,
+      "F8_E5M2": jax.numpy.float8_e5m2,
       "F8_E8M0": "float8_e8m0fnu (specialized ML dtype)",
       "F4": "float4_e2m1fn_x2 (specialized ML dtype)",
   }
@@ -91,75 +93,6 @@ def _get_array_properties(info: dict[str, Any]) -> tuple[tuple[int, ...], Any]:
   return shape, dtype
 
 
-async def _read_non_contiguous_slice(
-    f: async_path.AsyncFile,
-    idx: tuple[slice, ...],
-    stored_shape: tuple[int, ...],
-    stored_dtype: np.dtype,
-    tensor_file_offset: int,
-) -> np.ndarray:
-  """Reads a slice of a tensor from a file.
-
-  This function solves the problem of reading a multi-dimensional slice from an
-  array where the slice's data is not stored as a single, contiguous block in
-  the file. It does so by recursively "walking" the dimensions of the slice.
-
-  Args:
-      f: The asynchronous file object (binary read mode)
-      idx: A tuple of slice objects representing the n-dimensional slice to
-        read.
-      stored_shape: The shape of the tensor.
-      stored_dtype: The `dtype` of the tensor.
-      tensor_file_offset: The starting byte offset of the tensor's data within
-        the file.
-
-  Returns:
-      The specific tensor slice.
-  """
-  # Handle 0-d scalar case
-  if not idx:
-    await f.seek(tensor_file_offset)
-    num_bytes = np.dtype(stored_dtype).itemsize
-    scalar_bytes = await f.read(num_bytes)
-    # Reshape to () to create a 0-D NumPy array.
-    return np.frombuffer(scalar_bytes, dtype=stored_dtype).reshape(())
-
-  itemsize = np.dtype(stored_dtype).itemsize
-
-  # Calculate the byte strides for the full tensor. The stride for a
-  # dimension is the number of bytes to "jump" to get to the next element
-  # in that dimension while keeping all other indices the same.
-  global_strides = [itemsize] * len(stored_shape)
-  for i in range(len(stored_shape) - 2, -1, -1):
-    global_strides[i] = global_strides[i + 1] * stored_shape[i + 1]
-
-  async def _read_slice_recursively(dim: int, base_offset: int) -> bytes:
-    # TODO(b/438763866) - @zachmeyers to consider alternative methods.
-    s = idx[dim]  # The slice for the current dimension.
-
-    # If we are at the last dimension, the data is contiguous.
-    if dim == len(stored_shape) - 1:
-      start = base_offset + s.start * global_strides[dim]
-      num_bytes = (s.stop - s.start) * itemsize
-      await f.seek(tensor_file_offset + start)
-      return cast(bytes, await f.read(num_bytes))
-
-    # For all other dimensions, iterate through the indices
-    # of the slice and make a recursive call for the next dimension.
-    chunks = []
-    for i in range(s.start, s.stop):
-      offset = base_offset + i * global_strides[dim]
-      chunk = await _read_slice_recursively(dim + 1, offset)
-      chunks.append(chunk)
-
-    return b"".join(chunks)
-
-  # Start the recursive reading process from the first dimension.
-  slice_bytes = await _read_slice_recursively(dim=0, base_offset=0)
-  shard_shape = numpy_utils.slice_shape(idx)
-  return np.frombuffer(slice_bytes, dtype=stored_dtype).reshape(shard_shape)
-
-
 async def _load_safetensors_as_numpy(path: Path) -> dict[str, np.ndarray]:
   """Loads tensors from a safetensors file into host NumPy arrays."""
   header, data_start_offset = await _read_safetensors_header(path)
@@ -181,9 +114,28 @@ async def _load_safetensors_as_numpy(path: Path) -> dict[str, np.ndarray]:
 async def _load_safetensors_on_device(
     path: Path, abstract_pytree: dict[str, Any]
 ) -> dict[str, jax.Array]:
-  """Loads tensors from a safetensors file into on-device JAX arrays."""
+  """Loads tensors from a safetensors file into on-device JAX arrays.
+
+  OPTIMIZED: Uses Host RAM (CPU) as a temporary buffer to maximize GCS
+  throughput.
+  Reads the full tensor once, then slices in memory.
+
+  Args:
+    path: The `Path` object pointing to the safetensors file.
+    abstract_pytree: A dictionary mapping tensor names to abstract JAX arrays
+      (e.g., `jax.ShapeDtypeStruct`) representing the desired on-device layout.
+
+  Returns:
+    A dictionary mapping tensor names to on-device JAX arrays.
+
+  Raises:
+    KeyError: If a tensor specified in `abstract_pytree` is not found in the
+      safetensors header.
+  """
+
   header, data_start_offset = await _read_safetensors_header(path)
   restored_pytree = {}
+
   async with async_path.open_file(path, mode="rb") as f:
     for tensor_name, abstract_leaf in abstract_pytree.items():
       if tensor_name not in header:
@@ -197,19 +149,27 @@ async def _load_safetensors_on_device(
       target_shape = abstract_leaf.shape
       target_dtype = abstract_leaf.dtype
 
+      # --- 1. THE BIG READ (Hybrid Buffer) ---
+      # Instead of reading tiny pieces, we read the whole tensor into RAM.
+      start_offset, end_offset = st_data_offsets
+      num_bytes = end_offset - start_offset
+
+      await f.seek(data_start_offset + start_offset)
+      tensor_bytes = await f.read(num_bytes)
+
+      # Load into CPU RAM (Host Memory)
+      full_cpu_array = np.frombuffer(tensor_bytes, dtype=stored_dtype).reshape(
+          stored_shape
+      )
+
       if sharding is None:
-        start_offset, end_offset = st_data_offsets
-        num_bytes = end_offset - start_offset
-        await f.seek(data_start_offset + start_offset)
-        tensor_bytes = await f.read(num_bytes)
-        np_array = np.frombuffer(tensor_bytes, dtype=stored_dtype).reshape(
-            stored_shape
-        )
-        if np_array.dtype != target_dtype:
-          np_array = np_array.astype(target_dtype)
-        restored_pytree[tensor_name] = jax.device_put(np_array)
+        if full_cpu_array.dtype != target_dtype:
+          full_cpu_array = full_cpu_array.astype(target_dtype)
+        restored_pytree[tensor_name] = jax.device_put(full_cpu_array)
         continue
 
+      # --- 2. THE FAST SLICE ---
+      # We slice from the local RAM buffer (Instant) instead of GCS (Slow).
       device_indices_map = sharding.addressable_devices_indices_map(
           target_shape
       )
@@ -218,16 +178,9 @@ async def _load_safetensors_on_device(
       for device in device_indices_map:
         idx = device_indices_map[device]
         resolved_idx = numpy_utils.resolve_slice(idx, stored_shape)
-        shard_shape = numpy_utils.slice_shape(resolved_idx)
 
-        shard_np = await _read_non_contiguous_slice(
-            f,
-            resolved_idx,
-            stored_shape,
-            stored_dtype,
-            st_data_offsets[0] + data_start_offset,
-        )
-        shard_np = shard_np.reshape(shard_shape)  # pytype: disable=attribute-error
+        # Slicing from memory (nanoseconds)
+        shard_np = full_cpu_array[resolved_idx]
 
         if shard_np.dtype != target_dtype:
           shard_np = shard_np.astype(target_dtype)
@@ -237,6 +190,11 @@ async def _load_safetensors_on_device(
       restored_pytree[tensor_name] = jax.make_array_from_single_device_arrays(
           target_shape, sharding, device_map
       )
+
+      # Clean up RAM immediately
+      del full_cpu_array
+      del tensor_bytes
+
   return restored_pytree
 
 
