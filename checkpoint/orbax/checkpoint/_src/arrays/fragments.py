@@ -459,7 +459,7 @@ def _is_full(fragments: _GenericFragments[Any]) -> bool:
   return np.all(present)
 
 
-def _normalize(idx: Index, shape: Shape) -> Index:
+def normalize(idx: Index, shape: Shape) -> Index:
   return tuple(
       slice(
           s.start if s.start is not None else 0,
@@ -477,7 +477,7 @@ def addressable_shards(x: jax.Array | jax.ShapeDtypeStruct) -> list[Index]:
   if not sharding:
     return [tuple(slice(0, dim, 1) for dim in shape)]
   return [
-      _normalize(idx, shape)
+      normalize(idx, shape)
       for idx in sharding.addressable_devices_indices_map(shape).values()
   ]
 
