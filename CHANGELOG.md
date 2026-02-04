@@ -8,53 +8,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Local type handler registries.
 
 ### Changed
+
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
-packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
-and still of the form `import orbax.checkpoint` or `import orbax.export`.
+  packages, namely `orbax-checkpoint` and `orbax-export`. Imports are unchanged,
+  and still of the form `import orbax.checkpoint` or `import orbax.export`.
 - Finer scoped jax.monitoring calls on the save path.
 - `CheckpointManager.metadata()` now accepts a `step` parameter. If provided, it
-will return `StepMetadata`, and will otherwise return `RootMetadata`.
+  will return `StepMetadata`, and will otherwise return `RootMetadata`.
 - `CheckpointManager.restore()` will now attempt to initialize checkpoint
-handlers using `StepMetadata.item_handlers` and the global `HandlerTypeRegistry`
-if no args are provided.
+  handlers using `StepMetadata.item_handlers` and the global `HandlerTypeRegistry`
+  if no args are provided.
 - `CompositeCheckpointHandler.metadata()` now returns `StepMetadata`.
 
 ## [0.1.7] - 2022-03-29
 
 ### Added
+
 - Support for OCDBT driver in Tensorstore.
 
 ## [0.1.6] - 2022-03-22
 
 ### Fixed
+
 - Small bug fixes.
 
 ## [0.1.5] - 2022-03-17
 
 ### Added
+
 - Use a more precise timestamp when generating temporary directory names to
-permit more than one concurrent checkpointing attempt per second.
+  permit more than one concurrent checkpointing attempt per second.
 
 ## [0.1.4] - 2022-03-15
 
 ### Added
+
 - Support for generic transformation function in PyTreeCheckpointHandler.
 - Support n-digit checkpoint step format.
 
 ### Fixed
+
 - Eliminate Flax dependency to fix circular dependency problem.
 
 ## [0.1.3] - 2022-03-03
 
 ### Added
+
 - `sharding` option on `ArrayRestoreArgs`
 
 ## [0.1.2] - 2022-02-17
 
 ### Added
+
 - Add "standard user recipe" to documentation.
 - Add unit tests using mock to simulate preemption.
 - Logging to increase transparency around why checkpoints are kept vs. deleted.
@@ -62,27 +71,31 @@ permit more than one concurrent checkpointing attempt per second.
 - Expose utils_test.
 - Add msgpack_utils to move toward eliminating Flax dependency.
 - CheckpointManager starts a background thread to finalize checkpoints so that
-checkpoints are finalized as soon as possible in async case.
+  checkpoints are finalized as soon as possible in async case.
 
 ### Changed
+
 - Remove CheckpointManager update API.
 - Remove support for deprecated GDA.
 - Add tmp suffix on step directory creation in CheckpointManager.save.
 
 ### Fixed
+
 - Preemption when using keep_time_interval caused the most recent steps before
-preemption to be kept, despite not falling on the keep time interval.
+  preemption to be kept, despite not falling on the keep time interval.
 
 ## [0.1.1] - 2022-01-30
 
 ### Added
+
 - A util function that constructs restore_args from a target PyTree.
 - CheckpointManager `delete` API, which allows deleting an existing step.
 - Made dev dependencies optional to minimize import overhead.
 
 ### Changed
+
 - Refactored higher-level utils in checkpoint_utils, which provides
-user-convenience functions.
+  user-convenience functions.
 - Guard option to create top-level directory behind `create` option.
 - Remove support for Python 3.7.
 
@@ -95,12 +108,13 @@ user-convenience functions.
 - Support for None leaves in PyTree save/restore.
 - ArrayCheckpointHandler for individual arrays/scalars.
 - `read: bool` option on all_steps to force read from storage location instead
-of using cached steps.
+  of using cached steps.
 - Simplified "Getting Started" section in the docs.
 - CheckpointManager creates the top level directory if it does not yet exist.
 - Write msgpack bytes asynchronously.
 
 ### Changed
+
 - Removed some unused test_utils methods for filtering empty nodes.
 - Update docs on `PyTreeCheckpointHandler`.
 - Removed unneeded AbstractCheckpointManager.
@@ -108,7 +122,7 @@ of using cached steps.
 ### Fixed
 
 - Usage of bytes_limiter to prevent too many bytes from being read during a
-single restore call.
+  single restore call.
 - Temp checkpoint cleanup when using a step prefix (i.e. 'checkpoint_0').
 
 ## [0.0.23] - 2022-12-08
@@ -120,18 +134,22 @@ single restore call.
 ### Fixed
 
 - Restore failure on GCS due to misidentification of checkpoint as
-"not finalized".
+  "not finalized".
 
 ## [0.0.22] - 2022-12-05
 
 ### Added
 
 - Added CHANGELOG.md for version updates (additions and changes), ingested by
-auto-publish functionality.
+  auto-publish functionality.
 
 ## [0.0.21] - 2022-12-05
 
 ### Changed
 
-- Fix mistaken usages of placeholder "AGGREGATED" where "NOT-AGGREGATED" would
-be more appropriate. Ensure backwards compatibility is maintained.
+- Corrected incorrect usage of the placeholder term **"AGGREGATED"** in cases where  
+  **"NOT-AGGREGATED"** is the appropriate and semantically correct designation.
+- Preserved full backward compatibility to ensure no impact on existing
+  checkpoints, APIs, or user workflows.
+- Improved clarity and consistency in aggregation-related terminology across
+  the codebase.
