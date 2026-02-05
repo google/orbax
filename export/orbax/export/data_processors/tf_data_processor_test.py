@@ -214,6 +214,39 @@ class TfDataProcessorTest(googletest.TestCase):
         obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16, name='x'),
     )
 
+  def test_prepare_with_single_list_argument(self):
+
+    def add_list(inputs):
+      return inputs[0] + inputs[1]
+
+    processor = tf_data_processor.TfDataProcessor(add_list, name='add')
+    processor.prepare(
+        (
+            tf.TensorSpec([None, 3], tf.float32),
+            tf.TensorSpec([None, 3], tf.float32),
+        ),
+    )
+
+    self.assertIsNotNone(processor.concrete_function)
+    self.assertIsNotNone(processor.obm_function)
+    self.assertEqual(
+        processor.input_signature[0][0],
+        (
+            obm.ShloTensorSpec(
+                shape=(None, 3), dtype=obm.ShloDType.f32, name='inputs_0'
+            ),
+            obm.ShloTensorSpec(
+                shape=(None, 3), dtype=obm.ShloDType.f32, name='inputs_1'
+            ),
+        ),
+    )
+    self.assertEqual(
+        processor.output_signature,
+        obm.ShloTensorSpec(
+            shape=(None, 3), dtype=obm.ShloDType.f32, name='output_0'
+        ),
+    )
+
 
 if __name__ == '__main__':
   googletest.main()
