@@ -14,5 +14,5 @@
 
 from orbax.experimental.model.jd2obm.main_lib import *
 from orbax.experimental.model.jd2obm.utils import *
-from orbax.experimental.model.jd2obm import voxel_asset_map_pb2
-from orbax.experimental.model.jd2obm.voxel_mock import *
+from orbax.experimental.model.jd2obm import jd_asset_map_pb2
+from orbax.experimental.model.jd2obm.module import *

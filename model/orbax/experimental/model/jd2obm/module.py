@@ -14,27 +14,23 @@
 
 """Fake VoxelSpec definition for testing purposes."""
 
-from collections.abc import Sequence, Set
+import abc
+from collections.abc import Sequence
 import dataclasses
-from unittest import mock
-
-import jax
-import jax.numpy as jnp
 import jaxtyping
 import numpy as np
+
+from google.protobuf import message
 
 
 DTypeLike = str | np.dtype | type[np.generic]
 
 
-# TODO(b/431506483): Replace with real voxel module when implemented.
 @dataclasses.dataclass
-class VoxelSpec:
-  """Temporary specification for Voxel tensors.
+class JDSpecBase:
+  """JD specification base class for JD modules.
 
-  This is a temporary implementation of `VoxelSpec` used for Orbax Model (OBM)
-  integration, as the real Voxel specification is not yet implemented. It
-  assumes `np.dtype` for data types to simplify OBM converter development.
+  This is used for Orbax Model (OBM) integration.
 
   Attributes:
     shape: Tensor dimensions as a tuple of integers.
@@ -55,43 +51,37 @@ class VoxelSpec:
       ) from e
 
 
-class VoxelModule:
-  """A mock VoxelModule for testing."""
+class VoxelSpec(JDSpecBase):
+  pass
+
+
+class JDModuleBase(abc.ABC):
+  """JDModule Abstract Base Class."""
 
   def __init__(self):
-    self._assets: Set[str] = set()
+    self._assets: dict[str, str] = {}
 
-  def set_assets(self, assets: Set[str]) -> None:
+  def set_assets(self, assets: dict[str, str]) -> None:
     self._assets = assets
 
-  def export_assets(self) -> Set[str]:
+  def export_assets(self) -> dict[str, str]:
     return self._assets
 
+  @abc.abstractmethod
   def get_output_signature(
       self, input_signature: jaxtyping.PyTree
   ) -> jaxtyping.PyTree:
-    for leaf in jax.tree_util.tree_leaves(input_signature):
-      assert isinstance(leaf, VoxelSpec)
-    # This mock assumes input_signature is a sequence for simplicity. The
-    # actual implementation of the Voxel module may use any appropriate
-    # structure for its input signature.
-    d1, d2 = input_signature[0]['input'].shape
-    return {
-        'output': {
-            'feature1': VoxelSpec(shape=(d1, d2), dtype=jnp.float32),
-            'feature2': VoxelSpec(shape=(d1, d2 * 4), dtype=jnp.int32),
-        }
-    }
+    pass
 
-  def export_plan(self):
-    plan_proto = mock.Mock()
-    plan_proto.SerializeToString.return_value = b'test plan'
-    return plan_proto
+  @abc.abstractmethod
+  def export_plan(self) -> message.Message:
+    pass
 
 
 # Define `__all__` to explicitly declare the public API of this module.
 # This controls what `from jd2obm import *` imports and helps linters.
 __all__ = [
+    'JDSpecBase',
+    'JDModuleBase',
     'VoxelSpec',
-    'VoxelModule',
 ]

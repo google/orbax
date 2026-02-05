@@ -20,10 +20,10 @@ import jax
 import numpy as np
 from orbax.experimental.model import core as obm
 
-VoxelSignatureTree = dict[str, Any]
+JDSignatureTree = dict[str, Any]
 
 
-def _obm_to_voxel_dtype(t):
+def _obm_to_jd_dtype(t):
   if isinstance(t, obm.ShloDType):
     if t == obm.ShloDType.str:
       return np.dtype(np.str_)
@@ -31,7 +31,7 @@ def _obm_to_voxel_dtype(t):
   return t
 
 
-def _voxel_to_obm_dtype(t) -> obm.ShloDType:
+def _jd_to_obm_dtype(t) -> obm.ShloDType:
   if not isinstance(t, np.dtype):
     raise ValueError(f'Expected a numpy.dtype, got {t!r} of type {type(t)}')
   if t == np.dtype(np.str_) or t == np.dtype(np.bytes_):
@@ -40,13 +40,13 @@ def _voxel_to_obm_dtype(t) -> obm.ShloDType:
 
 
 # TODO: b/476448823 - Add name to the output ShloTensorSpec.
-def voxel_signature_to_obm_spec(
-    signature: VoxelSignatureTree,
+def jd_signature_to_obm_spec(
+    signature: JDSignatureTree,
 ) -> obm.Tree[obm.ShloTensorSpec]:
   try:
     return jax.tree_util.tree_map(
         lambda x: obm.ShloTensorSpec(
-            shape=x.shape, dtype=_voxel_to_obm_dtype(x.dtype)
+            shape=x.shape, dtype=_jd_to_obm_dtype(x.dtype)
         ),
         signature,
     )
@@ -59,4 +59,4 @@ def voxel_signature_to_obm_spec(
 
 # Define `__all__` to explicitly declare the public API of this module.
 # This controls what `from jd2obm import *` imports and helps linters.
-__all__ = ['voxel_signature_to_obm_spec']
+__all__ = ['jd_signature_to_obm_spec']

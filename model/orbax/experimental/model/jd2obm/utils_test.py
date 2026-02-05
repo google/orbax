@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for utils."""
-
 import dataclasses
 
 from absl.testing import absltest
@@ -24,31 +22,31 @@ from orbax.experimental.model.jd2obm import utils
 
 
 @dataclasses.dataclass(frozen=True)
-class MockVoxelSignature:
+class MockJDSignature:
   dtype: np.dtype
   shape: tuple[int, ...]
 
 
 class UtilsTest(parameterized.TestCase):
 
-  def test_voxel_signature_to_obm_spec(self):
-    voxel_sig = {
-        'a': MockVoxelSignature(shape=(1, 2), dtype=np.dtype(np.int32)),
-        'b': MockVoxelSignature(shape=(3,), dtype=np.dtype(np.float32)),
+  def test_jd_signature_to_obm_spec(self):
+    jd_sig = {
+        'a': MockJDSignature(shape=(1, 2), dtype=np.dtype(np.int32)),
+        'b': MockJDSignature(shape=(3,), dtype=np.dtype(np.float32)),
     }
-    obm_spec = utils.voxel_signature_to_obm_spec(voxel_sig)
+    obm_spec = utils.jd_signature_to_obm_spec(jd_sig)
     expected_obm_spec = {
         'a': obm.ShloTensorSpec(shape=(1, 2), dtype=obm.ShloDType.i32),
         'b': obm.ShloTensorSpec(shape=(3,), dtype=obm.ShloDType.f32),
     }
     self.assertEqual(obm_spec, expected_obm_spec)
 
-  def test_voxel_to_obm_dtype_error(self):
+  def test_jd_to_obm_dtype_error(self):
     with self.assertRaisesRegex(
         ValueError,
         "Expected a numpy.dtype, got <class 'int'> of type <class 'type'>",
     ):
-      utils._voxel_to_obm_dtype(int)
+      utils._jd_to_obm_dtype(int)
 
 
 if __name__ == '__main__':

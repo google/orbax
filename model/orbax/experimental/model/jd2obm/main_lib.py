@@ -16,46 +16,48 @@ import collections
 from collections.abc import Mapping
 import os
 import re
-from typing import Callable, Any
+from typing import Any, Callable
 
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.core.python import file_utils
-from orbax.experimental.model.jd2obm import voxel_asset_map_pb2
+from orbax.experimental.model.jd2obm import jd_asset_map_pb2
+from orbax.experimental.model.jd2obm import module
 
 
-VOXEL_PROCESSOR_MIME_TYPE = 'application/protobuf; type=voxel.PlanProto'
-VOXEL_PROCESSOR_VERSION = '0.0.1'
-DEFAULT_VOXEL_MODULE_FOLDER = 'voxel_module'
-VOXEL_ASSETS_FOLDER = 'assets'
-VOXEL_ASSET_MAP_MIME_TYPE = (
-    'application/protobuf; type=orbax_model_voxel_assets_map.VoxelAssetsMap'
+# TODO(b/479875543): Update proto type to be voxel agnostic.
+JD_PROCESSOR_MIME_TYPE = 'application/protobuf; type=voxel.PlanProto'
+JD_PROCESSOR_VERSION = '0.0.1'
+DEFAULT_JD_MODULE_FOLDER = 'jd_module'
+JD_ASSETS_FOLDER = 'assets'
+JD_ASSET_MAP_MIME_TYPE = (
+    'application/protobuf; type=orbax_model_jd_assets_map.JDAssetsMap'
 )
-VOXEL_ASSET_MAP_VERSION = '0.0.1'
-VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME = 'voxel_asset_map'
+JD_ASSET_MAP_VERSION = '0.0.1'
+JD_ASSET_MAP_SUPPLEMENTAL_NAME = 'jd_asset_map'
 
 
-def voxel_plan_to_obm(
-    voxel_module: Any,
+def jd_plan_to_obm(
+    jd_module: module.JDModuleBase,
     input_signature: obm.Tree[obm.ShloTensorSpec],
     output_signature: obm.Tree[obm.ShloTensorSpec],
-    subfolder: str = DEFAULT_VOXEL_MODULE_FOLDER,
+    subfolder: str = DEFAULT_JD_MODULE_FOLDER,
 ) -> obm.SerializableFunction:
-  """Converts a Voxel plan to an `obm.SerializableFunction`.
+  """Converts a JD plan to an `obm.SerializableFunction`.
 
   Args:
-    voxel_module: The Voxel module to be converted.
-    input_signature: The input signature of the Voxel module.
-    output_signature: The output signature of the Voxel module.
+    jd_module: The JD module to be converted.
+    input_signature: The input signature of the JD module.
+    output_signature: The output signature of the JD module.
     subfolder: The name of the subfolder for the converted module.
 
   Returns:
-    An `obm.SerializableFunction` representing the Voxel module.
+    An `obm.SerializableFunction` representing the JD module.
   """
-  plan = voxel_module.export_plan()
+  plan = jd_module.export_plan()
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=plan.SerializeToString(),
-      mime_type=VOXEL_PROCESSOR_MIME_TYPE,
-      version=VOXEL_PROCESSOR_VERSION,
+      mime_type=JD_PROCESSOR_MIME_TYPE,
+      version=JD_PROCESSOR_VERSION,
   )
 
   obm_func = obm.SerializableFunction(
@@ -91,8 +93,8 @@ def _normalize_file_name(file_name: str) -> str:
   return f'{base}{ext}'
 
 
-class _VoxelAssetMapBuilder:
-  """Helper class to build VoxelAssetsMap efficiently."""
+class _JDAssetMapBuilder:
+  """Helper class to build JDAssetsMap efficiently."""
 
   def __init__(self):
     # Maps unique/sanitized filenames to their original source paths.
@@ -101,11 +103,11 @@ class _VoxelAssetMapBuilder:
     # Stores the next available index for a given base filename,
     # defaulting to 1 if the base filename hasn't been seen before.
     self._next_index_map: dict[str, int] = collections.defaultdict(lambda: 1)
-    self._voxel_asset_map = voxel_asset_map_pb2.VoxelAssetsMap()
+    self._jd_asset_map = jd_asset_map_pb2.JDAssetsMap()
 
   @property
-  def voxel_asset_map(self) -> voxel_asset_map_pb2.VoxelAssetsMap:
-    return self._voxel_asset_map
+  def jd_asset_map(self) -> jd_asset_map_pb2.JDAssetsMap:
+    return self._jd_asset_map
 
   def add_asset(self, source_path: str, subfolder: str) -> None:
     """Adds an asset to the map, resolving name conflicts.
@@ -119,7 +121,7 @@ class _VoxelAssetMapBuilder:
       subfolder: The name of the assets subfolder for the saved model.
     """
     # The asset has been added before, skip.
-    if source_path in self._voxel_asset_map.assets:
+    if source_path in self._jd_asset_map.assets:
       return
 
     file_name = os.path.basename(source_path)
@@ -136,17 +138,17 @@ class _VoxelAssetMapBuilder:
 
     # Add the unique file name to the maps.
     self._auxiliary_file_map[unique_file_name] = source_path
-    self._voxel_asset_map.assets[source_path] = os.path.join(
-        subfolder, VOXEL_ASSETS_FOLDER, unique_file_name
+    self._jd_asset_map.assets[source_path] = os.path.join(
+        subfolder, JD_ASSETS_FOLDER, unique_file_name
     )
 
 
-def _get_voxel_asset_map(
-    asset_source_path: set[str], subfolder: str = DEFAULT_VOXEL_MODULE_FOLDER
-) -> voxel_asset_map_pb2.VoxelAssetsMap:
-  """Gets a VoxelAssetsMap proto for a given set of asset source paths.
+def _get_jd_asset_map(
+    asset_source_path: set[str], subfolder: str = DEFAULT_JD_MODULE_FOLDER
+) -> jd_asset_map_pb2.JDAssetsMap:
+  """Gets a JDAssetsMap proto for a given set of asset source paths.
 
-  The VoxelAssetsMap proto contains a mapping from original asset paths to
+  The JDAssetsMap proto contains a mapping from original asset paths to
   the new relative paths in the saved model directory.
 
   Args:
@@ -154,29 +156,27 @@ def _get_voxel_asset_map(
     subfolder: The name of the subfolder for the converted module.
 
   Returns:
-    A VoxelAssetsMap proto.
+    A JDAssetsMap proto.
   """
-  builder = _VoxelAssetMapBuilder()
+  builder = _JDAssetMapBuilder()
   for source_path in sorted(list(asset_source_path)):
     builder.add_asset(source_path, subfolder)
-  return builder.voxel_asset_map
+  return builder.jd_asset_map
 
 
-def _save_assets(
-    voxel_asset_map: voxel_asset_map_pb2.VoxelAssetsMap, path: str
-) -> None:
-  """Saves asset files based on the provided VoxelAssetsMap.
+def _save_assets(jd_asset_map: jd_asset_map_pb2.JDAssetsMap, path: str) -> None:
+  """Saves asset files based on the provided JDAssetsMap.
 
-  Iterates through the assets in voxel_asset_map and copies each asset from
+  Iterates through the assets in jd_asset_map and copies each asset from
   its source path to destination. The destination path is constructed by joining
   `path` with the asset's relative path, and destination directories are
   created as needed.
 
   Args:
-    voxel_asset_map: A VoxelAssetsMap proto containing asset mappings.
+    jd_asset_map: A JDAssetsMap proto containing asset mappings.
     path: The base destination directory to save the assets.
   """
-  for source_path, dest_relative_path in voxel_asset_map.assets.items():
+  for source_path, dest_relative_path in jd_asset_map.assets.items():
     dest_path = os.path.join(path, dest_relative_path)
     file_utils.mkdir_p(os.path.dirname(dest_path))
     file_utils.copy(source_path, dest_path)
@@ -184,60 +184,60 @@ def _save_assets(
 
 
 def _asset_map_to_obm_supplemental(
-    voxel_asset_map: voxel_asset_map_pb2.VoxelAssetsMap,
+    jd_asset_map: jd_asset_map_pb2.JDAssetsMap,
 ) -> obm.GlobalSupplemental:
-  """Converts a VoxelAssetsMap proto to an obm.GlobalSupplemental object.
+  """Converts a JDAssetsMap proto to an obm.GlobalSupplemental object.
 
-  Serializes the VoxelAssetsMap to bytes and wraps it in an
+  Serializes the JDAssetsMap to bytes and wraps it in an
   obm.UnstructuredData object, returning it as part of an
   obm.GlobalSupplemental object.
 
   Args:
-    voxel_asset_map: A VoxelAssetsMap proto to be converted.
+    jd_asset_map: A JDAssetsMap proto to be converted.
 
   Returns:
-    An obm.GlobalSupplemental object containing the serialized voxel asset map.
+    An obm.GlobalSupplemental object containing the serialized jd asset map.
   """
   return obm.GlobalSupplemental(
       data=obm.UnstructuredData(
-          inlined_bytes=voxel_asset_map.SerializeToString(),
-          mime_type=VOXEL_ASSET_MAP_MIME_TYPE,
-          version=VOXEL_ASSET_MAP_VERSION,
+          inlined_bytes=jd_asset_map.SerializeToString(),
+          mime_type=JD_ASSET_MAP_MIME_TYPE,
+          version=JD_ASSET_MAP_VERSION,
       ),
-      save_as='voxel_asset_map.pb',
+      save_as='jd_asset_map.pb',
   )
 
 
-def voxel_global_supplemental_closure(
-    voxel_module: Any,
+def jd_global_supplemental_closure(
+    jd_module: Any,
 ) -> Callable[[str], Mapping[str, obm.GlobalSupplemental]] | None:
-  """Returns a closure for saving Voxel assets and creating supplemental data.
+  """Returns a closure for saving jd assets and creating supplemental data.
 
-  This function first generates a VoxelAssetsMap based on asset_source_paths.
+  This function first generates a JDAssetsMap based on asset_source_paths.
   It then returns a closure function. When called, the closure saves the
   assets to a specified destination and returns an obm.GlobalSupplemental object
   containing the asset map.
 
   Args:
-    voxel_module: A Voxel module instance.
+    jd_module: A Jax Data module instance.
 
   Returns:
    A function that takes the asset destination path string, stores assets in it,
-   and returns a dictionary of one entry, from the Voxel supplemental name to
-   the obm.GlobalSupplemental object encoding the Voxel asset map.
+   and returns a dictionary of one entry, from the JD supplemental name to
+   the obm.GlobalSupplemental object encoding the JD asset map.
   """
-  asset_source_paths = voxel_module.export_assets()
+  asset_source_paths = jd_module.export_assets()
   if not asset_source_paths:
     return None
-  voxel_asset_map = _get_voxel_asset_map(asset_source_paths)
+  jd_asset_map = _get_jd_asset_map(asset_source_paths)
 
   def save_and_create_global_supplemental(
       path: str,
   ) -> Mapping[str, obm.GlobalSupplemental]:
-    _save_assets(voxel_asset_map, path)
+    _save_assets(jd_asset_map, path)
     return {
-        VOXEL_ASSET_MAP_SUPPLEMENTAL_NAME: _asset_map_to_obm_supplemental(
-            voxel_asset_map
+        JD_ASSET_MAP_SUPPLEMENTAL_NAME: _asset_map_to_obm_supplemental(
+            jd_asset_map
         )
     }
 
@@ -247,6 +247,13 @@ def voxel_global_supplemental_closure(
 # Define `__all__` to explicitly declare the public API of this module.
 # This controls what `from jd2obm import *` imports and helps linters.
 __all__ = [
-    'voxel_plan_to_obm',
-    'voxel_global_supplemental_closure'
+    'DEFAULT_JD_MODULE_FOLDER',
+    'JD_PROCESSOR_MIME_TYPE',
+    'JD_PROCESSOR_VERSION',
+    'JD_ASSETS_FOLDER',
+    'JD_ASSET_MAP_MIME_TYPE',
+    'JD_ASSET_MAP_VERSION',
+    'JD_ASSET_MAP_SUPPLEMENTAL_NAME',
+    'jd_plan_to_obm',
+    'jd_global_supplemental_closure',
 ]
