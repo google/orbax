@@ -182,7 +182,7 @@ machine.
 | `--repo-url` | Custom Fork URL. | **Forks**. Testing from your own fork. |
 | `--jax-version` | JAX version (default: `newest`). | **Regression Testing**. Test `nightly` vs `newest`. |
 | `--ramfs-dir` | Local path to save checkpoints. | **ECM Testing**. Testing restore from local. |
-| `--restore` | ECM testing to restore after restart | **ECM Testing**. Run the experiment twice, will restore the data before save. |
+| `--test_restart_workflow` | If True, run workload creation and execution twice to test restart. | **ECM Testing**. To test restart behavior. |
 
 ### 🛠️ Diagnostics
 | Flag | Description | When to use? |

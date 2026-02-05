@@ -20,7 +20,7 @@ PR_NUMBER=""
 JAX_VERSION="newest"
 CUSTOM_COMMAND=""
 SETUP_SCRIPT=""
-RAMFS_DIR="/mnt/ramdisk/tests"
+RAMFS_DIR=""
 
 
 # --- Helper Functions (Common) ---
@@ -35,13 +35,14 @@ usage() {
     echo "  --project PROJECT    GCP Project ID (default: $DEFAULT_PROJECT)"
     echo "  --setup-script FILE  Path to setup script (optional). If provided, setup is run."
     echo "  --update             Run 'git pull' (fetch/checkout) on workers to update code."
-    echo "  --restore            Restore with a new process for ECM testing."
+    echo "  --test_restart_workflow If True, run workload creation and execution twice to test restart."
     echo "  --repo-url URL       Git repo URL for setup (optional)"
     echo "  --branch BRANCH      Git branch/ref for setup (optional)"
     echo "  --pr NUMBER          GitHub PR number to setup/update (overrides --branch)"
     echo "  --jax-version VER    JAX version to install (newest, nightly, or X.Y.Z) (default: newest)"
     echo "  --command CMD        Custom command to run on all workers (overrides benchmark execution)"
     echo "                       Example: --command 'python3 -c \"import jax; print(jax.devices())\"'"
+    echo "  --ramfs-dir DIR      Path to ramfs directory for setup (optional)"
     echo "  --help               Show this help"
     exit 1
 }
@@ -166,6 +167,7 @@ run_standard() {
             if [ -n "$SETUP_SCRIPT" ]; then
                 local setup_args="--repo-url \"$REPO_URL\" --branch \"$BRANCH\" --jax-version \"$JAX_VERSION\""
                 if [ -n "$PR_NUMBER" ]; then setup_args="$setup_args --pr \"$PR_NUMBER\""; fi
+                if [ -n "$RAMFS_DIR" ]; then setup_args="$setup_args --ramfs-dir \"$RAMFS_DIR\""; fi
                 
                 gcloud alpha compute tpus tpu-vm ssh "$node" --zone="$ZONE" --project="$PROJECT_ID" \
                   --worker=all --command "bash -s -- $setup_args" < "$SETUP_SCRIPT"
@@ -245,8 +247,10 @@ build_run_command() {
                python3 \"\$script\" \
                --config_file=$remote_config \
                --alsologtostderr \
-               --output_directory=$OUTPUT_DIR \
-               --local_directory=$RAMFS_DIR"
+               --output_directory=$OUTPUT_DIR"
+    if [ -n "$RAMFS_DIR" ]; then
+        cmd="$cmd --local_directory=$RAMFS_DIR"
+    fi
     echo "$cmd"
 }
 
@@ -261,12 +265,13 @@ while [[ "$#" -gt 0 ]]; do
         --output-dir) OUTPUT_DIR="$2"; shift ;;
         --setup-script) SETUP_SCRIPT="$2"; shift ;;
         --update) DO_UPDATE=true ;;
-        --restore) DO_RESTORE=true ;;
+        --test_restart_workflow) TEST_RESTART_WORKFLOW=true ;;
         --repo-url) REPO_URL="$2"; shift ;;
         --branch) BRANCH="$2"; shift ;;
         --pr) PR_NUMBER="$2"; shift ;;
         --jax-version) JAX_VERSION="$2"; shift ;;
         --command) CUSTOM_COMMAND="$2"; shift ;;
+        --ramfs-dir) RAMFS_DIR="$2"; shift ;;
         --discover-only) DISCOVER_ONLY=true ;;
         --help) usage ;;
         *) echo "Unknown parameter passed: $1"; usage ;;
@@ -280,8 +285,8 @@ if [ -z "$TPU_NAME" ]; then
     usage
 fi
 
-if [ -z "$CONFIG_FILE" ] && [ -z "$CUSTOM_COMMAND" ] && [ -z "$SETUP_SCRIPT" ] && [ "$DO_UPDATE" != true ] && [ "$DO_RESTORE" != true ] && [ "$DISCOVER_ONLY" != true ]; then
-    echo "Error: Must specify --config, --command, --setup-script, --update, --restore, or --discover-only."
+if [ -z "$CONFIG_FILE" ] && [ -z "$CUSTOM_COMMAND" ] && [ -z "$SETUP_SCRIPT" ] && [ "$DO_UPDATE" != true ] && [ "$TEST_RESTART_WORKFLOW" != true ] && [ "$DISCOVER_ONLY" != true ]; then
+    echo "Error: Must specify --config, --command, --setup-script, --update, or --discover-only."
     usage
 fi
 
