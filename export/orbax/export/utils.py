@@ -18,7 +18,6 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import inspect
-import jax.numpy as jnp
 import os
 from typing import Any, Callable, List, Optional, Tuple, Union
 
@@ -26,13 +25,11 @@ from absl import logging
 import jax
 from jax import export as jax_export
 from jax import tree_util
+import jax.numpy as jnp
 import jaxtyping
 import numpy as np
-
-from orbax.export import constants
 from orbax.export import serving_config as osc
 import tensorflow as tf
-# pylint: disable-next=g-direct-tensorflow-import
 
 
 ConfigProto = Any
