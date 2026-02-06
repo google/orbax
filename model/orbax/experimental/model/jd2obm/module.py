@@ -51,10 +51,6 @@ class JDSpecBase:
       ) from e
 
 
-class VoxelSpec(JDSpecBase):
-  pass
-
-
 class JDModuleBase(abc.ABC):
   """JDModule Abstract Base Class."""
 
@@ -83,5 +79,4 @@ class JDModuleBase(abc.ABC):
 __all__ = [
     'JDSpecBase',
     'JDModuleBase',
-    'VoxelSpec',
 ]
