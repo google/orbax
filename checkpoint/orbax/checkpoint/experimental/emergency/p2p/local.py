@@ -16,6 +16,7 @@
 
 from typing import Any, Sequence, final
 
+from absl import logging
 from etils import epath
 import jax
 import orbax.checkpoint as ocp
@@ -89,10 +90,12 @@ class LocalCheckpointManager:
   def scan_stored_steps(self) -> tuple[int | None, Sequence[int]]:
     """Identifies available steps and the stored process index (from latest)."""
     if not self._directory.exists():
+      logging.warning('Local scan: Directory not found: %s.', self._directory)
       return None, []
 
     steps = self._manager.all_steps()
     if not steps:
+      logging.warning('Local scan: No steps found in %s.', self._directory)
       return None, []
 
     latest = steps[-1]
@@ -103,7 +106,12 @@ class LocalCheckpointManager:
           f'Failed to detect process index for step {latest} in'
           f' {self._directory}. Checkpoint may be malformed.'
       )
-
+    logging.info(
+        'Local scan: Found steps=%s in %s (owner=%d).',
+        steps,
+        self._directory,
+        detected_index,
+    )
     return detected_index, steps
 
   def save(

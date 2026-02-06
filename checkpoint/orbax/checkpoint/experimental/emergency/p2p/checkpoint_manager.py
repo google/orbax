@@ -56,6 +56,7 @@ class _P2PSubsystem:
     self._replica_axis_index = replica_axis_index
     self._local_manager = local_manager
     self._process_index = process_index
+    self._registry_stale = True
 
     self._p2p_node: service.P2PNode | None = None
     self._peer_selector: peer_selector.PeerSelector | None = None
@@ -112,6 +113,15 @@ class _P2PSubsystem:
         replica_axis_index=self._replica_axis_index,
         raw_metadata_list=all_infos_dicts,
     )
+    self._registry_stale = False
+
+  def mark_registry_stale(self):
+    self._registry_stale = True
+
+  def sync_registry_if_stale(self):
+    if self._registry_stale:
+      logging.info('P2P registry is stale, re-syncing.')
+      self._sync_registry()
 
   def _start_background_fetch(self):
     """Starts a background thread to fetch the latest step from peers."""
@@ -141,7 +151,6 @@ class _P2PSubsystem:
     assert self._peer_selector is not None
     peer_info = self._peer_selector.get_source_peer(step, self._process_index)
     if not peer_info:
-      # TODO(exlin): need to re-sync registry if stale
       logging.warning(
           'Step %d found in P2P registry, but no source peer found for my'
           ' shard (%d).',
@@ -305,6 +314,8 @@ class CheckpointManager(
 
   @override
   def delete(self, step: int):
+    # mark it stale regardless of result to simplify logics
+    self._p2p.mark_registry_stale()
     self._local_manager.delete(step)
     if self._persistent_manager:
       self._persistent_manager.delete(step)
@@ -317,6 +328,8 @@ class CheckpointManager(
       *,
       force: bool = False,
   ) -> bool:
+    # mark it stale regardless of result to simplify logics
+    self._p2p.mark_registry_stale()
     p2p_saved = self._local_manager.save(step, args=args, force=force)
 
     persistent_saved = False
@@ -331,6 +344,7 @@ class CheckpointManager(
   def restore(
       self, step: int | None, args: p2p_args_lib.Composite | None = None
   ) -> Union[Any, Mapping[str, Any], p2p_args_lib.Composite, None]:
+    self._p2p.sync_registry_if_stale()
 
     # TODO(exlin): Enhance restore logic:
     # 1. Registry Sync: Ensure P2P registry is current.
