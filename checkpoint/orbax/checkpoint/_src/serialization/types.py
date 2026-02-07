@@ -31,6 +31,7 @@ from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 import tensorstore as ts
 
 PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
@@ -115,8 +116,8 @@ class ParamInfo:
   """
 
   name: str
-  parent_dir: epath.Path
-  path: Optional[epath.Path] = None
+  parent_dir: epath.Path | path_types.PathAwaitingCreation
+  path: epath.Path | None = None
   keypath: Optional[Tuple[Any, ...]] = None
   skip_deserialize: Optional[bool] = None
   byte_limiter: Optional[limits.ByteLimiter] = None
@@ -134,6 +135,8 @@ class ParamInfo:
 
   def __post_init__(self):
     if self.path is None:
+      if isinstance(self.parent_dir, path_types.PathAwaitingCreation):
+        return
       self.path = self.parent_dir / self.name
 
 

@@ -48,188 +48,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
-import tensorstore as ts
-
-
-Pytree: TypeAlias = Any
-ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
-SingleReplicaArrayRestoreArgs = (
-    jax_array_restore_args.SingleReplicaArrayRestoreArgs
-)
-
-
-_SHARDING_FILE_NAME = '_sharding'
-
-
-def check_array_values(
-    values: Sequence[Union[jax.Array, np.ndarray]],
-    infos: Sequence[types.ParamInfo],
-    raise_error: bool = True,
-):
-  """Checks array values for zero size."""
-  for v, info in zip(values, infos):
-    if v.size == 0:
-      if raise_error:
-        raise ValueError(
-            f'Cannot save arrays with zero size: ParamInfo: [name={info.name},'
-            f'value_typestr={info.value_typestr}]'
-        )
-      else:
-        logging.warning(
-            'Saving array with zero size: ParamInfo: [name=%s,'
-            ' value_typestr=%s]',
-            info.name,
-            info.value_typestr,
-        )
-
-
-JAX_ARRAY_TYPE_STR = 'jax.Array'
-
-
-def represents_jax_array(param_info: types.ParamInfo) -> bool:
-  """Returns True if the param_info represents a jax.Array."""
-  assert (
-      param_info.value_typestr is not None
-  ), f'ParamInfo.value_typestr cannot be None: {param_info}'
-  return param_info.value_typestr == JAX_ARRAY_TYPE_STR
-
-
-def any_jax_array_param_info(param_infos: Pytree) -> types.ParamInfo | None:
-  """Returns any jax.Array param_info in the PyTree, or None."""
-  return jax.tree_util.tree_reduce(
-      lambda found_jax_array, param_info: (
-          found_jax_array
-          or (param_info if represents_jax_array(param_info) else None)
-      ),
-      tree=param_infos,
-      initializer=None,
-  )
-
-
-@functools.lru_cache(maxsize=4096)
-def _is_replicated_sharding(sharding: jax.sharding.Sharding) -> bool:
-  """Returns True if the sharding is replicated.
-
-  This is to provide a quick check to decide whether to the sharding would
-  produce replicated data. For namedsharding, if any axis is not specified in
-  the PartitionSpec, it is considered as replicated.  This function doesn't take
-  in the array shape into account as the shape isn't know at the point of
-  deserialization.
-
-  We can cache results because we typically expect `save` to be called
-  repeatedly on the same model (with changing array values).
-
-  Args:
-    sharding: The sharding to check.
-
-  Returns:
-    True if the sharding is replicated.
-  """
-  if isinstance(sharding, jax.sharding.NamedSharding):
-    pspec = sharding.spec
-    pspec_len = len(pspec)
-    mesh_len = len(sharding.mesh.axis_names)
-    if mesh_len > pspec_len or not pspec or any((i is None for i in pspec)):
-      # replica
-      return True
-    else:
-      return False
-  elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
-    return True
-  else:
-    logging.warning(
-        'Unsupported sharding type, assuming not replicated: %s', sharding
-    )
-    return False
-
-
-async def _async_serialize_shardings(
-    shardings: Sequence[jax.sharding.Sharding | None],
-    infos: Sequence[types.ParamInfo],
-    *,
-    primary_host: int | None,
-):
-  """Serializes sharding metadata."""
-  sharding_metadata_txn = ts.Transaction()
-
-  for sharding, info in zip(shardings, infos):
-    if sharding is None:
-      continue
-    if info.parent_dir is None:
-      raise ValueError('parent_dir cannot be None')
-    tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-        info.parent_dir.as_posix(), info.name
-    )
-    if multihost.is_primary_host(primary_host):
-      # OCDBT is not used for sharding metadata.
-      sharding_ts_context = info.ts_context
-      t = await ts.open(
-          tspec_sharding,
-          open=True,
-          context=sharding_ts_context,
-      )
-      serialized_sharding = None
-      sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
-      if sharding_metadata_value is not None:
-        serialized_sharding = sharding_metadata_value.to_serialized_string()
-      if serialized_sharding is not None:
-        await t.with_transaction(sharding_metadata_txn).write(  # pytype: disable=attribute-error
-            serialized_sharding
-        )
-
-  await sharding_metadata_txn.commit_async()
-
-
-def _get_replica_slices(
-    arrays: Sequence[jax.Array],
-    replica_id: int,
-    use_replica_parallel: bool,
-    min_slice_bytes_for_replica_parallel: int | None = None,
-    max_replicas_for_replica_parallel: int | None = None,
-) -> Sequence[replica_slices.ReplicaSlices]:
-  """Returns ReplicaSlices for arrays."""
-  rslices_per_array = [
-      replica_slices.get_replica_slices(
-          arr,
-          replica_id,
-          use_replica_parallel,
-          min_slice_bytes_for_replica_parallel,
-          max_replicas_for_replica_parallel,
-      )
-      for arr in arrays
-  ]
-  # D2H copy is performed automatically as part of dispatcher call, but
-  # we must set properties correctly to pass later consistency checks.
-  return [
-      dataclasses.replace(
-          rslices,
-          is_on_host=True,
-          replica_slices=[
-              dataclasses.replace(
-                  rslice,
-                  unsliced_data=np.asarray(rslice.data()),
-                  slice_args=None,
-              )
-              for rslice in rslices.replica_slices
-          ],
-      )
-      for rslices in rslices_per_array
-  ]
-
-
-def _worker_serialize_arrays(
-    arrays: Sequence[jax.Array],
-    infos: Sequence[types.ParamInfo],
-    args: Sequence[types.SaveArgs],
-    replica_id: int,
-    use_replica_parallel: bool,
-    min_slice_bytes_for_replica_parallel: int | None,
-    max_replicas_for_replica_parallel: int | None,
-    primary_host: int | None,
-    metadata_key: str | None,
-    array_metadata_store: array_metadata_store_lib.Store | None,
-    enable_replica_parallel_separate_folder: bool,
-    ext_metadata: Dict[str, Any],
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 ):
   """Worker function to serialize arrays."""
   rslices_per_array = _get_replica_slices(
@@ -718,8 +537,13 @@ async def _deserialize_shardings(
       )
       assert info.parent_dir is not None
       if info.name:
+        parent_dir = info.parent_dir
+        if isinstance(parent_dir, path_types.PathAwaitingCreation):
+          dir_str = parent_dir.path.as_posix()
+        else:
+          dir_str = parent_dir.as_posix()
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-            info.parent_dir.as_posix(), info.name
+            dir_str, info.name
         )
         t = await ts.open(
             tspec_sharding,
@@ -1024,8 +848,13 @@ class ArrayHandler(types.TypeHandler):
       assert info.parent_dir is not None
       sharding_op = None
       if info.name:
+        parent_dir = info.parent_dir
+        if isinstance(parent_dir, path_types.PathAwaitingCreation):
+          dir_str = parent_dir.path.as_posix()
+        else:
+          dir_str = parent_dir.as_posix()
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-            info.parent_dir.as_posix(), info.name
+            dir_str, info.name
         )
         if sharding_file_exists:
           sharding_op = ts.open(
