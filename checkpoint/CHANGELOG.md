@@ -27,6 +27,7 @@ trigger creation if it has not already been started.
 - Add new `OrbaxV0Layout` that will handle specific v0 checkpoint format logic.
 - Add sharding fallback for target tree leaves in `StandardCheckpointHandler`
 restore, removing sharding/topology warnings.
+- Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite.
 
 ## [0.11.31] - 2025-12-11
 

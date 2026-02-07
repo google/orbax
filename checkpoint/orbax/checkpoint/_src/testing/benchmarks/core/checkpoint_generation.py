@@ -122,11 +122,26 @@ def _partition_axis_name(offset: int) -> str:
 
 
 
+def is_safetensor_checkpoint(path: str|epath.Path) -> bool:
+  """Checks if the checkpoint is a SafeTensor checkpoint."""
+  path = epath.Path(path)
+  for f in path.iterdir():
+    if f.is_file() and 'safetensors' in f.name:
+      return True
+  return False
+
+
 def load_checkpoint(path: str) -> Any:
   """Loads a PyTree of test checkpoint from a provided path."""
   logging.info('Loading checkpoint from path: %s', path)
   path = epath.Path(path)
 
+
+  # If the checkpoint is a SafeTensor checkpoint, return the path directly.
+  # This is because we don't need to load the checkpoint into a PyTree, and can
+  # directly use the path to load the checkpoint in the benchmark test.
+  if is_safetensor_checkpoint(path):
+    return path
 
   use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
   with checkpointer.Checkpointer(
