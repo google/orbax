@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -256,8 +256,6 @@ class P2PNode:
       )
       return False
 
-    # TODO(exlin): Remove this directory once the transfer is globally completed
-    # to save memory space.
     stage_dir = self.directory / f'stage_{step}_{stored_process_index}'
     if stage_dir.exists():
       shutil.rmtree(str(stage_dir))

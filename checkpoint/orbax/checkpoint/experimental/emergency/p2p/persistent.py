@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -124,6 +124,9 @@ class PersistentCheckpointManager:
   @property
   def directory(self) -> epath.Path:
     return self._directory
+
+  def latest_step(self) -> int | None:
+    return self._manager.latest_step()
 
   def save(
       self,
