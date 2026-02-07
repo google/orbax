@@ -27,6 +27,10 @@ trigger creation if it has not already been started.
 - Add new `OrbaxV0Layout` that will handle specific v0 checkpoint format logic.
 - Add sharding fallback for target tree leaves in `StandardCheckpointHandler`
 restore, removing sharding/topology warnings.
+- Refactor `CheckpointLayout` splitting `load()` into `load_pytree()` and
+`load_checkpointables()` each with their own dedicated loading logic
+- Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`
+tests
 
 ## [0.11.31] - 2025-12-11
 

@@ -308,7 +308,7 @@ def _unpickle_structure(
 async def _load_pytorch(
     path: Path,
     abstract_pytree: tree_types.PyTreeOf[jax.ShapeDtypeStruct] | None = None,
-) -> dict[str, Any]:
+) -> Any:
   """Loads pytorch checkpoint as numpy arrays or sharded jax arrays."""
   pickle_bytes, storage_data = await _read_zip_contents(path)
 
@@ -321,7 +321,7 @@ async def _load_pytorch(
     # Return on-device JAX arrays.
     restored_pytree = _load_pytorch_on_device(pytorch_data, abstract_pytree)
 
-  return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+  return restored_pytree
 
 
 class PyTorchLayout(CheckpointLayout):
@@ -383,33 +383,30 @@ class PyTorchLayout(CheckpointLayout):
         commit_timestamp_nsecs=commit_timestamp_nsecs,
     )
 
-  async def load(
+  async def load_pytree(
       self,
       path: Path,
-      abstract_checkpointables: (
-          dict[str, tree_types.PyTreeOf[jax.ShapeDtypeStruct]] | None
-      ) = None,
-  ) -> Awaitable[dict[str, tree_types.PyTreeOf[Any]]]:
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[tree_types.PyTreeOf[jax.ShapeDtypeStruct]]:
     """Loads a PyTorch checkpoint file.
 
-    If `abstract_checkpointables` are provided, it attempts to load tensors as
-    sharded `jax.Arrays` onto devices. Otherwise, it loads tensors as host
-    NumPy arrays.
+    If `abstract_pytree` is provided, it attempts to load arrays as
+    sharded `jax.Arrays` onto devices.
 
     Args:
       path: The path to the checkpoint file.
-      abstract_checkpointables: An optional PyTree of abstract arrays specifying
-        sharding information.
+      checkpointable_name: The name of the pytree checkpointable to load,
+        unsused in this case.
+      abstract_pytree: An optional PyTree of abstract arrays specifying sharding
+        information.
 
     Returns:
-      An awaitable of a dictionary containing the loaded PyTree.
+      An awaitable containing the loaded PyTree.
     """
-    abstract_pytree = None
-    if abstract_checkpointables:
-      abstract_pytree = abstract_checkpointables.get(
-          checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
-      )
-    return _load_pytorch(path, abstract_pytree)
+    del checkpointable_name
+    load_awaitable = _load_pytorch(path, abstract_pytree)
+    return load_awaitable
 
   async def save(
       self,
