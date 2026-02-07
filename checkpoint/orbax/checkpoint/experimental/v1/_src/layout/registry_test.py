@@ -20,13 +20,13 @@ from etils import epath
 from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
 from orbax.checkpoint.experimental.v1._src.saving import saving
 
 
-try_resolve_pytree_checkpointable = registry._try_resolve_pytree_checkpointable
+get_checkpoint_layout_pytree = registry.get_checkpoint_layout_pytree
+CheckpointLayoutEnum = registry.CheckpointLayoutEnum
 
 
 class PyTreeCheckpointableResolutionTest(
@@ -53,92 +53,120 @@ class PyTreeCheckpointableResolutionTest(
     )
 
   async def test_root_directory(self):
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.root_directory))
-    with self.assertRaisesRegex(
-        ValueError, 'failed to resolve a checkpointable name'
-    ):
-      await try_resolve_pytree_checkpointable(layout, self.root_directory, None)
+    # Root directory is not a valid checkpoint.
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.root_directory, CheckpointLayoutEnum.ORBAX, None
+      )
 
-  @parameterized.product(checkpointable_name=['state', 'params', None])
-  async def test_v1(self, checkpointable_name):
-    layout = orbax_layout.OrbaxLayout()
-    self.assertTrue(await layout.has_indicator_file(self.v1_directory))
-    resolved_layout, name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v1_directory, checkpointable_name
+  async def test_v1_valid_name(self):
+    layout = await get_checkpoint_layout_pytree(
+        self.v1_directory, CheckpointLayoutEnum.ORBAX, 'pytree'
     )
-    self.assertIs(layout, resolved_layout)
-    self.assertEqual(name, checkpointable_name)
+    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+    self.assertTrue(await orbax_layout.has_indicator_file(self.v1_directory))
 
-  @parameterized.product(checkpointable_name=['state', 'params', None])
-  async def test_v0(self, checkpointable_name):
-    # Note: params resolves even though it doesn't exist.
-    expected_name = (
-        checkpointable_name if checkpointable_name is not None else 'state'
+  @parameterized.parameters([None, 'state', 'params'])
+  async def test_v1_invalid_name(self, checkpointable_name):
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v1_directory, CheckpointLayoutEnum.ORBAX, checkpointable_name
+      )
+
+  async def test_v0_valid_name(self):
+    layout = await get_checkpoint_layout_pytree(
+        self.v0_directory, CheckpointLayoutEnum.ORBAX, 'state'
     )
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.v0_directory))
-    resolved_layout, resolved_name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v0_directory, checkpointable_name
-    )
-    self.assertIs(layout, resolved_layout)
-    self.assertEqual(resolved_name, expected_name)
+    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+    self.assertFalse(await orbax_layout.has_indicator_file(self.v0_directory))
+
+  @parameterized.parameters([None, 'params'])
+  async def test_v0_invalid_name(self, checkpointable_name):
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v0_directory, CheckpointLayoutEnum.ORBAX, checkpointable_name
+      )
 
   async def test_v1_direct_path(self):
-    layout = orbax_layout.OrbaxLayout()
+    layout = await get_checkpoint_layout_pytree(
+        self.v1_directory / 'pytree', CheckpointLayoutEnum.ORBAX, None
+    )
+    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
     self.assertFalse(
-        await layout.has_indicator_file(self.v1_directory / 'pytree')
+        await orbax_layout.has_indicator_file(self.v1_directory / 'pytree')
     )
-    resolved_layout, name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v1_directory / 'pytree', None
-    )
-    self.assertIsInstance(resolved_layout, orbax_layout.OrbaxLayout)
-    self.assertEqual(name, 'pytree')
 
   async def test_v0_direct_path(self):
-    layout = orbax_layout.OrbaxLayout()
+    layout = await get_checkpoint_layout_pytree(
+        self.v0_directory / 'state', CheckpointLayoutEnum.ORBAX, None
+    )
+    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
     self.assertFalse(
-        await layout.has_indicator_file(self.v0_directory / 'state')
+        await orbax_layout.has_indicator_file(self.v0_directory / 'state')
     )
-    resolved_layout, name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v0_directory / 'state', None
-    )
-    self.assertIsInstance(resolved_layout, orbax_layout.OrbaxLayout)
-    self.assertEqual(name, 'state')
 
   async def test_v1_missing_indicator_file(self):
     (self.v1_directory / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).unlink()
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.v1_directory))
-    resolved_layout, name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v1_directory, None
-    )
-    self.assertIs(layout, resolved_layout)
-    self.assertEqual(name, 'pytree')
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v1_directory, CheckpointLayoutEnum.ORBAX, None
+      )
 
   async def test_v0_checkpoint_path(self):
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.v0_directory))
-    resolved_layout, name, _ = await try_resolve_pytree_checkpointable(
-        layout, self.v0_directory, None
-    )
-    self.assertIs(layout, resolved_layout)
-    self.assertEqual(name, 'state')
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v0_directory, CheckpointLayoutEnum.ORBAX, None
+      )
 
   async def test_v1_checkpoint_path_missing_pytree_metadata(self):
     (self.v1_directory / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).unlink()
     (self.v1_directory / 'pytree' / '_METADATA').unlink()
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.v1_directory))
-    with self.assertRaises(checkpoint_layout.InvalidLayoutError):
-      await try_resolve_pytree_checkpointable(layout, self.v1_directory, None)
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v1_directory, CheckpointLayoutEnum.ORBAX, None
+      )
 
   async def test_v0_checkpoint_path_missing_pytree_metadata(self):
     (self.v0_directory / 'state' / '_METADATA').unlink()
-    layout = orbax_layout.OrbaxLayout()
-    self.assertFalse(await layout.has_indicator_file(self.v0_directory))
-    with self.assertRaises(checkpoint_layout.InvalidLayoutError):
-      await try_resolve_pytree_checkpointable(layout, self.v0_directory, None)
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v0_directory, CheckpointLayoutEnum.ORBAX, None
+      )
+
+  async def test_v0_flat(self):
+    flat_directory = self.root_directory / 'v0_flat'
+    ckptr = checkpointer.Checkpointer(
+        standard_checkpoint_handler.StandardCheckpointHandler()
+    )
+    ckptr.save(
+        flat_directory,
+        standard_checkpoint_handler.StandardSaveArgs({'a': 1, 'b': 2}),
+    )
+
+    layout = await get_checkpoint_layout_pytree(
+        flat_directory, CheckpointLayoutEnum.ORBAX, None
+    )
+    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+
+  async def test_v1_flat_errors(self):
+    flat_directory = self.root_directory / 'v1_flat'
+    ckptr = checkpointer.Checkpointer(
+        standard_checkpoint_handler.StandardCheckpointHandler()
+    )
+    ckptr.save(
+        flat_directory,
+        standard_checkpoint_handler.StandardSaveArgs({'a': 1}),
+    )
+    # Mutlitate to become V1 by adding indicator file
+    (flat_directory / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).touch()
+
+    self.assertTrue(await orbax_layout.has_indicator_file(flat_directory))
+
+    # V1 checkpoints cannot be flat
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          flat_directory, CheckpointLayoutEnum.ORBAX, None
+      )
 
 
 if __name__ == '__main__':

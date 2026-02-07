@@ -144,12 +144,19 @@ class OrbaxV0Layout(CheckpointLayout):
           f"Failed to interpret path {path} as an Orbax V0 PyTree checkpoint."
       ) from e
 
-  async def load(
+  async def load_pytree(
+      self,
+      path: Path,
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[Any]:
+    return self._orbax_layout.load_pytree(
+        path, checkpointable_name, abstract_pytree
+    )
+
+  async def load_checkpointables(
       self,
       path: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
-    load_awaitable = await self._composite_handler.load(
-        path, abstract_checkpointables
-    )
-    return load_awaitable
+    return await self._composite_handler.load(path, abstract_checkpointables)
