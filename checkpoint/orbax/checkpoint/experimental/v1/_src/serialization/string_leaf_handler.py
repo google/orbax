@@ -19,67 +19,22 @@ deserialization for strings.
 """
 
 import asyncio
-from typing import Awaitable, Sequence, Type
+from typing import Any, Awaitable, Sequence
 
 from absl import logging
-from orbax.checkpoint._src.futures import future
-from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+import tensorstore as ts
+
 
 AbstractString = types.AbstractString
 StringSerializationParam = types.SerializationParam[str]
 StringDeserializationParam = types.DeserializationParam[
     AbstractString
 ]
-
-
-def _create_v0_saving_paraminfo(
-    param: StringSerializationParam,
-    context: context_lib.Context,
-    serialization_context: types.SerializationContext,
-) -> type_handlers_v0.ParamInfo:
-  """Creates a V0 ParamInfo from V1 params and contexts for saving."""
-
-  saving_options = context.array_options.saving
-
-  return type_handlers_v0.ParamInfo(
-      name=param.name,
-      parent_dir=serialization_context.parent_dir.path,
-      byte_limiter=serialization_context.byte_limiter,
-      is_ocdbt_checkpoint=saving_options.use_ocdbt,
-      use_zarr3=saving_options.use_zarr3,
-      ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
-      ts_context=serialization_context.ts_context,
-      value_typestr="string",
-  )
-
-
-def _create_v0_restore_paraminfo(
-    param: types.DeserializationParam[
-        AbstractString | Type[AbstractString] | None
-    ],
-    context: context_lib.Context,
-    deserialization_context: types.DeserializationContext,
-) -> type_handlers_v0.ParamInfo:
-  """Creates a V0 ParamInfo from V1 params and contexts for loading."""
-
-  loading_options = context.array_options.loading
-
-  return type_handlers_v0.ParamInfo(
-      name=param.name,
-      parent_dir=deserialization_context.parent_dir,
-      skip_deserialize=False,
-      byte_limiter=deserialization_context.byte_limiter,
-      is_ocdbt_checkpoint=deserialization_context.ocdbt_checkpoint,
-      ts_context=deserialization_context.ts_context,
-      raise_array_data_missing_error=loading_options.raise_array_data_missing_error,
-      use_zarr3=deserialization_context.zarr3_checkpoint,
-  )
-
-
-async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
 
 
 class StringLeafHandler(types.LeafHandler[str, AbstractString]):
@@ -98,9 +53,46 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
       context: Context that will be used for this leaf handler.
     """
     self._context = context_lib.get_context(context)
-    self._handler_impl = type_handlers_v0.StringHandler()
+    self._filename = '_strings.json'
+    logging.vlog(1, 'StringLeafHandler created.')
 
-    logging.vlog(1, "StringLeafHandler created.")
+  def _get_json_tspec(
+      self,
+      param_name: str,
+      parent_dir: path_types.Path,
+  ) -> dict[str, Any]:
+    """Gets Tensorstore spec in JSON format."""
+    directory = (parent_dir / self._filename).as_posix()
+    kvstore_tspec = ts_utils.build_kvstore_tspec(directory, use_ocdbt=False)
+    tspec = {
+        'driver': 'json',
+        'kvstore': kvstore_tspec,
+        'json_pointer': '/' + param_name,
+    }
+    return tspec
+
+  async def _background_serialize(
+      self,
+      params: Sequence[StringSerializationParam],
+      serialization_context: types.SerializationContext,
+  ):
+    """Writes strings using Tensorstore in the background thread."""
+    parent_dir = await serialization_context.parent_dir.await_creation()
+    write_coros = []
+    txn = ts.Transaction()
+    for param in params:
+      tspec = self._get_json_tspec(param.name, parent_dir)
+      if multihost.is_primary_host(
+          self._context.multiprocessing_options.primary_host
+      ):
+        t = await ts.open(
+            tspec,
+            open=True,
+            context=serialization_context.ts_context,
+        )
+        write_coros.append(t.with_transaction(txn).write(param.value))  # pytype: disable=attribute-error
+    await asyncio.gather(*write_coros)
+    await txn.commit_async()
 
   async def serialize(
       self,
@@ -117,18 +109,34 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
       Sequence of commit futures which can be awaited to complete the save
       operation.
     """
-    values = [p.value for p in params]
-    paraminfos = [
-        _create_v0_saving_paraminfo(p, self._context, serialization_context)
-        for p in params
-    ]
+    return self._background_serialize(params, serialization_context)
 
-    # `args` is not used by StringHandler.serialize, so it's not passed in.
-    commit_futures = await self._handler_impl.serialize(values, paraminfos)
-    if not commit_futures:
-      raise ValueError("No commit futures returned by StringHandler.serialize.")
+  async def _background_deserialize(
+      self,
+      params: Sequence[StringDeserializationParam],
+      deserialization_context: types.DeserializationContext,
+  ) -> Sequence[str]:
+    """Deserializes strings using Tensorstore in the background thread."""
 
-    return _async_futures(commit_futures)
+    async def _convert_to_string(tensorstore):
+      result = await tensorstore.read()
+      return str(result)
+
+    open_futures = []
+    for param in params:
+      tspec = self._get_json_tspec(
+          param.name, deserialization_context.parent_dir
+      )
+      open_future = ts.open(
+          tspec,
+          open=True,
+          read=True,
+          context=deserialization_context.ts_context,
+      )
+      open_futures += [open_future]
+    tensorstores = await asyncio.gather(*open_futures)
+    read_ops = [_convert_to_string(t) for t in tensorstores]
+    return await asyncio.gather(*read_ops)
 
   async def deserialize(
       self,
@@ -145,20 +153,7 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
     Returns:
       The deserialized sequence of scalar values as leaves.
     """
-
-    # validate all parameters
-    paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
-        for p in params
-    ]
-
-    async def _background_deserialize() -> Sequence[str]:
-      # This is needed because StringHandler.deserialize could return None
-      # values.  However, it should be very rare.  This is to make sure
-      # everything is string.
-      return [p or "" for p in await self._handler_impl.deserialize(paraminfos)]
-
-    return asyncio.create_task(_background_deserialize())
+    return self._background_deserialize(params, deserialization_context)
 
   async def metadata(
       self,
@@ -175,13 +170,5 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
     Returns:
       Sequence of StringMetadata for each provided DeserializationParam.
     """
-    paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
-        for p in params
-    ]
+    return ['string'] * len(params)
 
-    async def _get_metadata() -> Sequence[AbstractString]:
-      v0_metadatas = await self._handler_impl.metadata(paraminfos)
-      return ["string"] * len(v0_metadatas)
-
-    return await _get_metadata()
