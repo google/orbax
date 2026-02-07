@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -96,6 +96,9 @@ class CheckpointManagerTest(absltest.TestCase):
     )
     self.enter_context(
         mock.patch('socket.gethostname', return_value='localhost')
+    )
+    self.mock_global_max = self.enter_context(
+        mock.patch.object(multihost, 'global_max', return_value=[0])
     )
 
     # Mock instances returned by constructors
@@ -243,6 +246,7 @@ class CheckpointManagerTest(absltest.TestCase):
     # P2P fetch fails
     self.peer_selector_instance.get_source_peer.return_value = None
     self.persistent_manager_instance.restore.return_value = {'a': 1}
+    self.mock_global_max.return_value = [1]
 
     manager = p2p_cm.CheckpointManager(
         self.mesh,
@@ -282,6 +286,147 @@ class CheckpointManagerTest(absltest.TestCase):
     )
     with self.assertRaises(FileNotFoundError):
       manager.restore(1)
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_coordinated_fallback_peer_failed(self, _):
+    """Tests that we fall back to persistent if a peer fails, even if we succeeded locally."""
+    # 1. Setup: Local restore succeeds
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [1])
+    self.local_manager_instance.all_steps.return_value = [1]
+    self.local_manager_instance.restore.return_value = {'a': 1}  # Local success
+    self.mock_sync_global_data.return_value = []
+
+    # 2. Setup: Persistent manager returns a different value so we can verify
+    # fallback was used
+    self.persistent_manager_instance.restore.return_value = {'a': 999}
+
+    # 3. Setup: global_max returns 1, indicating SOMEONE failed
+    self.mock_global_max.return_value = [1]
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # 4. Action
+    result = manager.restore(1)
+
+    # 5. Verification
+    # Should use persistent result
+    self.assertEqual(result, {'a': 999})
+
+    # Local restore WAS attempted
+    self.local_manager_instance.restore.assert_called_once_with(1)
+
+    # Persistent restore WAS called
+    self.persistent_manager_instance.restore.assert_called_once_with(
+        1, args=mock.ANY
+    )
+
+    # global_max was called with [0] because WE succeeded (my_failure=0)
+    self.mock_global_max.assert_called_once_with([0])
+
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_coordinated_fallback_local_failed(self, _):
+    """Tests that we fall back to persistent if we fail locally."""
+    # 1. Setup: Local/P2P fail
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+    self.peer_selector_instance.get_source_peer.return_value = None  # P2P fails
+
+    self.persistent_manager_instance.restore.return_value = {'a': 999}
+    self.mock_global_max.return_value = [1]  # Everyone knows someone failed
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # 4. Action
+    result = manager.restore(1)
+
+    # 5. Verification
+    self.assertEqual(result, {'a': 999})
+    self.persistent_manager_instance.restore.assert_called_once()
+
+    # global_max was called with [1] because WE failed (my_failure=1)
+    self.mock_global_max.assert_called_once_with([1])
+
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_no_step_in_p2p_but_in_persistent(self, _):
+    """Tests fallback to persistent step if P2P has no step."""
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+
+    # P2P has no latest complete step
+    self.peer_selector_instance.get_latest_complete_step.return_value = None
+
+    # Persistent has step 100
+    self.persistent_manager_instance.latest_step.return_value = 100
+    self.persistent_manager_instance.restore.return_value = {'a': 100}
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # Reset mock to ensure we only check calls during restore.
+    self.mock_global_max.reset_mock()
+
+    result = manager.restore(None)
+
+    self.assertEqual(result, {'a': 100})
+    self.persistent_manager_instance.latest_step.assert_called_once()
+    self.persistent_manager_instance.restore.assert_called_once_with(
+        100, args=mock.ANY
+    )
+    # Persistent storage is trusted; no global sync needed.
+    self.mock_global_max.assert_not_called()
+
+    manager.close()
+
+  @mock.patch.object(p2p_cm.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_p2p_cleanup(self, unused_process_index, mock_rmtree):
+    """Tests that P2P restore directory is cleaned up after restore."""
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+
+    # P2P fetch succeeds
+    self.peer_selector_instance.get_source_peer.return_value = (
+        protocol.PeerDiscoveryInfo(
+            ip='1.2.3.4', port=5678, process_index=1, steps=[1]
+        )
+    )
+    self.p2p_node_instance.fetch_shard_from_peer.return_value = True
+    self.local_manager_instance.restore.return_value = {'a': 1}
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+    )
+
+    # Make p2p_restore_dir exist so cleanup is triggered
+    p2p_restore_dir = self.local_dir / service.constants.P2P_RESTORE_DIR_NAME
+    p2p_restore_dir.mkdir()
+
+    manager.restore(1)
+
+    mock_rmtree.assert_called_once_with(str(p2p_restore_dir))
     manager.close()
 
 
