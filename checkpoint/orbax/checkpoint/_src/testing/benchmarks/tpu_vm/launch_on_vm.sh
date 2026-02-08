@@ -72,12 +72,12 @@ discover_nodes() {
     if gcloud alpha compute tpus queued-resources describe "$TPU_NAME" --zone="$ZONE" --project="$PROJECT_ID" >/dev/null 2>&1; then
         log "Detected Queued Resource: $TPU_NAME"
         # Discovery via list filter
-        local nodes_list=$(gcloud alpha compute tpus tpu-vm list --zone="$ZONE" --project="$PROJECT_ID" --filter="name~${TPU_NAME}-.*" --format="value(name)")
+        local nodes_list=$(gcloud alpha compute tpus tpu-vm list --zone="$ZONE" --project="$PROJECT_ID" --filter="name~${TPU_NAME}*" --format="value(name)")
         if [ -n "$nodes_list" ]; then
             mapfile -t nodes <<< "$nodes_list"
             log "QR Node Count: ${#nodes[@]}"
         else
-            echo "Error: No nodes found matching ${TPU_NAME}-*. Please verify TPU name." >&2
+            echo "Error: No nodes found matching ${TPU_NAME}*. Please verify TPU name." >&2
             exit 1
         fi
     else

@@ -27,6 +27,7 @@ usage() {
     echo "  --version VERSION    Runtime version (default: $DEFAULT_RUNTIME)"
     echo "  --node-count COUNT   Number of nodes for Multislice (default: 1)"
     echo "                       > 1 implies Queued Resource (CQR) mode."
+    echo "  --queued             Force creation as a Queued Resource (Required for large single slices like v6e-64)"
     echo "  --spot               Use Spot VM (Preemptible/Cheaper)"
     echo "  --project PROJECT    GCP Project ID (default: $DEFAULT_PROJECT)"
     echo "  --help               Show this help"
@@ -48,6 +49,7 @@ PROJECT_ID="$DEFAULT_PROJECT"
 RUNTIME_VERSION=""
 SPOT_FLAG=""
 NODE_COUNT=$DEFAULT_NODE_COUNT
+FORCE_QUEUED=false
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -57,6 +59,7 @@ while [[ "$#" -gt 0 ]]; do
         --project) PROJECT_ID="$2"; shift ;;
         --version) RUNTIME_VERSION="$2"; shift ;;
         --node-count) NODE_COUNT="$2"; shift ;;
+        --queued) FORCE_QUEUED=true ;;
         --spot) SPOT_FLAG="--spot" ;;
         --help) usage ;;
         *) echo "Unknown parameter passed: $1"; usage ;;
@@ -71,7 +74,7 @@ fi
 
 # Determine Mode: Standard vs Multislice (QR)
 IS_MULTISLICE=false
-if [ "$NODE_COUNT" -gt 1 ]; then
+if [ "$NODE_COUNT" -gt 1 ] || [ "$FORCE_QUEUED" = true ]; then
     IS_MULTISLICE=true
 fi
 
@@ -108,13 +111,21 @@ case $COMMAND in
         fi
         
         if [ "$IS_MULTISLICE" = true ]; then
+            # Determine correct naming flags based on count
+            if [ "$NODE_COUNT" -gt 1 ]; then
+                # Multislice requires count > 1 and a prefix
+                NODE_FLAGS="--node-count=$NODE_COUNT --node-prefix=$TPU_NAME"
+            else
+                # Single slice QR requires a specific node-id
+                NODE_FLAGS="--node-id=$TPU_NAME"
+            fi
+
             # Multislice (Queued Resource) Creation
              $GCLOUD_BASE create "$TPU_NAME" \
                 $COMMON_ARGS \
                 --accelerator-type "$TPU_TYPE" \
                 --runtime-version "$RUNTIME_VERSION" \
-                --node-count "$NODE_COUNT" \
-                --node-prefix "$TPU_NAME" \
+                $NODE_FLAGS \
                 --metadata "enable-oslogin=TRUE" \
                 $SPOT_FLAG
         else
