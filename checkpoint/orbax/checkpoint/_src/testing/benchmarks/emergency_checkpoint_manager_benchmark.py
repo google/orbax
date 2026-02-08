@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -124,12 +124,7 @@ def _restore_and_validate(
   with metrics.measure(f"sync_global_processes_{step}"):
     multihost.sync_global_processes(f"save_completed_{step}")
 
-  # Remove local checkpoint on secondary slice.
-  if not is_in_primary_slice:
-    assert (local_directory / str(step)).exists()
-  if is_in_secondary_slice:
-    (local_directory / str(step)).rename(local_directory / "backup")
-    logging.info("Removing secondary slice checkpoint at step %d", step)
+
   with metrics.measure(f"reload_first_time_{step}"):
     manager.reload()
   with metrics.measure(f"restore_{step}"):
@@ -145,10 +140,7 @@ def _restore_and_validate(
   logging.info("Assert Local Restored Pytree")
   pytree_utils.assert_pytree_equal(pytree, restored)
 
-  # Put back secondary slice local checkpoint.
-  if is_in_secondary_slice:
-    (local_directory / "backup").rename(local_directory / str(step))
-    logging.info("Putting back secondary slice checkpoint at step %d", step)
+
   with metrics.measure(f"reload_second_time_{step}"):
     manager.reload()
 

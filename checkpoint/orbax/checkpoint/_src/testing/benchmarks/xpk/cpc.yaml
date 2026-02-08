@@ -1,0 +1,23 @@
+# This file provides the CheckpointConfiguration for Orbax checkpointing on GKE.
+# It is required to mount ramfs to cluster. We need to delete the
+# CheckpointConfiguration to delete any data saved in ramfs.
+apiVersion: checkpointing.gke.io/v1
+kind: CheckpointConfiguration
+metadata:
+  name: standard-configuration
+spec:
+  cloudStorageBucketName: ${BUCKET_NAME}
+  tolerations:
+  - key: "google.com/tpu"
+    operator: "Exists"
+    effect: "NoSchedule"
+  inMemoryVolumeSize: 64Mi
+  gcsFuseMountOptions:
+  - implicit-dirs
+  - metadata-cache:negative-ttl-secs:0
+  - metadata-cache:ttl-secs:-1
+  - metadata-cache:stat-cache-max-size-mb:-1
+  - metadata-cache:type-cache-max-size-mb:-1
+  - file-system:kernel-list-cache-ttl-secs:0
+  - read_ahead_kb=1024
+  - write:enable-streaming-writes:true

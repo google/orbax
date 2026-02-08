@@ -35,9 +35,10 @@ python3 launch_xpk.py \
 2.  [Prerequisites](#2-prerequisites)
 3.  [Workflow Part 1: The Build](#3-workflow-part-1-the-build-docker)
 4.  [Workflow Part 2: The Run](#4-workflow-part-2-the-run-launch_xpkpy) (Inner Loop)
-5.  [Internals: Inside the Container](#5-internals-inside-the-container-run_benchmarkspy)
-6.  [Troubleshooting & Debugging](#6-troubleshooting--debugging)
-7.  [Cleanup](#7-cleanup-save-money) (**IMPORTANT**)
+5.  [ECM Testing](#5-ecm-testing)
+6.  [Internals: Inside the Container](#6-internals-inside-the-container-run_benchmarkspy)
+7.  [Troubleshooting & Debugging](#7-troubleshooting--debugging)
+8.  [Cleanup](#8-cleanup-save-money) (**IMPORTANT**)
 
 ---
 
@@ -257,7 +258,7 @@ the complexities of cluster management and config propagation.
 | `--docker_image` | `...:stable` | Docker image to run. |
 | `--env` | `[]` | List of env vars: `--env=KEY=VAL`. |
 | `--env_file` | `None` | Path to file with env vars. |
-| `--ramdisk_directory` | `None` | Mount a ramdisk at this path (e.g., `/tmp/ramdisk`). |
+| `--ramdisk_directory` | `None` | Mount a ramdisk at this path (e.g., `/tmp/ramdisk`).
 | `--sa` | `None` | Kubernetes Service Account to run as. |
 | `--storage` | `None` | Storage type to use for the workload (e.g., `test-service-lustre`). |
 | `--benchmark_binary_path` | `/app/...` | Path to the benchmark runner script within the Docker image. |
@@ -279,6 +280,7 @@ the complexities of cluster management and config propagation.
 | `--enable_ops_agent` | `False` | Install Google Cloud Ops Agent for system metrics. |
 | `--debug_dump_gcs` | `None` | GCS path to dump XLA debug artifacts. |
 | `--v_level` | `None` | Verbosity level for the benchmark binary (e.g., `1`). |
+| `--test_restart_workflow` | `False` | If True, run workload creation and execution twice to test restart scenarios. |
 
 #### 🔁 Lifecycle & Automation
 | Flag | Default | Description |
@@ -320,7 +322,45 @@ python3 launch_xpk.py \
 
 ---
 
-## 5. Internals: Inside the Container (`run_benchmarks.py`) {#5-internals-inside-the-container-run_benchmarkspy}
+## 5. ECM Testing {#5-ecm-testing}
+
+The Emergency Checkpoint Manager (ECM) workflow can be tested using
+ramdisk_directory. This involves saving checkpoints to a local RAM
+disk (`gcsfuse`-backed) that persists across process restarts.
+
+> **Note**: To test ECM, cluster must be created with `--ramdisk_directory` set
+ as it ensures that required drivers are enabled in cluster.
+
+Key flags for ECM testing:
+
+*   `--ramdisk_directory`: Specifies the path for saving checkpoints (e.g.,
+    `/local/test`). This path is mounted as RAM FS via `cpc.yaml`.
+*   `--test_restart_workflow`: This flag will run the workload, kill it, and
+    then restart it, allowing you to test ECM recovery.
+
+### Bucket Setup
+
+You need to grant specific IAM permissions to the bucket
+to work correctly.
+
+### ECM Launch Example
+
+```bash
+python3 launch_xpk.py -- \
+  --cluster_name orbax-cluster-ramfs\
+  --tpu_type v5litepod-16 \
+  --zone us-west1-c \
+  --config_file ../configs/emergency_checkpoint_manager_benchmark.yaml \
+  --docker_image gcr.io/orbax-checkpoint/orbax-benchmarks:stable-v9 \
+  --output_directory gs://orbax-benchmarks/runs/$(date +%Y%m%d) \
+  --ramdisk_directory=/local/test \
+  --num_slices 2 \
+  --test_restart_workflow
+```
+
+---
+
+## 6. Internals: Inside the Container (`run_benchmarks.py`) {#6-internals-inside-the-container-run_benchmarkspy}
 Once `launch_xpk.py` schedules the job, Kubernetes pulls your Docker image and
 starts the entrypoint: `run_benchmarks.py`.
 
@@ -346,7 +386,7 @@ starts the entrypoint: `run_benchmarks.py`.
 
 ---
 
-## 6. Troubleshooting & Debugging {#6-troubleshooting--debugging}
+## 7. Troubleshooting & Debugging {#7-troubleshooting--debugging}
 
 ### 🕵️‍♂️ Debugging Matrix
 
@@ -386,9 +426,20 @@ xpk inspector --cluster <CLUSTER_NAME> --workload <WORKLOAD_ID>
 > 2.  Find your `job-xxx`.
 > 3.  Click **Logs** tab. You can filter by `severity=ERROR`.
 
+### Forcibly Killing a Pod
+
+If you need to kill a pod within a running workload (e.g., to test
+preemption or restart behavior), you can use the `kill_pod.sh` script:
+
+```bash
+./kill_pod.sh --workload <WORKLOAD_NAME>
+```
+
+This is useful for testing robustness in scenarios like ECM testing.
+
 ---
 
-## 7. 🧹 Cleanup (Save Money!) {#7-cleanup-save-money}
+## 8. 🧹 Cleanup (Save Money!) {#8-cleanup-save-money}
 
 > IMPORTANT:
 > **TPU Clusters are Expensive!**

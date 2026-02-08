@@ -14,13 +14,12 @@ mesh_configs:
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
     ici_parallelism: {"data": 1, "model": 4}
     dcn_parallelism: {"data": 2, "model": 1}
-  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
-    ici_parallelism: {"fsdp": 8, "tensor": 1, "data": 2}
-    dcn_parallelism: {"data": 2}
-    allow_split_physical_axes: true
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
     ici_parallelism: {"data": 1, "model": 16}
-    dcn_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 2, "model": 1}
+  - mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+    ici_parallelism: {"fsdp": 16, "tensor": 2, "data": 1}
+    dcn_parallelism: {"data": 2}
 
 checkpoint_config:
   spec:
@@ -45,7 +44,7 @@ benchmarks:
       local_save_interval_steps: [2]
       local_max_to_keep: 2
       replica_axis_index: 0
-      train_steps: 40
+      train_steps: 5
       single_host_load_and_broadcast: true
       experimental_orbax_use_distributed_process_id: true
       experimental_use_distributed_id_for_mesh_consistency: true
