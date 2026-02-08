@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,9 @@
 # Directory names
 P2P_RESTORE_DIR_NAME = 'p2p_restore'
 STATE_SUBDIR = 'state'
+DATA_ITER_KEY = 'data_iter'
 PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+PYGRAIN_STATES_FILENAME = 'pygrain_states.json'
 
 # Tuning for high-throughput networks (16MB buffers)
 SOCKET_BUFFER_SIZE = 16 * 1024 * 1024

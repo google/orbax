@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,26 @@
 
 """Utils for P2P checkpointing."""
 
+from typing import Any
+
 from absl import logging
 from etils import epath
+
 from orbax.checkpoint.experimental.emergency.p2p import constants
+
+# pytype:disable=import-error
+# pylint:disable=g-import-not-at-top
+try:
+  import grain.python as pygrain_module
+except ImportError:
+  pygrain_module = None
+# pytype:enable=import-error
+# pylint:enable=g-import-not-at-top
+
+
+def pygrain() -> Any | None:
+  """Returns the grain.python module if available, otherwise None."""
+  return pygrain_module
 
 
 def detect_process_index(directory: epath.Path, step: int) -> int | None:
