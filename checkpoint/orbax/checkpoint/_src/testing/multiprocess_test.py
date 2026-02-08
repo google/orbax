@@ -1,4 +1,4 @@
-# Copyright 2025 The Orbax Authors.
+# Copyright 2026 The Orbax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -310,7 +310,7 @@ class MultiProcessTest(absltest.TestCase):
       # any collisions with barriers in user test code.
       client.wait_at_barrier(
           f"multiprocess_test_ensure_all_processes_arrive_at_test_case_{self._testMethodName}",
-          10000,
+          1000,
       )
 
   def multiprocess_create_tempdir(
