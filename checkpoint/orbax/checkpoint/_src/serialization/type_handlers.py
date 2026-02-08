@@ -87,7 +87,7 @@ class NumpyHandler(types.TypeHandler):
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      array_read_spec = ts_utils.build_array_read_spec(
+      array_read_spec = await ts_utils.build_array_read_spec(
           info,
           use_ocdbt=use_ocdbt,
           metadata_key=self._metadata_key,
@@ -122,7 +122,7 @@ class NumpyHandler(types.TypeHandler):
     """Serializes numpy arrays in a background thread."""
     write_coros = []
     for value, info, arg in zip(values, infos, args):
-      array_write_spec = ts_utils.build_array_write_spec(
+      array_write_spec = await ts_utils.build_array_write_spec(
           info=info,
           arg=arg,
           global_shape=value.shape,
@@ -181,7 +181,7 @@ class NumpyHandler(types.TypeHandler):
         )
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      array_read_spec = ts_utils.build_array_read_spec(
+      array_read_spec = await ts_utils.build_array_read_spec(
           info,
           use_ocdbt=use_ocdbt,
           metadata_key=self._metadata_key,

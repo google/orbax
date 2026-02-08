@@ -657,7 +657,11 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       the data from its source will be awaited in this function.
     """
     args = _get_impl_save_args(item, save_args, args)
-    return await self._handler_impl.async_save(directory, args=args)
+    # BasePyTreeCheckpointHandler requires an asyncio.Future, so wrap the
+    # directory in an already-resolved future.
+    directory_future = asyncio.Future()
+    directory_future.set_result(directory)
+    return await self._handler_impl.async_save(directory_future, args=args)
 
   def save(
       self,
