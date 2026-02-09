@@ -94,7 +94,7 @@ def process_index_from_device_id(device_id: int) -> int:
       if num_slices > 1:
         num_processes_per_slice = jax.process_count() // num_slices
         # This is based on how Megascale device ids are assigned.
-        # See platforms/xla/megascale/runtime/common/multi_slice_topology.h.
+        # See platforms/xla/megascale/common/multi_slice_topology.h.
         slice_id = device_id // 100000 - 1
         local_process_id = device_id % 100000 // jax.local_device_count()
         return slice_id * num_processes_per_slice + local_process_id
