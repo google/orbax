@@ -75,6 +75,7 @@ def _init_jax_distributed():
     )
 
   logging.info('JAX process index: %d', jax.process_index())
+  logging.info('JAX process count: %d', jax.process_count())
   logging.info('JAX device count: %d', jax.device_count())
   logging.info('JAX local device count: %d', jax.local_device_count())
 
