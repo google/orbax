@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - #v1 Make most V1 public concrete classes final.
+- Refactor `CheckpointLayout` splitting `load()` into `load_pytree()` and
+`load_checkpointables()` each with their own dedicated loading logic
+- Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`
+tests
 
 ## [0.11.32] - 2026-01-20
 
