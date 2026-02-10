@@ -242,7 +242,7 @@ async def _load_safetensors_on_device(
 
 async def _load_safetensors(
     paths: Sequence[Path], abstract_pytree: dict[str, Any] | None = None
-) -> dict[str, Any]:
+) -> Any:
   """Calls the correct safetensors loading function."""
 
   if abstract_pytree is None:
@@ -305,7 +305,7 @@ async def _load_safetensors(
       sub_restored = await _load_safetensors_on_device(path, sub_tree)
       restored_pytree.update(sub_restored)
 
-  return {checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: restored_pytree}
+  return restored_pytree
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -385,16 +385,28 @@ class SafetensorsLayout(CheckpointLayout):
   ) -> None:
     return
 
-  async def load(
+  async def load_pytree(
       self,
       path: Path,
-      abstract_checkpointables: dict[str, Any] | None = None,
-  ) -> Awaitable[dict[str, Any]]:
-    abstract_pytree = None
-    if abstract_checkpointables:
-      abstract_pytree = abstract_checkpointables.get(
-          checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
-      )
+      checkpointable_name: str | None = None,
+      abstract_pytree: Any | None = None,
+  ) -> Awaitable[Any]:
+    """Loads a NumPy checkpoint file.
+
+    If `abstract_pytree` is provided, it attempts to load numpy arrays as
+    sharded `jax.Arrays` onto devices.
+
+    Args:
+      path: The path to load the checkpoint from.
+      checkpointable_name: The name of the pytree checkpointable to load,
+        unsused in this case.
+      abstract_pytree: An optional PyTree of abstract arrays specifying sharding
+        information.
+
+    Returns:
+      An awaitable containing the loaded PyTree.
+    """
+    del checkpointable_name
     files = await _get_safetensors_file_list(path)
     return _load_safetensors(files, abstract_pytree)
 
