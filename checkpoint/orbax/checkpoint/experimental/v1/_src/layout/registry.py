@@ -14,11 +14,13 @@
 
 """Registry for checkpoint layouts."""
 
+import asyncio
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import numpy_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import pytorch_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -27,14 +29,42 @@ InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 
+ORBAX_LAYOUT_CLASSES = [
+    orbax_layout.OrbaxLayout,
+    orbax_v0_layout.OrbaxV0Layout,
+]
 
-def get_layout_class(
-    layout_enum: CheckpointLayoutEnum,
+
+async def _is_orbax_checkpoint_async(path: path_types.PathLike) -> bool:
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+
+  tasks = []
+  for layout_cls in ORBAX_LAYOUT_CLASSES:
+    tasks.append(layout_cls().validate(path))
+
+  results = await asyncio.gather(*tasks, return_exceptions=True)
+  return any(not isinstance(r, Exception) for r in results)
+
+
+def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
+  """Returns True if the path is an Orbax checkpoint."""
+  return asyncio.run(_is_orbax_checkpoint_async(path))
+
+
+async def get_layout_class(
+    layout_enum: CheckpointLayoutEnum, path: path_types.PathLike | None = None
 ) -> type[CheckpointLayout]:
   """Returns the layout class for the given layout enum."""
   match layout_enum:
     case CheckpointLayoutEnum.ORBAX:
-      return orbax_layout.OrbaxLayout
+      if path is None or (
+          await orbax_layout.checkpoint_version(path)
+          == orbax_layout.CheckpointVersion.V1
+      ):
+        return orbax_layout.OrbaxLayout
+      else:
+        return orbax_v0_layout.OrbaxV0Layout
     case CheckpointLayoutEnum.SAFETENSORS:
       return safetensors_layout.SafetensorsLayout
     case CheckpointLayoutEnum.NUMPY:
@@ -48,7 +78,7 @@ def get_layout_class(
 async def get_checkpoint_layout(
     path: path_types.PathLike, layout_enum: CheckpointLayoutEnum
 ) -> CheckpointLayout:
-  """Returns the checkpoint layout class for the given path.
+  """Returns the checkpoint layout class for the given path and validates it.
 
   Args:
     path: The path to the checkpoint.
@@ -61,10 +91,11 @@ async def get_checkpoint_layout(
     InvalidLayoutError: If the path is not a valid checkpoint for any registered
     layout, with details from each layout's validation attempt.
   """
+
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  layout_class = get_layout_class(layout_enum)
+  layout_class = await get_layout_class(layout_enum, path)
 
   try:
     layout = layout_class()
@@ -83,77 +114,11 @@ async def get_checkpoint_layout_pytree(
     path: path_types.PathLike,
     layout_enum: CheckpointLayoutEnum,
     checkpointable_name: str | None = None,
-) -> tuple[checkpoint_layout.CheckpointLayout, str | None, path_types.Path]:
-  """Returns the checkpoint layout and checkpointable name for the given path."""
+) -> CheckpointLayout:
+  """Validates pytree checkpoint and returns the layout for the given path."""
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
+
   layout = await get_checkpoint_layout(path, layout_enum)
-  layout, checkpointable_name, path = await _try_resolve_pytree_checkpointable(
-      layout, path, checkpointable_name
-  )
   await layout.validate_pytree(path, checkpointable_name)
-  return layout, checkpointable_name, path
-
-
-async def _try_resolve_pytree_checkpointable(
-    layout: CheckpointLayout,
-    path: path_types.Path,
-    checkpointable_name: str | None,
-) -> tuple[CheckpointLayout, str | None, path_types.Path]:
-  """Tries to resolve the `PyTree` checkpointable name for a given layout.
-
-  Args:
-    layout: The :py:class:`.CheckpointLayout` object.
-    path: The path to the checkpoint.
-    checkpointable_name: An optional name for the `PyTree` checkpointable.
-
-  Returns:
-    A tuple containing the (potentially updated)
-    :py:class:`.CheckpointLayout`,
-    the resolved checkpointable name, and the resolved path.
-
-  Raises:
-    ValueError: If it's a V0 checkpoint and a `PyTree` checkpointable name
-      cannot be resolved.
-  """
-  # Selected a specific name; use it.
-  if checkpointable_name is not None:
-    return layout, checkpointable_name, path
-  # Not a v0 checkpoint; use the default name.
-  if not await _is_v0_checkpoint(layout, path):
-    return layout, checkpointable_name, path
-  # If it's a V0 checkpoint, we can try to resolve the checkpointable name from
-  # the path.
-  if not isinstance(layout, orbax_layout.OrbaxLayout):
-    raise AssertionError(f"Expected an OrbaxLayout, but got a {type(layout)}.")
-  # Option 1: It may be a direct path to the PyTree checkpointable.
-  try:
-    new_layout = orbax_layout.OrbaxLayout()
-    await new_layout.validate_pytree(path.parent, path.name)
-    return new_layout, path.name, path.parent
-  except checkpoint_layout.InvalidLayoutError:
-    pass
-  # Option 2: It may be a V0 checkpoint containing a PyTree checkpointable. It
-  # is possible for there to be multiple, but this would be unusual, and it is
-  # fine to just return the first one.
-  dir_names = [p.name for p in path.iterdir() if p.is_dir()]
-  for name in dir_names:
-    try:
-      await layout.validate_pytree(path, name)
-    except checkpoint_layout.InvalidLayoutError:
-      continue
-    return layout, name, path
-  raise checkpoint_layout.InvalidLayoutError(
-      f"Detected an Orbax V0 checkpoint at {path}, but failed to resolve"
-      " a checkpointable name for the `PyTree` checkpointable. Found"
-      f" subdirectory names: {dir_names}."
-  )
-
-
-async def _is_v0_checkpoint(
-    layout: CheckpointLayout, path: path_types.Path
-) -> bool:
-  return not isinstance(layout, orbax_layout.OrbaxLayout) or (
-      isinstance(layout, orbax_layout.OrbaxLayout)
-      and not await layout.has_indicator_file(path)
-  )
+  return layout
