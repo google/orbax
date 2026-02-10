@@ -122,7 +122,7 @@ def _partition_axis_name(offset: int) -> str:
 
 
 
-def load_checkpoint(path: str) -> Any:
+def load_checkpoint(path: str, is_replicated: bool = False) -> Any:
   """Loads a PyTree of test checkpoint from a provided path."""
   logging.info('Loading checkpoint from path: %s', path)
   path = epath.Path(path)
@@ -136,7 +136,10 @@ def load_checkpoint(path: str) -> Any:
     abstract_state = jax.tree.map(
         abstract_arrays.to_shape_dtype_struct, metadata.tree
     )
-    shardings = sharding_utils.construct_maximal_shardings(abstract_state)
+    if is_replicated:
+      shardings = sharding_utils.construct_minimal_shardings(abstract_state)
+    else:
+      shardings = sharding_utils.construct_maximal_shardings(abstract_state)
     abstract_state = jax.tree.map(
         lambda sds, sharding: jax.ShapeDtypeStruct(
             sds.shape, sds.dtype, sharding=sharding
