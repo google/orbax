@@ -20,6 +20,7 @@ import dataclasses
 import hashlib
 import itertools
 import sys
+import threading
 from typing import Any, Callable
 
 from absl import logging
@@ -31,6 +32,29 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+
+
+def _sync_global_processes(
+    name: str,
+):
+  """Syncs global processes using torch.distributed if available, else multihost."""
+  try:
+    import torch.distributed as dist  # pylint: disable=g-import-not-at-top
+
+    if dist.is_initialized():
+      logging.vlog(
+          1,
+          "[process=%s][thread=%s] sync_global_processes with torch"
+          " barrier: %s",
+          dist.get_rank(),
+          threading.current_thread().name,
+          name,
+      )
+      dist.barrier()
+      return
+  except ImportError:
+    pass
+  multihost.sync_global_processes(name)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,13 +172,13 @@ class Benchmark(abc.ABC):
       name += f"_repeat_{repeat_index}"
     logging.info(
         "[process_id=%s] Setting up test: %s",
-        multihost.process_index(),
+        metric_lib.get_process_index(),
         name,
     )
 
     benchmark_metrics = metric_lib.Metrics(name=f"{name} Internal")
     with benchmark_metrics.measure("sync_global_processes:benchmark:run"):
-      multihost.sync_global_processes("benchmark:run")
+      _sync_global_processes("benchmark:run")
 
     path = directory_setup.setup_test_directory(
         self.name, self.output_dir, repeat_index
@@ -163,7 +187,7 @@ class Benchmark(abc.ABC):
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_test_directory"
     ):
-      multihost.sync_global_processes("benchmark:setup_test_directory")
+      _sync_global_processes("benchmark:setup_test_directory")
 
     if self.checkpoint_config.path is None:
       data = checkpoint_generation.generate_checkpoint(
@@ -175,7 +199,7 @@ class Benchmark(abc.ABC):
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_pytree"
     ):
-      multihost.sync_global_processes("benchmark:setup_pytree")
+      _sync_global_processes("benchmark:setup_pytree")
 
     context = TestContext(
         pytree=data,
@@ -191,7 +215,7 @@ class Benchmark(abc.ABC):
 
     logging.info(
         "[process_id=%s] Executing test function: %s",
-        multihost.process_index(),
+        metric_lib.get_process_index(),
         name,
     )
     try:
@@ -201,13 +225,13 @@ class Benchmark(abc.ABC):
       # execution is recorded in the TestResult.
       if sys.version_info >= (3, 11):
         e.add_note(
-            f"[process_id={multihost.process_index()}],"
+            f"[process_id={metric_lib.get_process_index()}],"
             f" {test_context_summary[:100]}"
         )
       logging.error(
           "[process_id=%s] Test function '%s' context: %s, raised an"
           " exception: %s",
-          multihost.process_index(),
+          metric_lib.get_process_index(),
           name,
           test_context_summary[:100],
           e,
@@ -221,7 +245,7 @@ class Benchmark(abc.ABC):
 
     logging.info(
         "[process_id=%s] Test finished: %s",
-        multihost.process_index(),
+        metric_lib.get_process_index(),
         name,
     )
 
@@ -304,13 +328,13 @@ class BenchmarksGenerator(abc.ABC):
         option_instances.append(option_instance)
         logging.info(
             "[process_id=%s] Generating valid option combination: %s",
-            multihost.process_index(),
+            metric_lib.get_process_index(),
             option_instance,
         )
       else:
         logging.info(
             "[process_id=%s] Skipping invalid option combination: %s",
-            multihost.process_index(),
+            metric_lib.get_process_index(),
             option_instance,
         )
     return option_instances
@@ -458,5 +482,5 @@ class TestSuite:
       )
 
     logging.info(self._suite_metrics.generate_report())
-    multihost.sync_global_processes("test_suite:run_end")
+    _sync_global_processes("test_suite:run_end")
     return all_results

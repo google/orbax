@@ -35,6 +35,18 @@ import psutil
 import tensorstore as ts
 
 
+def get_process_index():
+  """Returns process index from torch.distributed if available, else from multihost."""
+  try:
+    import torch.distributed as dist  # pylint: disable=g-import-not-at-top
+
+    if dist.is_initialized():
+      return dist.get_rank()
+  except ImportError:
+    pass
+  return multihost.process_index()
+
+
 class BaseMetric:
   """Base class for a metric type."""
 
@@ -47,7 +59,7 @@ class BaseMetric:
     self._start_time = time.perf_counter()
     logging.info(
         "[process_id=%s] Starting metric: '%s'...",
-        multihost.process_index(),
+        get_process_index(),
         self.name,
     )
 
@@ -56,7 +68,7 @@ class BaseMetric:
     duration = time.perf_counter() - self._start_time
     logging.info(
         "[process_id=%s] Finished metric: '%s' (took %.4fs)",
-        multihost.process_index(),
+        get_process_index(),
         self.name,
         duration,
     )
@@ -168,7 +180,7 @@ class TracemallocMetric(BaseMetric):
 
     self._log_tracemalloc_snapshot_diff(
         self.name,
-        multihost.process_index(),
+        get_process_index(),
         self._start_snapshot,
         end_snapshot,
         top_n=15,
@@ -285,7 +297,7 @@ class TensorstoreMetric(BaseMetric):
     diff = self._diff_metrics(self._start_metrics, end_metrics)
     logging.info(
         "[process_id=%s] Finished metric: %s, num_diffs=%d",
-        multihost.process_index(),
+        get_process_index(),
         self.name,
         len(diff),
     )
@@ -423,12 +435,12 @@ class Metrics:
     """Logs a formatted report of all collected metrics."""
     report_lines = []
     report_lines.append(
-        f"---[process_id={multihost.process_index()}] {self.name} Metrics"
+        f"---[process_id={get_process_index()}] {self.name} Metrics"
         " Report ---"
     )
     if not self.results:
       report_lines.append(
-          f"[process_id={multihost.process_index()}] No metrics recorded."
+          f"[process_id={get_process_index()}] No metrics recorded."
       )
     else:
       for name, (value, unit) in sorted(self.results.items()):
@@ -649,7 +661,7 @@ class MetricsManager:
     """Exports metrics to TensorBoard."""
     logging.info("Writing per-repetition metrics to TensorBoard...")
     for benchmark_name, results in self._runs.items():
-      is_primary_host = multihost.process_index() == 0
+      is_primary_host = get_process_index() == 0
       writer = metric_writers.create_default_writer(
           tensorboard_dir,
           just_logging=not is_primary_host,
