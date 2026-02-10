@@ -254,6 +254,58 @@ build_run_command() {
     echo "$cmd"
 }
 
+build_cmd() {
+    local cmd="
+    # sudo rm -f /tmp/libtpu_lockfile
+    cd /app/orbax_repo
+    export PYTHONPATH=\$PYTHONPATH:.
+
+    script=\$(find /app/orbax_repo -name run_tests.py -print -quit)
+    if [ -z \"\$script\" ]; then
+        echo \"Error: run_tests.py not found in /app/orbax_repo\"
+        exit 1
+    fi
+
+    export JAX_TPU_CHIPS_PER_HOST_BOUNDS=2,2,1
+    export JAX_DISTRIBUTED_SHUTDOWN_TIMEOUT=10
+    export ALLOW_MULTIPLE_LIBTPU_LOAD=1
+
+    (
+        export JAX_PLATFORMS=tpu
+        export TPU_VISIBLE_DEVICES=0,1,2,3
+        export JAX_PROCESS_ID=0
+        export JAX_NUM_PROCESSES=2
+        export JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234
+        export JAX_NUM_TASKS=2
+        export JAX_TASK_ID=0
+        export NUM_PROCESSES=2
+        export MULTIPROCESS_TEST_WORKER_ID=0
+        export JAX_ALLOW_UNUSED_TPUS=true
+        export JAX_PORT=1234
+        python3 -c \"import jax; jax.distributed.initialize(coordinator_address='localhost:1234', num_processes=2, process_id=0, local_device_ids=[0,1,2,3]); print(jax.devices());\"
+    ) &
+
+    sleep 5
+
+    (
+        export JAX_PLATFORMS=tpu
+        export TPU_VISIBLE_DEVICES=4,5,6,7
+        export JAX_ALLOW_UNUSED_TPUS=true
+        export JAX_PROCESS_ID=1
+        export JAX_NUM_PROCESSES=2
+        export JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234
+        export JAX_NUM_TASKS=2
+        export JAX_TASK_ID=1
+        export NUM_PROCESSES=2
+        export MULTIPROCESS_TEST_WORKER_ID=1
+        python3 -c \"import jax; jax.distributed.initialize(coordinator_address='localhost:1234', num_processes=2, process_id=1, local_device_ids=[4,5,6,7]); print(jax.devices());\"
+    )
+
+    wait
+    "
+    echo "$cmd"
+}
+
 # --- Main Parsing ---
 
 while [[ "$#" -gt 0 ]]; do
