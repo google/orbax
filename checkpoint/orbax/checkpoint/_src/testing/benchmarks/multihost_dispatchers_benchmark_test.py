@@ -194,7 +194,7 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
         use_colocated=[True], device_count=[1, 2]
     )
     b = MultihostDispatchersBenchmark(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=options,
     )
 

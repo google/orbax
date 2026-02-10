@@ -170,7 +170,7 @@ class Benchmark(abc.ABC):
           self.checkpoint_config, mesh=self.mesh
       )
     else:
-      data = checkpoint_generation.load_checkpoint(self.checkpoint_config.path)
+      data = checkpoint_generation.load_checkpoint(self.checkpoint_config)
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_pytree"

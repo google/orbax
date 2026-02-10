@@ -144,7 +144,7 @@ class BenchmarkTest(parameterized.TestCase):
       metrics.results['restore'] = (2.0, 's')
       return core.TestResult(metrics=metrics)
 
-    ckpt_config = configs.CheckpointConfig(path='/tmp/path', spec={})
+    ckpt_config = configs.CheckpointConfig(path='/tmp/path')
     mesh_config = configs.MeshConfig(
         mesh_axes=['x'],
         ici_parallelism={'x': 1},
@@ -165,7 +165,7 @@ class BenchmarkTest(parameterized.TestCase):
     mock_setup_test_directory.assert_called_once_with(
         'test_benchmark', None, None
     )
-    mock_load_checkpoint.assert_called_once_with('/tmp/path')
+    mock_load_checkpoint.assert_called_once_with(ckpt_config)
     mock_create_mesh.assert_called_once_with(mesh_config)
     self.assertEqual(mock_metrics_report.call_count, 2)
 
@@ -217,7 +217,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
   def test_get_options_product(self):
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2], opt2='a'),
     )
 
@@ -231,7 +231,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     )
 
   def test_generate_benchmark_name(self):
-    ckpt_config = configs.CheckpointConfig()
+    ckpt_config = configs.CheckpointConfig(spec={})
     gen = MyGenerator(
         checkpoint_configs=[ckpt_config],
         options=MyBenchmarkOptions(),
@@ -271,7 +271,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     mock_create_mesh.side_effect = [exception, mock_mesh]
 
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(),
         mesh_configs=[mesh_config1, mesh_config2],
     )
@@ -296,7 +296,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
     mock_create_mesh.side_effect = [ValueError('Incompatible'), mock_mesh]
 
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(),
         mesh_configs=[mesh_config1, mesh_config2],
     )
@@ -306,7 +306,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
   def test_generate(self):
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2], opt2=['a', 'b']),
     )
 
@@ -328,7 +328,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         TypeError, 'must be decorated with @benchmark_options'
     ):
       UndecoratedGenerator(
-          checkpoint_configs=[configs.CheckpointConfig()],
+          checkpoint_configs=[configs.CheckpointConfig(spec={})],
           options=MyBenchmarkOptions(),
       )
 
@@ -337,7 +337,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
         TypeError, 'Expected options of type MyBenchmarkOptions'
     ):
       MyGenerator(
-          checkpoint_configs=[configs.CheckpointConfig()],
+          checkpoint_configs=[configs.CheckpointConfig(spec={})],
           options=core.BenchmarkOptions(),
       )
 
@@ -347,7 +347,7 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(metric_lib, 'MetricsManager')
   def test_init_with_output_dir(self, mock_metrics_manager):
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=1),
     )
     output_dir = '/tmp/foo'
@@ -359,7 +359,7 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(core.Benchmark, 'run')
   def test_run(self, mock_benchmark_run):
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2]),
     )
     suite = core.TestSuite(name='my_suite', benchmarks_generators=[gen])
@@ -371,11 +371,11 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(core.Benchmark, 'run')
   def test_run_multiple_generators(self, mock_benchmark_run):
     gen1 = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2]),
     )
     gen2 = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt2=['c', 'd']),
     )
     suite = core.TestSuite(name='my_suite', benchmarks_generators=[gen1, gen2])
@@ -388,7 +388,7 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(core.Benchmark, 'run')
   def test_run_with_num_repeats(self, mock_benchmark_run):
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=1),
     )
     suite = core.TestSuite(
@@ -411,7 +411,7 @@ class TestSuiteTest(parameterized.TestCase):
   ):
     # This generator will produce no benchmarks because opt1 is an empty list
     gen = MyGenerator(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[], opt2='a'),
     )
     suite = core.TestSuite(name='empty_suite', benchmarks_generators=[gen])
@@ -450,7 +450,7 @@ class TestSuiteTest(parameterized.TestCase):
         return core.TestResult(metrics=metrics)
 
     gen = MyGeneratorWithFailure(
-        checkpoint_configs=[configs.CheckpointConfig()],
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
         options=MyBenchmarkOptions(opt1=[1, 2], opt2=['a', 'b']),
     )
     suite = core.TestSuite(name='report_suite', benchmarks_generators=[gen])

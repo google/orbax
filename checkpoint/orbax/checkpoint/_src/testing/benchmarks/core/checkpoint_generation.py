@@ -14,6 +14,7 @@
 
 """Functions for checkpoint generation and loading in Orbax benchmark tests."""
 
+import json
 from typing import Any
 
 from absl import logging
@@ -28,7 +29,7 @@ from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import configs
-from orbax.checkpoint._src.tree import utils
+from orbax.checkpoint._src.tree import utils as tree_utils
 
 
 
@@ -96,6 +97,10 @@ def generate_checkpoint(
   Raises:
       ValueError: If the spec string is not supported.
   """
+  if config.spec is None:
+    raise ValueError(
+        'CheckpointConfig must have a `spec` if `path` is not provided.'
+    )
   pytree = {}
   if config.random_seed is not None:
     np.random.seed(config.random_seed)
@@ -122,34 +127,87 @@ def _partition_axis_name(offset: int) -> str:
 
 
 
-def load_checkpoint(path: str) -> Any:
-  """Loads a PyTree of test checkpoint from a provided path."""
-  logging.info('Loading checkpoint from path: %s', path)
-  path = epath.Path(path)
-
-
-  use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
+def _get_abstract_state(
+    config: configs.CheckpointConfig,
+    *,
+    use_ocdbt: bool,
+    devices: list[jax.Device] | None = None,
+) -> Any:
+  """Loads sharding configuration from a JSON file."""
+  path = epath.Path(config.path)
+  devices = devices or jax.devices()
   with checkpointer.Checkpointer(
       pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)
   ) as ckptr:
     metadata = ckptr.metadata(path).item_metadata
+
+  if config.sharding_config_path is None:
     abstract_state = jax.tree.map(
         abstract_arrays.to_shape_dtype_struct, metadata.tree
     )
     shardings = sharding_utils.construct_maximal_shardings(abstract_state)
-    abstract_state = jax.tree.map(
+    return jax.tree.map(
         lambda sds, sharding: jax.ShapeDtypeStruct(
             sds.shape, sds.dtype, sharding=sharding
         ),
         abstract_state,
         shardings,
     )
-    restore_args = checkpoint_utils.construct_restore_args(abstract_state)
+
+  path = epath.Path(config.sharding_config_path)
+  parsed_config = json.loads(path.read_text())
+  flat_abstract_state = {}
+  for k, v in parsed_config.items():
+    flat_abstract_state[k] = jax.ShapeDtypeStruct(
+        shape=tuple(v['shape']),
+        dtype=jnp.dtype(v['dtype']),
+        sharding=jax.sharding.NamedSharding(
+            mesh=jax.sharding.Mesh(
+                np.array(devices).reshape(v['sharding']['mesh']['shape']),
+                v['sharding']['mesh']['axes'],
+            ),
+            spec=jax.sharding.PartitionSpec(*v['sharding']['spec']),
+        ),
+    )
+    return tree_utils.from_flat_dict(
+        flat_abstract_state, metadata.tree, sep='.'
+    )
+
+
+def load_checkpoint(config: configs.CheckpointConfig) -> Any:
+  """Loads a PyTree of test checkpoint from a provided path.
+
+  Constructs a checkpoint from a reference checkpoint path specified in the
+  config, which is expected to be provided. The checkpoint will be sharded
+  according to an opaque strategy intended to minimize memory footprint, or will
+  use the sharding config specified in `config` if provided.
+
+  Args:
+      config: A CheckpointConfig object allowing the checkpoint to be loaded
+        from a reference or generated from a spec.
+
+  Returns:
+      A PyTree containing the loaded checkpoint.
+  """
+  if config.path is None:
+    raise ValueError(
+        'CheckpointConfig must have a `path` if `spec` is not provided.'
+    )
+  logging.info('Loading checkpoint from path: %s', config.path)
+  path = epath.Path(config.path)
+
+
+  use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
+  abstract_state = _get_abstract_state(config, use_ocdbt=use_ocdbt)
+  restore_args = checkpoint_utils.construct_restore_args(abstract_state)
+
+  with checkpointer.Checkpointer(
+      pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)
+  ) as ckptr:
     pytree = ckptr.restore(
         path,
         args=pytree_checkpoint_handler.PyTreeRestoreArgs(
             restore_args=restore_args
         ),
     )
-  pytree = utils.serialize_tree(pytree, keep_empty_nodes=True)
-  return pytree
+  return tree_utils.serialize_tree(pytree, keep_empty_nodes=True)

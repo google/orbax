@@ -81,7 +81,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
 
   def _run_benchmark_workflow_test(self, options: ArrayHandlerBenchmarkOptions):
     benchmark = ArrayHandlerBenchmark(
-        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     mesh = jax.sharding.Mesh(np.array(jax.devices()), ('data',))
@@ -194,7 +194,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
         use_zarr3=[True, False],
     )
     benchmark = ArrayHandlerBenchmark(
-        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
 
@@ -211,7 +211,7 @@ class ValidateMetadataTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.benchmark = ArrayHandlerBenchmark(
-        checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=ArrayHandlerBenchmarkOptions(),
     )
     mesh = jax.sharding.Mesh(np.array(jax.devices()), ('data',))
