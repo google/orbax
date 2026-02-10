@@ -1,0 +1,27 @@
+# The name for the entire test suite run.
+# Assumes v5p-128 (64 chips)
+suite_name: "Llama 3.1 70B"
+num_repeats: 5
+
+
+mesh_config:
+  mesh_axes: ["data", "fsdp", "tensor"]
+  # SHould match reference_sharding_path.
+  ici_parallelism: {"data": 1, "fsdp": 64, "tensor": 1}
+
+# Note: checkpoint_config field not specified.
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1_benchmark.V1ReshardingBenchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `V1ReshardingBenchmarkOptions` class
+      # associated with the `V1ReshardingBenchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_compression: true
+      enable_trace: true
+      reference_checkpoint_path: "gs://orbax-benchmarks/checkpoints/llama-3.1-70B-checkpoints/0/items"
+      reference_sharding_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-128-data-1-fsdp-64-tensor-1/abstract_state.json"
