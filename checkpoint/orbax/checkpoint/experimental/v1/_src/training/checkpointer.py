@@ -267,7 +267,7 @@ class Checkpointer(epy.ContextManager):
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> bool:
-    """Saves a PyTree checkpoint at the given step.
+    """Saves a checkpoint, if dictated by :py:class:`.SaveDecisionPolicy`.
 
     This function behaves similarly to :py:func:`.save_pytree` (see
     documentation), but performs additional tasks related to managing a sequence
@@ -275,9 +275,19 @@ class Checkpointer(epy.ContextManager):
 
     It consists roughly of the following steps:
       - Check whether a checkpoint should be saved at the given step.
+      - Check whether a save is already in progress. If so, wait for it to
+        finish.
       - Save to a directory given by `root_directory / <step_format>`.
       - Perform garbage collection if necessary.
       - Return whether a checkpoint was saved or not.
+
+    It is important to note that the `Checkpointer` never allows saving more
+    than one checkpoint at a time. Depending on the
+    :py:class:`.SaveDecisionPolicy`, a checkpoint may be saved or skipped at a
+    given step, but if a save is initiated, as dictated by the policy, then it
+    will proceed as normal as long as no other save is currently in progress. If
+    a save is already in progress, the function will block until the previous
+    save has finished.
 
     Args:
       step: The step number to save.
@@ -334,11 +344,12 @@ class Checkpointer(epy.ContextManager):
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
-    """Saves a PyTree checkpoint asynchronously at the given step.
+    """Saves a checkpoint asynchronously, if dictated by :py:class:`.SaveDecisionPolicy`.
 
-    See documentation for :py:func:`.save_pytree` for more details. This
-    function executes in the background, and blocks for as little time as
-    possible.
+    See documentation for :py:func:`.save_pytree` for full details. This
+    function is essentially the same, except that it executes mostly in the
+    background, and blocks for as little time as possible (primarily to
+    transfer weights from device to host).
 
     Args:
       step: The step number to save.
