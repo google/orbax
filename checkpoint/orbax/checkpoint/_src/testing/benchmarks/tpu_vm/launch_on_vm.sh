@@ -254,6 +254,65 @@ build_run_command() {
     echo "$cmd"
 }
 
+build_cmd() {
+    local cmd="
+    # sudo rm -f /tmp/libtpu_lockfile
+    cd /app/orbax_repo
+    export PYTHONPATH=\$PYTHONPATH:.
+
+    script=\$(find /app/orbax_repo -name run_tests.py -print -quit)
+    if [ -z \"\$script\" ]; then
+        echo \"Error: run_tests.py not found in /app/orbax_repo\"
+        exit 1
+    fi
+
+    export JAX_TPU_CHIPS_PER_HOST_BOUNDS=2,2,1
+    export JAX_DISTRIBUTED_SHUTDOWN_TIMEOUT=10
+
+    (
+        export JAX_PLATFORMS=tpu
+        export TPU_VISIBLE_DEVICES=0,1,2,3
+        export DEEPSEA_HAL_EXCLUDED_DEVS=0,1,2,3
+        export JAX_PROCESS_ID=0
+        export JAX_NUM_PROCESSES=2
+        export JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234
+        export JAX_NUM_TASKS=2
+        export JAX_TASK_ID=0
+        export NUM_PROCESSES=2
+        export MULTIPROCESS_TEST_WORKER_ID=0
+        export JAX_ALLOW_UNUSED_TPUS=true
+        export JAX_PORT=1234
+        python3 \"\$script\" \
+          --filename=orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml \
+          --processes=4 \
+          --process_id=0
+    ) &
+
+    sleep 5
+
+    (
+        export JAX_PLATFORMS=tpu
+        export TPU_VISIBLE_DEVICES=4,5,6,7
+        export DEEPSEA_HAL_EXCLUDED_DEVS=4,5,6,7
+        export JAX_ALLOW_UNUSED_TPUS=true
+        export JAX_PROCESS_ID=1
+        export JAX_NUM_PROCESSES=2
+        export JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234
+        export JAX_NUM_TASKS=2
+        export JAX_TASK_ID=1
+        export NUM_PROCESSES=2
+        export MULTIPROCESS_TEST_WORKER_ID=1
+        python3 \"\$script\" \
+          --filename=orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml \
+          --processes=4 \
+          --process_id=1
+    )
+
+    wait
+    "
+    echo "$cmd"
+}
+
 # --- Main Parsing ---
 
 while [[ "$#" -gt 0 ]]; do

@@ -317,7 +317,8 @@ jobs:
 
   multiprocess-unit-tests:
     name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-x86-ct5lp-4tpu-x2
+    # runs-on: linux-x86-ct5lp-4tpu-x2
+    runs-on: linux-x86-ct5lp-224-8tpu
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -347,10 +348,36 @@ jobs:
           pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         fi
     - name: Run multiprocess tests
-      env:
-        TEST_TMPDIR: gs://orbax-benchmarks/unit-tests/${{ github.run_id }}
+      # env:
+      #   TEST_TMPDIR: gs://orbax-benchmarks/unit-tests/${{ github.run_id }}
+        # export JAX_TPU_CHIPS_PER_HOST_BOUNDS=1,2,1
+        # export LIBTPU_INIT_ARGS="--deepsea_chips_per_host_bounds=2,2,1 --deepsea_host_bounds=2,1,1"
       run: |
-        python orbax/checkpoint/_src/testing/multiprocess_unittests/run_tests.py --filename=orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml --processes=4
+        export JAX_TPU_CHIPS_PER_HOST_BOUNDS=2,2,1
+        export JAX_DISTRIBUTED_SHUTDOWN_TIMEOUT=10
+        export LIBTPU_INIT_ARGS="--deepsea_chips_per_host_bounds=2,2,1 --deepsea_host_bounds=2,1,1 --deepsea_slice_builder_worker_addresses=''" \
+
+        JAX_PLATFORMS=tpu \
+        TPU_VISIBLE_DEVICES=0,1,2,3 \
+        DEEPSEA_HAL_EXCLUDED_DEVS=0,1,2,3 \
+        JAX_PROCESS_ID=0 JAX_NUM_PROCESSES=2 JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234 \
+        JAX_NUM_TASKS=2 JAX_TASK_ID=0 NUM_PROCESSES=2 MULTIPROCESS_TEST_WORKER_ID=0 \
+        JAX_ALLOW_UNUSED_TPUS=true \
+        JAX_PORT=1234 \
+        python orbax/checkpoint/_src/testing/multiprocess_unittests/run_tests.py \
+          --filename=../tagged_tests.yaml --processes=4 --process_id=0 &
+        sleep 5
+
+        JAX_PLATFORMS=tpu \
+        TPU_VISIBLE_DEVICES=4,5,6,7 \
+        DEEPSEA_HAL_EXCLUDED_DEVS=4,5,6,7 \
+        JAX_ALLOW_UNUSED_TPUS=true \
+        JAX_PROCESS_ID=1 JAX_NUM_PROCESSES=2 JAX_DISTRIBUTED_SERVICE_ADDR=localhost:1234 \
+        JAX_NUM_TASKS=2 JAX_TASK_ID=1 NUM_PROCESSES=2 MULTIPROCESS_TEST_WORKER_ID=1 \
+        python orbax/checkpoint/_src/testing/multiprocess_unittests/run_tests.py \
+          --filename=../tagged_tests.yaml --processes=4 --process_id=1
+
+        wait
     - name: Report success or failure as github status
       if: always()
       shell: bash
