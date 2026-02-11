@@ -20,11 +20,9 @@ from typing import Any
 
 from absl import logging
 from orbax.checkpoint._src.metadata import step_metadata_serialization
-from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 InternalCheckpointMetadata = (
@@ -49,21 +47,6 @@ _V0_ERROR_MESSAGE = (
 )
 
 
-async def read_checkpoint_metadata(
-    directory: path_types.Path,
-) -> InternalCheckpointMetadata:
-  """Returns the step metadata for a given path, normalized for V1."""
-
-  serialized_metadata = (
-      await metadata_serialization.read(
-          metadata_serialization.checkpoint_metadata_file_path(directory)
-      )
-      or {}
-  )
-
-  return InternalCheckpointMetadata.deserialize(serialized_metadata)
-
-
 def get_handlers_for_save(
     handler_registry: registration.CheckpointableHandlerRegistry,
     checkpointables: dict[str, Any],
@@ -81,10 +64,11 @@ async def get_handlers_for_load(
     directory: path_types.Path,
     handler_registry: registration.CheckpointableHandlerRegistry,
     abstract_checkpointables: dict[str, Any],
+    checkpoint_metadata: InternalCheckpointMetadata,
 ) -> dict[str, handler_types.CheckpointableHandler]:
   """Returns a mapping from checkpointable name to handler."""
   existing_checkpointable_names_to_handler_typestrs = (
-      await _get_saved_handler_typestrs(directory)
+      await _get_saved_handler_typestrs(directory, checkpoint_metadata)
   )
   abstract_checkpointables = abstract_checkpointables or {
       name: None for name in existing_checkpointable_names_to_handler_typestrs
@@ -111,13 +95,10 @@ async def get_handlers_for_load(
 
 async def _get_saved_handler_typestrs(
     directory: path_types.Path,
+    checkpoint_metadata: InternalCheckpointMetadata,
 ) -> dict[str, str]:
   """Reads from the checkpoint metadata to get saved handler typestrs."""
-  checkpoint_metadata_file_path = (
-      metadata_serialization.checkpoint_metadata_file_path(directory)
-  )
-  if await async_path.exists(checkpoint_metadata_file_path):
-    checkpoint_metadata = await read_checkpoint_metadata(directory)
+  if checkpoint_metadata.item_handlers:
     if isinstance(checkpoint_metadata.item_handlers, dict):
       return checkpoint_metadata.item_handlers  # found step level metadata.
     raise ValueError(
@@ -131,34 +112,8 @@ async def _get_saved_handler_typestrs(
     )
 
   logging.warning(
-      'Given dir does not contain checkpoint metadata file: %s. Trying to get'
-      ' saved handlers from checkpoint metadata in each of the checkpointable'
-      ' subdirectory.',
+      'Given dir does not contain checkpoint metadata file: %s. No handler'
+      ' typestrs found.',
       directory,
   )
-
-  # TODO(b/475265289): Currently, we rely solely on CHECKPOINT_METADATA to
-  # find available checkpointables, ignoring valid subdirectories. We
-  # should update the composite handler to validate subdirectories to
-  # check if any either represents a valid pytree checkpointable or has a
-  # name that is registered in the handler registry.
-  saved_handler_typestrs: dict[str, str] = {}
-  for checkpointable_path in await async_path.iterdir(directory):
-    if not await async_path.is_dir(checkpointable_path):
-      continue
-    checkpoint_metadata = await read_checkpoint_metadata(checkpointable_path)
-    if isinstance(checkpoint_metadata.item_handlers, dict):
-      raise ValueError(
-          f'Path at {directory} contains subdirectories:'
-          f' {_subdirs(directory)}, which are expected to'
-          ' match the keys given by the _CHECKPOINT_METADATA file:'
-          f' {checkpoint_metadata.item_handlers}. If you intended to load a'
-          ' pytree checkpoint from the given path, then please consider using'
-          ' `loading.load_pytree(..., checkpointable_name=None)` instead.'
-          f' {_V0_ERROR_MESSAGE}'
-      )
-    item_handlers = checkpoint_metadata.item_handlers
-    if item_handlers is not None:
-      checkpointable_name = checkpointable_path.name
-      saved_handler_typestrs[checkpointable_name] = item_handlers
-  return saved_handler_typestrs
+  return {}

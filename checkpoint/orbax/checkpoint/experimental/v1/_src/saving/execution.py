@@ -31,7 +31,7 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
@@ -133,15 +133,10 @@ class _SaveResponse(AsyncResponse[None]):
         temporary_path.temporary_path.get_final(),
     )
 
-    # TODO(b/477603241): Refactor this to use resolution utility once we remove
-    # the composite handler.
-    handler = composite_handler.CompositeHandler(
-        context.checkpointables_options.registry
-    )
     handler_typestrs = {
         name: handler_types.typestr(type(handler))
-        for name, handler in handler.get_handlers_for_save(
-            checkpointables
+        for name, handler in handler_resolution.get_handlers_for_save(
+            context.checkpointables_options.registry, checkpointables
         ).items()
     }
 
