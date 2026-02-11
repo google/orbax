@@ -16,12 +16,36 @@
 
 A fragment is a lot like a shard but its shape is not constrained by any
 relationship to a mesh of devices, or to other fragments.
+
+For each type FS in {AbstractFragments, NpFragments and JaxFragments}, there are
+class methods:
+  - `all_of(x)`: gives an FS shaped like x, with a single fragment that spans
+    its whole shape. If FS is concrete then the fragment value will be x. If
+    FS is `AbstractFragments` then x may additionally be a
+    `jax.ShapeDtypeStruct`.
+  - `none_of(x)`: gives an FS shaped like x, with no fragments.
+  - `addressable_shards_of(x)`: gives an FS shaped like x, with one fragment for
+    each distinct addressable shard of x. If FS is `AbstractFragments` then x
+    may additionally be a `jax.ShapeDtypeStruct`.
+  - `of(x, *indices)`: gives an FS shaped like x, with one fragment for each
+    index in `indices`. If FS is concrete then the fragment values will be
+    slices of x. If FS is `AbstractFragments` then x may additionally be
+    a `jax.ShapeDtypeStruct`.
+  - `like(fragments, x)` takes an existing Fragments instance and returns a new
+    instance of FS, with the same shape and dtype and fragment indices, but
+    with the fragment values replaced by slices of x. If FS is
+    `AbstractFragments` then x must be `None` and may be omitted.
+
+Use `FS.of()` and friends to make instances out of arraylike things.
+Use `FS.like()` to convert between different kinds of Fragments.
+Use `{np, jnp}.asarray(fragments)` to make arraylike things out of (full)
+Fragments.
 """
 # TODO(b/465196209): Remove when support for Python 3.10 is dropped.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, ClassVar, Generic, Literal, Sequence, TypeAlias, TypeVar
+from typing import Any, ClassVar, Generator, Generic, Literal, Sequence, TypeAlias, TypeVar
 
 import jax
 import numpy as np
@@ -53,6 +77,21 @@ def _qualified_name(cls):
   return f'{cls.__module__}.{cls.__name__}'
 
 
+def _check_fragment_value_type(
+    value: Any,
+    valid_types: type[Any] | tuple[type[Any], ...],
+) -> None:
+  """Checks that the value has the correct type, with a nice error message."""
+  if not isinstance(value, valid_types):
+    if not isinstance(valid_types, tuple):
+      valid_types = (valid_types,)
+    raise TypeError(
+        'Fragment value must be a'
+        f' {" or ".join(_qualified_name(t) for t in valid_types)}, not'
+        f' {type(value)}.'
+    )
+
+
 @dataclasses.dataclass(frozen=True, init=False)
 class _GenericFragment(Generic[A]):
   """One of a collection of slices into the same (abstract or concrete) array.
@@ -78,12 +117,7 @@ class _GenericFragment(Generic[A]):
       np_index: NpIndex | None = None,
       value: A,
   ):
-    if not isinstance(value, self.ARRAY_T):
-      raise TypeError(
-          f'Fragment value must be a {_qualified_name(self.ARRAY_T)},'
-          f' not {type(value)}.'
-      )
-
+    _check_fragment_value_type(value, self.ARRAY_T)
     if index is not None and np_index is not None:
       raise ValueError('Cannot specify both index and np_index.')
     if index is None and np_index is None:
@@ -338,6 +372,29 @@ class _GenericFragments(Generic[_F]):
             f' {type(fragment)}.'
         )
 
+  @classmethod
+  def all_of(cls: type[FS], x: Aconcrete | jax.ShapeDtypeStruct) -> FS:
+    """Returns a Fragments with a single fragment spanning the whole shape."""
+    # Use a generator expression to defer evaluation of x.shape till `_of()`
+    # has checked that x is even of a type that has a .shape attribute.
+    indices = (tuple(slice(0, dim) for dim in x.shape) for _ in range(1))
+    return cls._of(x, indices=indices)
+
+  @classmethod
+  def none_of(cls: type[FS], x: Any) -> FS:
+    """Returns a Fragments with no fragments."""
+    return cls._of(x, indices=[])
+
+  @classmethod
+  def addressable_shards_of(cls: type[FS], x: Any) -> FS:
+    """Returns a Fragments exactly spanning the distinct addressable shards of `x`."""
+    return cls._of(x, indices=_gen_distinct_addressable_indices(x))
+
+  @classmethod
+  def of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments exactly spanning the given indices."""
+    return cls._of(x, indices=indices)
+
   def is_degenerate(self) -> bool:
     """Whether this contains only degenerate fragments."""
     return all(f.is_degenerate() for f in self.fragments)
@@ -423,15 +480,69 @@ class AbstractFragments(_GenericFragments[AbstractFragment]):
   """A collection of abstract fragments."""
   FRAGMENT_T = AbstractFragment
 
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, (np.ndarray, jax.Array, jax.ShapeDtypeStruct))
+    fragments = [cls.FRAGMENT_T(index=index) for index in indices]
+    return cls(x.shape, x.dtype, fragments)
+
+  @classmethod
+  def like(
+      cls: type[FS],
+      fragments: _GenericFragments[Any],
+      value: Literal[None] = None,
+  ) -> FS:
+    del value
+    return cls(
+        shape=fragments.shape,
+        dtype=fragments.dtype,
+        fragments=[
+            cls.FRAGMENT_T(index=f.index) for f in fragments.fragments
+        ],
+    )
+
 
 @dataclasses.dataclass(frozen=True, init=False)
-class NpFragments(_GenericFragments[NpFragment]):
+class _ConcreteFragments(_GenericFragments[Fconcrete]):
+  """A collection of concrete fragments."""
+  FRAGMENT_T: ClassVar[type[Fconcrete]]  # The type of fragment values.
+
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
+    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
+    return cls(x.shape, x.dtype, fragments)
+
+  @classmethod
+  def like(
+      cls: type[FS], fragments: _GenericFragments[Any], value: Aconcrete
+  ) -> FS:
+    _check_fragment_value_type(value, cls.FRAGMENT_T.ARRAY_T)
+    if fragments.shape != value.shape or fragments.dtype != value.dtype:
+      raise ValueError(
+          f'Fragments type {fragments.dtype}[{fragments.shape}] does'
+          f' not match value type {value.dtype}[{value.shape}].'
+      )
+    return cls(
+        shape=fragments.shape,
+        dtype=fragments.dtype,
+        fragments=[
+            cls.FRAGMENT_T(index=f.index, value=value[f.index])
+            for f in fragments.fragments
+        ],
+    )
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class NpFragments(_ConcreteFragments[NpFragment]):
   """A collection of fragments whose values are of type `np.ndarray`."""
   FRAGMENT_T = NpFragment
 
 
 @dataclasses.dataclass(frozen=True, init=False)
-class JaxFragments(_GenericFragments[JaxFragment]):
+class JaxFragments(_ConcreteFragments[JaxFragment]):
   """A collection of fragments whose values are of type `jax.Array`."""
   FRAGMENT_T = JaxFragment
 
@@ -480,6 +591,28 @@ def addressable_shards(x: jax.Array | jax.ShapeDtypeStruct) -> list[Index]:
       normalize(idx, shape)
       for idx in sharding.addressable_devices_indices_map(shape).values()
   ]
+
+
+def _gen_distinct_addressable_indices(
+    x: np.ndarray | jax.Array | jax.ShapeDtypeStruct,
+) -> Generator[Index, None, None]:
+  """Yields fragment indices for distinct addressable shards of x."""
+  match x:
+    case jax.Array() | jax.ShapeDtypeStruct():
+      if not x.sharding:
+        raise ValueError(
+            'Cannot determine addressable shards of jax.ShapeDtypeStruct with'
+            ' no sharding.'
+        )
+      indices = addressable_shards(x)
+    case np.ndarray():
+      indices = (tuple(slice(0, dim, 1) for dim in x.shape),)
+    case _:
+      raise TypeError(f'Unsupported type: {type(x)}')
+  distinct_indices = sorted({
+      *(np_utils.to_hashable_index(i, shape=x.shape) for i in indices)
+  })
+  yield from (np_utils.from_hashable_index(i) for i in distinct_indices)
 
 
 def abstract_fragments(
