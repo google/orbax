@@ -229,6 +229,9 @@ def jd_global_supplemental_closure(
   asset_source_paths = jd_module.export_assets()
   if not asset_source_paths:
     return None
+  if isinstance(asset_source_paths, dict):
+    asset_source_paths = set(asset_source_paths.values())
+
   jd_asset_map = _get_jd_asset_map(asset_source_paths)
 
   def save_and_create_global_supplemental(
