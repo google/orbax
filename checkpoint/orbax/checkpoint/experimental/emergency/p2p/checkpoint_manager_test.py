@@ -68,6 +68,7 @@ class CheckpointManagerTest(absltest.TestCase):
         shape_tuple=devices.shape,
     )
     self.abstract_state = {'a': 1}
+    self.restore_args = p2p_args_lib.Composite(state=self.abstract_state)
 
     self.mock_local = self.enter_context(
         mock.patch.object(local, 'LocalCheckpointManager')
@@ -96,6 +97,9 @@ class CheckpointManagerTest(absltest.TestCase):
     )
     self.enter_context(
         mock.patch('socket.gethostname', return_value='localhost')
+    )
+    self.mock_global_max = self.enter_context(
+        mock.patch.object(multihost, 'global_max', return_value=[0])
     )
 
     # Mock instances returned by constructors
@@ -194,10 +198,12 @@ class CheckpointManagerTest(absltest.TestCase):
         self.local_dir,
     )
 
-    result = manager.restore(1)
+    result = manager.restore(1, args=self.restore_args)
 
     self.assertEqual(result, {'a': 1})
-    self.local_manager_instance.restore.assert_called_once_with(1)
+    self.local_manager_instance.restore.assert_called_once_with(
+        1, args=self.restore_args
+    )
     self.p2p_node_instance.fetch_shard_from_peer.assert_not_called()
     manager.close()
 
@@ -222,17 +228,19 @@ class CheckpointManagerTest(absltest.TestCase):
         self.local_dir,
     )
 
-    result = manager.restore(1)
+    result = manager.restore(1, args=self.restore_args)
     self.assertEqual(result, {'a': 1})
     self.local_manager_instance.all_steps.assert_called()
-    self.peer_selector_instance.get_source_peer.assert_called_once_with(
+    self.assertEqual(2, self.peer_selector_instance.get_source_peer.call_count)
+    self.peer_selector_instance.get_source_peer.assert_called_with(
         1, process_index.return_value
     )
     self.p2p_node_instance.fetch_shard_from_peer.assert_called_once_with(
         '1.2.3.4', 5678, 1, 1
     )
-    self.local_manager_instance.restore.assert_called_once()
-    self.assertIn('directory', self.local_manager_instance.restore.call_args[1])
+    self.local_manager_instance.restore.assert_called_once_with(
+        1, args=self.restore_args, directory=mock.ANY
+    )
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
@@ -243,6 +251,7 @@ class CheckpointManagerTest(absltest.TestCase):
     # P2P fetch fails
     self.peer_selector_instance.get_source_peer.return_value = None
     self.persistent_manager_instance.restore.return_value = {'a': 1}
+    self.mock_global_max.return_value = [1]
 
     manager = p2p_cm.CheckpointManager(
         self.mesh,
@@ -251,10 +260,10 @@ class CheckpointManagerTest(absltest.TestCase):
         persistent_directory=self.persistent_dir,
     )
 
-    result = manager.restore(1)
+    result = manager.restore(1, args=self.restore_args)
     self.assertEqual(result, {'a': 1})
-    self.local_manager_instance.all_steps.assert_called_once()
-    self.peer_selector_instance.get_source_peer.assert_called_once_with(
+    self.assertEqual(1, self.peer_selector_instance.get_source_peer.call_count)
+    self.peer_selector_instance.get_source_peer.assert_called_with(
         1, process_index.return_value
     )
     self.p2p_node_instance.fetch_shard_from_peer.assert_not_called()
@@ -281,7 +290,116 @@ class CheckpointManagerTest(absltest.TestCase):
         self.local_dir,
     )
     with self.assertRaises(FileNotFoundError):
-      manager.restore(1)
+      manager.restore(1, args=self.restore_args)
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_coordinated_fallback_peer_failed(self, _):
+    """Tests that we fall back to persistent if a peer fails, even if we succeeded locally."""
+    # 1. Setup: Local restore succeeds
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [1])
+    self.local_manager_instance.all_steps.return_value = [1]
+    self.local_manager_instance.restore.return_value = {'a': 1}  # Local success
+    self.mock_sync_global_data.return_value = []
+
+    # 2. Setup: Persistent manager returns a different value so we can verify
+    # fallback was used
+    self.persistent_manager_instance.restore.return_value = {'a': 999}
+
+    # 3. Setup: global_max returns 1, indicating SOMEONE failed
+    self.mock_global_max.return_value = [1]
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # 4. Action
+    result = manager.restore(1, args=self.restore_args)
+
+    # 5. Verification
+    # Should use persistent result
+    self.assertEqual(result, {'a': 999})
+
+    # Local restore WAS attempted
+    self.local_manager_instance.restore.assert_called_once_with(
+        1, args=self.restore_args
+    )
+
+    # Persistent restore WAS called
+    self.persistent_manager_instance.restore.assert_called_once_with(
+        1, args=mock.ANY
+    )
+
+    # global_max was called with [0] because WE succeeded (my_failure=0)
+    self.mock_global_max.assert_called_once_with([0])
+
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_coordinated_fallback_local_failed(self, _):
+    """Tests that we fall back to persistent if we fail locally."""
+    # 1. Setup: Local/P2P fail
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+    self.peer_selector_instance.get_source_peer.return_value = None  # P2P fails
+
+    self.persistent_manager_instance.restore.return_value = {'a': 999}
+    self.mock_global_max.return_value = [1]  # Everyone knows someone failed
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # 4. Action
+    result = manager.restore(1, args=self.restore_args)
+
+    # 5. Verification
+    self.assertEqual(result, {'a': 999})
+    self.persistent_manager_instance.restore.assert_called_once()
+
+    # global_max was called with [1] because WE failed (my_failure=1)
+    self.mock_global_max.assert_called_once_with([1])
+
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_no_step_in_p2p_but_in_persistent(self, _):
+    """Tests fallback to persistent step if P2P has no step."""
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+
+    # P2P has no latest complete step
+    self.peer_selector_instance.get_latest_complete_step.return_value = None
+
+    # Persistent has step 100
+    self.persistent_manager_instance.latest_step.return_value = 100
+    self.persistent_manager_instance.restore.return_value = {'a': 100}
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    self.mock_global_max.return_value = [1]
+
+    result = manager.restore(None, args=self.restore_args)
+
+    self.assertEqual(result, {'a': 100})
+    self.persistent_manager_instance.latest_step.assert_called_once()
+    self.persistent_manager_instance.restore.assert_called_once_with(
+        100, args=mock.ANY
+    )
+    self.mock_global_max.assert_called_once_with([1])
+
     manager.close()
 
 

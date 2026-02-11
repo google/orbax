@@ -174,6 +174,14 @@ class _P2PSubsystem:
     assert self._peer_selector is not None
     return self._peer_selector.get_latest_complete_step()
 
+  def has_shard_for_step(self, step: int) -> bool:
+    """Checks if this process's shard for a given step exists in the P2P network."""
+    assert self._peer_selector is not None
+    return (
+        self._peer_selector.get_source_peer(step, self._process_index)
+        is not None
+    )
+
   def fetch(self, step: int) -> bool:
     """Fetches from peers, or waits for background fetch if it's in progress."""
     if step == self._bkg_fetch_step:
@@ -340,70 +348,102 @@ class CheckpointManager(
 
     return p2p_saved or persistent_saved
 
+  def _restore_from_persistent_storage(
+      self, step: int, args: p2p_args_lib.Composite
+  ) -> Any:
+    """Restores from persistent storage."""
+    assert self._persistent_manager is not None
+    logging.info('Restoring step %d from persistent storage.', step)
+    return self._persistent_manager.restore(step, args=args)
+
+  def _restore_from_local_or_p2p(
+      self, step: int, args: p2p_args_lib.Composite
+  ) -> Any:
+    """Restores from local storage or P2P network."""
+    logging.info('Attempting to restore step %d from local or P2P.', step)
+    if step in self._local_manager.all_steps():
+      logging.info('Step %d found in local storage.', step)
+      return self._local_manager.restore(step, args=args)
+    else:
+      logging.info('Step %d not found locally, fetching from P2P.', step)
+      if self._p2p.fetch(step):
+        p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
+        return self._local_manager.restore(
+            step, args=args, directory=p2p_restore_dir
+        )
+      else:
+        raise FileNotFoundError(
+            f'Failed to fetch step {step} from P2P network.'
+        )
+
   @override
   def restore(
-      self, step: int | None, args: p2p_args_lib.Composite | None = None
+      self, step: int | None, args: p2p_args_lib.Composite | None
   ) -> Union[Any, Mapping[str, Any], p2p_args_lib.Composite, None]:
+    if args is None:
+      raise ValueError('The `args` parameter is required for restore.')
+
+    start_time = time.time()
+    # 1. Registry Sync: Ensure P2P registry is current.
+    logging.info('Registry Sync - ensuring P2P registry is current.')
     self._p2p.sync_registry_if_stale()
 
-    # TODO(exlin): Enhance restore logic:
-    # 1. Registry Sync: Ensure P2P registry is current.
-    # 2. Unified Restore: Attempt restore from local, then P2P.
-    # 3. Coordinated Fallback: Barrier sync before persistent storage restore
-    #    if local/P2P fails.
+    use_persistent = False
     if step is None:
-      step = self._local_manager.latest_step()
-      if step is None:
-        step = self._p2p.get_latest_complete_step()
+      step = self._p2p.get_latest_complete_step()
+      logging.info('P2P latest_step=%s', step)
+
+    if step is None and self._persistent_manager:
+      step = self._persistent_manager.latest_step()
+      logging.info('Persistent latest_step=%s', step)
+      if step is not None:
+        use_persistent = True
 
     if step is None:
       logging.warning('No restore step found in local storage or P2P registry.')
       return None
 
     logging.info('Targeting restore step: %d', step)
-    start_time = time.time()
 
-    # Strategy A: Local Restore
-    if step in self._local_manager.all_steps():
-      logging.info('Strategy A - Found locally. Restoring...')
-      try:
-        res = self._local_manager.restore(step)
-        logging.info(
-            'Local restore finished in %.2fs', time.time() - start_time
+    # 2. Try P2P/Local Restore
+    restored = None
+    restore_source = 'Unknown'
+    if not use_persistent:
+      if self._p2p.has_shard_for_step(step):
+        try:
+          restored = self._restore_from_local_or_p2p(step, args)
+          restore_source = 'P2P'
+        except (OSError, ValueError, FileNotFoundError) as e:
+          logging.exception('Local/P2P restore for step %d failed: %s', step, e)
+      else:
+        logging.warning(
+            'Step %d not available in P2P network, falling back to'
+            ' persistent storage.',
+            step,
         )
-        return res
-      except (OSError, ValueError) as e:
-        logging.exception('Local restore failed: %s', e)
 
-    # Strategy B: P2P Network Restore
-    logging.info('Strategy B - Not found locally. Attempting P2P fetch...')
-
-    fetch_succeeded = self._p2p.fetch(step)
-
-    if fetch_succeeded:
-      p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
-      try:
-        res = self._local_manager.restore(step, directory=p2p_restore_dir)
-        logging.info(
-            'P2P restore finished in %.2fs',
-            time.time() - start_time,
-        )
-        return res
-      except (OSError, ValueError) as e:
-        logging.exception('P2P restore failed after download: %s', e)
-
-    # Strategy C: Persistent Storage Fallback
+    # 3. Coordinated Fallback to Persistent Storage
     if self._persistent_manager:
-      logging.warning(
-          'Strategy C - P2P failed. Falling back to persistent storage.'
+      # If any host failed local/P2P restore, all hosts must use persistent.
+      fallback_to_persistent = 1 if restored is None else 0
+      any_host_needs_fallback_list = multihost.global_max(
+          [fallback_to_persistent]
       )
-      restore_args = args
-      if not restore_args:
-        restore_args = p2p_args_lib.Composite(
-            state=self._abstract_state,
+      if any_host_needs_fallback_list and any_host_needs_fallback_list[0]:
+        logging.warning(
+            'At least one host failed Local/P2P restore or step not available'
+            ' in P2P. All hosts falling back to persistent storage.'
         )
+        restored = self._restore_from_persistent_storage(step, args)
+        restore_source = 'Persistent Storage'
 
-      return self._persistent_manager.restore(step, args=restore_args)
+    if restored is not None:
+      logging.info(
+          'Restoration finished using %s in %.2fs',
+          restore_source,
+          time.time() - start_time,
+      )
+      return restored
 
     raise FileNotFoundError(f'All restore strategies failed for step {step}.')
 

@@ -125,6 +125,9 @@ class PersistentCheckpointManager:
   def directory(self) -> epath.Path:
     return self._directory
 
+  def latest_step(self) -> int | None:
+    return self._manager.latest_step()
+
   def save(
       self,
       step: int,

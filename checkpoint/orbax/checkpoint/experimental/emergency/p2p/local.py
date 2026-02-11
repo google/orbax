@@ -127,6 +127,7 @@ class LocalCheckpointManager:
   def restore(
       self,
       step: int,
+      args: p2p_args_lib.Composite,
       *,
       directory: epath.PathLike | None = None,
   ) -> p2p_args_lib.Composite:
@@ -146,8 +147,12 @@ class LocalCheckpointManager:
         raise ValueError(error_msg)
 
     # 2. Delegate to Orbax
-    restored = self._manager.restore(step, directory=directory)
-    return p2p_args_lib.Composite(**restored)
+    restored = self._manager.restore(
+        step,
+        args=args,
+        directory=directory,
+    )
+    return restored
 
   def __getattr__(self, name: str) -> Any:
     return getattr(self._manager, name)

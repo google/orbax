@@ -79,7 +79,7 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     )  # Stored by process 1
 
     with self.assertRaisesRegex(ValueError, 'Process Mismatch'):
-      manager.restore(1)
+      manager.restore(1, args=p2p_args_lib.Composite(state={'a': 1}))
     manager.close()
 
   @mock.patch(
@@ -102,7 +102,16 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     )
     manager.wait_until_finished()
 
-    restored = manager.restore(1)
+    abstract_state = jax.tree.map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding),
+        state,
+    )
+    restored = manager.restore(
+        1,
+        args=p2p_args_lib.Composite(
+            state=args_lib.PyTreeRestore(abstract_state)
+        ),
+    )
 
     jax.tree_util.tree_map(np.testing.assert_array_equal, state, restored.state)
     manager.close()
