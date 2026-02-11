@@ -544,7 +544,7 @@ def to_bfloat16(x: Any) -> Any:
 
   def _to_bfloat16_leaf(x: Any) -> Any:
     if isinstance(x, jax.ShapeDtypeStruct):
-      if jnp.issubdtype(x.dtype, jnp.floating):
+      if jnp.issubdtype(x.dtype, jnp.float32):
         return jax.ShapeDtypeStruct(
             x.shape,
             jnp.bfloat16,
@@ -555,12 +555,8 @@ def to_bfloat16(x: Any) -> Any:
     if hasattr(x, 'dtype'):
       if x.dtype == tf.string:
         return x
-      if jnp.issubdtype(x.dtype, jnp.floating):
+      if jnp.issubdtype(x.dtype, jnp.float32):
         return x.astype(jnp.bfloat16)
-
-    if isinstance(x, float):
-      return jnp.bfloat16(x)
-
     return x
 
   flattened_x, treedef = jax.tree_util.tree_flatten(x)

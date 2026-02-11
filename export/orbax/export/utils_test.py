@@ -306,7 +306,7 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     self.assertEqual(y['a'].dtype, jnp.bfloat16)
     self.assertEqual(y['b'].dtype, tf.string)
     self.assertAllEqual(y['b'], x['b'])
-    self.assertEqual(y['c'].dtype, jnp.bfloat16)
+    self.assertIsInstance(y['c'], float)
     self.assertEqual(y['d'].dtype, jnp.bfloat16)
 
 if __name__ == '__main__':
