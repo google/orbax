@@ -31,6 +31,15 @@ class methods:
     index in `indices`. If FS is concrete then the fragment values will be
     slices of x. If FS is `AbstractFragments` then x may additionally be
     a `jax.ShapeDtypeStruct`.
+  - `like(fragments, x)` takes an existing Fragments instance and returns a new
+    instance of FS, with the same shape and dtype and fragment indices, but
+    with the fragment values replaced by slices of x. If FS is
+    `AbstractFragments` then x must be `None` and may be omitted.
+
+Use `FS.of()` and friends to make instances out of arraylike things.
+Use `FS.like()` to convert between different kinds of Fragments.
+Use `{np, jnp}.asarray(fragments)` to make arraylike things out of (full)
+Fragments.
 """
 # TODO(b/465196209): Remove when support for Python 3.10 is dropped.
 from __future__ import annotations
@@ -478,31 +487,64 @@ class AbstractFragments(_GenericFragments[AbstractFragment]):
     fragments = [cls.FRAGMENT_T(index=index) for index in indices]
     return cls(x.shape, x.dtype, fragments)
 
+  @classmethod
+  def like(
+      cls: type[FS],
+      fragments: _GenericFragments[Any],
+      value: Literal[None] = None,
+  ) -> FS:
+    del value
+    return cls(
+        shape=fragments.shape,
+        dtype=fragments.dtype,
+        fragments=[
+            cls.FRAGMENT_T(index=f.index) for f in fragments.fragments
+        ],
+    )
+
 
 @dataclasses.dataclass(frozen=True, init=False)
-class NpFragments(_GenericFragments[NpFragment]):
+class _ConcreteFragments(_GenericFragments[Fconcrete]):
+  """A collection of concrete fragments."""
+  FRAGMENT_T: ClassVar[type[Fconcrete]]  # The type of fragment values.
+
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
+    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
+    return cls(x.shape, x.dtype, fragments)
+
+  @classmethod
+  def like(
+      cls: type[FS], fragments: _GenericFragments[Any], value: Aconcrete
+  ) -> FS:
+    _check_fragment_value_type(value, cls.FRAGMENT_T.ARRAY_T)
+    if fragments.shape != value.shape or fragments.dtype != value.dtype:
+      raise ValueError(
+          f'Fragments type {fragments.dtype}[{fragments.shape}] does'
+          f' not match value type {value.dtype}[{value.shape}].'
+      )
+    return cls(
+        shape=fragments.shape,
+        dtype=fragments.dtype,
+        fragments=[
+            cls.FRAGMENT_T(index=f.index, value=value[f.index])
+            for f in fragments.fragments
+        ],
+    )
+
+
+@dataclasses.dataclass(frozen=True, init=False)
+class NpFragments(_ConcreteFragments[NpFragment]):
   """A collection of fragments whose values are of type `np.ndarray`."""
   FRAGMENT_T = NpFragment
 
-  @classmethod
-  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
-    """Returns a Fragments with one fragment for each index."""
-    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
-    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
-    return cls(x.shape, x.dtype, fragments)
-
 
 @dataclasses.dataclass(frozen=True, init=False)
-class JaxFragments(_GenericFragments[JaxFragment]):
+class JaxFragments(_ConcreteFragments[JaxFragment]):
   """A collection of fragments whose values are of type `jax.Array`."""
   FRAGMENT_T = JaxFragment
-
-  @classmethod
-  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
-    """Returns a Fragments with one fragment for each index."""
-    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
-    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
-    return cls(x.shape, x.dtype, fragments)
 
 
 # Extra names for backwards compatibility. Most loading and saving code still
