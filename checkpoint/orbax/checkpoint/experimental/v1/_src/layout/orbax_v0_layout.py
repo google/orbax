@@ -14,20 +14,45 @@
 
 """Defines `V0Layout`, a class to handle Orbax V0 checkpoint formats."""
 
+import asyncio
+import logging
 from typing import Any, Awaitable
 
+from orbax.checkpoint._src.metadata import step_metadata_serialization
+from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = path_types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
+
+
+def is_orbax_v0_checkpoint(path: path_types.PathLike) -> bool:
+  """Determines if the given path is a Orbax checkpoint.
+
+  Args:
+    path: The path to the checkpoint directory.
+
+  Returns:
+    True if the path is a V1 Orbax checkpoint, False otherwise.
+  """
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+  try:
+    asyncio.run(OrbaxV0Layout().validate(path))
+    return True
+  except InvalidLayoutError:
+    return False
 
 
 class OrbaxV0Layout(CheckpointLayout):
@@ -46,10 +71,72 @@ class OrbaxV0Layout(CheckpointLayout):
         self._context.checkpointables_options.registry,
         include_global_registry=False,
     )
-    self._composite_handler = composite_handler.CompositeHandler(
-        self._handler_registry
-    )
     self._orbax_layout = orbax_layout.OrbaxLayout()
+
+  async def _get_step_metadata(
+      self, path: Path
+  ) -> step_metadata_serialization.StepMetadata | None:
+    serialized_metadata = await metadata_serialization.read(
+        metadata_serialization.checkpoint_metadata_file_path(path)
+    )
+    if serialized_metadata is None:
+      return None
+    return step_metadata_serialization.deserialize(serialized_metadata)
+
+  async def _get_pytree_handler(
+      self,
+      path: Path,
+      metadata: step_metadata_serialization.StepMetadata | None,
+      abstract_pytree: Any | None = None,
+      checkpointable_name: str | None = None,
+  ) -> registration.CheckpointableHandler:
+    if metadata is not None:
+      # Name of the checkpointable to load, if none treat the current path as
+      # the checkpointable itself.
+      name = checkpointable_name or path.name
+      if not isinstance(metadata.item_handlers, str):
+        raise InvalidLayoutError(
+            "We cannot process a composite V0 checkpoint as a single item"
+            " pytree checkpoint. The metadata points to a composite checkpoint"
+            f" of the following mappings: {metadata.item_handlers}."
+        )
+      handler_typestr = metadata.item_handlers
+      return registration.resolve_handler_for_load(
+          self._handler_registry,
+          abstract_checkpointable=abstract_pytree,
+          name=name,
+          handler_typestr=handler_typestr,
+      )
+    elif await orbax_layout.has_pytree_metadata_file(path):
+      return pytree_handler.PyTreeHandler(context=self._context)
+    else:
+      raise FileNotFoundError(
+          "Could not find handler information for the given checkpoint in"
+          f" path: {path}, due to missing checkpoint and pytree metadata"
+          " files."
+      )
+
+  async def _load_pytree_metadata(
+      self,
+      path: Path,
+      metadata: metadata_types.CheckpointMetadata | None,
+  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+    handler = await self._get_pytree_handler(path, metadata)
+    pytree_metadata = await handler.metadata(path)
+    init_timestamp_nsecs = None
+    commit_timestamp_nsecs = None
+    custom_metadata = None
+    if metadata:
+      init_timestamp_nsecs = metadata.init_timestamp_nsecs
+      commit_timestamp_nsecs = metadata.commit_timestamp_nsecs
+      custom_metadata = metadata.custom_metadata
+
+    return metadata_types.CheckpointMetadata(
+        metadata=pytree_metadata,
+        init_timestamp_nsecs=init_timestamp_nsecs,
+        commit_timestamp_nsecs=commit_timestamp_nsecs,
+        custom_metadata=custom_metadata,
+    )
 
   async def metadata(
       self, path: Path
@@ -62,20 +149,25 @@ class OrbaxV0Layout(CheckpointLayout):
     Returns:
       The metadata describing the Orbax checkpoint.
     """
-    return await self._orbax_layout.metadata(path)
+    step_metadata = await self._get_step_metadata(path)
+    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
+    if step_metadata and isinstance(step_metadata.item_handlers, dict):
+      return await self._orbax_layout.metadata(path)
+    # Otherwise, load the metadata as a PyTree checkpoint.
+    return await self._load_pytree_metadata(path, step_metadata)
 
   async def _validate(self, path: Path) -> None:
-    """Validates a checkpoint directory.
+    """Validates a V0 checkpoint directory.
 
     Must be:
     - Existing
     - A directory.
     - Not a temporary path.
-    - OR
-      - Has orbax.checkpoint indicator file.
-      - OR
-        - Has _CHECKPOINT_METADATA file.
-        - A subdirectory has _METADATA file (PyTree checkpoint).
+    - Must not have indicator file in parent directory.
+    - AND
+      - Has checkpoint metadata file
+        OR
+      - Has a valid checkpointable subdirectory under the current path
 
     Args:
       path: The path to the checkpoint directory.
@@ -85,10 +177,72 @@ class OrbaxV0Layout(CheckpointLayout):
       NotADirectoryError: If the path is not a directory.
       ValueError: If the checkpoint is incomplete.
     """
-    await self._orbax_layout.validate(path)
+
+    if not await async_path.exists(path):
+      raise FileNotFoundError(f"Checkpoint path {path} does not exist.")
+
+    if not await async_path.is_dir(path):
+      raise NotADirectoryError(f"Checkpoint path {path} is not a directory.")
+
+    if await temporary_paths.is_path_temporary(
+        path,
+        temporary_path_cls=self._context.file_options.temporary_path_class,
+    ):
+      raise ValueError(f"Found incomplete checkpoint at {path}.")
+
+    if await async_path.exists(
+        path.parent
+    ) and await orbax_layout.has_indicator_file(path.parent):
+      raise InvalidLayoutError(
+          "You are currently reading in checkpointable {path.name}, which is"
+          " a subdirectory of a V1 Orbax checkpoint. Please consider loading"
+          f" from {path.parent} instead."
+      )
+
+    if not await orbax_layout.has_checkpoint_metadata_file(path):
+      if await orbax_layout.has_pytree_metadata_file(path):
+        # If the directory has a pytree metadata file, it's a valid V0
+        # top-level pytree checkpoint.
+        return
+
+      subpaths = await orbax_layout.get_subpaths(path)
+      awaitables = [
+          orbax_layout.has_checkpoint_metadata_file(subdir)
+          for subdir in subpaths
+      ]
+      is_ckpt_list = await asyncio.gather(*awaitables)
+
+      checkpoint_subdirectories = [
+          subdir for subdir, is_ckpt in zip(subpaths, is_ckpt_list) if is_ckpt
+      ]
+      if checkpoint_subdirectories:
+        raise InvalidLayoutError(
+            "You are currently attempting to read a V0 checkpoint from a root"
+            " directory, please consider loading one of the following"
+            f" checkpoint subdirectories: {checkpoint_subdirectories}"
+        )
+
+      # Path points to a V0 checkpoint with at least one valid checkpointable,
+      # either a pytree or one with a name of a registered handler.
+      awaitables = [
+          orbax_layout.has_pytree_metadata_file(subdir)
+          or self._handler_registry.has(subdir.name)
+          for subdir in subpaths
+      ]
+      has_checkpointable = any(await asyncio.gather(*awaitables))
+      if has_checkpointable:
+        return
+
+      raise InvalidLayoutError(
+          f"Checkpoint path {path} does not contain any valid V0"
+          " checkpoint metadata."
+      )
 
   async def _validate_pytree(self, path: Path, checkpointable_name: str | None):
-    """Validates a checkpoint path written by `ocp.save_pytree`.
+    """Validates that V0 checkpoint has pytree in 'checkpointable_name' subdir.
+
+    Checks if checkpoint is either a top-level pytree checkpoint or has a
+    checkpointable_name subdirectory containing a pytree checkpoint.
 
     Args:
       path: The path to the checkpoint directory.
@@ -98,11 +252,50 @@ class OrbaxV0Layout(CheckpointLayout):
         `pytree`.
 
     Raises:
-      FileNotFoundError: If the path does not exist, or if `pytree` is not found
-        in the directory
-      ValueError: If the PyTree checkpoint is malformed.
+      FileNotFoundError: If the path does not exist, or if
+      `checkpointable_name` pytree is not found in the directory
     """
-    await self._orbax_layout.validate_pytree(path, checkpointable_name)
+    pytree_dir = (
+        path if checkpointable_name is None else path / checkpointable_name
+    )
+
+    try:
+      if not await async_path.exists(pytree_dir):
+        raise FileNotFoundError
+      elif not await orbax_layout.has_pytree_metadata_file(pytree_dir):
+        raise FileNotFoundError
+    except FileNotFoundError:
+      if await orbax_layout.has_pytree_metadata_file(path):
+        raise FileNotFoundError(
+            "The checkpointable_name either does not exist or is missing"
+            " Pytree checkpoint metadata. However, this current directory"
+            " appears to be a valid Pytree checkpoint itself. Please consider"
+            " loading with checkpointable_name=None."
+        ) from None
+
+      valid_pytree_checkpointable_names = (
+          await orbax_layout.get_valid_pytree_names(path)
+      )
+      if valid_pytree_checkpointable_names:
+        raise FileNotFoundError(
+            "The checkpointable_name either does not exist or is missing Pytree"
+            " checkpoint metadata. Please consider using one of the following"
+            " valid pytree checkpointable names:"
+            f" {valid_pytree_checkpointable_names}"
+        ) from None
+      raise FileNotFoundError(
+          "The checkpointable_name either does not exist or is missing Pytree"
+          " checkpoint metadata. There are no valid pytree checkpointables in"
+          " this checkpoint"
+      ) from None
+
+    if not await orbax_layout.has_tensorstore_data_files(pytree_dir):
+      logging.warning(
+          "TensorStore data files not found in checkpoint path %s. This may be"
+          " a sign of a malformed checkpoint, unless your checkpoint consists"
+          " entirely of strings or other non-standard PyTree leaves.",
+          path,
+      )
 
   async def validate(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
@@ -118,7 +311,8 @@ class OrbaxV0Layout(CheckpointLayout):
       await self._validate(path)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax V0 checkpoint."
+          f"Failed to interpret path {path} as a V0 Orbax checkpoint."
+          f" due to error encountered during validation: {e}"
       ) from e
 
   async def validate_pytree(
@@ -141,15 +335,80 @@ class OrbaxV0Layout(CheckpointLayout):
       await self._validate_pytree(path, checkpointable_name)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as an Orbax V0 PyTree checkpoint."
+          f"Failed to interpret path {path} as a V0 Orbax PyTree"
+          f" checkpoint. Encountered error during validation: {e}"
       ) from e
 
-  async def load(
+  async def load_pytree(
+      self,
+      path: Path,
+      checkpointable_name: str | None = None,
+      abstract_pytree: (
+          tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+      ) = None,
+  ) -> Awaitable[Any]:
+    """Loads a V0 PyTree checkpoint.
+
+    Attempts to load `checkpointable_name` pytree by finding its corresponding
+    handler from the metadata. If `abstract_pytree` is provided, it attempts to
+    load the checkpoint as a PyTree of the given abstract pytree.
+
+    Args:
+      path: The path to the checkpoint directory.
+      checkpointable_name: The name of the pytree checkpointable to load.
+      abstract_pytree: The abstract pytree to load.
+
+    Returns:
+      An awaitable containing the loaded PyTree.
+
+    Raises:
+      FileNotFoundError: If handler cannot be found for `checkpointable_name`.
+    """
+    # TODO(b/477603241): Refactor logic for composite checkpoint load pytree
+    # logic once we roll up the composite handler, since this currently is
+    # loading metadata twice, in this function and in
+    # composite_handler.
+
+    step_metadata = await self._get_step_metadata(path)
+    # Delegate to Orbax layout if checkpoint is composite
+    if step_metadata and isinstance(step_metadata.item_handlers, dict):
+      if checkpointable_name is None:
+        raise ValueError(
+            f"Attempting to load composite V0 checkpoint at {path} with"
+            " `checkpointable_name=None`. This is only supported for legacy V0"
+            " checkpoints with pytree saved directly to root of checkpoint."
+            " Please specify the name of the checkpointable to load."
+            " Otherwise, omit `checkpointable_name` to load default 'pytree'"
+            " checkpointable."
+        )
+      return await self._orbax_layout.load_pytree(
+          path, checkpointable_name, abstract_pytree
+      )
+
+    handler = await self._get_pytree_handler(
+        path, step_metadata, abstract_pytree, checkpointable_name
+    )
+    pytree_dir = (
+        path if checkpointable_name is None else path / checkpointable_name
+    )
+    load_awaitable = await handler.load(pytree_dir, abstract_pytree)
+    return load_awaitable
+
+  async def load_checkpointables(
       self,
       path: Path,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> Awaitable[dict[str, Any]]:
-    load_awaitable = await self._composite_handler.load(
+    """Loads checkpointables specified by `abstract_checkpointables`.
+
+    Args:
+      path: The path to the checkpoint directory.
+      abstract_checkpointables: The abstract checkpointables to load.
+
+    Returns:
+      An awaitable containing the loaded checkpointables.
+    """
+    load_awaitable = await self._orbax_layout.load_checkpointables(
         path, abstract_checkpointables
     )
     return load_awaitable
