@@ -540,7 +540,7 @@ class SaveLoadTestBase:
 
       with self.subTest('load_checkpointables'):
         with self.assertRaisesRegex(
-            KeyError, 'Checkpointable "foo" was not found'
+            KeyError, 'Checkpointable \'foo\' was not found'
         ):
           ocp.load_checkpointables(
               self.directory, {'foo': handler_utils.AbstractFoo()}
