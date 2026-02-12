@@ -17,6 +17,7 @@ import dataclasses
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import fragments as array_fragments
 
@@ -644,6 +645,106 @@ class FragmentsToArrayTest(parameterized.TestCase):
         r'Attempt to convert non-full Fragments to array',
     ):
       np.asarray(fragments)
+
+
+class FragmentsClassMethodsTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('np_array', NpFragments),
+      ('jnp_array', JaxFragments),
+  )
+  def test_concrete_fragments_from_all_of(self, fragments_t: FragmentsT):
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
+    other_np_api = np if np_api is jnp else jnp
+
+    with self.subTest('with_array'):
+      x = np_api.ones(shape, dtype=dtype)
+      fs = fragments_t.all_of(x)
+      self.assertEqual(fs.shape, shape)
+      self.assertEqual(fs.dtype, dtype)
+      self.assertEqual(
+          fs.fragments, [fragment_t(index=np.s_[0:2:1, 0:3:1], value=x)]
+      )
+
+    with self.subTest('with_wrong_array_type_raises'):
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.all_of(other_np_api.ones(shape, dtype=dtype))
+
+    with self.subTest('with_shape_dtype_struct_raises'):
+      x = jax.ShapeDtypeStruct(shape, dtype)
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.all_of(x)
+
+  @parameterized.named_parameters(
+      ('shape_dtype_struct', jax.ShapeDtypeStruct),
+      ('np_array', np.ones),
+      ('jnp_array', jnp.ones),
+  )
+  def test_abstract_fragments_from_all_of(self, value_fn):
+    fragments_t = AbstractFragments
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    fragment_t = fragments_t.FRAGMENT_T
+
+    x = value_fn(shape, dtype=dtype)
+    fs = fragments_t.all_of(x)
+    self.assertEqual(fs.shape, shape)
+    self.assertEqual(fs.dtype, dtype)
+    self.assertEqual(fs.fragments, [fragment_t(index=np.s_[0:2:1, 0:3:1])])
+
+    with self.subTest('with_none_raises'):
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.all_of(None)  # pytype: disable=wrong-arg-types
+
+  @parameterized.named_parameters(
+      ('np_array', NpFragments),
+      ('jnp_array', JaxFragments),
+  )
+  def test_concrete_fragments_from_none_of(self, fragments_t: FragmentsT):
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
+    other_np_api = np if np_api is jnp else jnp
+
+    with self.subTest('with_array'):
+      x = np_api.ones(shape, dtype=dtype)
+      fs = fragments_t.none_of(x)
+      self.assertEqual(fs.shape, shape)
+      self.assertEqual(fs.dtype, dtype)
+      self.assertEqual(fs.fragments, [])
+
+    with self.subTest('with_wrong_array_type_raises'):
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.none_of(other_np_api.ones(shape, dtype=dtype))
+
+    with self.subTest('with_shape_dtype_struct_raises'):
+      x = jax.ShapeDtypeStruct(shape, dtype)
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.none_of(x)
+
+  @parameterized.named_parameters(
+      ('shape_dtype_struct', jax.ShapeDtypeStruct),
+      ('np_array', np.ones),
+      ('jnp_array', jnp.ones),
+  )
+  def test_abstract_fragments_from_none_of(self, value_fn):
+    fragments_t = AbstractFragments
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+
+    x = value_fn(shape, dtype=dtype)
+    fs = fragments_t.none_of(x)
+    self.assertEqual(fs.shape, shape)
+    self.assertEqual(fs.dtype, dtype)
+    self.assertEqual(fs.fragments, [])
+
+    with self.subTest('with_none_raises'):
+      with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
+        fragments_t.none_of(None)  # pytype: disable=wrong-arg-types
 
 
 @parameterized.named_parameters(

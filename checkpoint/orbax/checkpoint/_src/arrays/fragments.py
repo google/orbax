@@ -16,6 +16,14 @@
 
 A fragment is a lot like a shard but its shape is not constrained by any
 relationship to a mesh of devices, or to other fragments.
+
+For each type FS in {AbstractFragments, NpFragments and JaxFragments}, there are
+class methods:
+  - `all_of(x)`: gives an FS shaped like x, with a single fragment that spans
+    its whole shape. If FS is concrete then the fragment value will be x. If
+    FS is `AbstractFragments` then x may additionally be a
+    `jax.ShapeDtypeStruct`.
+  - `none_of(x)`: gives an FS shaped like x, with no fragments.
 """
 # TODO(b/465196209): Remove when support for Python 3.10 is dropped.
 from __future__ import annotations
@@ -53,6 +61,21 @@ def _qualified_name(cls):
   return f'{cls.__module__}.{cls.__name__}'
 
 
+def _check_fragment_value_type(
+    value: Any,
+    valid_types: type[Any] | tuple[type[Any], ...],
+) -> None:
+  """Checks that the value has the correct type, with a nice error message."""
+  if not isinstance(value, valid_types):
+    if not isinstance(valid_types, tuple):
+      valid_types = (valid_types,)
+    raise TypeError(
+        'Fragment value must be a'
+        f' {" or ".join(_qualified_name(t) for t in valid_types)}, not'
+        f' {type(value)}.'
+    )
+
+
 @dataclasses.dataclass(frozen=True, init=False)
 class _GenericFragment(Generic[A]):
   """One of a collection of slices into the same (abstract or concrete) array.
@@ -78,12 +101,7 @@ class _GenericFragment(Generic[A]):
       np_index: NpIndex | None = None,
       value: A,
   ):
-    if not isinstance(value, self.ARRAY_T):
-      raise TypeError(
-          f'Fragment value must be a {_qualified_name(self.ARRAY_T)},'
-          f' not {type(value)}.'
-      )
-
+    _check_fragment_value_type(value, self.ARRAY_T)
     if index is not None and np_index is not None:
       raise ValueError('Cannot specify both index and np_index.')
     if index is None and np_index is None:
@@ -338,6 +356,19 @@ class _GenericFragments(Generic[_F]):
             f' {type(fragment)}.'
         )
 
+  @classmethod
+  def all_of(cls: type[FS], x: Aconcrete | jax.ShapeDtypeStruct) -> FS:
+    """Returns a Fragments with a single fragment spanning the whole shape."""
+    # Use a generator expression to defer evaluation of x.shape till `_of()`
+    # has checked that x is even of a type that has a .shape attribute.
+    indices = (tuple(slice(0, dim) for dim in x.shape) for _ in range(1))
+    return cls._of(x, indices=indices)
+
+  @classmethod
+  def none_of(cls: type[FS], x: Any) -> FS:
+    """Returns a Fragments with no fragments."""
+    return cls._of(x, indices=[])
+
   def is_degenerate(self) -> bool:
     """Whether this contains only degenerate fragments."""
     return all(f.is_degenerate() for f in self.fragments)
@@ -423,17 +454,38 @@ class AbstractFragments(_GenericFragments[AbstractFragment]):
   """A collection of abstract fragments."""
   FRAGMENT_T = AbstractFragment
 
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, (np.ndarray, jax.Array, jax.ShapeDtypeStruct))
+    fragments = [cls.FRAGMENT_T(index=index) for index in indices]
+    return cls(x.shape, x.dtype, fragments)
+
 
 @dataclasses.dataclass(frozen=True, init=False)
 class NpFragments(_GenericFragments[NpFragment]):
   """A collection of fragments whose values are of type `np.ndarray`."""
   FRAGMENT_T = NpFragment
 
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
+    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
+    return cls(x.shape, x.dtype, fragments)
+
 
 @dataclasses.dataclass(frozen=True, init=False)
 class JaxFragments(_GenericFragments[JaxFragment]):
   """A collection of fragments whose values are of type `jax.Array`."""
   FRAGMENT_T = JaxFragment
+
+  @classmethod
+  def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments with one fragment for each index."""
+    _check_fragment_value_type(x, cls.FRAGMENT_T.ARRAY_T)
+    fragments = [cls.FRAGMENT_T(index=i, value=x[i]) for i in indices]
+    return cls(x.shape, x.dtype, fragments)
 
 
 # Extra names for backwards compatibility. Most loading and saving code still
