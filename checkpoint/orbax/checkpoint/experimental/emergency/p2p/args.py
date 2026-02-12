@@ -14,7 +14,7 @@
 
 """P2P composite checkpoint argument."""
 
-from typing import Any, final
+from typing import final
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
 
@@ -30,10 +30,3 @@ class Composite(args_lib.Composite):
           f'Composite must contain "{constants.STATE_SUBDIR}" key and no other'
           f' keys: {list(self.keys())}'
       )
-
-  def __setitem__(self, key: str, value: Any):
-    if key != constants.STATE_SUBDIR:
-      raise KeyError(
-          f'Invalid key: {key}. Only "{constants.STATE_SUBDIR}" is supported.'
-      )
-    self[key] = value
