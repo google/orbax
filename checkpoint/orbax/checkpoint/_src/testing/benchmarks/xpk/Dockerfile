@@ -48,7 +48,7 @@ ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
 # Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow
+RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow safetensors
 
 # Install requirements from repo root if it exists
 RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
@@ -90,6 +90,7 @@ ENV PYTHONPATH=/app/orbax_repo/checkpoint
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"
+RUN python3 -c "import safetensors.numpy; print('SafeTensors installed:', safetensors.numpy.__file__)"
 
 # 6. Entrypoint
 # We point to the benchmark script relative to the repo root structure
