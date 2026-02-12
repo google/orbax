@@ -333,6 +333,24 @@ class P2PNodeTest(absltest.TestCase):
     mock_move.assert_called_once_with(str(stage_dir / '1'), str(final_dir))
     mock_rmtree.assert_called_with(str(stage_dir), ignore_errors=True)
 
+  @mock.patch.object(service.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'request', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'download', autospec=True)
+  def test_fetch_shard_from_peer_exception_cleanup(
+      self,
+      mock_download,
+      mock_request,
+      mock_rmtree,
+  ):
+    """Tests that stage_dir is cleaned up if an exception occurs."""
+    mock_request.return_value = [{'rel_path': '1/file1', 'size': 10}]
+    mock_download.side_effect = OSError('Download failed')
+
+    self.assertFalse(self.node.fetch_shard_from_peer('peer', 123, 1, 10))
+
+    stage_dir = self.temp_dir / 'stage_1_10'
+    mock_rmtree.assert_called_with(str(stage_dir), ignore_errors=True)
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -256,8 +256,6 @@ class P2PNode:
       )
       return False
 
-    # TODO(exlin): Remove this directory once the transfer is globally completed
-    # to save memory space.
     stage_dir = self.directory / f'stage_{step}_{stored_process_index}'
     if stage_dir.exists():
       shutil.rmtree(str(stage_dir))

@@ -402,6 +402,38 @@ class CheckpointManagerTest(absltest.TestCase):
 
     manager.close()
 
+  @mock.patch.object(p2p_cm.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_p2p_cleanup(self, unused_process_index, mock_rmtree):
+    """Tests that P2P restore directory is cleaned up after restore."""
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+
+    # P2P fetch succeeds
+    self.peer_selector_instance.get_source_peer.return_value = (
+        protocol.PeerDiscoveryInfo(
+            ip='1.2.3.4', port=5678, process_index=1, steps=[1]
+        )
+    )
+    self.p2p_node_instance.fetch_shard_from_peer.return_value = True
+    self.local_manager_instance.restore.return_value = {'a': 1}
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+    )
+
+    # Make p2p_restore_dir exist so cleanup is triggered
+    p2p_restore_dir = self.local_dir / service.constants.P2P_RESTORE_DIR_NAME
+    p2p_restore_dir.mkdir()
+
+    manager.restore(1, args=self.restore_args)
+
+    mock_rmtree.assert_called_once_with(str(p2p_restore_dir))
+    manager.close()
+
 
 if __name__ == '__main__':
   absltest.main()

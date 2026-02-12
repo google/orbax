@@ -14,6 +14,7 @@
 
 """Composite Checkpoint Manager handling P2P syncing with optional Persistent Fallback."""
 
+import shutil
 import threading
 import time
 from typing import Any, Iterable, Mapping, Optional, Sequence, Union, final
@@ -366,15 +367,27 @@ class CheckpointManager(
       return self._local_manager.restore(step, args=args)
     else:
       logging.info('Step %d not found locally, fetching from P2P.', step)
-      if self._p2p.fetch(step):
-        p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
-        return self._local_manager.restore(
-            step, args=args, directory=p2p_restore_dir
-        )
-      else:
-        raise FileNotFoundError(
-            f'Failed to fetch step {step} from P2P network.'
-        )
+      p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
+      try:
+        if self._p2p.fetch(step):
+          return self._local_manager.restore(
+              step, args=args, directory=p2p_restore_dir
+          )
+        else:
+          raise FileNotFoundError(
+              f'Failed to fetch step {step} from P2P network.'
+          )
+      finally:
+        if p2p_restore_dir.exists():
+          logging.info(
+              'Removing P2P restore directory: %s after restoration is'
+              ' complete',
+              p2p_restore_dir,
+          )
+          try:
+            shutil.rmtree(str(p2p_restore_dir))
+          except OSError as e:
+            logging.exception('Failed to remove P2P restore directory: %s', e)
 
   @override
   def restore(
