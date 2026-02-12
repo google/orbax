@@ -50,6 +50,8 @@ def _get_dtypes() -> dict[str, Any]:
       "F32": np.float32,
       "F64": np.float64,
       "BF16": jax.numpy.bfloat16,
+      "F8_E4M3": jax.numpy.float8_e4m3fn,
+      "F8_E5M2": jax.numpy.float8_e5m2,
       "F8_E8M0": "float8_e8m0fnu (specialized ML dtype)",
       "F4": "float4_e2m1fn_x2 (specialized ML dtype)",
   }
