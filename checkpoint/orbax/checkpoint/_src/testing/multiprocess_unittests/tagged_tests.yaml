@@ -1,0 +1,15 @@
+# DO NOT EDIT!
+processes:4:
+- orbax/checkpoint/_src/checkpointers:async_checkpointer_test
+- orbax/checkpoint/_src/checkpointers:checkpointer_test
+- orbax/checkpoint/_src/futures:future_test
+- orbax/checkpoint/_src/handlers:array_checkpoint_handler_test
+- orbax/checkpoint/_src/handlers:pytree_checkpoint_handler_test
+- orbax/checkpoint/_src/handlers:standard_checkpoint_handler_test
+- orbax/checkpoint/_src/metadata:sharding_tpu_test
+- orbax/checkpoint/_src/multihost:multihost_test
+- orbax/checkpoint/_src/testing/tree_verity:checkpoint_manager_test
+- orbax/checkpoint/testing:local_path_test
+- orbax/checkpoint:checkpoint_manager_slice_test
+- orbax/checkpoint:checkpoint_manager_test
+processes:8: []

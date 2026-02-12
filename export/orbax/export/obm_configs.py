@@ -70,7 +70,7 @@ class MixedPriorityBatchingPolicy(enum.Enum):
   PRIORITY_MERGE = "priority_merge"
 
 
-# LINT.ThenChange(//depot//orbax/export/obm_export.py)
+# LINT.ThenChange(//depot/orbax/export/obm_export.py)
 
 
 @dataclasses.dataclass(kw_only=True)

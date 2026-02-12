@@ -47,6 +47,7 @@ sync_global_devices = multihost.sync_global_processes
 broadcast_one_to_all = multihost.broadcast_one_to_all
 reached_preemption = multihost.reached_preemption
 is_primary_host = multihost.is_primary_host
+is_pathways_backend = multihost.is_pathways_backend
 
 is_gcs_path = gcs_utils.is_gcs_path
 checkpoint_steps = step_lib.checkpoint_steps

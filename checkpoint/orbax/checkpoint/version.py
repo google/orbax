@@ -18,7 +18,7 @@
 # Also modify version and date in CHANGELOG.
 # LINT.IfChange
 __version__ = '0.11.32'
-# LINT.ThenChange(//depot//orbax/checkpoint/CHANGELOG.md)
+# LINT.ThenChange(//depot/orbax/checkpoint/CHANGELOG.md)
 
 
 # TODO: b/362813406 - Add latest change timestamp and commit number.
