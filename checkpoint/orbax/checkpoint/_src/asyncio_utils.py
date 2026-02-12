@@ -15,22 +15,37 @@
 """Provides helper async functions."""
 
 import asyncio
+import threading
 from typing import Any, Coroutine, TypeVar
-import nest_asyncio
+
+import uvloop
 
 
 _T = TypeVar('_T')
 
 
-def run_sync(
-    coro: Coroutine[Any, Any, _T],
-    enable_nest_asyncio: bool = True,  # For testing.
-) -> _T:
+def _run_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+  """Runs the event loop until stop() is called."""
+  loop.run_forever()
+  loop.close()
+
+
+def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
   """Runs a coroutine and returns the result."""
   try:
     asyncio.get_running_loop()  # no event loop: ~0.001s, otherwise: ~0.182s
-    if enable_nest_asyncio:
-      nest_asyncio.apply()  # patch asyncio globally in a runtime (idempotent).
   except RuntimeError:
-    pass
-  return asyncio.run(coro)
+    # No event loop is running, so we can safely use asyncio.run.
+    return asyncio.run(coro)
+  else:
+    # An event loop is already running.
+    event_loop = uvloop.new_event_loop()
+    thread = threading.Thread(
+        target=_run_event_loop, args=(event_loop,), daemon=True
+    )
+    thread.start()
+    try:
+      return asyncio.run_coroutine_threadsafe(coro, event_loop).result()
+    finally:
+      event_loop.call_soon_threadsafe(event_loop.stop)
+      thread.join()

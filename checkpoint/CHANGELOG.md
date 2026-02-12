@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `uvloop` dependency for improved event loop performance
+
+### Removed
+
+- Removed `nest_asyncio` dependency and its usage, replacing it with `uvloop`
+  and `asyncio.run_coroutine_threadsafe` to allow Orbax functions to be called
+  from within async contexts. Stress testing indicates the new implementation
+  could be ~5% slower due to overhead from starting and stopping the
+  new thread
+
 ### Changed
 
 - #v1 Make most V1 public concrete classes final.

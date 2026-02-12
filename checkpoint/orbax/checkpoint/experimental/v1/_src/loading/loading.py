@@ -27,7 +27,6 @@ from orbax.checkpoint.experimental.v1._src.layout import registry as layout_regi
 from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.synchronization import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -101,7 +100,6 @@ def load_pytree(
     The restored `PyTree`.
   """
   start_time = time.time()
-  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
@@ -176,7 +174,6 @@ def load_checkpointables(
     FileNotFoundError: If the checkpoint path does not exist.
   """
   start_time = time.time()
-  asyncio_utils.maybe_apply_nest_asyncio()
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)

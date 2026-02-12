@@ -285,22 +285,11 @@ class AsyncioUtilsTest(parameterized.TestCase):
       )()
 
     number = 10000
-    # First run with enable_nest_asyncio=False, because nest_asyncio.apply
-    # patches asyncio globally in a runtime. There is no way to unpatch it.
-    run_time = timeit.timeit(
-        lambda: asyncio_utils.run_sync(_test(), enable_nest_asyncio=False),
-        number=number,
-    )  # ~1.604s
     run_sync_time = timeit.timeit(
-        lambda: asyncio_utils.run_sync(_test(), enable_nest_asyncio=True),
+        lambda: asyncio_utils.run_sync(_test()),
         number=number,
     )  # ~1.5503s
-    logging.info(
-        "time: run_sync_time=%s, run_time=%s, ratio=%s",
-        run_sync_time,
-        run_time,
-        run_sync_time / run_time,
-    )
+    logging.info("time: run_sync_time=%s", run_sync_time)
 
 
 if __name__ == "__main__":
