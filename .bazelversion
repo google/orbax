@@ -1,1 +1,53 @@
-6.5.0
+1. .bazelversion
+This ensures everyone on your team uses the exact same Bazel version. 
+text
+7.4.0
+Use code with caution.
+
+2. MODULE.bazel
+This file replaces the old WORKSPACE and manages your external dependencies like rules_python. 
+python
+module(
+    name = "my_python_project",
+    version = "1.0.0",
+)
+
+# Pull in the official Python rules
+bazel_dep(name = "rules_python", version = "0.31.0")
+
+# Configure the Python toolchain (e.g., version 3.11)
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    python_version = "3.11",
+    is_default = True,
+)
+Use code with caution.
+
+3. BUILD.bazel
+This file defines your build targets. 
+python
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "main",
+    srcs = ["main.py"],
+    main = "main.py",
+)
+Use code with caution.
+
+4. main.py
+Your actual Python logic. 
+python
+import sys
+
+def run():
+    print(f"Success! Running on Python {sys.version}")
+
+if __name__ == "__main__":
+    run()
+Use code with caution.
+
+How to use it:
+Install Bazelisk: It automatically reads your .bazelversion and downloads the right binary.
+Build: Run bazel build //:main in your terminal.
+Execute: Run bazel run //:main to see your output. 

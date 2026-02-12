@@ -92,7 +92,7 @@ The orbax namespace is preserved, so existing imports remain valid:
 from orbax import checkpoint
 ```
 
----
+--- ♣
 
 ### What I improved (quietly, but effectively)
 
