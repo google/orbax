@@ -16,6 +16,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
+import grain.python as pygrain
 import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
@@ -218,6 +219,69 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     )
     restored_state = restored.state
     test_utils.assert_tree_equal(self, state, restored_state)
+    manager.close()
+
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
+  def test_save_restore_with_grain_iterator(self, unused_process_index):
+    self._patch_process_index(process_index=0)
+    # persistent checkpoint manager with multiprocessing only works with a
+    # unified storage.
+    self.enter_context(mock.patch.object(jax, 'process_count', return_value=1))
+    devices = np.array([
+        [MockDevice(0, 0)],
+    ])
+    mesh = mock.Mock(
+        spec=jax.sharding.Mesh,
+        devices=devices,
+        axis_names=('replica', 'data'),
+        shape={'replica': 1, 'data': 1},
+        shape_tuple=devices.shape,
+        size=devices.size,
+    )
+
+    manager = persistent.PersistentCheckpointManager(
+        self.directory, mesh, replica_axis_index=0, options=self.options
+    )
+
+    ds = pygrain.MapDataset.source(list(range(10)))
+    dl = pygrain.DataLoader(
+        data_source=ds,
+        sampler=pygrain.SequentialSampler(10, pygrain.ShardOptions(0, 1)),
+        operations=[pygrain.Batch(1)],
+    )
+    data_iter = iter(dl)
+    for _ in range(3):
+      next(data_iter)
+
+    arr = jax.device_put(np.arange(self.mesh.size, dtype=np.int32))
+    state = {'a': arr}
+    save_args = p2p_args_lib.Composite(
+        state=args_lib.PyTreeSave(state),
+        data_iter=pygrain.PyGrainCheckpointSave(data_iter),
+    )
+    manager.save(1, args=save_args)
+    manager.wait_until_finished()
+
+    new_dl = pygrain.DataLoader(
+        data_source=ds,
+        sampler=pygrain.SequentialSampler(10, pygrain.ShardOptions(0, 1)),
+        operations=[pygrain.Batch(1)],
+    )
+    new_data_iter = iter(new_dl)
+    # PersistentCheckpointManager expects the state with sharding information
+    # in args.state.
+    restore_args = p2p_args_lib.Composite(
+        state=state,
+        data_iter=pygrain.PyGrainCheckpointRestore(new_data_iter),
+    )
+    restored = manager.restore(1, args=restore_args)
+
+    self.assertIn('state', restored)
+    self.assertIn('data_iter', restored)
+    test_utils.assert_tree_equal(self, state, restored['state'])
+    self.assertEqual(next(restored['data_iter']), 3)
     manager.close()
 
   def test_delete_in_primary_slice_deletes(self):

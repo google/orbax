@@ -14,19 +14,41 @@
 
 """P2P composite checkpoint argument."""
 
-from typing import final
+from typing import Any, final
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
+from orbax.checkpoint.experimental.emergency.p2p import utils
+
+
+def _check_data_iter(value: Any):
+  """Checks if data_iter is valid."""
+  if utils.pygrain() is None:
+    raise ImportError(
+        'grain library is not available. Please install grain to use data_iter.'
+    )
+  if not isinstance(
+      value,
+      (
+          utils.pygrain().PyGrainCheckpointSave,
+          utils.pygrain().PyGrainCheckpointRestore,
+      ),
+  ):
+    raise TypeError(f'Unsupported type for data_iter: {type(value)}')
 
 
 @final
 class Composite(args_lib.Composite):
-  """Composite argument that only supports 'state' key."""
+  """Composite argument that supports 'state' and 'data_iter' keys."""
 
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    if constants.STATE_SUBDIR not in self or len(self) > 1:
+    if constants.STATE_SUBDIR not in self:
       raise ValueError(
-          f'Composite must contain "{constants.STATE_SUBDIR}" key and no other'
-          f' keys: {list(self.keys())}'
+          f'Composite must contain "{constants.STATE_SUBDIR}" key:'
+          f' {list(self.keys())}'
       )
+    for key in self:
+      if key not in [constants.STATE_SUBDIR, constants.DATA_ITER_KEY]:
+        raise ValueError(f'Unsupported key in Composite: {key}')
+      if key == constants.DATA_ITER_KEY:
+        _check_data_iter(self[key])

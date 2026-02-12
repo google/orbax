@@ -17,7 +17,9 @@
 # Directory names
 P2P_RESTORE_DIR_NAME = 'p2p_restore'
 STATE_SUBDIR = 'state'
+DATA_ITER_KEY = 'data_iter'
 PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+PYGRAIN_STATES_FILENAME = 'pygrain_states.json'
 
 # Tuning for high-throughput networks (16MB buffers)
 SOCKET_BUFFER_SIZE = 16 * 1024 * 1024

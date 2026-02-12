@@ -113,7 +113,9 @@ class LocalCheckpointManagerTest(absltest.TestCase):
         ),
     )
 
-    jax.tree_util.tree_map(np.testing.assert_array_equal, state, restored.state)
+    jax.tree_util.tree_map(
+        np.testing.assert_array_equal, state, restored['state']
+    )
     manager.close()
 
 

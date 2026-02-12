@@ -14,19 +14,98 @@
 
 """Internal checkpoint manager for local P2P storage logic."""
 
+import dataclasses
+import json
 from typing import Any, Sequence, final
 
 from absl import logging
 from etils import epath
 import jax
 import orbax.checkpoint as ocp
+from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
+from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
+from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import utils
+
+
+if utils.pygrain() is not None:
+
+  class _LocalPyGrainHandlerMixin(utils.pygrain().PyGrainCheckpointHandler):
+    """Mixin for Local PyGrain handler."""
+
+    def __init__(self, process_index: int):
+      self._process_index = process_index
+
+    def save(self, directory: epath.Path, item: Any = None, args: Any = None):
+      """Saves the PyGrain iterator state to a JSON file."""
+      item = item or args.item
+      state = item.get_state()
+
+      if isinstance(item, utils.pygrain().DatasetIterator):
+        state_val = state
+      else:
+        # DataLoaderIterator state is bytes, decode to string for JSON
+        state_val = state.decode()
+
+      local_data = {
+          str(self._process_index): state_val,
+      }
+
+      all_data = emergency_path.sync_global_data(local_data)
+
+      combined_data = {}
+      for entry in all_data:
+        combined_data.update(entry)
+
+      (directory / constants.PYGRAIN_STATES_FILENAME).write_text(
+          json.dumps(combined_data, indent=2)
+      )
+
+    def restore(
+        self, directory: epath.Path, item: Any = None, args: Any = None
+    ):
+      """Restores the PyGrain iterator state from a JSON file."""
+      item = item or args.item
+      path = directory / constants.PYGRAIN_STATES_FILENAME
+
+      if not path.exists():
+        raise ValueError(f'PyGrain states not found at {path}')
+
+      combined_data = json.loads(path.read_text())
+      my_key = str(self._process_index)
+
+      if my_key not in combined_data:
+        raise ValueError(
+            f'Process index {self._process_index} not found in {path}'
+        )
+
+      state_val = combined_data[my_key]
+
+      if isinstance(item, utils.pygrain().DatasetIterator):
+        # DatasetIterator expects a dict
+        state = state_val
+      else:
+        # DataLoaderIterator expects bytes
+        state = state_val.encode()
+
+      item.set_state(state)
+      return item
+
+  @ocp.args.register_with_handler(_LocalPyGrainHandlerMixin, for_save=True)
+  @dataclasses.dataclass
+  class LocalPyGrainSave(ocp.args.CheckpointArgs):
+    item: Any
+
+  @ocp.args.register_with_handler(_LocalPyGrainHandlerMixin, for_restore=True)
+  @dataclasses.dataclass
+  class LocalPyGrainRestore(utils.pygrain().PyGrainCheckpointRestore):
+    item: Any
 
 
 @final
@@ -77,10 +156,16 @@ class LocalCheckpointManager:
         type_handler_registry=local_registry,
     )
 
+    item_handlers = dict(state=handler)
+    if utils.pygrain() is not None:
+      item_handlers[constants.DATA_ITER_KEY] = _LocalPyGrainHandlerMixin(
+          self._process_index
+      )
+
     self._manager = checkpoint_manager.CheckpointManager(
         self._directory,
         options=p2p_specific_options,
-        item_handlers=dict(state=handler),
+        item_handlers=item_handlers,
     )
 
   @property
@@ -122,6 +207,14 @@ class LocalCheckpointManager:
       force: bool = False,
   ) -> bool:
     """Saves the checkpoint."""
+    if utils.pygrain() is not None and constants.DATA_ITER_KEY in args:
+      original_save = args[constants.DATA_ITER_KEY]
+      args_dict = dict(args.items())
+      args_dict[constants.DATA_ITER_KEY] = LocalPyGrainSave(
+          item=original_save.item
+      )
+      args = args_lib.Composite(**args_dict)
+
     return self._manager.save(step, args=args, force=force)
 
   def restore(
@@ -145,6 +238,14 @@ class LocalCheckpointManager:
             ' P2P/Persistent fallback.'
         )
         raise ValueError(error_msg)
+
+    if utils.pygrain() is not None and args and constants.DATA_ITER_KEY in args:
+      original_restore = args[constants.DATA_ITER_KEY]
+      args_dict = dict(args.items())
+      args_dict[constants.DATA_ITER_KEY] = LocalPyGrainRestore(
+          original_restore.item
+      )
+      args = args_lib.Composite(**args_dict)
 
     # 2. Delegate to Orbax
     restored = self._manager.restore(
