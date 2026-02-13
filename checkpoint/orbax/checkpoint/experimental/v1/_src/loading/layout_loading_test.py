@@ -16,10 +16,12 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import numpy as np
+from orbax.checkpoint import test_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
+from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
@@ -34,17 +36,32 @@ class LayoutLoadingTest(parameterized.TestCase):
     self.test_dir = self.create_tempdir()
     self.test_dir_safetensors = self.create_tempdir()
     self.orbax_path = epath.Path(self.test_dir.full_path) / 'test_checkpoint'
+    self.orbax_pytree_path = (
+        epath.Path(self.test_dir.full_path) / 'test_checkpoint_pytree'
+    )
+    self.orbax_checkpointables_path = (
+        epath.Path(self.test_dir.full_path) / 'test_checkpoint_checkpointables'
+    )
     self.safetensors_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.safetensors'
     )
 
-    # Create a mock SafeTensors and Orbax checkpoint
+    # Create a mock SafeTensors and Orbax checkpoint pytree
     self.object_to_save = {
         'a': np.array(3 * [1, 2, 3], dtype=np.int32),
         'b': np.array([0, 1, 0.2], dtype=np.float32),
     }
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save_pytree(self.orbax_path, self.object_to_save)
+    saving.save_pytree(self.orbax_pytree_path, self.object_to_save)
+
+    # Create a mock Orbax checkpoint checkpointables
+    self.checkpointables_to_save = {
+        'pytree_a': self.object_to_save,
+        'pytree_b': self.object_to_save,
+    }
+    saving.save_checkpointables(
+        self.orbax_checkpointables_path, self.checkpointables_to_save
+    )
 
   def test_load_safetensors_checkpoint(self):
     with context_lib.Context(
@@ -56,11 +73,13 @@ class LayoutLoadingTest(parameterized.TestCase):
     # TODO(b/430651483)
     np.testing.assert_allclose(pytree['b'], self.object_to_save['b'])
 
-  def test_load_orbax_checkpoint(self):
-    pytree = loading.load_pytree(self.orbax_path)
-    self.assertIsInstance(pytree, dict)
-    np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
-    np.testing.assert_array_equal(pytree['b'], self.object_to_save['b'])
+  def test_load_orbax_pytree_checkpoint(self):
+    pytree = loading.load_pytree(self.orbax_pytree_path)
+    test_utils.assert_tree_equal(self, self.object_to_save, pytree)
+
+  def test_load_orbax_checkpointables_checkpoint(self):
+    loaded = loading.load_checkpointables(self.orbax_checkpointables_path)
+    test_utils.assert_tree_equal(self, self.checkpointables_to_save, loaded)
 
   @parameterized.parameters(
       (options_lib.CheckpointLayout.ORBAX,),
@@ -102,6 +121,26 @@ class LayoutLoadingTest(parameterized.TestCase):
       loading.load_pytree(
           epath.Path(self.test_dir.full_path) / 'nonexistent_path',
       )
+
+  def test_load_pytree_with_checkpoint_metadata(self):
+    abstract_pytree = self.object_to_save
+    metadata = metadata_types.CheckpointMetadata(metadata=abstract_pytree)
+
+    loaded = loading.load_pytree(
+        self.orbax_pytree_path, abstract_pytree=metadata
+    )
+    test_utils.assert_tree_equal(self, self.object_to_save, loaded)
+
+  def test_load_checkpointables_with_checkpoint_metadata(self):
+    metadata = metadata_types.CheckpointMetadata(
+        metadata=self.checkpointables_to_save
+    )
+
+    loaded = loading.load_checkpointables(
+        self.orbax_checkpointables_path, abstract_checkpointables=metadata
+    )
+    test_utils.assert_tree_equal(self, self.checkpointables_to_save, loaded)
+
   # TODO(b/431045454): Add tests for abstract_checkpointables.
 
 

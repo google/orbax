@@ -293,6 +293,8 @@ class CompositeHandler:
 
     saved_handler_typestrs: dict[str, str] = {}
     for checkpointable_path in directory.iterdir():
+      if not checkpointable_path.is_dir():
+        continue
       serialized_metadata = self._metadata_store.read(
           checkpoint_metadata.step_metadata_file_path(checkpointable_path)
       )
