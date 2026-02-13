@@ -58,6 +58,8 @@ def get_v0_checkpointer_and_args(
   validation.validate_abstract_checkpointables(abstract_checkpointables)
   abstract_checkpointables = abstract_checkpointables or {}
 
+  # TODO(b/477603241): Refactor this to use resolution utility once we remove
+  # the composite handler.
   # pylint: disable=protected-access
   handlers = composite_handler.CompositeHandler(
       context.checkpointables_options.registry
