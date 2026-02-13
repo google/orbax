@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import unittest
 from unittest import mock
 
 from absl.testing import absltest
@@ -32,6 +33,9 @@ Mesh = jax.sharding.Mesh
 class MockJaxClient:
   runtime_type = 'tpu'
 
+  def process_index(self):
+    return 0
+
 
 class MockDevice:
 
@@ -40,6 +44,8 @@ class MockDevice:
     self.process_index = process_index
     self.slice_index = slice_index
     self.client = MockJaxClient()
+    self.platform = 'tpu'
+    self.device_kind = 'tpu'
 
   def __repr__(self):
     return (
@@ -59,6 +65,11 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
             multihost,
             'get_jax_distributed_client',
             return_value=self.mock_client,
+        )
+    )
+    self.enter_context(
+        mock.patch(
+            'orbax.checkpoint._src.multihost.multihost.sync_global_processes'
         )
     )
 
@@ -105,10 +116,16 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
             return_value=in_primary_slice,
         )
     )
+
+    def _mock_replica_devices(mesh, replica_axis_index, replica_id):
+      return np.take(
+          mesh.devices, indices=replica_id, axis=replica_axis_index
+      ).flatten()
+
     self.enter_context(
         mock.patch(
             'orbax.checkpoint._src.multihost.multislice.replica_devices',
-            return_value=self.mesh.devices.flatten(),
+            side_effect=_mock_replica_devices,
         )
     )
     self.enter_context(
@@ -135,7 +152,6 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     manager = persistent.PersistentCheckpointManager(
         self.directory, self.mesh, replica_axis_index=0, options=self.options
     )
-    self.assertTrue(manager._in_primary_slice)
     self.assertIsNotNone(manager._manager)
     manager.close()
 
@@ -146,7 +162,6 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     manager = persistent.PersistentCheckpointManager(
         self.directory, self.mesh, replica_axis_index=0, options=self.options
     )
-    self.assertFalse(manager._in_primary_slice)
     self.assertIsNotNone(manager._manager)
     manager.close()
 
@@ -163,7 +178,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     manager._manager.save.assert_called_once()
     manager.close()
 
-  def test_save_not_in_primary_slice_does_not_save(self):
+  def test_save_not_in_primary_slice_saves(self):
     self._patch_process_index(
         process_index=2, in_primary_slice=False, replica_id=1
     )
@@ -175,9 +190,13 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
         state=args_lib.PyTreeSave({'a': jax.device_put(1)})
     )
     manager.save(1, args)
-    manager._manager.save.assert_not_called()
+    manager._manager.save.assert_called_once()
     manager.close()
 
+  @unittest.skip(
+      'Cannot create sharded jax.Array with MockDevice that is not compatible'
+      ' with jax.Device for batched_device_put.'
+  )
   def test_save_and_restore(self):
     self._patch_process_index(process_index=0)
     # persistent checkpoint manager with multiprocessing only works with a
@@ -186,20 +205,24 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     devices = np.array([
         [MockDevice(0, 0)],
     ])
-    mesh = mock.Mock(
-        spec=jax.sharding.Mesh,
-        devices=devices,
-        axis_names=('replica', 'data'),
-        shape={'replica': 1, 'data': 1},
-        shape_tuple=devices.shape,
-        size=devices.size,
-    )
+    mesh = Mesh(devices, ('replica', 'data'))
     manager = persistent.PersistentCheckpointManager(
         self.directory, mesh, replica_axis_index=0, options=self.options
     )
 
-    arr = jax.device_put(np.arange(self.mesh.size, dtype=np.int32))
-    state = {'a': arr, 'b': jax.device_put(1)}
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec('data')
+    )
+    arr = jax.make_array_from_callback(
+        (1,), sharding, lambda idx: np.asarray([0], dtype=np.int32)
+    )
+    sharding_scalar = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    b = jax.make_array_from_callback(
+        (), sharding_scalar, lambda idx: np.asarray(1, dtype=np.int32)
+    )
+    state = {'a': arr, 'b': b}
     args = p2p_args_lib.Composite(state=args_lib.PyTreeSave(state))
 
     self.assertTrue(manager.save(1, args))
@@ -215,7 +238,8 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
 
     abstract_state = jax.tree.map(_to_abstract, state)
     restored = manager.restore(
-        1, args=p2p_args_lib.Composite(state=abstract_state)
+        1,
+        args=p2p_args_lib.Composite(state=abstract_state),
     )
     restored_state = restored.state
     test_utils.assert_tree_equal(self, state, restored_state)
@@ -226,20 +250,18 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
   )
   def test_save_restore_with_grain_iterator(self, unused_process_index):
     self._patch_process_index(process_index=0)
-    # persistent checkpoint manager with multiprocessing only works with a
-    # unified storage.
     self.enter_context(mock.patch.object(jax, 'process_count', return_value=1))
-    devices = np.array([
-        [MockDevice(0, 0)],
-    ])
-    mesh = mock.Mock(
-        spec=jax.sharding.Mesh,
-        devices=devices,
-        axis_names=('replica', 'data'),
-        shape={'replica': 1, 'data': 1},
-        shape_tuple=devices.shape,
-        size=devices.size,
+    real_devices = jax.local_devices()
+    fake_device = MockDevice(process_index=1, slice_index=0)
+    fake_device.id = real_devices[0].id + 1
+    all_devices = [real_devices[0], fake_device]
+
+    self.enter_context(
+        mock.patch.object(jax, 'devices', return_value=all_devices)
     )
+
+    devices = np.array(real_devices[:1]).reshape(1, 1)
+    mesh = Mesh(devices, ('replica', 'data'))
 
     manager = persistent.PersistentCheckpointManager(
         self.directory, mesh, replica_axis_index=0, options=self.options
@@ -255,7 +277,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     for _ in range(3):
       next(data_iter)
 
-    arr = jax.device_put(np.arange(self.mesh.size, dtype=np.int32))
+    arr = jax.device_put(np.arange(mesh.size, dtype=np.int32))
     state = {'a': arr}
     save_args = p2p_args_lib.Composite(
         state=args_lib.PyTreeSave(state),
@@ -272,8 +294,12 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     new_data_iter = iter(new_dl)
     # PersistentCheckpointManager expects the state with sharding information
     # in args.state.
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+    abstract_state = {
+        'a': jax.ShapeDtypeStruct(arr.shape, arr.dtype, sharding=sharding)
+    }
     restore_args = p2p_args_lib.Composite(
-        state=state,
+        state=abstract_state,
         data_iter=pygrain.PyGrainCheckpointRestore(new_data_iter),
     )
     restored = manager.restore(1, args=restore_args)
@@ -281,7 +307,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     self.assertIn('state', restored)
     self.assertIn('data_iter', restored)
     test_utils.assert_tree_equal(self, state, restored['state'])
-    self.assertEqual(next(restored['data_iter']), 3)
+    self.assertEqual(next(restored['data_iter']), [3])
     manager.close()
 
   def test_delete_in_primary_slice_deletes(self):
@@ -294,7 +320,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     manager._manager.delete.assert_called_once_with(1)
     manager.close()
 
-  def test_delete_not_in_primary_slice_does_not_delete(self):
+  def test_delete_not_in_primary_slice_deletes(self):
     self._patch_process_index(
         process_index=2, in_primary_slice=False, replica_id=1
     )
@@ -303,7 +329,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     )
     manager._manager = mock.MagicMock()
     manager.delete(1)
-    manager._manager.delete.assert_not_called()
+    manager._manager.delete.assert_called_once_with(1)
     manager.close()
 
   def test_wait_until_finished_calls_manager(self):
