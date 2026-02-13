@@ -37,6 +37,11 @@ flags.DEFINE_integer(
     None,
     'Number of processes to select test list from yaml file.',
 )
+flags.DEFINE_integer(
+    'process_id',
+    2,
+    'Process id of the current worker.',
+)
 
 
 def install_deps():
@@ -88,7 +93,26 @@ def main(argv: Sequence[str]) -> None:
   install_deps()
 
   try:
-    jax.distributed.initialize()
+    num_processes = 2
+    process_id = FLAGS.process_id
+    # Define which 4 devices this "mock host" owns
+    if process_id == 0:
+      local_devices = [0, 1, 2, 3]
+    else:
+      local_devices = [4, 5, 6, 7]
+
+    jax.distributed.initialize(
+        coordinator_address='localhost:1234',
+        num_processes=num_processes,
+        process_id=process_id,
+        local_device_ids=local_devices,
+    )
+
+    print(f'process_id: {process_id}')
+    print(f'Host {process_id} initialized.')
+    print(f'Global device count: {jax.device_count()}')  # Should be 8
+    print(f'Local device count: {jax.local_device_count()}')  # Should be 4
+    # jax.distributed.initialize()
     logging.info('JAX devices: %s', jax.devices())
   except RuntimeError as e:
     logging.warning(
