@@ -22,7 +22,6 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
@@ -60,7 +59,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.test_dir = self.create_tempdir()
+    self.test_dir = self.create_tempdir(name='orbax_layout_test')
     self.orbax_path = epath.Path(self.test_dir.full_path) / 'test_checkpoint'
     self.safetensors_path = (
         epath.Path(self.test_dir.full_path) / 'test_checkpoint.safetensors'
@@ -96,9 +95,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
   async def test_validate_no_indicator_file(self):
     layout = OrbaxLayout()
     indicator_path = (
-        self.orbax_path
-        / '0'
-        / composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE
+        self.orbax_path / '0' / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
     )
     indicator_path.rmtree()  # Remove the indicator file
     with self.assertRaises(InvalidLayoutError):
@@ -115,9 +112,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
   async def test_validate_no_indicator_or_metadata_files(self):
     layout = OrbaxLayout()
     indicator_path = (
-        self.orbax_path
-        / '0'
-        / composite_handler.ORBAX_CHECKPOINT_INDICATOR_FILE
+        self.orbax_path / '0' / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
     )
     indicator_path.rmtree()  # Remove the indicator file
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
@@ -184,7 +179,10 @@ class V1ValidationTest(
 
   def setUp(self):
     super().setUp()
-    self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
+    self.directory = (
+        epath.Path(self.create_tempdir(name='v1_validation_test').full_path)
+        / 'ckpt'
+    )
     self.pytree, _ = array_test_utils.create_numpy_pytree()
     saving.save_pytree(self.directory, self.pytree)
 

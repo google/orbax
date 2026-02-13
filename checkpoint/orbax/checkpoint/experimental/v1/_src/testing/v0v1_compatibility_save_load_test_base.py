@@ -267,12 +267,13 @@ class CompatibilitySaveLoadTestBase:
         test_utils.assert_tree_equal(
             self, self.pytree, loaded[checkpointable_name]
         )
-
+      # TODO(b/484400394): Find a better way to inform the user that they need
+      # to use load_pytree(..., checkpointable_name=None) when item_handlers is
+      # a str.
       with self.subTest('error_with_checkpoint_path'):
         with self.assertRaisesRegex(
-            ValueError,
-            'which are expected to match the keys given by the'
-            ' _CHECKPOINT_METADATA file',
+            KeyError,
+            'Failed to load requested checkpointables.',
         ):
           ocp.load_checkpointables(
               self.ckpt_directory, abstract_checkpointables
