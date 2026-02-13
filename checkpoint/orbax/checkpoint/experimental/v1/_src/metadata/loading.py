@@ -88,21 +88,26 @@ def pytree_metadata(
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  if checkpointable_name is None:
-    checkpointable_name = path.name
-    path = path.parent
-
   layout = asyncio.run(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
-  metadata = _checkpointables_metadata_impl(layout, path)
+
+  # TODO(b/477603241): This logic currently accounts for the V0
+  # metadata function returning a pytree for direct pytree checkpoints, while
+  # V1 returns a dictionary. This logic should be cleaned up once we roll up
+  # the composite handler into the layout themselves.
+  step_metadata = _checkpointables_metadata_impl(layout, path)
+  if checkpointable_name is None:
+    metadata = step_metadata.metadata
+  else:
+    metadata = step_metadata.metadata[checkpointable_name]
   return CheckpointMetadata[PyTreeMetadata](
-      metadata=metadata.metadata[checkpointable_name],
-      init_timestamp_nsecs=metadata.init_timestamp_nsecs,
-      commit_timestamp_nsecs=metadata.commit_timestamp_nsecs,
-      custom_metadata=metadata.custom_metadata,
+      metadata=metadata,
+      init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
+      commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
+      custom_metadata=step_metadata.custom_metadata,
   )
 
 

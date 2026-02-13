@@ -264,7 +264,7 @@ async def _run_blocking_save(
     )
 
   layout_enum = context.checkpoint_layout
-  layout_class = registry.get_layout_class(layout_enum)
+  layout_class = await registry.get_layout_class(layout_enum)
   layout = layout_class()
   if (
       partial_save

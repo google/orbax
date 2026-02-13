@@ -14,11 +14,13 @@
 
 """Registry for checkpoint layouts."""
 
+import asyncio
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import numpy_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import pytorch_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -27,14 +29,42 @@ InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 
+ORBAX_LAYOUT_CLASSES = [
+    orbax_layout.OrbaxLayout,
+    orbax_v0_layout.OrbaxV0Layout,
+]
 
-def get_layout_class(
-    layout_enum: CheckpointLayoutEnum,
+
+async def _is_orbax_checkpoint_async(path: path_types.PathLike) -> bool:
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+
+  tasks = []
+  for layout_cls in ORBAX_LAYOUT_CLASSES:
+    tasks.append(layout_cls().validate(path))
+
+  results = await asyncio.gather(*tasks, return_exceptions=True)
+  return any(not isinstance(r, Exception) for r in results)
+
+
+def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
+  """Returns True if the path is an Orbax checkpoint."""
+  return asyncio.run(_is_orbax_checkpoint_async(path))
+
+
+async def get_layout_class(
+    layout_enum: CheckpointLayoutEnum, path: path_types.PathLike | None = None
 ) -> type[CheckpointLayout]:
   """Returns the layout class for the given layout enum."""
   match layout_enum:
     case CheckpointLayoutEnum.ORBAX:
-      return orbax_layout.OrbaxLayout
+      if path is None or (
+          await orbax_layout.checkpoint_version(path)
+          == orbax_layout.CheckpointVersion.V1
+      ):
+        return orbax_layout.OrbaxLayout
+      else:
+        return orbax_v0_layout.OrbaxV0Layout
     case CheckpointLayoutEnum.SAFETENSORS:
       return safetensors_layout.SafetensorsLayout
     case CheckpointLayoutEnum.NUMPY:
@@ -65,7 +95,7 @@ async def get_checkpoint_layout(
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  layout_class = get_layout_class(layout_enum)
+  layout_class = await get_layout_class(layout_enum, path)
 
   try:
     layout = layout_class()

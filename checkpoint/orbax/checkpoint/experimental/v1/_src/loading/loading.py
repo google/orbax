@@ -124,7 +124,7 @@ def load_pytree(
 
   validation.validate_pytree_checkpointable_name(checkpointable_name)
 
-  return _load_impl(
+  loaded_contents = _load_impl(
       path,
       functools.partial(
           layout.load_pytree,
@@ -134,6 +134,17 @@ def load_pytree(
       ),
       start_time=start_time,
   )
+
+  # TODO(b/477603241): This logic currently accounts for the V0
+  # load_pytree function returning a pytree for direct pytree checkpoints,
+  # while V1 returns a dictionary. This logic should be cleaned up once we
+  # roll up the composite handler into the layout themselves.
+  if (
+      isinstance(loaded_contents, dict)
+      and checkpointable_name in loaded_contents
+  ):
+    return loaded_contents[checkpointable_name]
+  return loaded_contents
 
 
 def load_checkpointables(

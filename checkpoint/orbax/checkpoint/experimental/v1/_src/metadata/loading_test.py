@@ -97,14 +97,9 @@ class PyTreeMetadataTest(absltest.TestCase):
     self.assertEqual(expected_pytree_metadata, metadata.metadata)
 
   def test_pytree_metadata_checkpointable_name_none(self):
-    expected_pytree_metadata = jax.tree.map(
-        self._create_value_metadata, self.pytree
-    )
-
     pytree_dir = self.directory / PYTREE_CHECKPOINTABLE_KEY
-    metadata = ocp.pytree_metadata(pytree_dir, checkpointable_name=None)
-    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
-    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+    with self.assertRaises(InvalidLayoutError):
+      ocp.pytree_metadata(pytree_dir, checkpointable_name=None)
 
   def test_load_with_metadata(self):
     metadata = ocp.pytree_metadata(self.directory)

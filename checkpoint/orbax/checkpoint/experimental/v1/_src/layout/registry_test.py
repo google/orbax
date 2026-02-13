@@ -17,10 +17,13 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint import args
 from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
+from orbax.checkpoint.checkpoint_manager import CheckpointManager
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
+from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
 from orbax.checkpoint.experimental.v1._src.saving import saving
 
@@ -29,7 +32,7 @@ get_checkpoint_layout_pytree = registry.get_checkpoint_layout_pytree
 CheckpointLayoutEnum = registry.CheckpointLayoutEnum
 
 
-class PyTreeCheckpointableResolutionTest(
+class PyTreeCheckpointableResolutionAsyncTest(
     parameterized.TestCase, unittest.IsolatedAsyncioTestCase
 ):
 
@@ -77,7 +80,7 @@ class PyTreeCheckpointableResolutionTest(
     layout = await get_checkpoint_layout_pytree(
         self.v0_directory, CheckpointLayoutEnum.ORBAX, 'state'
     )
-    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+    self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
     self.assertFalse(await orbax_layout.has_indicator_file(self.v0_directory))
 
   @parameterized.parameters([None, 'params'])
@@ -88,19 +91,16 @@ class PyTreeCheckpointableResolutionTest(
       )
 
   async def test_v1_direct_path(self):
-    layout = await get_checkpoint_layout_pytree(
-        self.v1_directory / 'pytree', CheckpointLayoutEnum.ORBAX, None
-    )
-    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
-    self.assertFalse(
-        await orbax_layout.has_indicator_file(self.v1_directory / 'pytree')
-    )
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v1_directory / 'pytree', CheckpointLayoutEnum.ORBAX, None
+      )
 
   async def test_v0_direct_path(self):
     layout = await get_checkpoint_layout_pytree(
         self.v0_directory / 'state', CheckpointLayoutEnum.ORBAX, None
     )
-    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+    self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
     self.assertFalse(
         await orbax_layout.has_indicator_file(self.v0_directory / 'state')
     )
@@ -146,7 +146,7 @@ class PyTreeCheckpointableResolutionTest(
     layout = await get_checkpoint_layout_pytree(
         flat_directory, CheckpointLayoutEnum.ORBAX, None
     )
-    self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
+    self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
 
   async def test_v1_flat_errors(self):
     flat_directory = self.root_directory / 'v1_flat'
@@ -167,6 +167,33 @@ class PyTreeCheckpointableResolutionTest(
       await get_checkpoint_layout_pytree(
           flat_directory, CheckpointLayoutEnum.ORBAX, None
       )
+
+
+class IsOrbaxCheckpointTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.root_directory = epath.Path(self.create_tempdir())
+    self.v1_directory = self.root_directory / 'v1'
+    saving.save_pytree(
+        self.v1_directory,
+        {'a': 1, 'b': 2},
+    )
+    self.composite_dir = self.root_directory / 'composite_checkpoint'
+    mngr = CheckpointManager(self.composite_dir)
+    mngr.save(
+        0,
+        args=args.Composite(state=args.StandardSave({'a': 1, 'b': 2})),
+    )
+    mngr.wait_until_finished()
+
+  def test_is_orbax_checkpoint(self):
+    self.assertTrue(registry.is_orbax_checkpoint(self.v1_directory))
+    self.assertTrue(orbax_layout.is_orbax_v1_checkpoint(self.v1_directory))
+    self.assertTrue(registry.is_orbax_checkpoint(self.composite_dir / '0'))
+    self.assertTrue(
+        orbax_v0_layout.is_orbax_v0_checkpoint(self.composite_dir / '0')
+    )
 
 
 if __name__ == '__main__':

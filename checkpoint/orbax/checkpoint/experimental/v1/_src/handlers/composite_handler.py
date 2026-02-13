@@ -291,6 +291,11 @@ class CompositeHandler:
         directory,
     )
 
+    # TODO(b/475265289): Currently, we rely solely on CHECKPOINT_METADATA to
+    # find available checkpointables, ignoring valid subdirectories. We
+    # should update the composite handler to validate subdirectories to
+    # check if any either represents a valid pytree checkpointable or has a
+    # name that is registered in the handler registry.
     saved_handler_typestrs: dict[str, str] = {}
     for checkpointable_path in directory.iterdir():
       if not checkpointable_path.is_dir():
