@@ -1469,6 +1469,23 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
 
+  def _construct_single_replica_sharding(
+      self, sharding: jax.sharding.Sharding
+  ) -> jax.sharding.Sharding:
+    """Constructs a single replica sharding."""
+    assert isinstance(sharding, jax.sharding.NamedSharding)
+    local_replica_devices = multislice.local_replica_devices(
+        sharding.mesh, replica_axis_index=self.replica_axis_index
+    )
+    local_replica_devices = np.expand_dims(
+        local_replica_devices, axis=self.replica_axis_index
+    )
+    replica_mesh = jax.sharding.Mesh(
+        local_replica_devices,
+        sharding.mesh.axis_names,
+    )
+    return jax.sharding.NamedSharding(replica_mesh, sharding.spec)
+
   async def deserialize(
       self,
       infos: Sequence[types.ParamInfo],
@@ -1501,10 +1518,14 @@ class SingleReplicaArrayHandler(ArrayHandler):
         )
       if arg.sharding is None:
         raise ValueError('Must provide `sharding`.')
-      if arg.single_replica_sharding is None:
-        raise ValueError('Must provide `single_replica_sharding`.')
 
-    single_replica_shardings = [arg.single_replica_sharding for arg in args]
+    # arg.single_replica_sharding is not required to be passed.
+    single_replica_shardings = [
+        arg.single_replica_sharding
+        if arg.single_replica_sharding
+        else self._construct_single_replica_sharding(arg.sharding)
+        for arg in args
+    ]
     shardings = [arg.sharding for arg in args]
 
     if self._dispatcher is None:
