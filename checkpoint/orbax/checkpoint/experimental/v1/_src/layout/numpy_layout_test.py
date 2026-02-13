@@ -95,9 +95,8 @@ class NumpyLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
 
     # Load the checkpoint
     layout = NumpyLayout()
-    restore_fn = await layout.load(test_path)
-    restored_checkpointables = await restore_fn
-    pytree = restored_checkpointables['pytree']
+    restore_fn = await layout.load_pytree(test_path)
+    pytree = await restore_fn
 
     # Verify restored data
     if np.issubdtype(dtype, np.floating):
