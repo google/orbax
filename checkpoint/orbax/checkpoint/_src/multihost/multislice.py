@@ -15,6 +15,8 @@
 """Multislice utilities."""
 
 import functools
+import math
+import os
 from typing import Any, Optional, Set, Union
 
 from absl import logging
@@ -139,6 +141,10 @@ def in_replica(
 def get_device_memory() -> int:
   """Returns HBM capacity of the device on which the code is running(in bytes)."""
   device = jax.devices()[0]
+  if device.platform == 'cpu':
+    page_size = os.sysconf('SC_PAGE_SIZE')
+    phys_pages = os.sysconf('SC_PHYS_PAGES')
+    return int(page_size * phys_pages)
   if device.platform not in ('tpu', 'gpu'):
     raise ValueError('Only select TPU and GPU devices are supported.')
   hbm_memory = {
@@ -163,8 +169,8 @@ def get_device_memory() -> int:
 
 def get_leaf_memory_per_device(arr: jax.Array) -> int:
   """Returns the memory usage of a sharded array per device (in bytes)."""
-  shard = arr.addressable_shards[0]
-  return shard.data.size * shard.data.itemsize
+  shard_shape = arr.sharding.shard_shape(arr.shape)
+  return math.prod(shard_shape) * arr.dtype.itemsize
 
 
 def tree_memory_per_device(tree: tuple[jax.Array, ...] | jax.Array) -> int:
