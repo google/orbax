@@ -14,12 +14,12 @@
 
 """Defines free-function interface for loading."""
 
-import asyncio
 import functools
 import time
 from typing import Any, Awaitable, Protocol
 
 from absl import logging
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
@@ -115,7 +115,7 @@ def load_pytree(
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout = asyncio.run(
+  layout = asyncio_utils.run_sync(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
@@ -204,7 +204,7 @@ def load_checkpointables(
   logging.info('Loading checkpoint from %s.', path)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout = asyncio.run(
+  layout = asyncio_utils.run_sync(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
@@ -264,7 +264,7 @@ def _load_impl(
     )
     return result
 
-  result = asyncio.run(_load())
+  result = asyncio_utils.run_sync(_load())
 
   event_tracking.record_read_event(path)
 

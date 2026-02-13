@@ -1044,7 +1044,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         # Not an error, as some items may not have been saved.
         continue
       handler.finalize(tmp_dir.get())
-      asyncio.run(
+      asyncio_utils.run_sync(
           tmp_dir.finalize(
           )
       )

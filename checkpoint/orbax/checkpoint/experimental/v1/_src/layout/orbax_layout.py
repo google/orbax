@@ -19,6 +19,7 @@ import enum
 from typing import Any, Awaitable
 
 from absl import logging
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -75,7 +76,7 @@ def is_orbax_v1_checkpoint(path: path_types.PathLike) -> bool:
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
   try:
-    asyncio.run(OrbaxLayout().validate(path))
+    asyncio_utils.run_sync(OrbaxLayout().validate(path))
     return True
   except InvalidLayoutError:
     return False
