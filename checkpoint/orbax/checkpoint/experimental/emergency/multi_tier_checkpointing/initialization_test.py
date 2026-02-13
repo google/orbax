@@ -288,6 +288,61 @@ class MultiTierCheckpointingInitializationTest(
       mock_initialize_distributed_to_device_ids.assert_called_once()
       self.assertEqual(mock_wait_for_replicator_file_to_disappear.call_count, 1)
 
+  @mock.patch.object(
+      initialization, "_wait_for_replicator_file_to_disappear", autospec=True
+  )
+  @mock.patch.object(initialization, "_create_replicator_file", autospec=True)
+  @mock.patch.object(jax.distributed, "initialize", autospec=True)
+  @mock.patch.object(
+      multihost, "initialize_runtime_to_distributed_ids", autospec=True
+  )
+  @mock.patch.object(
+      multihost, "initialize_distributed_to_device_ids", autospec=True
+  )
+  @mock.patch.object(multihost, "runtime_to_distributed_ids", autospec=True)
+  def test_initialize_multi_tier_checkpointing_skip_init_info(
+      self,
+      mock_runtime_to_distributed_ids,
+      mock_initialize_distributed_to_device_ids,
+      mock_initialize_runtime_to_distributed_ids,
+      mock_jax_distributed_initialize,
+      mock_create_replicator_file,
+      mock_wait_for_replicator_file_to_disappear,
+  ):
+    mock_runtime_to_distributed_ids.return_value = [0, 1]
+    mock_jax_distributed_initialize.return_value = None
+    mock_initialize_runtime_to_distributed_ids.return_value = [None, None]
+    mock_initialize_distributed_to_device_ids.return_value = None
+    mock_create_replicator_file.return_value = [None, None]
+    mock_wait_for_replicator_file_to_disappear.return_value = False
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+      replicator_file = epath.Path(tmp_dir) / initialization._REPLICATOR_FILE
+      replicator_file.write_text("replicator.yaml")
+      self.assertTrue(replicator_file.exists())
+
+      restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
+      restore_dir.write_text("restore_dir")
+      self.assertTrue(restore_dir.exists())
+
+      initialization.initialize_multi_tier_checkpointing(
+          epath.Path(tmp_dir),
+          num_slices=1,
+          run_name="test-run",
+          data_parallelism=1,
+          use_mtc_process_ids=False,
+      )
+      mock_jax_distributed_initialize.assert_called_once_with(
+          initialization_timeout=900,
+      )
+      mock_initialize_runtime_to_distributed_ids.assert_called_once()
+      mock_initialize_distributed_to_device_ids.assert_called_once()
+      self.assertEqual(mock_wait_for_replicator_file_to_disappear.call_count, 2)
+      mock_create_replicator_file.assert_called_once()
+      expected_restore_dir = epath.Path(tmp_dir) / "1"
+      self.assertTrue(expected_restore_dir.exists())
+
 
 if __name__ == "__main__":
   absltest.main()
