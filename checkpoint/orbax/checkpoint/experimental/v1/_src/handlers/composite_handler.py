@@ -71,6 +71,7 @@ async def _create_orbax_identifier_file(
     )
 
 
+# TODO(b/477603241): Remove this class and delete this file and its tests.
 class CompositeHandler:
   """CompositeHandler.
 
@@ -291,8 +292,15 @@ class CompositeHandler:
         directory,
     )
 
+    # TODO(b/475265289): Currently, we rely solely on CHECKPOINT_METADATA to
+    # find available checkpointables, ignoring valid subdirectories. We
+    # should update the composite handler to validate subdirectories to
+    # check if any either represents a valid pytree checkpointable or has a
+    # name that is registered in the handler registry.
     saved_handler_typestrs: dict[str, str] = {}
     for checkpointable_path in directory.iterdir():
+      if not checkpointable_path.is_dir():
+        continue
       serialized_metadata = self._metadata_store.read(
           checkpoint_metadata.step_metadata_file_path(checkpointable_path)
       )

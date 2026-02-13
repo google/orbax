@@ -133,6 +133,8 @@ class _SaveResponse(AsyncResponse[None]):
         temporary_path.temporary_path.get_final(),
     )
 
+    # TODO(b/477603241): Refactor this to use resolution utility once we remove
+    # the composite handler.
     handler = composite_handler.CompositeHandler(
         context.checkpointables_options.registry
     )
@@ -264,7 +266,7 @@ async def _run_blocking_save(
     )
 
   layout_enum = context.checkpoint_layout
-  layout_class = registry.get_layout_class(layout_enum)
+  layout_class = await registry.get_layout_class(layout_enum)
   layout = layout_class()
   if (
       partial_save
