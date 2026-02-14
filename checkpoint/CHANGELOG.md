@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `uvloop` dependency for improved event loop performance
+- #v1 Add `use_load_and_broadcast` option.
 
 ### Removed
 
@@ -22,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - #v1 Make most V1 public concrete classes final.
+- Allow restore+broadcast logic to not require a single-replica sharding
+parameter, which is always constructed as a sharding over replica-local
+devices anyway.
 - Refactor `CheckpointLayout` splitting `load()` into `load_pytree()` and
 `load_checkpointables()` each with their own dedicated loading logic
 - Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`

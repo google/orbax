@@ -1452,7 +1452,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       replica_axis_index: Defines the axis of the global mesh along which
         replicas are defined. E.g. all devices in
         global_mesh.devices[replica_axis_index] are part of the same replica.
-      primary_replica_id: The id of the replica hosts that is used to load and
+      primary_replica_id: The id of the replica that is used to load and
         broadcast the checkpoint.
       broadcast_memory_limit_bytes: Specifies the memory size (in bytes) used
         for broadcasting data.
@@ -1468,6 +1468,23 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
+
+  def _construct_single_replica_sharding(
+      self, sharding: jax.sharding.Sharding
+  ) -> jax.sharding.Sharding:
+    """Constructs a single replica sharding."""
+    assert isinstance(sharding, jax.sharding.NamedSharding)
+    local_replica_devices = multislice.local_replica_devices(
+        sharding.mesh, replica_axis_index=self.replica_axis_index
+    )
+    local_replica_devices = np.expand_dims(
+        local_replica_devices, axis=self.replica_axis_index
+    )
+    replica_mesh = jax.sharding.Mesh(
+        local_replica_devices,
+        sharding.mesh.axis_names,
+    )
+    return jax.sharding.NamedSharding(replica_mesh, sharding.spec)
 
   async def deserialize(
       self,
@@ -1500,11 +1517,18 @@ class SingleReplicaArrayHandler(ArrayHandler):
             f' {type(arg)}.'
         )
       if arg.sharding is None:
-        raise ValueError('Must provide `sharding`.')
-      if arg.single_replica_sharding is None:
-        raise ValueError('Must provide `single_replica_sharding`.')
+        raise ValueError(
+            'Must provide `sharding` to restore with'
+            ' `SingleReplicaArrayHandler`.'
+        )
 
-    single_replica_shardings = [arg.single_replica_sharding for arg in args]
+    # arg.single_replica_sharding is not required to be passed.
+    single_replica_shardings = [
+        arg.single_replica_sharding
+        if arg.single_replica_sharding
+        else self._construct_single_replica_sharding(arg.sharding)
+        for arg in args
+    ]
     shardings = [arg.sharding for arg in args]
 
     if self._dispatcher is None:

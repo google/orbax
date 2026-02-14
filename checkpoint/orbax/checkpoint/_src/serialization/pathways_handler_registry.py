@@ -90,6 +90,7 @@ def get_pathways_array_handler(
     **kwargs,
 ) -> type_handlers.ArrayHandler:
   """Returns the Pathways ArrayHandler with the given options."""
+
   # If not set, use whichever dispatcher implementation is available.
   checkpointing_impl = checkpointing_impl or CheckpointingImpl.from_options(
       use_colocated_python=True,

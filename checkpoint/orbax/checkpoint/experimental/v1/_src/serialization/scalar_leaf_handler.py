@@ -39,8 +39,7 @@ ScalarDeserializationParam = types.DeserializationParam[
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
   """Creates a V0 ScalarHandler."""
-  scalar_handler = type_handlers_v0.ScalarHandler()
-  return scalar_handler
+  return registration.get_scalar_handler()
 
 
 def _create_v0_saving_paraminfo(

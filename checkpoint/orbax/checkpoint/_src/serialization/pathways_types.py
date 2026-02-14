@@ -24,7 +24,16 @@ import enum
 
 
 class CheckpointingImpl(enum.Enum):
-  """The implementation to use for Pathways checkpointing."""
+  """The implementation to use for Pathways checkpointing.
+
+  These implementations include:
+    - Colocated Python
+    - Remote Python
+    - Persistence Array Handler
+    - No Dispatcher
+
+  "No dispatcher" means that Pathways will not be used.
+  """
 
   NO_DISPATCHER = enum.auto()
   COLOCATED_PYTHON = enum.auto()
