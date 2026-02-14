@@ -159,7 +159,10 @@ def get_device_memory() -> int:
       'NVIDIA B200': int(183e9),
       'NVIDIA B300 SXM6 AC': int(275e9),
   }
-  memory = hbm_memory.get(device.device_kind, None)
+  # Remove spaces from the device kind to make the lookup robust.
+  # For example, "TPU 7x" and "TPU7x" should both map to the same value.
+  normalized_hbm_memory = {k.replace(' ', ''): v for k, v in hbm_memory.items()}
+  memory = normalized_hbm_memory.get(device.device_kind.replace(' ', ''), None)
   if memory is None:
     raise ValueError(
         f'get_device_memory is not supported for {device.device_kind}.'
