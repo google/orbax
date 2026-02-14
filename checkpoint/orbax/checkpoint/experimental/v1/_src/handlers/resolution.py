@@ -71,7 +71,7 @@ async def _create_orbax_identifier_file(
     )
 
 
-# TODO(b/477603241): Remove this class and delete this file and its tests.
+# TODO(b/477603241): Remove this class, keeping necessary utility functions.
 class CompositeHandler:
   """CompositeHandler.
 

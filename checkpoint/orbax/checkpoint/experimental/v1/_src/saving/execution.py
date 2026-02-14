@@ -133,6 +133,8 @@ class _SaveResponse(AsyncResponse[None]):
         temporary_path.temporary_path.get_final(),
     )
 
+    # TODO(b/477603241): Refactor this to use resolution utility once we remove
+    # the composite handler.
     handler = composite_handler.CompositeHandler(
         context.checkpointables_options.registry
     )

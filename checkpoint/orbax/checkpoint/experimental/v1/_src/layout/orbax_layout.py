@@ -304,6 +304,7 @@ class OrbaxLayout(CheckpointLayout):
     Returns:
       An awaitable containing the loaded pytree.
     """
+    # TODO(b/477603241): In-line the composite handler logic here.
     load_awaitable = await self._composite_handler.load(
         path, {checkpointable_name: abstract_pytree}
     )
@@ -323,6 +324,7 @@ class OrbaxLayout(CheckpointLayout):
     Returns:
       An awaitable containing the loaded checkpointables.
     """
+    # TODO(b/477603241): In-line the composite handler logic here.
     load_awaitable = await self._composite_handler.load(
         path, abstract_checkpointables
     )
@@ -335,6 +337,7 @@ class OrbaxLayout(CheckpointLayout):
       checkpointables: dict[str, Any],
   ) -> Awaitable[None]:
     """Saves the checkpoint to the given directory."""
+    # TODO(b/477603241): In-line the composite handler logic here.
     save_awaitable = await self._composite_handler.save(
         path, checkpointables
     )
