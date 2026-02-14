@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Utilities for v0 checkpoint compatibility."""
-
+import asyncio
 from typing import Any
 
 from orbax.checkpoint._src.checkpointers import async_checkpointer
@@ -22,7 +22,9 @@ from orbax.checkpoint._src.handlers import handler_registration as legacy_handle
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
@@ -34,6 +36,18 @@ PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = type_handlers.PLACEHOLDER
+
+
+async def _get_handlers_for_load(
+    path: path_types.Path,
+    handler_registry: registration.CheckpointableHandlerRegistry,
+    abstract_checkpointables: dict[str, Any],
+) -> dict[str, handler_types.CheckpointableHandler]:
+  checkpoint_metadata = await handler_resolution.read_checkpoint_metadata(path)
+  handlers = await handler_resolution.get_handlers_for_load(
+      path, handler_registry, abstract_checkpointables, checkpoint_metadata
+  )
+  return handlers
 
 
 def get_v0_checkpointer_and_args(
@@ -57,12 +71,15 @@ def get_v0_checkpointer_and_args(
   """
   validation.validate_abstract_checkpointables(abstract_checkpointables)
   abstract_checkpointables = abstract_checkpointables or {}
-
-  # pylint: disable=protected-access
-  handlers = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  ).get_handlers_for_load(path, abstract_checkpointables)
-  # pylint: enable=protected-access
+  handler_registry = registration.local_registry(
+      context.checkpointables_options.registry,
+      include_global_registry=False,
+  )
+  handlers = asyncio.run(
+      _get_handlers_for_load(
+          path, handler_registry, abstract_checkpointables
+      )
+  )
   if not abstract_checkpointables:
     abstract_checkpointables = {
         name: None
