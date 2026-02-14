@@ -22,6 +22,11 @@ handlers using `StepMetadata.item_handlers` and the global `HandlerTypeRegistry`
 if no args are provided.
 - `CompositeCheckpointHandler.metadata()` now returns `StepMetadata`.
 
+### Fixed
+
+- Fixed `get_device_memory` issue on TPU 7x devices where the device kind string
+was consistently reported without a space, causing a ValueError.
+
 ## [0.1.7] - 2022-03-29
 
 ### Added
