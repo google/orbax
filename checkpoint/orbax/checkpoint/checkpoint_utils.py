@@ -14,7 +14,6 @@
 
 """High-level checkpoint utils provided for user convenience."""
 
-import asyncio
 import contextlib
 import time
 from typing import Any, Callable, Iterator, Optional
@@ -25,6 +24,7 @@ import jax
 from jax.experimental import layout
 import numpy as np
 from orbax.checkpoint import utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
@@ -121,7 +121,7 @@ def _snapshot_checkpoint(
           f'Ignoring error when snapshotting checkpoint for step: {step}'
       ),
   ):
-    asyncio.run(snapshot_impl.create_snapshot())
+    asyncio_utils.run_sync(snapshot_impl.create_snapshot())
   return True
 
 
@@ -146,7 +146,7 @@ def _release_snapshot(
             f'Ignoring error when releasing snapshot for step: {step}'
         ),
     ):
-      asyncio.run(snapshot_impl.release_snapshot())
+      asyncio_utils.run_sync(snapshot_impl.release_snapshot())
 
 
 def _reached_desired_step(step: int, until_step: Optional[int]) -> bool:
@@ -409,7 +409,7 @@ def checkpoints_iterator(
               f' {step_dir.name}'
           ),
       ):
-        asyncio.run(snapshot_impl.release_snapshot())
+        asyncio_utils.run_sync(snapshot_impl.release_snapshot())
   checkpoint_step = None
   while True:
     until_step = checkpoint_step + 1 if checkpoint_step is not None else None

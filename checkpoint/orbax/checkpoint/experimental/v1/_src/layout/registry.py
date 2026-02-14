@@ -15,6 +15,8 @@
 """Registry for checkpoint layouts."""
 
 import asyncio
+
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -24,6 +26,7 @@ from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import pytorch_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 CheckpointLayout = checkpoint_layout.CheckpointLayout
@@ -49,7 +52,7 @@ async def _is_orbax_checkpoint_async(path: path_types.PathLike) -> bool:
 
 def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
   """Returns True if the path is an Orbax checkpoint."""
-  return asyncio.run(_is_orbax_checkpoint_async(path))
+  return asyncio_utils.run_sync(_is_orbax_checkpoint_async(path))
 
 
 async def get_layout_class(

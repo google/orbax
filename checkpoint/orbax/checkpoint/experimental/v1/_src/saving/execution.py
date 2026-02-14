@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import time
 from typing import Any, Awaitable, Iterable
@@ -25,6 +24,7 @@ import uuid
 from absl import logging
 import jax
 import numpy as np
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
@@ -380,7 +380,7 @@ def save_checkpointables_impl(
   event_tracking.record_save_start(path, async_origin=async_origin)
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
-  asyncio.run(context_lib.synchronize_next_operation_id())
+  asyncio_utils.run_sync(context_lib.synchronize_next_operation_id())
   context = context_lib.get_context()
 
   path = context.file_options.path_class(path)
@@ -397,7 +397,7 @@ def save_checkpointables_impl(
       subdirectories=subdirectories,
       use_snapshot=path_exists,
   )
-  background_awaitable = asyncio.run(
+  background_awaitable = asyncio_utils.run_sync(
       _run_blocking_save(
           temporary_path,
           checkpointables,
