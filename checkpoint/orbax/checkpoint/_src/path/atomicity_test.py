@@ -13,12 +13,15 @@
 # limitations under the License.
 
 import stat
+
 import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import test_utils
+
+
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
@@ -203,6 +206,26 @@ class ReadOnlyTemporaryPathTest(
     with self.assertRaises(NotImplementedError):
       await path.finalize(
       )
+
+
+class GetPathOrRaiseIfDeferredTest(
+    parameterized.TestCase,
+    unittest.IsolatedAsyncioTestCase,
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path)
+
+  def test_concrete_path_returns_value(self):
+    tmp = self.directory / 'tmp'
+    final = self.directory / 'final'
+    path = AtomicRenameTemporaryPath(
+        temporary_path=tmp,
+        final_path=final,
+    )
+    result = atomicity.get_path_or_raise_if_deferred(path)
+    self.assertEqual(result, tmp)
 
 
 

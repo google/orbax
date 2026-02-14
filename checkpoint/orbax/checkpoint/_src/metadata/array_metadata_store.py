@@ -27,6 +27,7 @@ from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 class PathResolver:
@@ -258,7 +259,7 @@ class Store:
       )
       return None
 
-    if isinstance(file_paths, epath.Path):
+    if isinstance(file_paths, (epath.Path, path_types.PathAwaitingCreation)):
       _, result = await self._get_array_metadatas(file_paths)
       logging.vlog(
           1,

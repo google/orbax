@@ -52,6 +52,7 @@ Configuration can be done in the following way::
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import pickle
 import threading
@@ -72,6 +73,7 @@ from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 ValidationError = atomicity_types.ValidationError
@@ -205,6 +207,28 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
           'Temporary path has not been created yet. Please call `create` first.'
       )
     return self._tmp_path
+
+
+class DeferredWritableTemporaryPath(TemporaryPathBase):
+  """A TemporaryPath that supports deferred writable path allocation.
+
+  This abstract base class is for backends (like TFHub) where the writable
+  path is allocated asynchronously and may not be immediately available.
+  Subclasses must implement `get_awaitable_path()` to provide access to the
+  path as a `PathAwaitingCreation`.
+
+  Use `isinstance(tmp, DeferredWritableTemporaryPath)` to check if a
+  TemporaryPath needs deferred path allocation.
+  """
+
+  @abc.abstractmethod
+  def get_awaitable_path(self) -> path_types.PathAwaitingCreation:
+    """Returns the writable path as a PathAwaitingCreation.
+
+    Returns:
+      A PathAwaitingCreation that resolves to the writable path.
+    """
+    ...
 
 
 class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
@@ -345,9 +369,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
 
 async def _shared_validate(class_name: str, path: epath.Path):
   if not await async_path.is_dir(path):
-    raise ValidationError(
-        f'Expected {class_name} ({path}) to be a directory.'
-    )
+    raise ValidationError(f'Expected {class_name} ({path}) to be a directory.')
   if not await async_path.exists(path):
     raise ValidationError(f'Expected {class_name} ({path}) to exist.')
 
@@ -398,9 +420,7 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
       cls,
       temporary_path: epath.Path,
   ):
-    await validate_atomic_rename_temporary_path(
-        cls.__name__, temporary_path
-    )
+    await validate_atomic_rename_temporary_path(cls.__name__, temporary_path)
 
   @classmethod
   async def validate_final(
@@ -626,6 +646,21 @@ class CommitFileTemporaryPath(TemporaryPathBase):
     )
 
 
+def get_path_or_raise_if_deferred(
+    path: atomicity_types.TemporaryPath,
+) -> epath.Path:
+  """Gets the temporary path.
+
+  Args:
+    path: A TemporaryPath.
+
+  Returns:
+    The temporary path.
+  """
+
+  return path.get()
+
+
 async def create_all(
     paths: Sequence[atomicity_types.TemporaryPath],
     *,
@@ -658,6 +693,7 @@ async def create_all(
       timeout=multihost.coordination_timeout(),
       processes=active_processes,
   )
+
   directory_creation_secs = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs', directory_creation_secs

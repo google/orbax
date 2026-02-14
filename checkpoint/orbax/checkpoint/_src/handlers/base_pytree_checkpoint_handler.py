@@ -47,6 +47,7 @@ from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
@@ -57,6 +58,7 @@ from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 import tensorstore as ts
 
 
@@ -308,7 +310,7 @@ def _format_bytes(bytes_value: Optional[int]) -> str:
 
 
 class BasePyTreeCheckpointHandler(
-    async_checkpoint_handler.AsyncCheckpointHandler
+    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -433,7 +435,7 @@ class BasePyTreeCheckpointHandler(
   def _get_param_infos(
       self,
       item: PyTree,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       *,
       use_ocdbt: bool = True,
       use_compression: bool | None = True,
@@ -581,7 +583,7 @@ class BasePyTreeCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       args: BasePyTreeSaveArgs,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
@@ -621,6 +623,9 @@ class BasePyTreeCheckpointHandler(
       the data from its source will be awaited in this function.
     """
     start_time = time.time()
+    # Await path creation if directory is a PathAwaitingCreation.
+    if isinstance(directory, path_types.PathAwaitingCreation):
+      directory = await directory.await_creation()
     item = args.item
     if not item:
       raise ValueError('Found empty item.')
@@ -643,8 +648,9 @@ class BasePyTreeCheckpointHandler(
         use_compression=self._use_compression,
         use_zarr3=self._use_zarr3,
     )
+
     assert all(
-        leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
+        leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
     )
 
     serialize_ops = []  # List of (coros -> List of futures)
@@ -660,11 +666,11 @@ class BasePyTreeCheckpointHandler(
     # Cannot rely solely on the metadata file existing pre-empted saves may be
     # misclassified as partial saves.
     partial_save = (
-        await async_path.exists(directory / PYTREE_METADATA_FILE)
+        isinstance(directory, epath.Path)
+        and await async_path.exists(directory / PYTREE_METADATA_FILE)
         # TODO: b/428711337 - Use method from v1/_src/partial/path.py instead.
         and '.partial_save' in directory.parent.name
     )
-
     batch_requests_ready_time = time.time()
     if partial_save:
       serialize_ops, tree_memory_size, param_infos, save_args = (
@@ -1190,7 +1196,7 @@ class BasePyTreeCheckpointHandler(
   async def _write_metadata_after_commits(
       self,
       commit_futures: List[future.Future],
-      checkpoint_dir: epath.Path,
+      checkpoint_dir: path_types.PathAwaitingCreation | epath.Path,
       *,
       param_infos: PyTree,
       save_args: PyTree,
@@ -1204,6 +1210,9 @@ class BasePyTreeCheckpointHandler(
       return
     for commit_future in commit_futures:
       await asyncio.to_thread(commit_future.result)
+
+    if isinstance(checkpoint_dir, path_types.PathAwaitingCreation):
+      checkpoint_dir = await checkpoint_dir.await_creation()
 
     commit_time = time.time()
     # `write_shape` is extracted from ArrayMetadata store saved during
