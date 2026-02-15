@@ -14,7 +14,6 @@
 
 """AsyncCheckpointer."""
 
-import sys
 import threading
 import time
 from typing import Any, Callable, Optional, Sequence, Type
@@ -119,9 +118,8 @@ def _background_wait_for_commit_futures(
           )
       )
     except jax.errors.JaxRuntimeError as e:
-      if sys.version_info >= (3, 11):
-        if 'DEADLINE_EXCEEDED' in str(e):
-          _add_deadline_exceeded_notes(e)
+      if 'DEADLINE_EXCEEDED' in str(e):
+        _add_deadline_exceeded_notes(e)
       raise
 
   if utils.is_primary_host(primary_host):
