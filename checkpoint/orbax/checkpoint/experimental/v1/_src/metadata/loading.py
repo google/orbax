@@ -14,9 +14,9 @@
 
 """Functions for loading metadata from a checkpoint."""
 
-import asyncio
 from typing import Any
 
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
@@ -88,7 +88,7 @@ def pytree_metadata(
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  layout = asyncio.run(
+  layout = asyncio_utils.run_sync(
       layout_registry.get_checkpoint_layout_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
@@ -140,7 +140,7 @@ def checkpointables_metadata(
   """
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout = asyncio.run(
+  layout = asyncio_utils.run_sync(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
   return _checkpointables_metadata_impl(layout, path)
@@ -157,4 +157,4 @@ def _checkpointables_metadata_impl(
   ):
     return await layout.metadata(path)
 
-  return asyncio.run(_load_metadata())
+  return asyncio_utils.run_sync(_load_metadata())

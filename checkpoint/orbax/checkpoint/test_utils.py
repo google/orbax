@@ -37,6 +37,7 @@ from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import checkpoint_args
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
@@ -645,7 +646,7 @@ def ensure_atomic_save(
 ):
   """Wrapper around TemporaryPath.finalize for testing."""
   if temp_ckpt_dir == final_ckpt_dir:
-    asyncio.run(
+    asyncio_utils.run_sync(
         atomicity.CommitFileTemporaryPath(
             temp_ckpt_dir,
             final_ckpt_dir,
@@ -654,7 +655,7 @@ def ensure_atomic_save(
         )
     )
   else:
-    asyncio.run(
+    asyncio_utils.run_sync(
         atomicity.AtomicRenameTemporaryPath(
             temp_ckpt_dir,
             final_ckpt_dir,

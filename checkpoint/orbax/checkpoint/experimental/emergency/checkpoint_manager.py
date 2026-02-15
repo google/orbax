@@ -25,7 +25,6 @@ intended to work only with the persistent checkpoint on the primary slice should
 always be called across all processes within the primary slice.
 """
 
-import asyncio
 import dataclasses
 import functools
 import time
@@ -40,6 +39,7 @@ from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint._src.handlers import handler_registration
@@ -991,7 +991,7 @@ class _MultisliceCheckpointManager(
             1,
             'Debugging single-slice restore_args used for restoration.',
         )
-        asyncio.run(
+        asyncio_utils.run_sync(
             local_checkpoint_data_debugging.print_chunk_debug_info(
                 restore_directory / _STATE_ITEM_NAME,
                 single_slice_restore_args,

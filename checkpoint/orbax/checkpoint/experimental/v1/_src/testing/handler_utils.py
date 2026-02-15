@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
 from typing import Any, Awaitable, Generic, Type, TypeVar
@@ -25,6 +24,7 @@ import aiofiles
 from etils import epath
 from orbax.checkpoint import checkpoint_args as v0_args
 from orbax.checkpoint import handlers as v0_handlers
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -59,24 +59,26 @@ class _TestHandler(Generic[T, AbstractT]):
 
   def save(self, directory: Path, checkpointable: T):
     path = path_test_utils.PathAwaitingCreationWrapper(directory)
-    awaitable = asyncio.run(self._handler.save(path, checkpointable))
-    return asyncio.run(_run_awaitable(awaitable))
+    awaitable = asyncio_utils.run_sync(self._handler.save(path, checkpointable))
+    return asyncio_utils.run_sync(_run_awaitable(awaitable))
 
   def save_async(self, directory: Path, checkpointable: T):
     path = path_test_utils.PathAwaitingCreationWrapper(directory)
-    return asyncio.run(self._handler.save(path, checkpointable))
+    return asyncio_utils.run_sync(self._handler.save(path, checkpointable))
 
   def load(self, path: Path, abstract_checkpointable: AbstractT | None = None):
     awaitable = self.load_async(path, abstract_checkpointable)
-    return asyncio.run(_run_awaitable(awaitable))
+    return asyncio_utils.run_sync(_run_awaitable(awaitable))
 
   def load_async(
       self, path: Path, abstract_checkpointable: AbstractT | None = None
   ):
-    return asyncio.run(self._handler.load(path, abstract_checkpointable))
+    return asyncio_utils.run_sync(
+        self._handler.load(path, abstract_checkpointable)
+    )
 
   def metadata(self, path: Path) -> AbstractT:
-    return asyncio.run(self._handler.metadata(path))
+    return asyncio_utils.run_sync(self._handler.metadata(path))
 
   def is_handleable(self, checkpointable: Any) -> bool:
     return self._handler.is_handleable(checkpointable)
