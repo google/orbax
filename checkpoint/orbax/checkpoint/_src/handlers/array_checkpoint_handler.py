@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from typing import List, Optional, Union
 
@@ -102,8 +103,12 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         item={self._checkpoint_name: item},
         save_args={self._checkpoint_name: save_args},
     )
+    # BasePyTreeCheckpointHandler requires an asyncio.Future, so wrap the
+    # directory in an already-resolved future.
+    directory_future = asyncio.Future()
+    directory_future.set_result(directory)
     return await self._base_pytree_checkpoint_handler.async_save(
-        directory, args=pytree_args
+        directory_future, args=pytree_args
     )
 
   def save(self, directory: epath.Path, *args, **kwargs):

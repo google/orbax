@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import dataclasses
-from typing import Any, Callable, Optional, Protocol, Sequence, Tuple
+from typing import Any, Callable, Optional, Protocol, Sequence, Tuple, Union
 
 from absl import logging
 from etils import epath
@@ -115,7 +116,7 @@ class ParamInfo:
   """
 
   name: str
-  parent_dir: epath.Path
+  parent_dir: Union[epath.Path, 'asyncio.Future[epath.Path]']
   path: Optional[epath.Path] = None
   keypath: Optional[Tuple[Any, ...]] = None
   skip_deserialize: Optional[bool] = None
@@ -133,8 +134,24 @@ class ParamInfo:
   is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None
 
   def __post_init__(self):
-    if self.path is None:
+    if self.path is None and not isinstance(self.parent_dir, asyncio.Future):
       self.path = self.parent_dir / self.name
+
+  async def get_resolved_path(self) -> epath.Path:
+    """Resolves and returns the path, awaiting parent_dir if needed."""
+    if isinstance(self.parent_dir, asyncio.Future):
+      resolved_dir = await self.parent_dir
+      return resolved_dir / self.name
+    else:
+      if self.path is None:
+        self.path = self.parent_dir / self.name
+      return self.path
+
+  async def get_parent_dir(self) -> epath.Path:
+    """Resolves and returns the parent directory, awaiting if needed."""
+    if isinstance(self.parent_dir, asyncio.Future):
+      return await self.parent_dir
+    return self.parent_dir
 
 
 @dataclasses.dataclass
@@ -396,3 +413,32 @@ class IsPrioritizedKeyFn(Protocol):
 
   def __call__(self, keypath: Tuple[Any, ...]) -> bool:
     """Returns true if the key is prioritized."""
+
+
+async def resolve_param_infos(
+    infos: Sequence[ParamInfo],
+) -> Sequence[ParamInfo]:
+  """Resolves any future directories in ParamInfos.
+
+  If the parent_dir in any ParamInfo is an asyncio.Future, awaits it and
+  returns a new sequence of ParamInfos with resolved paths. Otherwise returns
+  the input sequence unchanged.
+
+  Args:
+    infos: Sequence of ParamInfo objects, potentially with future parent_dir.
+
+  Returns:
+    Sequence of ParamInfo objects with resolved parent_dir and path.
+  """
+  if not infos:
+    return infos
+
+  if isinstance(infos[0].parent_dir, asyncio.Future):
+    resolved_dir = await infos[0].parent_dir
+    return tuple([
+        dataclasses.replace(
+            info, parent_dir=resolved_dir, path=resolved_dir / info.name
+        )
+        for info in infos
+    ])
+  return infos
