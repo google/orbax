@@ -1,0 +1,33 @@
+suite_name: "Safetensors Load Benchmark"
+
+mesh_configs:
+  # Case 1: v5litepod-8, num_slices=2 (4 processes, 4 chips/process)
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 4, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
+  # Case 2: v5litepod-8, num_slices=1 (2 processes, 4 chips/process)
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 4, "model": 1}
+    dcn_parallelism: {"data": 2, "model": 1}
+  # Case 5: v5litepod-16, num_slices=1 (4 processes, 4 chips/process), ICI-only
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 8, "model": 16}
+    dcn_parallelism: null
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 16}
+    dcn_parallelism: null
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 32}
+    dcn_parallelism: null
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 64}
+    dcn_parallelism: null
+
+checkpoint_config:
+  spec:
+    array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensors_benchmark.SafetensorsBenchmark"
+    options:
+      checkpoint_path: "gs://safetensor-kimi-central/test-model-kimi"
