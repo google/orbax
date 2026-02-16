@@ -108,6 +108,7 @@ ENV PYTHONPATH=/app/orbax_repo/checkpoint
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"
+RUN python3 -c "import safetensors.numpy; print('SafeTensors installed:', safetensors.numpy.__file__)"
 
 # 6. Entrypoint
 # We point to the benchmark script relative to the repo root structure
