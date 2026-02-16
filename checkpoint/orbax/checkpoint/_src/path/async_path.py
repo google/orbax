@@ -159,8 +159,17 @@ async def open_file(
     path: epath.Path, mode: str = 'rb'
 ) -> AsyncIterator[AsyncFile]:
   """Async context manager for opening files."""
-  f = await asyncio.to_thread(path.open, mode=mode)
-  try:
-    yield AsyncFile(f)
-  finally:
-    await asyncio.to_thread(f.close)
+  f_or_cm = await asyncio.to_thread(path.open, mode=mode)
+  if hasattr(f_or_cm, 'read'):
+    f = f_or_cm
+    try:
+      yield AsyncFile(f)
+    finally:
+      await asyncio.to_thread(f.close)
+  else:  # It is a context manager
+    cm = f_or_cm
+    f = await asyncio.to_thread(cm.__enter__)
+    try:
+      yield AsyncFile(f)
+    finally:
+      await asyncio.to_thread(cm.__exit__, None, None, None)
