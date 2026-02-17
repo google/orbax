@@ -32,6 +32,7 @@ from orbax.checkpoint._src.serialization import jax_array_handlers
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 import tensorstore as ts
 
 ParamInfo: TypeAlias = types.ParamInfo
@@ -293,7 +294,11 @@ class StringHandler(types.TypeHandler):
     """Gets Tensorstore spec in JSON format."""
     if info.parent_dir is None:
       raise ValueError('Must provide info.parent_dir.')
-    directory = (info.parent_dir / self._filename).as_posix()
+    parent_dir = info.parent_dir
+    if isinstance(parent_dir, path_types.PathAwaitingCreation):
+      directory = (parent_dir.path / self._filename).as_posix()
+    else:
+      directory = (parent_dir / self._filename).as_posix()
     kvstore_tspec = ts_utils.build_kvstore_tspec(directory, use_ocdbt=False)
     tspec = {
         'driver': 'json',
