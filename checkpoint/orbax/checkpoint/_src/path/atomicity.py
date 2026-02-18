@@ -52,6 +52,7 @@ Configuration can be done in the following way::
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import pickle
 import threading
@@ -72,6 +73,7 @@ from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import utils
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 ValidationError = atomicity_types.ValidationError
@@ -205,6 +207,25 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
           'Temporary path has not been created yet. Please call `create` first.'
       )
     return self._tmp_path
+
+
+class DeferredWritableTemporaryPath(TemporaryPathBase):
+  """A TemporaryPath that supports deferred writable path allocation.
+
+  This abstract base class is for backends (like TFHub) where the writable
+  path is allocated asynchronously and may not be immediately available.
+  Subclasses must implement `get_awaitable_path()` to provide access to the
+  path as a `PathAwaitingCreation`.
+  """
+
+  @abc.abstractmethod
+  def get_awaitable_path(self) -> path_types.PathAwaitingCreation:
+    """Returns the writable path as a PathAwaitingCreation.
+
+    Returns:
+      A PathAwaitingCreation that resolves to the writable path.
+    """
+    ...
 
 
 class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
