@@ -142,34 +142,16 @@ def in_replica(
 
 def get_device_memory() -> int:
   """Returns HBM capacity of the device on which the code is running(in bytes)."""
-  device = jax.devices()[0]
+  device = jax.local_devices()[0]
   if device.platform == 'cpu':
     page_size = os.sysconf('SC_PAGE_SIZE')
     phys_pages = os.sysconf('SC_PHYS_PAGES')
     return int(page_size * phys_pages)
+
   if device.platform not in ('tpu', 'gpu'):
     raise ValueError('Only select TPU and GPU devices are supported.')
-  hbm_memory = {
-      'TPU v3': int(16e9),  # two cores per chip each with 16 GB HBM
-      'TPU v4': int(32e9),  # one megacore per chip with 32 GB HBM
-      'TPU v5 lite': int(16e9),  # one core per chip with 16 GB HBM
-      'TPU v5': int(96e9),  # one megacore per chip with 96 GB HBM
-      'TPU v6 lite': int(32e9),  # one core per chip with 32 GB HBM
-      'TPU 7x': int(96e9),  # two cores per chip each with 96 GB HBM
-      'NVIDIA H100 80GB HBM3': int(80e9),
-      'NVIDIA H200': int(144e9),
-      'NVIDIA B200': int(183e9),
-      'NVIDIA B300 SXM6 AC': int(275e9),
-  }
-  # Remove spaces from the device kind to make the lookup robust.
-  # For example, "TPU 7x" and "TPU7x" should both map to the same value.
-  normalized_hbm_memory = {k.replace(' ', ''): v for k, v in hbm_memory.items()}
-  memory = normalized_hbm_memory.get(device.device_kind.replace(' ', ''), None)
-  if memory is None:
-    raise ValueError(
-        f'get_device_memory is not supported for {device.device_kind}.'
-    )
-  return memory
+
+  return device.memory_stats()['bytes_limit']
 
 
 def get_leaf_memory_per_device(arr: jax.Array) -> int:
