@@ -66,7 +66,16 @@ jobs:
     - name: Test with pytest
     # TODO(nikhilbansall): Move these to an exclude target within pytest.ini.
       run: |
-        python -m pytest --import-mode=importlib --ignore=orbax/checkpoint/experimental/emergency/broadcast_multislice_test.py --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/single_slice_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_data_debugging_test.py --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_test.py --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py --ignore=orbax/checkpoint/_src/handlers/array_checkpoint_handler_test.py --ignore=orbax/checkpoint/checkpoint_manager_test.py --ignore=orbax/checkpoint/_src/handlers/pytree_checkpoint_handler_test.py
+        python3 -m pytest --import-mode=importlib \
+        --ignore=orbax/checkpoint/experimental/emergency/broadcast_multislice_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/single_slice_checkpoint_manager_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_data_debugging_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py \
+        --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py \
+        $(python3 -c "import yaml; d=yaml.safe_load(open('orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml')); print(' '.join(['--ignore=' + t.replace(':', '/') + '.py' for k,v in d.items() if k.startswith('processes') and v for t in v]))")
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
