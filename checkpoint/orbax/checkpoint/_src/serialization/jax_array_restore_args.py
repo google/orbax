@@ -16,6 +16,7 @@
 
 import dataclasses
 from typing import Any
+from absl import logging
 import jax
 from jax.experimental import layout
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -92,9 +93,20 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
   on one replica hosts and do broadcasting which should significantly
   improve the training start time at scale.
 
-  single_replica_sharding:
-    jax.sharding.NamedSharding object which describes the single replica
-    sharding to which current host belongs to.
+  single_replica_sharding: [Deprecated] This is provided for backward
+    compatibility only. It is not needed, as Orbax code will automatically
+    construct a single-replica sharding used for restoring before broadcasting.
   """
 
   single_replica_sharding: jax.sharding.NamedSharding | None = None
+
+  def __post_init__(self):
+    super().__post_init__()
+    logging.log_first_n(
+        logging.WARNING,
+        '`single_replica_sharding` is deprecated and will be removed in a'
+        ' future version. It is not needed, as Orbax code will automatically'
+        ' construct a single-replica sharding used for restoring before'
+        ' broadcasting.',
+        1,
+    )

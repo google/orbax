@@ -38,7 +38,8 @@ def process_replica_id(
     *,
     replica_axis_index: int = 0,
 ) -> int:
-  """Returns the slice id that the process_index belongs to."""
+  """Returns the replica id that the process_index belongs to."""
+
   for replica_id in range(
       replica_count(global_mesh, replica_axis_index=replica_axis_index)
   ):
@@ -64,6 +65,7 @@ def replica_devices(
     replica_id: int = 0,
     replica_axis_index: int = 0,
 ) -> np.ndarray:
+  """Returns devices for the replica with the given ID."""
   return np.take(
       global_mesh.devices,
       replica_id,
@@ -83,7 +85,7 @@ def replica_count(
 def local_replica_devices(
     global_mesh: jax.sharding.Mesh, *, replica_axis_index: int = 0
 ) -> np.ndarray:
-  """Get devices in the host-local slice."""
+  """Get devices for the replica that the current process is in."""
   for replica_id in range(
       replica_count(global_mesh, replica_axis_index=replica_axis_index)
   ):
