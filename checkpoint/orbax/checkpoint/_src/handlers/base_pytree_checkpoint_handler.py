@@ -719,7 +719,7 @@ class BasePyTreeCheckpointHandler(
     _log_io_metrics(
         tree_memory_size,
         start_time,
-        '/jax/checkpoint/write/blocking_gbytes_per_sec',
+        '/jax/orbax/write/blocking_gbytes_per_sec',
     )
     chained_futures = [
         future.ChainedFuture(
@@ -728,8 +728,8 @@ class BasePyTreeCheckpointHandler(
                 _log_io_metrics,
                 tree_memory_size,
                 start_time,
-                '/jax/checkpoint/write/gbytes_per_sec',
-                '/jax/checkpoint/write/gbytes',
+                '/jax/orbax/write/gbytes_per_sec',
+                '/jax/orbax/write/gbytes',
             ),
         )
     ]
