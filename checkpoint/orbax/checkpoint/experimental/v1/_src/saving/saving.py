@@ -42,7 +42,20 @@ def save_pytree(
   """Saves a `PyTree`.
 
   The operation blocks until complete. For improved performance, consider using
-  :py:func:`.save_pytree_async` instead.
+  :py:func:`.save_pytree_async` instead. This function should be called on
+  all available controller processes.
+
+  Example usage:
+    Simple save of a dictionary containing JAX arrays::
+      pytree = {
+          'params': {
+              'w': jnp.ones((8, 8)),
+              'b': jnp.zeros(8),
+          },
+          'step': 100
+      }
+      # Saves to /tmp/my_checkpoint/
+      ocp.save_pytree('/tmp/my_checkpoint', pytree)
 
   Args:
     path: The path to save the checkpoint to.
@@ -105,6 +118,8 @@ def save_checkpointables(
   transformations that involve the entire train state (see the
   `load_and_transform` API).
 
+  This function should be called on all available controller processes.
+
   Args:
     path: The path to save the checkpoint to.
     checkpointables: A dictionary of checkpointables. Dictionary keys represent
@@ -144,7 +159,30 @@ def save_pytree_async(
   :py:class:`~.AsyncResponse`
   is returned that can be used to block until the save is complete (using
   `response.result()`). Make sure to wait for completion before attempting to
-  load the checkpoint or exiting the program.
+  load the checkpoint or exiting the program. This function should be called on
+  all available controller processes.
+
+
+  Example usage:
+    Simple save of a dictionary containing JAX arrays asynchronously::
+
+      pytree = {
+          'params': {
+              'w': jnp.ones((8, 8)),
+              'b': jnp.zeros(8),
+          },
+          'step': 100
+      }
+      # Saves to /tmp/my_checkpoint/
+      future = ocp.experimental.v1.save_pytree_async(
+          '/tmp/my_checkpoint', pytree
+      )
+
+      # Perform other work here...
+
+      # Wait for completion only when necessary
+      future.result()
+
   Args:
     path: The path to save the checkpoint to.
     pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
@@ -189,7 +227,38 @@ def save_checkpointables_async(
   continue in a background thread. An :py:class:`~.AsyncResponse` is returned
   that can be used to block until the save is complete (using
   `response.result()`). Make sure to wait for completion before attempting to
-  load the checkpoint or exiting the program.
+  load the checkpoint or exiting the program. This function should be called on
+  all available controller processes.
+
+  Example usage:
+    Saving multiple distinct components (e.g. model parameters and dataset
+    iterator) asynchronously::
+      path = '/tmp/my_checkpoint_step_100'
+
+      # Setup components
+      params = {'w': jnp.ones((8, 8)), 'b': jnp.zeros(8)}
+
+      # Setup Grain iterator (Stateful Checkpointable)
+      import grain
+      dataset_iter = iter(
+          grain.MapDataset.range(30)
+          .batch(3)
+          .map(lambda x: x.tolist())
+      )
+
+      # Save multiple components
+      checkpointables = {
+          'model': params,
+          'dataset': dataset_iter,
+      }
+
+      # Start the async save
+      response = ocp.save_checkpointables_async(path, checkpointables)
+
+      # Perform other operations here...
+
+      # Wait for the save to finish
+      response.result()
 
   Args:
     path: The path to save the checkpoint to.
