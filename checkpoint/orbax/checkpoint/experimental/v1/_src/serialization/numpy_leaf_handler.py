@@ -19,18 +19,22 @@ deserialization for NumPy arrays.
 """
 
 import asyncio
+import copy
 import dataclasses
 import typing
-from typing import Awaitable, Sequence
+from typing import Any, Awaitable, Sequence
 
 from absl import logging
+from jax import numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.arrays import types as arrays_types
-from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import value as value_metadata
-from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
+from orbax.checkpoint._src.serialization import ocdbt_utils
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+import tensorstore as ts
 
 
 NumpySerializationParam = types.SerializationParam[np.ndarray]
@@ -66,99 +70,51 @@ class NumpyMetadata(AbstractArray):
   storage_metadata: value_metadata.StorageMetadata | None
 
 
-def _create_v0_numpy_handler() -> type_handlers_v0.NumpyHandler:
-  """Creates a V0 `NumpyHandler`."""
-  numpy_handler = type_handlers_v0.NumpyHandler()
-  return numpy_handler
+async def _open_and_write(
+    value: np.ndarray, tspec: dict[str, Any], *, ts_context: ts.Context
+):
+  """Opens and writes using Tensorstore."""
+  t = await ts.open(ts.Spec(tspec), create=True, open=True, context=ts_context)
+  await t.write(value, can_reference_source_data_indefinitely=True)  # pytype: disable=attribute-error
 
 
-def _create_v0_saving_paraminfo(
-    param: NumpySerializationParam,
-    context: context_lib.Context,
-    serialization_context: types.SerializationContext,
-) -> type_handlers_v0.ParamInfo:
-  """Creates a V0 `ParamInfo` from V1 params and contexts for saving."""
-
-  saving_options = context.array_options.saving
-
-  return type_handlers_v0.ParamInfo(
-      name=param.name,
-      parent_dir=serialization_context.parent_dir.path,
-      byte_limiter=serialization_context.byte_limiter,
-      is_ocdbt_checkpoint=saving_options.use_ocdbt,
-      use_zarr3=saving_options.use_zarr3,
-      use_compression=saving_options.use_compression,
-      ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
-      ts_context=serialization_context.ts_context,
-      value_typestr='np.ndarray',
-  )
-
-
-def _create_v0_savearg(
-    param: NumpySerializationParam,
-    context: context_lib.Context,
-) -> type_handlers_v0.SaveArgs:
-  """Creates a V0 `SaveArgs` from V1 params and context for saving."""
-
-  fn = context.pytree_options.saving.create_array_storage_options_fn
-
-  if fn:
-    storage_options = fn(param.keypath, param.value)
-    savearg = type_handlers_v0.SaveArgs(
-        dtype=np.dtype(storage_options.dtype)
-        if storage_options.dtype
-        else None,
-        chunk_byte_size=storage_options.chunk_byte_size,
-        shard_axes=storage_options.shard_axes,
-    )
-  else:
-    savearg = type_handlers_v0.SaveArgs()
-
-  return savearg
-
-
-def _create_v0_restore_paraminfo(
-    param: types.DeserializationParam[AbstractArray | None],
-    context: context_lib.Context,
+async def _maybe_check_param_dir_existence(
+    params: Sequence[NumpyDeserializationParam],
     deserialization_context: types.DeserializationContext,
-) -> type_handlers_v0.ParamInfo:
-  """Creates a V0 `ParamInfo` from V1 params and contexts for loading."""
-
-  loading_options = context.array_options.loading
-
-  return type_handlers_v0.ParamInfo(
-      name=param.name,
-      parent_dir=deserialization_context.parent_dir,
-      skip_deserialize=False,
-      byte_limiter=deserialization_context.byte_limiter,
-      is_ocdbt_checkpoint=deserialization_context.ocdbt_checkpoint,
-      ts_context=deserialization_context.ts_context,
-      raise_array_data_missing_error=loading_options.raise_array_data_missing_error,
-      use_zarr3=deserialization_context.zarr3_checkpoint,
-  )
+):
+  """Checks if the parameter directory exists."""
+  if deserialization_context.ocdbt_checkpoint:
+    return
+  ops = [
+      ts_utils.assert_parameter_files_exist(
+          deserialization_context.parent_dir / param.name,
+          None,
+          use_zarr3=deserialization_context.zarr3_checkpoint,
+      )
+      for param in params
+  ]
+  await asyncio.gather(*ops)
 
 
-def _create_v0_restorearg(
+def _dtype_for_deserialization(
     param: NumpyDeserializationParam,
-) -> type_handlers_v0.RestoreArgs:
-  """Creates a V0 `RestoreArgs` from V1 params."""
-
+) -> np.dtype | None:
+  """Deserializes the dtype of a numpy array."""
   value = param.value
   if value is None or isinstance(value, type):
-    return type_handlers_v0.RestoreArgs(
-        restore_type=np.ndarray,
-    )
+    return None
   else:
-    value = typing.cast(types.AbstractArray, value)
-    logging.vlog(1, 'name: %s, v.dtype: %s', param.name, value.dtype)
-    return type_handlers_v0.RestoreArgs(
-        restore_type=np.ndarray,
-        dtype=value.dtype,
-    )
+    value = typing.cast(AbstractArray, value)
+    return value.dtype
 
 
-async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+def _check_array_values(
+    params: Sequence[NumpySerializationParam],
+):
+  """Checks array values for zero size."""
+  for param in params:
+    if param.value.shape is None or np.prod(param.value.shape) == 0:
+      raise ValueError(f'Cannot save an array with zero size: {param.name}')
 
 
 class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
@@ -170,9 +126,60 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       context: context_lib.Context | None = None,
   ):
     self._context = context_lib.get_context(context)
-    self._handler_impl = _create_v0_numpy_handler()
-
+    self._override_ocdbt_process_id = None
+    if multihost.is_pathways_backend():
+      self._override_ocdbt_process_id = 'pwcontroller'
     logging.vlog(1, 'NumpyLeafHandler created.')
+
+  async def _background_serialize(
+      self,
+      params: Sequence[NumpySerializationParam],
+      serialization_context: types.SerializationContext,
+  ):
+    """Serializes numpy arrays in a background thread."""
+    _check_array_values(params)
+    parent_dir = await serialization_context.parent_dir.await_creation()
+    write_coros = []
+    for param in params:
+      storage_options = self._context.array_options.saving.storage_options
+      # Individualized settings in PyTreeOptions take precedence.
+      if self._context.pytree_options.saving.create_array_storage_options_fn:
+        storage_options = (
+            self._context.pytree_options.saving.create_array_storage_options_fn(
+                param.keypath, param.value
+            )
+        )
+      array_write_spec = ts_utils.ArrayWriteSpec(
+          parent_dir.as_posix(),
+          relative_array_filename=param.name,
+          global_shape=param.value.shape,
+          write_shape=param.value.shape,
+          dtype=jnp.dtype(param.value.dtype),
+          target_dtype=jnp.dtype(storage_options.dtype)
+          if storage_options.dtype is not None
+          else None,
+          chunk_byte_size=storage_options.chunk_byte_size,
+          shard_axes=storage_options.shard_axes,
+          use_compression=self._context.array_options.saving.use_compression,
+          use_zarr3=self._context.array_options.saving.use_zarr3,
+          use_ocdbt=self._context.array_options.saving.use_ocdbt,
+          process_id=ocdbt_utils.get_process_index_for_subdir(
+              use_ocdbt=self._context.array_options.saving.use_ocdbt,
+              override_ocdbt_process_id=self._override_ocdbt_process_id,
+          ),
+          replica_separate_folder=self._context.array_options.saving.enable_replica_parallel_separate_folder,
+          ocdbt_target_data_file_size=self._context.array_options.saving.ocdbt_target_data_file_size,
+      )
+      tspec = array_write_spec.json
+      if multihost.is_primary_host(
+          self._context.multiprocessing_options.primary_host
+      ):
+        write_coros.append(
+            _open_and_write(
+                param.value, tspec, ts_context=serialization_context.ts_context
+            )
+        )
+    await asyncio.gather(*write_coros)
 
   async def serialize(
       self,
@@ -189,19 +196,37 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       Sequence of commit futures which can be awaited to complete the save
       operation.
     """
-    values = [p.value for p in params]
-    paraminfos = [
-        _create_v0_saving_paraminfo(p, self._context, serialization_context)
-        for p in params
+    copied_params = [
+        dataclasses.replace(p, value=copy.deepcopy(p.value)) for p in params
     ]
-    saveargs = [_create_v0_savearg(p, self._context) for p in params]
+    return self._background_serialize(copied_params, serialization_context)
 
-    commit_futures = await self._handler_impl.serialize(
-        values, paraminfos, saveargs
-    )
-    assert commit_futures
-
-    return _async_futures(commit_futures)
+  async def _background_deserialize(
+      self,
+      params: Sequence[NumpyDeserializationParam],
+      deserialization_context: types.DeserializationContext,
+  ):
+    await _maybe_check_param_dir_existence(params, deserialization_context)
+    open_futures = []
+    for param in params:
+      array_read_spec = ts_utils.ArrayReadSpec(
+          directory=deserialization_context.parent_dir.as_posix(),
+          relative_array_filename=param.name,
+          use_zarr3=deserialization_context.zarr3_checkpoint,
+          use_ocdbt=deserialization_context.ocdbt_checkpoint,
+          raise_array_data_missing_error=self._context.array_options.loading.raise_array_data_missing_error,
+          target_dtype=_dtype_for_deserialization(param),
+      )
+      open_futures += [
+          ts.open(
+              ts.Spec(array_read_spec.json),
+              open=True,
+              context=deserialization_context.ts_context,
+          )
+      ]
+    tensorstores = await asyncio.gather(*open_futures)
+    read_ops = [t.read() for t in tensorstores]
+    return await asyncio.gather(*read_ops)
 
   async def deserialize(
       self,
@@ -218,15 +243,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       The deserialized sequence of nd.ndarays as leaves.
     """
     # validate all parameters
-    paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
-        for p in params
-    ]
-    restoreargs = [_create_v0_restorearg(p) for p in params]
-
-    return asyncio.create_task(
-        self._handler_impl.deserialize(paraminfos, restoreargs)
-    )
+    return self._background_deserialize(params, deserialization_context)
 
   async def metadata(
       self,
@@ -243,25 +260,37 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     Returns:
       Sequence of NumpyMetadata for each provided DeserializationParam.
     """
-    paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
-        for p in params
-    ]
+    open_ops = []
+    for param in params:
+      array_read_spec = ts_utils.ArrayReadSpec(
+          directory=deserialization_context.parent_dir.as_posix(),
+          relative_array_filename=param.name,
+          use_zarr3=deserialization_context.zarr3_checkpoint,
+          use_ocdbt=deserialization_context.ocdbt_checkpoint,
+          raise_array_data_missing_error=self._context.array_options.loading.raise_array_data_missing_error,
+      )
+      open_ops.append(
+          ts.open(
+              ts.Spec(array_read_spec.json),
+              open=True,
+              context=deserialization_context.ts_context,
+          )
+      )
 
-    async def _convert_to_numpy_metadata() -> Sequence[NumpyMetadata]:
-      v0_metadatas = await self._handler_impl.metadata(paraminfos)
-
-      ret = []
-      for meta in v0_metadatas:
-        numpy_metadata = NumpyMetadata(
-            shape=meta.shape,
-            dtype=meta.dtype,
-            storage_metadata=meta.storage,
+    tensorstores = await asyncio.gather(*open_ops)
+    return [
+        NumpyMetadata(
+            shape=t.shape,
+            dtype=jnp.dtype(t.dtype.name),
+            storage_metadata=value_metadata.StorageMetadata(
+                chunk_shape=t.chunk_layout.read_chunk_template.shape,
+                # TODO(b/407609827): In jax.Array this comes from array metadata
+                # store, and is kind of extraneous for numpy arrays since the
+                # write shape is the same as the array shape. However, we should
+                # ideally just set it for completeness. In V0, it is already
+                # not being set. Several unit tests must be updated.
+                write_shape=None,
+            ),
         )
-        ret.append(numpy_metadata)
-
-        logging.vlog(1, 'numpy_metadata: %r', numpy_metadata)
-
-      return ret
-
-    return await _convert_to_numpy_metadata()
+        for t in tensorstores
+    ]
