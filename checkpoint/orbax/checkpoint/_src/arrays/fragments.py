@@ -24,12 +24,19 @@ class methods:
     FS is `AbstractFragments` then x may additionally be a
     `jax.ShapeDtypeStruct`.
   - `none_of(x)`: gives an FS shaped like x, with no fragments.
+  - `addressable_shards_of(x)`: gives an FS shaped like x, with one fragment for
+    each distinct addressable shard of x. If FS is `AbstractFragments` then x
+    may additionally be a `jax.ShapeDtypeStruct`.
+  - `of(x, *indices)`: gives an FS shaped like x, with one fragment for each
+    index in `indices`. If FS is concrete then the fragment values will be
+    slices of x. If FS is `AbstractFragments` then x may additionally be
+    a `jax.ShapeDtypeStruct`.
 """
 # TODO(b/465196209): Remove when support for Python 3.10 is dropped.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, ClassVar, Generic, Literal, Sequence, TypeAlias, TypeVar
+from typing import Any, ClassVar, Generator, Generic, Literal, Sequence, TypeAlias, TypeVar
 
 import jax
 import numpy as np
@@ -369,6 +376,16 @@ class _GenericFragments(Generic[_F]):
     """Returns a Fragments with no fragments."""
     return cls._of(x, indices=[])
 
+  @classmethod
+  def addressable_shards_of(cls: type[FS], x: Any) -> FS:
+    """Returns a Fragments exactly spanning the distinct addressable shards of `x`."""
+    return cls._of(x, indices=_gen_distinct_addressable_indices(x))
+
+  @classmethod
+  def of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
+    """Returns a Fragments exactly spanning the given indices."""
+    return cls._of(x, indices=indices)
+
   def is_degenerate(self) -> bool:
     """Whether this contains only degenerate fragments."""
     return all(f.is_degenerate() for f in self.fragments)
@@ -532,6 +549,28 @@ def addressable_shards(x: jax.Array | jax.ShapeDtypeStruct) -> list[Index]:
       normalize(idx, shape)
       for idx in sharding.addressable_devices_indices_map(shape).values()
   ]
+
+
+def _gen_distinct_addressable_indices(
+    x: np.ndarray | jax.Array | jax.ShapeDtypeStruct,
+) -> Generator[Index, None, None]:
+  """Yields fragment indices for distinct addressable shards of x."""
+  match x:
+    case jax.Array() | jax.ShapeDtypeStruct():
+      if not x.sharding:
+        raise ValueError(
+            'Cannot determine addressable shards of jax.ShapeDtypeStruct with'
+            ' no sharding.'
+        )
+      indices = addressable_shards(x)
+    case np.ndarray():
+      indices = (tuple(slice(0, dim, 1) for dim in x.shape),)
+    case _:
+      raise TypeError(f'Unsupported type: {type(x)}')
+  distinct_indices = sorted({
+      *(np_utils.to_hashable_index(i, shape=x.shape) for i in indices)
+  })
+  yield from (np_utils.from_hashable_index(i) for i in distinct_indices)
 
 
 def abstract_fragments(
