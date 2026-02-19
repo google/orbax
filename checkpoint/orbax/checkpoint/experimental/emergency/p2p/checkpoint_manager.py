@@ -17,7 +17,7 @@
 import shutil
 import threading
 import time
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union, final
+from typing import Any, Iterable, Sequence, final
 
 from absl import logging
 from etils import epath
@@ -392,7 +392,7 @@ class CheckpointManager(
   @override
   def restore(
       self, step: int | None, args: p2p_args_lib.Composite | None
-  ) -> Union[Any, Mapping[str, Any], p2p_args_lib.Composite, None]:
+  ) -> p2p_args_lib.Composite | None:
     if args is None:
       raise ValueError('The `args` parameter is required for restore.')
 
@@ -413,8 +413,9 @@ class CheckpointManager(
         use_persistent = True
 
     if step is None:
-      logging.warning('No restore step found in local storage or P2P registry.')
-      return None
+      raise FileNotFoundError(
+          'No steps found in either local/persistent storage or P2P registry.'
+      )
 
     logging.info('Targeting restore step: %d', step)
 
@@ -465,7 +466,7 @@ class CheckpointManager(
     return self._local_manager.item_metadata(step)
 
   @override
-  def metadata(self, step: Optional[int] = None) -> Any:
+  def metadata(self, step: int | None = None) -> Any:
     return self._local_manager.metadata(step)
 
   @override
