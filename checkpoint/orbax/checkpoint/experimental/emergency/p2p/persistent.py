@@ -38,23 +38,38 @@ PyTree = Any
 
 def _create_persistent_handler(
     mp_options: checkpoint_manager.MultiprocessingOptions,
+    replica_axis_index: int,
+    is_single_slice: bool,
 ) -> ocp.PyTreeCheckpointHandler:
   """Creates a PyTreeCheckpointHandler for persistent storage.
 
   Args:
     mp_options: Multiprocessing options for the checkpoint handler.
+    replica_axis_index: The index of the replica axis in the mesh.
+    is_single_slice: Whether the mesh is single-slice.
 
   Returns:
     A PyTreeCheckpointHandler configured for persistent storage.
   """
-  registry = type_handler_registry.create_type_handler_registry((
-      jax.Array,
-      type_handlers.ArrayHandler(
-          primary_host=mp_options.primary_host,
-          replica_id=_PRIMARY_REPLICA_ID,
-          use_replica_parallel=False,
+  handler = type_handlers.SingleReplicaArrayHandler(
+      replica_axis_index=replica_axis_index,
+      broadcast_memory_limit_bytes=1024 * 1024 * 1000,
+      primary_host=mp_options.primary_host,
+      replica_id=_PRIMARY_REPLICA_ID,
+      use_replica_parallel=False,
+  )
+  if is_single_slice:
+    handler = type_handlers.ArrayHandler(
+        primary_host=mp_options.primary_host,
+        replica_id=_PRIMARY_REPLICA_ID,
+        use_replica_parallel=False,
+    )
+  registry = type_handler_registry.create_type_handler_registry(
+      (
+          jax.Array,
+          handler,
       ),
-  ))
+  )
   return ocp.PyTreeCheckpointHandler(
       use_ocdbt=True,
       use_zarr3=True,
@@ -84,28 +99,10 @@ class PersistentCheckpointManager:
         self._global_mesh,
         replica_axis_index=self._replica_axis_index,
     )
-    self._in_primary_slice = multislice.in_replica(
-        self._process_index,
-        global_mesh,
-        replica_axis_index=self._replica_axis_index,
-        replica_id=_PRIMARY_REPLICA_ID,
-    )
-
-    replica_devices = multislice.replica_devices(
-        self._global_mesh,
-        replica_axis_index=self._replica_axis_index,
-        replica_id=self._replica_id,
-    )
-    primary_host = multislice.primary_process_in_replica(
-        self._global_mesh,
-        replica_axis_index=self._replica_axis_index,
-        replica_id=self._replica_id,
-    )
-    active_processes = multihost.unique_processes_from_devices(replica_devices)
     mp_options = checkpoint_manager.MultiprocessingOptions(
-        primary_host=primary_host,
-        active_processes=active_processes,
-        barrier_sync_key_prefix=f'persistent_fallback_{self._replica_id}',
+        primary_host=0,
+        active_processes=None,
+        barrier_sync_key_prefix='persistent_fallback',
     )
 
     internal_options = checkpoint_manager.CheckpointManagerOptions(
@@ -117,7 +114,16 @@ class PersistentCheckpointManager:
         enable_async_checkpointing=True,
     )
 
-    item_handlers = dict(state=_create_persistent_handler(mp_options))
+    item_handlers = dict(
+        state=_create_persistent_handler(
+            mp_options,
+            self._replica_axis_index,
+            multislice.replica_count(
+                self._global_mesh, replica_axis_index=self._replica_axis_index
+            )
+            == 1,
+        )
+    )
     if utils.pygrain() is not None:
       item_handlers['data_iter'] = utils.pygrain().PyGrainCheckpointHandler()
 
@@ -141,9 +147,7 @@ class PersistentCheckpointManager:
       *,
       force: bool = False,
   ) -> bool:
-    if self._in_primary_slice:
-      return self._manager.save(step, args=args, force=force)
-    return True
+    return self._manager.save(step, args=args, force=force)
 
   def restore(
       self,
@@ -166,14 +170,31 @@ class PersistentCheckpointManager:
         self._replica_id,
     )
     abstract_state = args.state
+    if isinstance(args.state, args_lib.PyTreeRestore):
+      abstract_state = args.state.item
 
-    sharding_tree = jax.tree.map(lambda x: x.sharding, abstract_state)
-    # TODO(exlin): Enable SingleReplicaRestore.
+    def _get_sr_restore_args(x):
+      if (
+          multislice.replica_count(
+              self._global_mesh, replica_axis_index=self._replica_axis_index
+          )
+          > 1
+          and isinstance(x, jax.ShapeDtypeStruct)
+          and isinstance(x.sharding, jax.sharding.NamedSharding)
+      ):
+        return type_handlers.SingleReplicaArrayRestoreArgs(
+            sharding=x.sharding,
+            global_shape=x.shape,
+            dtype=x.dtype,
+        )
+      else:
+        return checkpoint_utils.construct_restore_args(x)
+
+    restore_args_tree = jax.tree.map(_get_sr_restore_args, abstract_state)
+
     restore_args_obj = args_lib.PyTreeRestore(
         item=abstract_state,
-        restore_args=checkpoint_utils.construct_restore_args(
-            abstract_state, sharding_tree
-        ),
+        restore_args=restore_args_tree,
     )
     restore_kwargs = {'state': restore_args_obj}
     if constants.DATA_ITER_KEY in args:
@@ -183,8 +204,7 @@ class PersistentCheckpointManager:
     )
 
   def delete(self, step: int):
-    if self._in_primary_slice:
-      self._manager.delete(step)
+    self._manager.delete(step)
 
   def wait_until_finished(self):
     self._manager.wait_until_finished()

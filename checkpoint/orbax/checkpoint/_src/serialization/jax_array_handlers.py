@@ -1346,7 +1346,7 @@ async def _single_replica_deserialize_and_broadcast(
         deserialization_elapsed_s,
     )
     logging.info(
-        'Finished primary replica deserialization in %.2f',
+        'Finished primary replica deserialization in %.2f seconds',
         deserialization_elapsed_s,
     )
   else:
@@ -1379,7 +1379,7 @@ async def _single_replica_deserialize_and_broadcast(
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/read/broadcast_duration_secs', broadcast_elapsed_s
   )
-  logging.info('Finished broadcasting in %.2f', broadcast_elapsed_s)
+  logging.info('Finished broadcasting in %.2f seconds', broadcast_elapsed_s)
 
   return shared_state
 
