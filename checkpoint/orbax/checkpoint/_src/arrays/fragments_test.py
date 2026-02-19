@@ -927,6 +927,72 @@ class FragmentsClassMethodsTest(parameterized.TestCase):
         fragment_t(index=np.s_[0:2:1, 2:3:1]),
     ])
 
+  @parameterized.named_parameters(
+      ('np_array', NpFragments),
+      ('jnp_array', JaxFragments),
+  )
+  def test_abstract_fragments_like_concrete_fragments(
+      self, template_fragments_t: FragmentsT
+  ):
+    fragments_t = AbstractFragments
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    fragment_t = fragments_t.FRAGMENT_T
+
+    template_np_api = template_fragments_t.FRAGMENT_T.NP_API
+    template = template_fragments_t(
+        shape=shape,
+        dtype=dtype,
+        fragments=[
+            template_fragments_t.FRAGMENT_T(
+                index=np.s_[0:2:1, 0:1:1], value=template_np_api.ones((2, 1))
+            ),
+            template_fragments_t.FRAGMENT_T(
+                index=np.s_[0:2:1, 2:3:1], value=template_np_api.ones((2, 1))
+            ),
+        ],
+    )
+
+    fs = fragments_t.like(template)
+
+    self.assertEqual(fs.shape, shape)
+    self.assertEqual(fs.dtype, dtype)
+    self.assertEqual(fs.fragments, [
+        fragment_t(index=np.s_[0:2:1, 0:1:1], value=None),
+        fragment_t(index=np.s_[0:2:1, 2:3:1], value=None),
+    ])
+
+  @parameterized.named_parameters(
+      ('np_array', NpFragments),
+      ('jnp_array', JaxFragments),
+  )
+  def test_concrete_fragments_like_abstract_fragments(
+      self, fragments_t: FragmentsT
+  ):
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    fragment_t = fragments_t.FRAGMENT_T
+    np_api = fragment_t.NP_API
+
+    template = AbstractFragments(
+        shape=shape,
+        dtype=dtype,
+        fragments=[
+            AbstractFragment(index=np.s_[0:2:1, 0:1:1]),
+            AbstractFragment(index=np.s_[0:2:1, 2:3:1]),
+        ],
+    )
+    value = np_api.ones(shape, dtype=dtype)
+
+    fs = fragments_t.like(template, value)
+
+    self.assertEqual(fs.shape, shape)
+    self.assertEqual(fs.dtype, dtype)
+    self.assertEqual(fs.fragments, [
+        fragment_t(index=np.s_[0:2:1, 0:1:1], value=value[0:2:1, 0:1:1]),
+        fragment_t(index=np.s_[0:2:1, 2:3:1], value=value[0:2:1, 2:3:1]),
+    ])
+
 
 @parameterized.named_parameters(
     ('abstract_fragments', AbstractFragments),
