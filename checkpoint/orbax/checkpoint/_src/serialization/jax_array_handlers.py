@@ -38,6 +38,7 @@ from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint._src.serialization import jax_array_restore_args
 from orbax.checkpoint._src.serialization import limits
@@ -157,9 +158,8 @@ async def _async_serialize_shardings(
       continue
     if info.parent_dir is None:
       raise ValueError('parent_dir cannot be None')
-    tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-        info.parent_dir.as_posix(), info.name
-    )
+    dir_str = await path_types.await_and_resolve_as_posix(info.parent_dir)
+    tspec_sharding = ts_utils.get_sharding_tensorstore_spec(dir_str, info.name)
     if multihost.is_primary_host(primary_host):
       # OCDBT is not used for sharding metadata.
       sharding_ts_context = info.ts_context
@@ -568,7 +568,7 @@ async def _async_serialize_replica_slices(
             'Replica_separate_folder is disabled as OCDBT is not enabled.',
             1,
         )
-    array_write_spec = ts_utils.build_array_write_spec(
+    array_write_spec = await ts_utils.build_array_write_spec(
         info=info,
         arg=arg,
         global_shape=value.global_shape,
@@ -718,8 +718,9 @@ async def _deserialize_shardings(
       )
       assert info.parent_dir is not None
       if info.name:
+        dir_str = await path_types.await_and_resolve_as_posix(info.parent_dir)
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-            info.parent_dir.as_posix(), info.name
+            dir_str, info.name
         )
         t = await ts.open(
             tspec_sharding,
@@ -765,7 +766,7 @@ async def _deserialize_arrays(
       await _validate_non_ocdbt_files(infos, metadata_key)
     deserialize_ops = []
     for info, arg, sharding in zip(infos, args, shardings):
-      array_read_spec = ts_utils.build_array_read_spec(
+      array_read_spec = await ts_utils.build_array_read_spec(
           info,
           use_ocdbt=use_ocdbt,
           metadata_key=metadata_key,
@@ -1010,7 +1011,7 @@ class ArrayHandler(types.TypeHandler):
     for info in infos:
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
-      array_read_spec = ts_utils.build_array_read_spec(
+      array_read_spec = await ts_utils.build_array_read_spec(
           info,
           use_ocdbt=use_ocdbt,
           metadata_key=self._metadata_key,
@@ -1024,8 +1025,9 @@ class ArrayHandler(types.TypeHandler):
       assert info.parent_dir is not None
       sharding_op = None
       if info.name:
+        dir_str = await path_types.await_and_resolve_as_posix(info.parent_dir)
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-            info.parent_dir.as_posix(), info.name
+            dir_str, info.name
         )
         if sharding_file_exists:
           sharding_op = ts.open(

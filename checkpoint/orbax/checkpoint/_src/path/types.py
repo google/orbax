@@ -67,3 +67,24 @@ class PathAwaitingCreation(Protocol):
       The path that was created.
     """
     ...
+
+
+async def await_and_resolve_as_posix(
+    path: Path | PathAwaitingCreation,
+) -> str:
+  """Resolves a path to a POSIX string, awaiting creation if necessary.
+
+  For `PathAwaitingCreation` inputs, this blocks until the path has been
+  created before resolving it to a string. For regular ``Path`` inputs, it
+  returns the POSIX string immediately.
+
+  Args:
+    path: An `epath.Path` or a `PathAwaitingCreation`.
+
+  Returns:
+    The POSIX string representation of the resolved path.
+  """
+  if isinstance(path, PathAwaitingCreation):
+    resolved = await path.await_creation()
+    return resolved.as_posix()
+  return path.as_posix()
