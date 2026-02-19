@@ -303,7 +303,22 @@ class CheckpointManager(
 
   @override
   def latest_step(self) -> int | None:
-    return self._local_manager.latest_step()
+    self._p2p.sync_registry_if_stale()
+
+    # We intentionally use the step returned by P2P regardless of whether a
+    # newer step is available in persistent storage. This is because we assume
+    # P2P is more efficient overall for catching up to the latest step, even
+    # if persistent storage has a newer step available.
+    # TODO(exlin): Revisit if P2P should always be prioritized over
+    # persistent storage for latest_step.
+    step = self._p2p.get_latest_complete_step()
+    logging.info('P2P latest_step=%s', step)
+
+    if step is None and self._persistent_manager:
+      step = self._persistent_manager.latest_step()
+      logging.info('Persistent latest_step=%s', step)
+
+    return step
 
   @override
   def best_step(self) -> int | None:

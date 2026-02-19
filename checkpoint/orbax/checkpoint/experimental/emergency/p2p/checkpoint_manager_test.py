@@ -24,9 +24,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import checkpoint_manager as p2p_cm
 from orbax.checkpoint.experimental.emergency.p2p import local
-from orbax.checkpoint.experimental.emergency.p2p import peer_selector
 from orbax.checkpoint.experimental.emergency.p2p import persistent
-from orbax.checkpoint.experimental.emergency.p2p import protocol
 from orbax.checkpoint.experimental.emergency.p2p import service
 
 Mesh = jax.sharding.Mesh
@@ -83,8 +81,8 @@ class CheckpointManagerTest(absltest.TestCase):
     self.mock_p2p_node = self.enter_context(
         mock.patch.object(service, 'P2PNode', autospec=True)
     )
-    self.mock_peer_selector = self.enter_context(
-        mock.patch.object(peer_selector, 'PeerSelector', autospec=True)
+    self.mock_p2p_subsystem = self.enter_context(
+        mock.patch.object(p2p_cm, '_P2PSubsystem', autospec=True)
     )
     self.mock_sync_global_data = self.enter_context(
         mock.patch(
@@ -106,11 +104,11 @@ class CheckpointManagerTest(absltest.TestCase):
     self.local_manager_instance = self.mock_local.return_value
     self.persistent_manager_instance = self.mock_persistent.return_value
     self.p2p_node_instance = self.mock_p2p_node.return_value
-    self.peer_selector_instance = self.mock_peer_selector.return_value
+    self.p2p_subsystem_instance = self.mock_p2p_subsystem.return_value
 
     self.p2p_node_instance.ip = '127.0.0.1'
     self.p2p_node_instance.port = 12345
-    self.peer_selector_instance.get_latest_complete_step.return_value = None
+    self.p2p_subsystem_instance.get_latest_complete_step.return_value = None
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
   def test_init_starts_p2p_and_discovery(self, _):
@@ -125,12 +123,8 @@ class CheckpointManagerTest(absltest.TestCase):
 
     self.mock_local.assert_called_once()
     self.mock_persistent.assert_not_called()
-    self.mock_p2p_node.assert_called_once()
-    self.p2p_node_instance.start.assert_called_once()
-    self.mock_peer_selector.assert_called_once()
+    self.mock_p2p_subsystem.assert_called_once()
 
-    self.local_manager_instance.scan_stored_steps.assert_called_once()
-    self.mock_sync_global_data.assert_called_once()
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
@@ -204,22 +198,18 @@ class CheckpointManagerTest(absltest.TestCase):
     self.local_manager_instance.restore.assert_called_once_with(
         1, args=self.restore_args
     )
-    self.p2p_node_instance.fetch_shard_from_peer.assert_not_called()
+    self.p2p_subsystem_instance.fetch.assert_not_called()
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
-  def test_restore_strategy_b_p2p_fetch(self, process_index):
+  def test_restore_strategy_b_p2p_fetch(self, _):
     self.local_manager_instance.scan_stored_steps.return_value = (0, [])
     self.local_manager_instance.all_steps.return_value = []
     self.mock_sync_global_data.return_value = []
     # Peer has step 1
-    self.peer_selector_instance.get_source_peer.return_value = (
-        protocol.PeerDiscoveryInfo(
-            ip='1.2.3.4', port=5678, process_index=1, steps=[1]
-        )
-    )
-    self.peer_selector_instance.get_latest_complete_step.return_value = 1
-    self.p2p_node_instance.fetch_shard_from_peer.return_value = True
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = True
+    self.p2p_subsystem_instance.get_latest_complete_step.return_value = 1
+    self.p2p_subsystem_instance.fetch.return_value = True
     self.local_manager_instance.restore.return_value = {'a': 1}
 
     manager = p2p_cm.CheckpointManager(
@@ -231,25 +221,20 @@ class CheckpointManagerTest(absltest.TestCase):
     result = manager.restore(1, args=self.restore_args)
     self.assertEqual(result, {'a': 1})
     self.local_manager_instance.all_steps.assert_called()
-    self.assertEqual(2, self.peer_selector_instance.get_source_peer.call_count)
-    self.peer_selector_instance.get_source_peer.assert_called_with(
-        1, process_index.return_value
-    )
-    self.p2p_node_instance.fetch_shard_from_peer.assert_called_once_with(
-        '1.2.3.4', 5678, 1, 1
-    )
+    self.p2p_subsystem_instance.has_shard_for_step.assert_called_once_with(1)
+    self.p2p_subsystem_instance.fetch.assert_called_once_with(1)
     self.local_manager_instance.restore.assert_called_once_with(
         1, args=self.restore_args, directory=mock.ANY
     )
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
-  def test_restore_strategy_c_persistent_fallback(self, process_index):
+  def test_restore_strategy_c_persistent_fallback(self, _):
     self.local_manager_instance.scan_stored_steps.return_value = (0, [])
     self.local_manager_instance.all_steps.return_value = []
     self.mock_sync_global_data.return_value = []
     # P2P fetch fails
-    self.peer_selector_instance.get_source_peer.return_value = None
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = False
     self.persistent_manager_instance.restore.return_value = {'a': 1}
     self.mock_global_max.return_value = [1]
 
@@ -262,11 +247,8 @@ class CheckpointManagerTest(absltest.TestCase):
 
     result = manager.restore(1, args=self.restore_args)
     self.assertEqual(result, {'a': 1})
-    self.assertEqual(1, self.peer_selector_instance.get_source_peer.call_count)
-    self.peer_selector_instance.get_source_peer.assert_called_with(
-        1, process_index.return_value
-    )
-    self.p2p_node_instance.fetch_shard_from_peer.assert_not_called()
+    self.p2p_subsystem_instance.has_shard_for_step.assert_called_once_with(1)
+    self.p2p_subsystem_instance.fetch.assert_not_called()
     self.persistent_manager_instance.restore.assert_called_once_with(
         1, args=mock.ANY
     )
@@ -282,7 +264,7 @@ class CheckpointManagerTest(absltest.TestCase):
     self.local_manager_instance.all_steps.return_value = []
     self.mock_sync_global_data.return_value = []
     # P2P fetch fails
-    self.peer_selector_instance.get_source_peer.return_value = None
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = False
 
     manager = p2p_cm.CheckpointManager(
         self.mesh,
@@ -345,7 +327,8 @@ class CheckpointManagerTest(absltest.TestCase):
     self.local_manager_instance.scan_stored_steps.return_value = (0, [])
     self.local_manager_instance.all_steps.return_value = []
     self.mock_sync_global_data.return_value = []
-    self.peer_selector_instance.get_source_peer.return_value = None  # P2P fails
+    # P2P fails
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = False
 
     self.persistent_manager_instance.restore.return_value = {'a': 999}
     self.mock_global_max.return_value = [1]  # Everyone knows someone failed
@@ -376,7 +359,7 @@ class CheckpointManagerTest(absltest.TestCase):
     self.mock_sync_global_data.return_value = []
 
     # P2P has no latest complete step
-    self.peer_selector_instance.get_latest_complete_step.return_value = None
+    self.p2p_subsystem_instance.get_latest_complete_step.return_value = None
 
     # Persistent has step 100
     self.persistent_manager_instance.latest_step.return_value = 100
@@ -411,12 +394,8 @@ class CheckpointManagerTest(absltest.TestCase):
     self.mock_sync_global_data.return_value = []
 
     # P2P fetch succeeds
-    self.peer_selector_instance.get_source_peer.return_value = (
-        protocol.PeerDiscoveryInfo(
-            ip='1.2.3.4', port=5678, process_index=1, steps=[1]
-        )
-    )
-    self.p2p_node_instance.fetch_shard_from_peer.return_value = True
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = True
+    self.p2p_subsystem_instance.fetch.return_value = True
     self.local_manager_instance.restore.return_value = {'a': 1}
 
     manager = p2p_cm.CheckpointManager(
@@ -432,6 +411,46 @@ class CheckpointManagerTest(absltest.TestCase):
     manager.restore(1, args=self.restore_args)
 
     mock_rmtree.assert_called_once_with(str(p2p_restore_dir))
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_latest_step_prefers_p2p_even_if_persistent_is_newer(self, _):
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+    # Mock P2P returning 5
+    self.p2p_subsystem_instance.get_latest_complete_step.return_value = 5
+    # Mock persistent returning 10
+    self.persistent_manager_instance.latest_step.return_value = 10
+
+    self.assertEqual(5, manager.latest_step())
+    self.p2p_subsystem_instance.get_latest_complete_step.assert_called_once()
+    self.persistent_manager_instance.latest_step.assert_not_called()
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_latest_step_falls_back_to_persistent(self, _):
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+    # Mock P2P returning None
+    self.p2p_subsystem_instance.get_latest_complete_step.return_value = None
+    # Mock persistent returning 5
+    self.persistent_manager_instance.latest_step.return_value = 5
+
+    self.assertEqual(5, manager.latest_step())
+    self.p2p_subsystem_instance.get_latest_complete_step.assert_called_once()
+    self.persistent_manager_instance.latest_step.assert_called_once()
     manager.close()
 
 
