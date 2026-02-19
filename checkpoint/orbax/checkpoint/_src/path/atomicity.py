@@ -71,9 +71,9 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.path import utils
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
-from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
 ValidationError = atomicity_types.ValidationError
