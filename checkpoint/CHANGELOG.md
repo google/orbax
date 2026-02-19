@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- #v1 Deleted `CompositeHandler` and refactored its functionality directly into
+  `OrbaxLayout` internal handler resolution logic.
+
 ## [0.11.33] - 2025-02-17
 
 ### Added

@@ -16,13 +16,14 @@
 
 from typing import Any
 
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
-from orbax.checkpoint.experimental.v1._src.handlers import composite_handler
+from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
@@ -57,14 +58,13 @@ def get_v0_checkpointer_and_args(
   """
   validation.validate_abstract_checkpointables(abstract_checkpointables)
   abstract_checkpointables = abstract_checkpointables or {}
-
-  # TODO(b/477603241): Refactor this to use resolution utility once we remove
-  # the composite handler.
-  # pylint: disable=protected-access
-  handlers = composite_handler.CompositeHandler(
-      context.checkpointables_options.registry
-  ).get_handlers_for_load(path, abstract_checkpointables)
-  # pylint: enable=protected-access
+  handlers = asyncio_utils.run_sync(
+      handler_resolution.get_handlers_for_load(
+          path,
+          context.checkpointables_options.registry,
+          abstract_checkpointables
+      )
+  )
   if not abstract_checkpointables:
     abstract_checkpointables = {
         name: None
