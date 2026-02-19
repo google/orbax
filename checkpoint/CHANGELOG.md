@@ -31,6 +31,8 @@ devices anyway.
 `load_checkpointables()` each with their own dedicated loading logic
 - Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`
 tests
+- Refactor `CompositeHandler` logic into the orbax layout objects and handler
+resolution utility, deprecating and deleting the `CompositeHandler` class.
 
 ## [0.11.32] - 2026-01-20
 
