@@ -123,11 +123,18 @@ class LocalCheckpointManager:
     self._global_mesh = global_mesh
     self._process_index = multihost.process_index()
 
-    barrier_sync_key_prefix = f'p2p_shard_{self._process_index}'
+    # While forming smaller process groups for synchronization via
+    # `active_processes` (e.g., per-replica) might improve barrier
+    # performance at scale, it would require more complex coordination
+    # than currently implemented.
     mp_options = ocp.options.MultiprocessingOptions(
-        primary_host=None,  # Symmetric read/write
-        active_processes={self._process_index},  # Only I write to my shard
-        barrier_sync_key_prefix=barrier_sync_key_prefix,
+        # `primary_host` is None because all hosts save to local storage
+        # independently. This causes local checkpoint to be saved on all
+        # processes.
+        # It is the caller's responsibility to make sure we are not doubling the
+        # memory pressure by saving persistent on the same step.
+        primary_host=None,
+        barrier_sync_key_prefix='local',
     )
 
     p2p_specific_options = checkpoint_manager.CheckpointManagerOptions(
