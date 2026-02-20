@@ -33,7 +33,6 @@ from orbax.checkpoint.experimental.v1._src.synchronization import types as async
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
-
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
