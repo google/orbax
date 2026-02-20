@@ -56,6 +56,7 @@ ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
 
 _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
+_S3_PATH_RE = r'^s3://([^/]*)/(.*)$'
 
 # Even if the data is equal to the fill value, we still want to write it
 # to the checkpoint. This results in unnecessary writes in some edge
@@ -135,6 +136,24 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
 
 
+def _get_kvstore_for_s3(ckpt_path: str) -> JsonSpec:
+  """Constructs a TensorStore kvstore spec for an S3 path."""
+  # Parse s3://bucket-name/path/to/checkpoint
+  m = re.fullmatch(_S3_PATH_RE, ckpt_path, re.DOTALL)
+  if m is None:
+    raise ValueError(
+        'The ckpt_path should contain the bucket name and the '
+        f'file path inside the bucket. Got: {ckpt_path}'
+    )
+  s3_bucket = m.group(1)
+  path_without_bucket = m.group(2)
+  return {
+      'driver': 's3',
+      'bucket': s3_bucket,
+      'path': path_without_bucket,
+  }
+
+
 def build_kvstore_tspec(
     directory: str,
     name: str | None = None,
@@ -161,12 +180,13 @@ def build_kvstore_tspec(
   default_driver = DEFAULT_DRIVER
   # Normalize path to exclude trailing '/'. In GCS path case, we will need to
   # fix the path prefix to add back the stripped '/'.
-  directory = os.path.normpath(directory).replace('gs:/', 'gs://')
+  directory = os.path.normpath(directory).replace('gs:/', 'gs://').replace('s3:/', 's3://')
   is_gcs_path = directory.startswith('gs://')
+  is_s3_path = directory.startswith('s3://')
   kv_spec = {}
 
   if use_ocdbt:
-    if not is_gcs_path and not os.path.isabs(directory):
+    if not is_gcs_path and not is_s3_path and not os.path.isabs(directory):
       raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
     if process_id is not None:
       process_id = str(process_id)
@@ -186,7 +206,7 @@ def build_kvstore_tspec(
       directory = os.path.join(*join_paths)
     base_driver_spec = (
         directory
-        if is_gcs_path
+        if is_gcs_path or is_s3_path
         else {'driver': default_driver, 'path': str(directory)}
     )
     kv_spec.update({
@@ -217,6 +237,8 @@ def build_kvstore_tspec(
       path = os.path.join(directory, name)
     if is_gcs_path:
       kv_spec = _get_kvstore_for_gcs(path)
+    elif is_s3_path:
+      kv_spec = _get_kvstore_for_s3(path)
     else:
       kv_spec = {'driver': default_driver, 'path': path}
 
