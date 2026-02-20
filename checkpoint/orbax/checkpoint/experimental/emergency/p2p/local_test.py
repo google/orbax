@@ -20,9 +20,9 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import local
+from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
 
 Mesh = jax.sharding.Mesh
 P = jax.sharding.PartitionSpec
@@ -39,7 +39,7 @@ class LocalCheckpointManagerTest(absltest.TestCase):
       multihost.initialize_runtime_to_distributed_ids()
     self.directory = epath.Path(self.create_tempdir().full_path)
     self.mesh = Mesh(np.array(jax.devices()), axis_names=('x',))
-    self.options = emergency_checkpoint_manager.CheckpointManagerOptions()
+    self.options = options_lib.CheckpointManagerOptions()
 
   @mock.patch(
       'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0

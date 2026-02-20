@@ -23,8 +23,8 @@ import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
+from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
 from orbax.checkpoint.experimental.emergency.p2p import persistent
 
 Mesh = jax.sharding.Mesh
@@ -92,7 +92,7 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
         shape_tuple=devices.shape,
         size=devices.size,
     )
-    self.options = emergency_checkpoint_manager.CheckpointManagerOptions()
+    self.options = options_lib.CheckpointManagerOptions()
 
   def _patch_process_index(
       self, in_primary_slice=True, process_index=0, replica_id=0

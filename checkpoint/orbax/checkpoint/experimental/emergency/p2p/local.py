@@ -27,10 +27,10 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
-from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
+from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
 from orbax.checkpoint.experimental.emergency.p2p import utils
 
 
@@ -117,7 +117,7 @@ class LocalCheckpointManager:
       directory: epath.PathLike,
       global_mesh: jax.sharding.Mesh,
       *,
-      options: emergency_checkpoint_manager.CheckpointManagerOptions,
+      options: options_lib.CheckpointManagerOptions,
   ):
     self._directory = epath.Path(directory)
     self._global_mesh = global_mesh
@@ -141,7 +141,6 @@ class LocalCheckpointManager:
         step_name_format=options.step_name_format,
         save_interval_steps=options.local.save_interval_steps,
         max_to_keep=options.local.max_to_keep,
-        should_save_fn=options.local.should_save_fn,
         multiprocessing_options=mp_options,
         create=False,
         cleanup_tmp_directories=False,

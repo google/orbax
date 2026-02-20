@@ -27,9 +27,9 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
-from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
+from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
 from orbax.checkpoint.experimental.emergency.p2p import utils
 
 _PRIMARY_REPLICA_ID = 0
@@ -88,7 +88,7 @@ class PersistentCheckpointManager:
       global_mesh: jax.sharding.Mesh,
       *,
       replica_axis_index: int,
-      options: emergency_checkpoint_manager.CheckpointManagerOptions,
+      options: options_lib.CheckpointManagerOptions,
   ):
     self._directory = epath.Path(directory)
     self._global_mesh = global_mesh

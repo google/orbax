@@ -26,11 +26,11 @@ import jax
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
-from orbax.checkpoint.experimental.emergency import checkpoint_manager as emc
 from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import local
+from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
 from orbax.checkpoint.experimental.emergency.p2p import peer_selector
 from orbax.checkpoint.experimental.emergency.p2p import persistent
 from orbax.checkpoint.experimental.emergency.p2p import protocol
@@ -225,7 +225,7 @@ class CheckpointManager(
       local_directory: epath.PathLike,
       persistent_directory: epath.PathLike | None = None,
       *,
-      options: emc.CheckpointManagerOptions | None = None,
+      options: options_lib.CheckpointManagerOptions | None = None,
   ):
     """Initializes the P2P Checkpoint Manager."""
     self._local_directory = epath.Path(local_directory)
@@ -234,10 +234,10 @@ class CheckpointManager(
     self._abstract_state = abstract_state
 
     # 1. Parse and Validate Options
-    self._emc_options = options or emc.CheckpointManagerOptions()
+    self._options = options or options_lib.CheckpointManagerOptions()
     self._validate_options(persistent_directory is not None)
 
-    self._replica_axis_index = self._emc_options.replica_axis_index
+    self._replica_axis_index = self._options.replica_axis_index
     self._replica_id = multislice.process_replica_id(
         self._process_index,
         self._global_mesh,
@@ -248,7 +248,7 @@ class CheckpointManager(
     self._local_manager = local.LocalCheckpointManager(
         self._local_directory,
         self._global_mesh,
-        options=self._emc_options,
+        options=self._options,
     )
 
     self._persistent_manager: persistent.PersistentCheckpointManager | None = (
@@ -259,7 +259,7 @@ class CheckpointManager(
           directory=persistent_directory,
           global_mesh=global_mesh,
           replica_axis_index=self._replica_axis_index,
-          options=self._emc_options,
+          options=self._options,
       )
 
     # 3. Initialize P2P Networking & Logic
@@ -281,8 +281,8 @@ class CheckpointManager(
     if not has_persistent:
       return
 
-    l_interval = self._emc_options.local.save_interval_steps
-    p_interval = self._emc_options.persistent.save_interval_steps
+    l_interval = self._options.local.save_interval_steps
+    p_interval = self._options.persistent.save_interval_steps
 
     if l_interval > p_interval:
       raise ValueError(
