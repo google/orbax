@@ -61,6 +61,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
   def test_get_replica_slices_single_replica(self, partitioned):
     if jax.device_count() < 4:
       self.skipTest('Not enough devices to test.')
+    print(f'jax.devices(): {jax.devices()}')
     arr, num_partitions, num_replicas = make_multi_device_array(
         (64, 64),
         partitioned=partitioned,
