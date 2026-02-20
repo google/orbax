@@ -31,8 +31,8 @@ TEST_RULES = [
 EXCLUDED_PATHS = [
     'orbax/checkpoint/experimental',
     'orbax/checkpoint/google',
-    'orbax/checkpoint/_src/serialization',
     'orbax/checkpoint/single_host_test.py',
+    'orbax/checkpoint/_src/serialization/replica_slices_test.py',
 ]
 
 
