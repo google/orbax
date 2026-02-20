@@ -209,6 +209,10 @@ def batched_serialization_requests(
     if info.skip_deserialize:
       return
 
+    if not isinstance(arg, (SaveArgs, RestoreArgs)):
+      if tree_utils.is_empty_node(arg):
+        return
+
     if isinstance(arg, RestoreArgs):
       assert isinstance(value, tree_metadata.ValueMetadataEntry), type(value)
       metadata_restore_type = value.value_type
@@ -822,11 +826,13 @@ class BasePyTreeCheckpointHandler(
     )
 
   def _partial_restore_with_omission(
-      self, item: PyTree, value_metadata_tree: PyTree, restore_args: PyTree
+      self,
+      item: PyTree,
+      serialized_item: PyTree,
+      value_metadata_tree: PyTree,
+      restore_args: PyTree,
   ) -> Tuple[PyTree, PyTree]:
     """Restores leaves specified in `item`. Skips omitted leaves."""
-    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
-
     if not self._pytree_metadata_options.support_rich_types:
       # Replace empty containers with scalar values (zeros). During saving,
       # some empty containers (like named tuples) were given
@@ -851,10 +857,9 @@ class BasePyTreeCheckpointHandler(
     return value_metadata_tree, restore_args
 
   def _partial_restore_with_placeholders(
-      self, item: PyTree, value_metadata_tree: PyTree
+      self, serialized_item: PyTree, value_metadata_tree: PyTree
   ) -> PyTree:
     """Restores leaves from `item`, except for those marked as placeholders."""
-    serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
     diff = (
         tree_structure_utils.tree_difference(
             serialized_item,
@@ -1009,23 +1014,25 @@ class BasePyTreeCheckpointHandler(
     )
     del internal_tree_metadata
     # Prep for restore.
+    serialized_item = tree_metadata.serialize_tree(
+        item, self._pytree_metadata_options
+    )
     if item is None:
       item = value_metadata_tree
     elif args.partial_restore:
       value_metadata_tree, restore_args = self._partial_restore_with_omission(
-          item, value_metadata_tree, restore_args
+          item, serialized_item, value_metadata_tree, restore_args
       )
     elif any(
         type_handlers.is_placeholder(leaf) for leaf in jax.tree.leaves(item)
     ):
       value_metadata_tree = self._partial_restore_with_placeholders(
-          item, value_metadata_tree
+          serialized_item, value_metadata_tree
       )
     else:
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
       # actual data to be restored, but are needed to maintain the structure.
-      serialized_item = tree_utils.serialize_tree(item, keep_empty_nodes=True)
       diff = tree_structure_utils.tree_difference(
           serialized_item,
           value_metadata_tree,
@@ -1048,6 +1055,14 @@ class BasePyTreeCheckpointHandler(
     restore_args = tree_metadata.serialize_tree(
         restore_args, self._pytree_metadata_options
     )
+
+    value_metadata_tree_deserialized = tree_utils.deserialize_tree(
+        value_metadata_tree, item
+    )
+    restore_args_deserialized = tree_utils.deserialize_tree(restore_args, item)
+    value_metadata_tree = value_metadata_tree_deserialized
+    restore_args = restore_args_deserialized
+
     param_infos = self._get_param_infos(
         item=value_metadata_tree,
         directory=directory,
