@@ -1118,59 +1118,6 @@ class AddressableShardsTest(parameterized.TestCase):
     )
 
 
-class AbstractFragmentsTest(parameterized.TestCase):
-
-  def test_returns_abstract_fragments_instance_itself(
-      self
-  ):
-    fragments = AbstractFragments(
-        shape=(2, 3), dtype=np.dtype(np.float32), fragments=[]
-    )
-    self.assertIs(fragments, array_fragments.abstract_fragments(fragments))
-
-  @parameterized.named_parameters(
-      ('np_fragments', NpFragments),
-      ('jax_fragments', JaxFragments),
-  )
-  def test_converts_concrete_fragments(
-      self, fragments_t: ConcreteFragmentsT
-  ):
-    fragment_t = fragments_t.FRAGMENT_T
-    np_api = fragment_t.NP_API
-    concrete_fragments = fragments_t(
-        shape=(2, 3),
-        dtype=np.dtype(np.float32),
-        fragments=[
-            fragment_t(index=np.s_[0:2:1, 0:3:1], value=np_api.arange(6)),
-        ],
-    )
-    expected_abstract_fragments = AbstractFragments(
-        shape=(2, 3),
-        dtype=np.dtype(np.float32),
-        fragments=[
-            AbstractFragment(
-                index=np.s_[0:2:1, 0:3:1], value=None
-            ),
-        ],
-    )
-    self.assertEqual(
-        expected_abstract_fragments,
-        array_fragments.abstract_fragments(concrete_fragments),
-    )
-
-  def test_converts_fully_replicated_shape_dtype_struct(self):
-    self.assertEqual(
-        AbstractFragments(
-            shape=(4, 5),
-            dtype=np.dtype(np.float32),
-            fragments=[AbstractFragment(index=np.s_[0:4:1, 0:5:1])],
-        ),
-        array_fragments.abstract_fragments(
-            jax.ShapeDtypeStruct((4, 5), np.dtype(np.float32))
-        ),
-    )
-
-
 class StackFragmentsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(

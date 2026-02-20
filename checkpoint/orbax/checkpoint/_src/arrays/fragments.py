@@ -615,22 +615,6 @@ def _gen_distinct_addressable_indices(
   yield from (np_utils.from_hashable_index(i) for i in distinct_indices)
 
 
-def abstract_fragments(
-    x: jax.Array | jax.ShapeDtypeStruct | FS,
-) -> AbstractFragments:
-  """Returns abstract fragments matching the given object."""
-  if isinstance(x, AbstractFragments):
-    return x
-  else:
-    if isinstance(x, _GenericFragments):
-      indices = (fragment.index for fragment in x.fragments)
-    else:
-      indices = addressable_shards(x)
-    return AbstractFragments(x.shape, x.dtype, [
-        AbstractFragment(index=index) for index in indices
-    ])
-
-
 def validate_fragments_can_be_stacked(fragments: FSconcrete) -> None:
   """Validates that the given fragments can be stacked."""
   if not fragments.fragments:
