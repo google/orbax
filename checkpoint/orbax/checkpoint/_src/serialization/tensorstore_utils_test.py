@@ -12,17 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import functools
 import math
 import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import types as ser_types
+from orbax.checkpoint.google.path import tfhub_atomicity
 
 
 GIB = 1024**3
@@ -697,6 +701,94 @@ class GetTsContextTest(parameterized.TestCase):
       }
 
     self.assertDictEqual(expected_spec, context.spec.to_json())
+
+
+class _TrackedDeferredPath(tfhub_atomicity.DeferredPath):
+
+  def __init__(self):
+    super().__init__()
+    self.await_creation_entered = asyncio.Event()
+
+  async def await_creation(self):
+    self.await_creation_entered.set()
+    return await super().await_creation()
+
+
+class BuildSpecWithDeferredPathTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = self.create_tempdir().full_path
+    self.param_name = 'params/a'
+
+  def _make_unresolved_deferred_info(self):
+    deferred = _TrackedDeferredPath()
+    info = ser_types.ParamInfo(
+        name=self.param_name,
+        parent_dir=deferred,
+        is_ocdbt_checkpoint=False,
+    )
+    return info, deferred
+
+  def test_build_array_write_spec_blocks_until_path_set(self):
+    async def _test():
+      info, deferred = self._make_unresolved_deferred_info()
+      task = asyncio.create_task(
+          ts_utils.build_array_write_spec(
+              info,
+              global_shape=(10, 6),
+              local_shape=(5, 6),
+              dtype=np.dtype(np.float32),
+              use_ocdbt=False,
+          )
+      )
+      await deferred.await_creation_entered.wait()
+      self.assertFalse(task.done())
+
+      deferred.set_path(epath.Path(self.directory))
+      spec = await task
+      self.assertIn(self.directory, spec.json['kvstore']['path'])
+      self.assertIn(self.param_name, spec.json['kvstore']['path'])
+
+    asyncio.run(_test())
+
+  def test_build_array_read_spec_blocks_until_path_set(self):
+    async def _test():
+      info, deferred = self._make_unresolved_deferred_info()
+      task = asyncio.create_task(
+          ts_utils.build_array_read_spec(
+              info,
+              use_ocdbt=False,
+          )
+      )
+      await deferred.await_creation_entered.wait()
+      self.assertFalse(task.done())
+
+      deferred.set_path(epath.Path(self.directory))
+      spec = await task
+      self.assertIn(self.directory, spec.json['kvstore']['path'])
+      self.assertIn(self.param_name, spec.json['kvstore']['path'])
+
+    asyncio.run(_test())
+
+  def test_get_json_tspec_blocks_until_path_set(self):
+    async def _test():
+      info, deferred = self._make_unresolved_deferred_info()
+      task = asyncio.create_task(
+          ts_utils._get_json_tspec(
+              info,
+              use_ocdbt=False,
+          )
+      )
+      await deferred.await_creation_entered.wait()
+      self.assertFalse(task.done())
+
+      deferred.set_path(epath.Path(self.directory))
+      tspec = await task
+      self.assertIn(self.directory, tspec['kvstore']['path'])
+      self.assertEqual(tspec['driver'], 'zarr')
+
+    asyncio.run(_test())
 
 
 if __name__ == '__main__':

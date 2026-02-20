@@ -48,6 +48,7 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -312,7 +313,7 @@ def _format_bytes(bytes_value: Optional[int]) -> str:
 
 
 class BasePyTreeCheckpointHandler(
-    async_checkpoint_handler.AsyncCheckpointHandler
+    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -437,7 +438,7 @@ class BasePyTreeCheckpointHandler(
   def _get_param_infos(
       self,
       item: PyTree,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       *,
       use_ocdbt: bool = True,
       use_compression: bool | None = True,
@@ -585,7 +586,7 @@ class BasePyTreeCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       args: BasePyTreeSaveArgs,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
@@ -648,7 +649,7 @@ class BasePyTreeCheckpointHandler(
         use_zarr3=self._use_zarr3,
     )
     assert all(
-        leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
+        leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
     )
 
     serialize_ops = []  # List of (coros -> List of futures)
@@ -658,17 +659,19 @@ class BasePyTreeCheckpointHandler(
         save_args,
         self._type_handler_registry,
     )
-
     # Determine if this is a partial save by checking for the '.partial_save'
     # suffix in the checkpoint directory name and if the metadata file exists.
     # Cannot rely solely on the metadata file existing pre-empted saves may be
     # misclassified as partial saves.
-    partial_save = (
-        await async_path.exists(directory / PYTREE_METADATA_FILE)
-        # TODO: b/428711337 - Use method from v1/_src/partial/path.py instead.
+    # TODO(b/484298759): Remove the path-based check once all callers use
+    # partial_save_mode.
+    is_partial_save_path = (
+        isinstance(directory, epath.Path)
         and '.partial_save' in directory.parent.name
     )
-
+    partial_save = (
+        args.partial_save_mode or is_partial_save_path
+    ) and await async_path.exists(directory / PYTREE_METADATA_FILE)
     batch_requests_ready_time = time.time()
     if partial_save:
       serialize_ops, tree_memory_size, param_infos, save_args = (
@@ -1205,7 +1208,7 @@ class BasePyTreeCheckpointHandler(
   async def _write_metadata_after_commits(
       self,
       commit_futures: List[future.Future],
-      checkpoint_dir: epath.Path,
+      checkpoint_dir: path_types.PathAwaitingCreation | epath.Path,
       *,
       param_infos: PyTree,
       save_args: PyTree,
@@ -1219,6 +1222,9 @@ class BasePyTreeCheckpointHandler(
       return
     for commit_future in commit_futures:
       await asyncio.to_thread(commit_future.result)
+
+    if isinstance(checkpoint_dir, path_types.PathAwaitingCreation):
+      checkpoint_dir = await checkpoint_dir.await_creation()
 
     commit_time = time.time()
     # `write_shape` is extracted from ArrayMetadata store saved during
@@ -1412,12 +1418,18 @@ class BasePyTreeSaveArgs(CheckpointArgs):
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
+    partial_save_mode: Google-internal only. When True, signals that this save
+      is a partial save operation. The handler will merge the new data with
+      existing checkpoint metadata rather than overwriting it. Must be combined
+      with metadata file existence for the merge to actually occur (the first
+      partial save has no existing metadata to merge with).
   """
 
   item: PyTree
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
   custom_metadata: tree_types.JsonType | None = None
+  partial_save_mode: bool = False
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_restore=True)
