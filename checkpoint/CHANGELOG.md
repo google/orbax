@@ -37,6 +37,12 @@ devices anyway.
 - Refactor v0 Pytree validation and metadata resolution and add `OrbaxV0Layout`
 tests
 
+### Fixed
+
+- #v1 Ensure `ArrayOptions.StorageOptions` are correctly propagated (previously
+only the result of `PyTreeOptions.Saving.create_array_storage_options_fn` was
+being propagated).
+
 ## [0.11.32] - 2026-01-20
 
 ### Changed

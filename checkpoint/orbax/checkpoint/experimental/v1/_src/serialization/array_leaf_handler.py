@@ -126,22 +126,16 @@ def _create_v0_savearg(
     context: context_lib.Context,
 ) -> type_handlers_v0.SaveArgs:
   """Creates a V0 `SaveArgs` from V1 params and context for saving."""
-
   fn = context.pytree_options.saving.create_array_storage_options_fn
-
   if fn:
     storage_options = fn(param.keypath, param.value)
-    savearg = type_handlers_v0.SaveArgs(
-        dtype=jnp.dtype(storage_options.dtype)
-        if storage_options.dtype
-        else None,
-        chunk_byte_size=storage_options.chunk_byte_size,
-        shard_axes=storage_options.shard_axes,
-    )
   else:
-    savearg = type_handlers_v0.SaveArgs()
-
-  return savearg
+    storage_options = context.array_options.saving.storage_options
+  return type_handlers_v0.SaveArgs(
+      dtype=jnp.dtype(storage_options.dtype) if storage_options.dtype else None,
+      chunk_byte_size=storage_options.chunk_byte_size,
+      shard_axes=storage_options.shard_axes,
+  )
 
 
 def _create_v0_restore_paraminfo(

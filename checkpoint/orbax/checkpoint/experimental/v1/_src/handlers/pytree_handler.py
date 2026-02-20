@@ -56,27 +56,32 @@ PYTREE_CHECKPOINTABLE_KEY = 'pytree'
 
 def _get_v0_save_args(
     checkpointable: PyTree,
+    array_storage_options: options_lib.ArrayOptions.Saving.StorageOptions,
     create_array_storage_options_fn: (
         options_lib.PyTreeOptions.Saving.CreateArrayStorageOptionsFn | None
     ),
-) -> PyTree | None:
+) -> PyTree:
   """Returns save args that are compatible with the V0 API."""
-  if create_array_storage_options_fn is None:
-    return None
-
   def _leaf_get_v0_save_args(k, v):
-    array_storage_options = create_array_storage_options_fn(k, v)
-    save_dtype = (
-        np.dtype(array_storage_options.dtype)
-        if array_storage_options.dtype
-        else None
-    )
+    if create_array_storage_options_fn:
+      individual_array_storage_options = create_array_storage_options_fn(k, v)
+      save_dtype = (
+          np.dtype(individual_array_storage_options.dtype)
+          if individual_array_storage_options.dtype
+          else None
+      )
+      return v0_serialization_types.SaveArgs(
+          dtype=save_dtype,
+          chunk_byte_size=individual_array_storage_options.chunk_byte_size,
+          shard_axes=individual_array_storage_options.shard_axes,
+      )
     return v0_serialization_types.SaveArgs(
-        dtype=save_dtype,
+        dtype=np.dtype(array_storage_options.dtype)
+        if array_storage_options.dtype
+        else None,
         chunk_byte_size=array_storage_options.chunk_byte_size,
         shard_axes=array_storage_options.shard_axes,
     )
-
   return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
 
 
@@ -115,6 +120,7 @@ def create_v0_save_args(
       item=checkpointable,
       save_args=_get_v0_save_args(
           checkpointable,
+          context.array_options.saving.storage_options,
           context.pytree_options.saving.create_array_storage_options_fn,
       ),
       ocdbt_target_data_file_size=context.array_options.saving.ocdbt_target_data_file_size,

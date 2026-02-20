@@ -971,3 +971,66 @@ class SaveLoadTestBase:
           ValueError, 'Directory path mismatch in multi-process save'
       ):
         ocp.save_pytree(directory, self.pytree)
+
+    def test_subchunking(self):
+      self.assertEqual(jax.device_count(), 8)
+      arr = np.arange(32, dtype=np.float32)
+      sharding = jax.sharding.NamedSharding(
+          jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+          jax.sharding.PartitionSpec(
+              'x',
+          ),
+      )
+      # Size: 4 elements * 4 bytes = 16 bytes
+      self.assertEqual(sharding.shard_shape(arr.shape), (4,))
+      pytree = {
+          'a': array_test_utils.create_sharded_array(arr, sharding),
+          'b': array_test_utils.create_sharded_array(arr, sharding),
+      }
+
+      with self.subTest('global_setting'):
+        with ocp.Context(
+            array_options=ocp.options.ArrayOptions(
+                saving=ocp.options.ArrayOptions.Saving(
+                    storage_options=ocp.options.ArrayOptions.Saving.StorageOptions(
+                        chunk_byte_size=8,  # force divide in two subchunks
+                    )
+                )
+            )
+        ):
+          ocp.save_pytree(self.directory / 'global_setting', pytree)
+          metadata = ocp.pytree_metadata(
+              self.directory / 'global_setting'
+          ).metadata
+          for k in pytree:
+            self.assertEqual(metadata[k].shape, (32,))
+            self.assertEqual(metadata[k].storage_metadata.write_shape, (4,))
+            self.assertEqual(metadata[k].storage_metadata.chunk_shape, (2,))
+
+      with self.subTest('per_key_setting'):
+        def create_array_storage_options_fn(key, value):
+          del value
+          if 'a' in tree_utils.str_keypath(key):
+            return ocp.options.ArrayOptions.Saving.StorageOptions(
+                chunk_byte_size=4,  # force divide in 4 subchunks
+            )
+          return ocp.options.ArrayOptions.Saving.StorageOptions(
+              chunk_byte_size=8,  # force divide in 2 subchunks
+          )
+        with ocp.Context(
+            pytree_options=ocp.options.PyTreeOptions(
+                saving=ocp.options.PyTreeOptions.Saving(
+                    create_array_storage_options_fn=create_array_storage_options_fn
+                )
+            ),
+        ):
+          ocp.save_pytree(self.directory / 'per_key_setting', pytree)
+          metadata = ocp.pytree_metadata(
+              self.directory / 'per_key_setting'
+          ).metadata
+          self.assertEqual(metadata['a'].shape, (32,))
+          self.assertEqual(metadata['a'].storage_metadata.write_shape, (4,))
+          self.assertEqual(metadata['a'].storage_metadata.chunk_shape, (1,))
+          self.assertEqual(metadata['b'].shape, (32,))
+          self.assertEqual(metadata['b'].storage_metadata.write_shape, (4,))
+          self.assertEqual(metadata['b'].storage_metadata.chunk_shape, (2,))
