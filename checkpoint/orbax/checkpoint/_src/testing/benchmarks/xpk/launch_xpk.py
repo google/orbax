@@ -389,6 +389,9 @@ def check_preconditions() -> bool:
   dependencies = ('xpk', 'gcloud')
   for dep in dependencies:
     try:
+      if dep == 'xpk':
+        if _XPK_PATH.present:
+          dep = _XPK_PATH.value
       run_command(['which', dep], capture_output=True, suppress_output=True)
       Console.print_success(f'Found {dep}')
     except subprocess.CalledProcessError as exc:

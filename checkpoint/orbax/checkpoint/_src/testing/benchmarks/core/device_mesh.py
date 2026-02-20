@@ -23,9 +23,13 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs
 
 def _num_slices() -> int:
   """Returns number of slices."""
-  if hasattr(jax.devices()[0], 'slice_index'):
-    return max(d.slice_index for d in jax.devices()) + 1
-  return 1
+  max_slice_index = 1
+
+  for d in jax.devices():
+    if hasattr(d, 'slice_index'):
+      max_slice_index = max(max_slice_index, d.slice_index + 1)
+
+  return max_slice_index
 
 
 def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
@@ -40,6 +44,7 @@ def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
   logging.info('Creating mesh with config: %s', config)
   devices = jax.devices()
   num_devices = len(devices)
+  logging.info('num_devices: %s, devices: %s', num_devices, devices)
   # Convert the user-friendly dict maps into ordered lists based on mesh_axes
   ici_shape = [config.ici_parallelism.get(axis, 1) for axis in config.mesh_axes]
 

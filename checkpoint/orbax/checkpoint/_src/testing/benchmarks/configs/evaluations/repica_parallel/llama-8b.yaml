@@ -1,0 +1,32 @@
+# The name for the entire test suite run.
+# Assumes v5p-128 (64 chips)
+suite_name: "Llama 3.1 8B"
+num_repeats: 5
+
+mesh_configs:
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 4, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 8, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 16, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 32, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 64, "tensor": 1}
+
+# The checkpoint configuration, shared across all generated benchmarks.
+checkpoint_configs:
+  - path: "gs://orbax-benchmarks/checkpoints/llama-3.1-8B-checkpoints/0/items"
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1_benchmark.V1Benchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `V1BenchmarkOptions` class
+      # associated with the `V1Benchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: [true, false]
+      use_compression: true
