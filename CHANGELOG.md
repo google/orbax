@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix a bug in Orbax checkpointing where None values PyTree are not handled
+correctly. This is caused by a recent update in jax where None values are no
+longer considered as a leaf node:
+https://jax.readthedocs.io/en/latest/changelog.html#jax-0-4-34-october-4-2024.
+
+
 ### Added
 - Local type handler registries.
 
