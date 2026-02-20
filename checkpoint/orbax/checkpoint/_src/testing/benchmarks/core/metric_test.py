@@ -84,7 +84,7 @@ class MetricsTest(parameterized.TestCase):
     self.assertIn('test_metric_io_read_throughput', metrics.results)
     self.assertIn('test_metric_io_write_throughput', metrics.results)
 
-  def test_report(self):
+  def test_generate_report(self):
     metrics = metric_lib.Metrics(name='TestMetrics')
     metrics.results = {'metric1': (1.23, 's'), 'metric2': (4.56, 's')}
     expected_report = """---[process_id=0] TestMetrics Metrics Report ---
@@ -165,13 +165,17 @@ class MetricsManagerTest(parameterized.TestCase):
     metrics2.results['op1_time_duration'] = (2.0, 's')
     manager.add_result('bench2', metrics2, error=ValueError('failure'))
 
-    report = manager.generate_report()
-    self.assertIn('Suite', report)
-    self.assertIn('Total benchmark configurations: 2', report)
-    self.assertIn('Total runs (1 repeats): 2, Passed: 1, Failed: 1', report)
-    self.assertNotIn('Aggregated Metrics', report)
-    self.assertIn('Failed Runs', report)
-    self.assertIn("Error: ValueError('failure')", report)
+    with mock.patch.object(logging, 'info') as mock_log:
+      manager.generate_report()
+      # Combine all log calls into one string for easier assertion
+      report = '\n'.join([call.args[0] for call in mock_log.call_args_list])
+
+      self.assertIn('Suite', report)
+      self.assertIn('Total benchmark configurations: 2', report)
+      self.assertIn('Total runs (1 repeats): 2, Passed: 1, Failed: 1', report)
+      self.assertNotIn('Aggregated Metrics', report)
+      self.assertIn('Failed Runs', report)
+      self.assertIn("Error: ValueError('failure')", report)
 
   def test_generate_report_with_repeats_and_aggregation(self):
     manager = metric_lib.MetricsManager(name='Suite', num_repeats=3)
@@ -190,32 +194,38 @@ class MetricsManagerTest(parameterized.TestCase):
     m1r3 = metric_lib.Metrics()
     manager.add_result('bench1', m1r3, error=RuntimeError('Run 3 failed'))
 
-    report = manager.generate_report()
+    with mock.patch.object(logging, 'info') as mock_log:
+      manager.generate_report()
+      report = '\n'.join([call.args[0] for call in mock_log.call_args_list])
 
-    self.assertIn('Suite', report)
-    self.assertIn('Total benchmark configurations: 1', report)
-    self.assertIn('Total runs (3 repeats): 3, Passed: 2, Failed: 1', report)
-    self.assertIn('Aggregated Metrics', report)
-    self.assertIn('Benchmark: bench1', report)
-    # mean=1.1, std=0.1, min=1.0, max=1.2
-    self.assertIn(
-        'op_time_duration: 1.1000 +/- 0.1000 s (min: 1.0000, max: 1.2000, n=2)',
-        report,
-    )
-    # mean=11.0, std=1.0, min=10.0, max=12.0
-    self.assertIn(
-        'op_rss_diff: 11.0000 +/- 1.0000 MB (min: 10.0000, max: 12.0000, n=2)',
-        report,
-    )
-    self.assertIn('Failed Runs', report)
-    self.assertIn("Error: RuntimeError('Run 3 failed')", report)
+      self.assertIn('Suite', report)
+      self.assertIn('Total benchmark configurations: 1', report)
+      self.assertIn('Total runs (3 repeats): 3, Passed: 2, Failed: 1', report)
+      self.assertIn('Aggregated Metrics', report)
+      self.assertIn('Benchmark: bench1', report)
+      # mean=1.1, std=0.1, min=1.0, max=1.2
+      self.assertIn(
+          'op_time_duration: 1.1000 +/- 0.1000 s (min: 1.0000, max: 1.2000,'
+          ' n=2)',
+          report,
+      )
+      # mean=11.0, std=1.0, min=10.0, max=12.0
+      self.assertIn(
+          'op_rss_diff: 11.0000 +/- 1.0000 MB (min: 10.0000, max: 12.0000,'
+          ' n=2)',
+          report,
+      )
+      self.assertIn('Failed Runs', report)
+      self.assertIn("Error: RuntimeError('Run 3 failed')", report)
 
   @mock.patch('clu.metric_writers.create_default_writer')
-  def test_export_to_tensorboard_separate_runs(self, mock_create_writer):
+  def test_generate_report_exports_to_tensorboard(self, mock_create_writer):
     mock_writer = mock.Mock()
     mock_create_writer.return_value = mock_writer
     temp_dir = epath.Path(self.create_tempdir().full_path)
-    manager = metric_lib.MetricsManager(name='TBSuite', num_repeats=2)
+    manager = metric_lib.MetricsManager(
+        name='TBSuite', num_repeats=2, tensorboard_dir=temp_dir
+    )
 
     bench1_name = 'bench1'
     bench1_opts = {'opt1': 1}
@@ -254,7 +264,7 @@ class MetricsManagerTest(parameterized.TestCase):
         checkpoint_config=bench2_ckpt_config,
     )
 
-    manager.export_to_tensorboard(temp_dir)
+    manager.generate_report()
 
     # Check that SummaryWriter was called for each benchmark with correct path
     self.assertEqual(mock_create_writer.call_count, 2)
@@ -323,15 +333,40 @@ class MetricsManagerTest(parameterized.TestCase):
     )
 
     # Check that flush and close were called for each writer instance
-    self.assertEqual(mock_writer.flush.call_count, 2)
+    self.assertEqual(mock_writer.flush.call_count, 5)
     self.assertEqual(mock_writer.close.call_count, 2)
 
   def test_generate_report_no_successful_runs_for_aggregation(self):
     manager = metric_lib.MetricsManager(name='Suite', num_repeats=2)
     manager.add_result('bench1', metric_lib.Metrics(), error=ValueError('1'))
     manager.add_result('bench1', metric_lib.Metrics(), error=ValueError('2'))
-    report = manager.generate_report()
-    self.assertIn('No successful runs to aggregate', report)
+    with mock.patch.object(logging, 'info') as mock_log:
+      manager.generate_report()
+      report = '\n'.join([call.args[0] for call in mock_log.call_args_list])
+      self.assertIn('No successful runs to aggregate', report)
+
+  @mock.patch('clu.metric_writers.create_default_writer')
+  def test_add_result_writes_incrementally(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(
+        name='IncSuite', num_repeats=1, tensorboard_dir=temp_dir
+    )
+
+    m1 = metric_lib.Metrics()
+    m1.results['acc'] = (0.9, '')
+    manager.add_result('bench1', m1)
+
+    mock_create_writer.assert_called_once_with(
+        temp_dir,
+        just_logging=False,
+        collection='bench1',
+    )
+    mock_writer.write_scalars.assert_called_once_with(
+        step=0, scalars={'acc_': 0.9}
+    )
+    mock_writer.flush.assert_called_once()
 
 
 if __name__ == '__main__':
