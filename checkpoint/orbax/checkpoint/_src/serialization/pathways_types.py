@@ -41,6 +41,11 @@ class CheckpointingImpl(enum.Enum):
       1. Colocated Python
       4. No Dispatcher
 
+    "No Dispatcher" means that a non-Pathways implementation will be used. This
+    is very ill-advised if the backend is in fact a Pathways backend, as it will
+    lead to checkpointing from the controller, which adds a significant
+    bottleneck.
+
     Args:
       use_colocated_python: Whether to use colocated Python. # BEGIN
       use_remote_python: Whether to use remote Python.

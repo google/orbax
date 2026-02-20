@@ -282,11 +282,47 @@ class ArrayOptions:
       If True, restoration allows silent truncating/padding of arrays if the
       stored array shape does not match the target shape. Otherwise, raises an
       error.
+    raise_array_data_missing_error:
+      If True, raises an error if array data is missing. Otherwise allows
+      returning zeros from an array range that was not necessarily written to.
+    use_load_and_broadcast: Whether to use load-and-broadcast for multi-replica
+      loading. This is useful when the model has multiple replicas across
+      different sets of devices (commonly across multiple TPU slices, but also
+      applies to data-parallel model replicas within a single slice). Array
+      shardings must be structured so that the mesh has a dimension on which
+      all model weights are replicated. The checkpoint will then be loaded only
+      on the hosts and devices taken from replica `primary_replica_id` along the
+      `replica_axis_index` dimension. It will then be broadcast to all other
+      replicas.
     """
+
+    @dataclasses.dataclass(frozen=True, kw_only=True)
+    class LoadAndBroadcastOptions:
+      """Used to configure load-and-broadcast behavior in multi-replica loading.
+
+      replica_axis_index: Defines the axis of the global mesh along which
+        replicas are defined. E.g. all devices in
+        global_mesh.devices[replica_axis_index] are part of the same replica.
+      primary_replica_id: The id of the replica that is used to load and
+        broadcast the checkpoint.
+      broadcast_memory_limit_bytes: Specifies the memory size (in bytes) used
+        for broadcasting data.
+      broadcast_memory_scaling_factor: Specifies the fraction of available
+        memory to use for broadcasting data.
+      """
+
+      replica_axis_index: int | None = 0
+      primary_replica_id: int | None = 0
+      broadcast_memory_limit_bytes: int | None = None
+      broadcast_memory_scaling_factor: float | None = 0.75
 
     concurrent_bytes: int | None = None
     enable_padding_and_truncation: bool = False
     raise_array_data_missing_error: bool = True
+    use_load_and_broadcast: bool = False
+    load_and_broadcast_options: LoadAndBroadcastOptions = dataclasses.field(
+        default_factory=LoadAndBroadcastOptions
+    )
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)

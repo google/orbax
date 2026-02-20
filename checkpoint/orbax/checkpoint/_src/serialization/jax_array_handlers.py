@@ -1452,7 +1452,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
       replica_axis_index: Defines the axis of the global mesh along which
         replicas are defined. E.g. all devices in
         global_mesh.devices[replica_axis_index] are part of the same replica.
-      primary_replica_id: The id of the replica hosts that is used to load and
+      primary_replica_id: The id of the replica that is used to load and
         broadcast the checkpoint.
       broadcast_memory_limit_bytes: Specifies the memory size (in bytes) used
         for broadcasting data.
@@ -1517,7 +1517,10 @@ class SingleReplicaArrayHandler(ArrayHandler):
             f' {type(arg)}.'
         )
       if arg.sharding is None:
-        raise ValueError('Must provide `sharding`.')
+        raise ValueError(
+            'Must provide `sharding` to restore with'
+            ' `SingleReplicaArrayHandler`.'
+        )
 
     # arg.single_replica_sharding is not required to be passed.
     single_replica_shardings = [

@@ -35,7 +35,7 @@ import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost as multihost_v0
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.serialization import serialization
+from orbax.checkpoint._src.serialization import serialization as serialization_v0
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -126,16 +126,18 @@ class SaveLoadTestBase:
 
     def test_save_pytree_async(self):
       start_serialize = threading.Event()
-      original_serialize = serialization.async_serialize_from_host
+      original_serialize = serialization_v0.async_serialize_from_host
 
       def mock_serialize(*args, **kwargs):
         start_serialize.wait()  # Wait for explicit signal before proceeding.
         return original_serialize(*args, **kwargs)
 
-      # Serialization to disk does not start until receiving an explicit signal.
+      # serialization to disk does not start until receiving an explicit signal.
       self.enter_context(
           mock.patch.object(
-              serialization, 'async_serialize_from_host', new=mock_serialize
+              serialization_v0,
+              'async_serialize_from_host',
+              new=mock_serialize,
           )
       )
 
@@ -971,6 +973,42 @@ class SaveLoadTestBase:
           ValueError, 'Directory path mismatch in multi-process save'
       ):
         ocp.save_pytree(directory, self.pytree)
+
+    def test_load_and_broadcast(self):
+      replica_count = 2
+      partition_count = jax.device_count() // replica_count
+      mesh = jax.sharding.Mesh(
+          np.asarray(jax.devices()).reshape(replica_count, partition_count),
+          ('replica', 'model'),
+      )
+      spec = jax.sharding.PartitionSpec(None, 'model')
+      sharding = jax.sharding.NamedSharding(mesh, spec)
+      arr = array_test_utils.create_sharded_array(
+          np.arange(4 * 32).reshape(4, 32), sharding
+      )
+      self.assertEqual(
+          sharding.shard_shape((4, 32)), (4, 32 // partition_count)
+      )
+      with ocp.Context(
+          array_options=ocp.options.ArrayOptions(
+              loading=ocp.options.ArrayOptions.Loading(
+                  use_load_and_broadcast=True,
+              )
+          )
+      ):
+        ocp.save_pytree(self.directory, [arr])
+        with self.subTest('with_abstract_pytree'):
+          loaded = ocp.load_pytree(
+              self.directory, [array_test_utils.as_abstract_type(arr)]
+          )
+          test_utils.assert_tree_equal(self, [arr], loaded)
+        with self.subTest('without_abstract_pytree'):
+          with self.assertRaisesRegex(
+              ValueError,
+              'Must provide `sharding` to restore with'
+              ' `SingleReplicaArrayHandler`',
+          ):
+            ocp.load_pytree(self.directory)
 
     def test_subchunking(self):
       self.assertEqual(jax.device_count(), 8)

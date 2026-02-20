@@ -33,6 +33,7 @@ from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
+from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 
@@ -80,22 +81,7 @@ def _create_v0_array_handler(
     context: context_lib.Context,
 ) -> type_handlers_v0.ArrayHandler:
   """Creates a V0 array handler from a V1 context."""
-
-  saving_options = context.array_options.saving
-  primary_host = context.multiprocessing_options.primary_host
-  array_handler = type_handlers_v0.ArrayHandler(
-      primary_host=primary_host,
-      replica_id=None if primary_host is None else 0,
-      use_replica_parallel=saving_options.use_replica_parallel,
-      min_slice_bytes_for_replica_parallel=saving_options.min_slice_bytes_for_replica_parallel,
-      max_replicas_for_replica_parallel=saving_options.max_replicas_for_replica_parallel,
-      enable_replica_parallel_separate_folder=saving_options.enable_replica_parallel_separate_folder,
-      enable_write_sharding_file=saving_options.enable_write_sharding_file,
-      array_metadata_store=saving_options.array_metadata_store,
-  )
-
-
-  return array_handler
+  return registration.get_array_handler(context)
 
 
 def _create_v0_saving_paraminfo(
@@ -178,12 +164,17 @@ def _create_v0_restorearg(
     context: context_lib.Context,
 ) -> type_handlers_v0.ArrayRestoreArgs:
   """Creates a V0 `ArrayRestoreArgs` from V1 params."""
+  restore_arg_cls = (
+      type_handlers_v0.SingleReplicaArrayRestoreArgs
+      if context.array_options.loading.use_load_and_broadcast
+      else type_handlers_v0.ArrayRestoreArgs
+  )
   value = param.value
   if value is None or isinstance(value, type):
-    return type_handlers_v0.ArrayRestoreArgs(restore_type=jax.Array)
+    return restore_arg_cls(restore_type=jax.Array)
   elif protocol_utils.is_subclass_protocol(value, AbstractShardedArray):
     value = typing.cast(AbstractShardedArray, value)
-    return type_handlers_v0.ArrayRestoreArgs(
+    return restore_arg_cls(
         restore_type=jax.Array,
         dtype=value.dtype,
         sharding=value.sharding,

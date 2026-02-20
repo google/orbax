@@ -68,8 +68,7 @@ class NumpyMetadata(AbstractArray):
 
 def _create_v0_numpy_handler() -> type_handlers_v0.NumpyHandler:
   """Creates a V0 `NumpyHandler`."""
-  numpy_handler = type_handlers_v0.NumpyHandler()
-  return numpy_handler
+  return registration.get_numpy_handler()
 
 
 def _create_v0_saving_paraminfo(

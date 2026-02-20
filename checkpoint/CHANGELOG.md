@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add `use_load_and_broadcast` option.
+
 ### Removed
 
 - #v1 Deleted `CompositeHandler` and refactored its functionality directly into
