@@ -30,8 +30,8 @@ class PyTreeMetadataOptions:
 
   # TODO: b/365169723 - Support different namedtuple ser/deser strategies.
 
-  support_rich_types: bool = False
+  support_rich_types: bool = True
 
 
 # Global default options.
-PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=False)
+PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=True)
