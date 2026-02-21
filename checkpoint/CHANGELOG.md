@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `uvloop` dependency for improved event loop performance
+- Add option to disable for multi-tier checkpointing process id initialization
 
 ### Removed
 
