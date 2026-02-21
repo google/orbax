@@ -63,7 +63,20 @@ def _init_jax_distributed():
   """Initializes JAX distributed system if not managed by XManager."""
 
   try:
-    jax.distributed.initialize()
+    logging.info(
+        'JAX_COORDINATOR_ADDRESS: %s',
+        os.environ.get('JAX_COORDINATOR_ADDRESS'),
+    )
+    logging.info('JAX_PROCESS_ID: %s', os.environ.get('JAX_PROCESS_ID'))
+    logging.info('JAX_NUM_PROCESSES: %s', os.environ.get('JAX_NUM_PROCESSES'))
+    logging.info(
+        'JAX_COORDINATOR_PORT: %s', os.environ.get('JAX_COORDINATOR_PORT')
+    )
+    jax.distributed.initialize(
+        coordinator_address=os.environ.get('JAX_COORDINATOR_ADDRESS'),
+        num_processes=int(os.environ.get('JAX_NUM_PROCESSES')),
+        process_id=int(os.environ.get('JAX_PROCESS_ID')),
+    )
     logging.info('JAX distributed system initialized.')
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.warning(
@@ -71,7 +84,7 @@ def _init_jax_distributed():
         'This is expected if running in a single-process environment. '
         'Continuing as single-process.',
         e,
-        exc_info=False,
+        exc_info=True,
     )
 
   logging.info('JAX process index: %d', jax.process_index())

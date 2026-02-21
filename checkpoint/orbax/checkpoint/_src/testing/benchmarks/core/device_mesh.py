@@ -56,6 +56,18 @@ def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
     logging.info('Creating hybrid mesh.')
     dcn_shape = [dcn_parallelism.get(axis, 1) for axis in config.mesh_axes]
 
+  if jax.default_backend() == 'cpu':
+    devices = jax.devices()
+    # Sort devices by process index to ensure a predictable global grid
+    devices = sorted(devices, key=lambda d: d.process_index)
+    global_shape = tuple(d * i for d, i in zip(dcn_shape, ici_shape))
+    devices_array = np.array(devices).reshape(global_shape)
+    logging.info(
+        'Creating CPU-only hybrid mesh with axes: %s',
+        {axis: dim for axis, dim in zip(config.mesh_axes, devices_array.shape)},
+    )
+    return jax.sharding.Mesh(devices_array, config.mesh_axes)
+
   # --- Validation ---
   if config.process_is_granule:
     process_count = jax.process_count()

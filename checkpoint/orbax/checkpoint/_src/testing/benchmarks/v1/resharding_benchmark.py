@@ -23,18 +23,18 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import v1 as ocp
-from orbax.checkpoint._src.testing.benchmarks import v1_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.v1 import benchmark
 
 
 # ==============================================================================
 # 1. Define the Options Dataclass for this specific benchmark
 # ==============================================================================
 @dataclasses.dataclass(frozen=True)
-class V1ReshardingBenchmarkOptions(v1_benchmark.V1BenchmarkOptions):
-  """Configuration options for benchmarks targeting V1ReshardingBenchmark.
+class ReshardingBenchmarkOptions(benchmark.BenchmarkOptions):
+  """Configuration options for benchmarks targeting ReshardingBenchmark.
 
   See parent class.
 
@@ -59,8 +59,8 @@ class V1ReshardingBenchmarkOptions(v1_benchmark.V1BenchmarkOptions):
 # ==============================================================================
 # 2. Implement the Benchmark Generator
 # ==============================================================================
-@benchmarks_core.benchmark_options(V1ReshardingBenchmarkOptions)
-class V1ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
+@benchmarks_core.benchmark_options(ReshardingBenchmarkOptions)
+class ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
   """A concrete generator for resharding benchmarks."""
 
   def test_fn(
@@ -81,10 +81,10 @@ class V1ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
     metrics = metric_lib.Metrics()
     assert context.pytree is None
     options = context.options
-    assert isinstance(options, V1ReshardingBenchmarkOptions)
+    assert isinstance(options, ReshardingBenchmarkOptions)
 
     logging.info("Benchmark options: %s", pprint.pformat(options))
-    metrics_to_measure = v1_benchmark.get_metrics_to_measure(options)
+    metrics_to_measure = benchmark.get_metrics_to_measure(options)
 
     assert options.reference_checkpoint_path is not None
     assert options.reference_sharding_path is not None
@@ -101,7 +101,7 @@ class V1ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
           checkpoint_generation.get_abstract_state_from_sharding_config(
               reference_sharding_path,
               metadata.metadata,
-              devices=context.mesh.devices,
+              devices=jax.devices(),
           )
       )
 
@@ -111,7 +111,7 @@ class V1ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
         restored_pytree = ocp.load_pytree(
             reference_checkpoint_path, abstract_pytree
         )
-      v1_benchmark.clear_pytree(restored_pytree)
+      benchmark.clear_pytree(restored_pytree)
       if options.enable_trace:
         jax.profiler.stop_trace()
 

@@ -554,6 +554,7 @@ def create_cluster() -> None:
 
 def construct_workload_command(
     *,
+    workload_name: str,
     config_file: str,
     output_directory: str,
     run_id: str,
@@ -570,7 +571,22 @@ def construct_workload_command(
         'export ENABLE_PJRT_COMPATIBILITY=true',
     ]
   else:
-    env_vars = ['export JAX_PLATFORMS=tpu,cpu']
+    fqdn_address = f'{workload_name}-slice-job-0-0.{workload_name}.default.svc.cluster.local'
+
+    env_vars = [
+        'export JAX_PLATFORMS=cpu',
+        'export JAX_NUM_PROCESSES=$JAX_PROCESS_COUNT',
+        # Calculate the true global rank: (Job_Index * Pods_Per_Job) + Pod_Index
+        (
+            'export JAX_PROCESS_ID=$(($JOB_INDEX * $PROCESSES_IN_JOB +'
+            ' $JOB_COMPLETION_INDEX))'
+        ),
+        # We use the TRUE global rank to determine who gets localhost
+        (
+            'export JAX_COORDINATOR_ADDRESS=$(if [ "$JAX_PROCESS_ID" = "0" ];'
+            f' then echo "localhost"; else echo "{fqdn_address}"; fi):1234'
+        ),
+    ]
 
   env_cmd = ' && '.join(env_vars) + ' && ' if env_vars else ''
 
@@ -593,7 +609,10 @@ def construct_workload_command(
         + python_cmd
     )
 
-  return f'{env_cmd}{python_cmd}'
+  return (
+      'python3 -c "import socket; print(socket.getfqdn())" && bash -c'
+      f' "{env_cmd}{python_cmd}"'
+  )
 
 
 def construct_xpk_command(
@@ -848,6 +867,7 @@ def main(argv: Sequence[str]) -> None:
   # 5. Construct Commands
   Console.print_step(4, 6, 'Constructing Commands')
   workload_cmd = construct_workload_command(
+      workload_name=workload_name_base,
       config_file=remote_config_path,
       output_directory=_OUTPUT_DIRECTORY.value,
       run_id=run_id,

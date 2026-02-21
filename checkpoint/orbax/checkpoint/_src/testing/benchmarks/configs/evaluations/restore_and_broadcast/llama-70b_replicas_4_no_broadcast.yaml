@@ -1,0 +1,30 @@
+# The name for the entire test suite run.
+# Assumes n2-standard-32-32 (32 machines) X 4 replicas
+suite_name: "llama-70b_replicas_4_no_broadcast"
+num_repeats: 20
+
+
+mesh_config:
+  mesh_axes: ["replica", "model"]
+  # Should match reference_sharding_path.
+  ici_parallelism: {"replica": 1, "model": 32}
+  dcn_parallelism: {"replica": 4}
+  allow_split_physical_axes: true
+  process_is_granule: true
+
+# Note: checkpoint_config field not specified.
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `RestoreAndBroadcastBenchmarkOptions` class
+      # associated with the `RestoreAndBroadcastBenchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_compression: true
+      reference_checkpoint_path: "gs://orbax-benchmarks/checkpoints/llama-70b_generate_4-8-4/ckpt"
+      reference_sharding_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-256-data-4-fsdp-8-tensor-4/abstract_state.json"
+      use_load_and_broadcast: False

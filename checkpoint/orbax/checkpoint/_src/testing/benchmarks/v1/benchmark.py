@@ -28,7 +28,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
-def get_metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
+def get_metrics_to_measure(options: BenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
   metrics = ["time", "rss", "io"]
   if options.metric_tracemalloc_enabled:
@@ -42,8 +42,8 @@ def get_metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
 # 1. Define the Options Dataclass for this specific benchmark
 # ==============================================================================
 @dataclasses.dataclass(frozen=True)
-class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
-  """Configuration options for benchmarks targeting V1BenchmarkHandler.
+class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
+  """Configuration options for benchmarks targeting BenchmarkHandler.
 
   Each attribute can be a single value or a list of values to create
   a parameter sweep.
@@ -57,6 +57,7 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     restore_concurrent_gb: The number of concurrent GB to use for restoring.
     metric_tracemalloc_enabled: Whether to enable tracemalloc metric.
     metric_tensorstore_enabled: Whether to enable tensorstore metric.
+    use_load_and_broadcast: Whether to use load and broadcast.
     use_replica_parallel: Whether to use replica parallel.
     enable_replica_parallel_separate_folder: Whether to enable replica parallel
       separate folder.
@@ -71,6 +72,7 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   restore_concurrent_gb: int | None | Sequence[int | None] = None
   metric_tracemalloc_enabled: bool = False
   metric_tensorstore_enabled: bool = False
+  use_load_and_broadcast: bool | Sequence[bool] = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
   chunk_byte_size: int | None | Sequence[int | None] = None
@@ -103,6 +105,7 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
                 else None,
             ),
             loading=ocp.options.ArrayOptions.Loading(
+                use_load_and_broadcast=self.use_load_and_broadcast,
                 concurrent_bytes=self.restore_concurrent_gb * 1024**3
                 if self.restore_concurrent_gb is not None
                 else None,
@@ -121,12 +124,12 @@ def clear_pytree(pytree: Any) -> Any:
 # ==============================================================================
 # 2. Implement the Benchmark Generator
 # ==============================================================================
-@benchmarks_core.benchmark_options(V1BenchmarkOptions)
-class V1Benchmark(benchmarks_core.BenchmarksGenerator):
-  """A concrete generator for `orbax.checkpoint.V1BenchmarkHandler`.
+@benchmarks_core.benchmark_options(BenchmarkOptions)
+class Benchmark(benchmarks_core.BenchmarksGenerator):
+  """A concrete generator for `orbax.checkpoint.BenchmarkHandler`.
 
   This class provides the specific test logic for benchmarking the
-  V1BenchmarkHandler with various configurations.
+  BenchmarkHandler with various configurations.
   """
 
   def test_fn(
@@ -149,7 +152,7 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
     abstract_pytree = jax.tree.map(ocp.arrays.to_shape_dtype_struct, pytree)
     save_path = context.path / "ckpt"
     options = context.options
-    assert isinstance(options, V1BenchmarkOptions)
+    assert isinstance(options, BenchmarkOptions)
 
     logging.info("Benchmark options: %s", pprint.pformat(options))
     metrics_to_measure = get_metrics_to_measure(options)
