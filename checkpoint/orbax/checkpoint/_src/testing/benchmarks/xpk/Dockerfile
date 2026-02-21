@@ -1,5 +1,5 @@
 # Base image argument (defaulting to slim python image)
-ARG BASE_IMAGE=python:3.11-slim
+ARG BASE_IMAGE=python:3.13-slim
 FROM $BASE_IMAGE
 
 WORKDIR /app
@@ -11,6 +11,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     dnsutils \
+    libunwind-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Checkout Orbax (Optimized Shallow Fetch)
@@ -48,7 +49,15 @@ ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
 # Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow
+RUN pip install --no-cache-dir gcsfs portpicker clu 
+
+RUN if [ "$DEVICE" = "gpu" ]; then \
+    pip install --no-cache-dir tensorflow; \
+  elif [ "$DEVICE" = "tpu" ]; then \
+    pip install --no-cache-dir tensorflow -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
+  else \
+      pip install --no-cache-dir tensorflow-cpu; \
+  fi
 
 # Install requirements from repo root if it exists
 RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
@@ -60,13 +69,15 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
       elif [ "$DEVICE" = "tpu" ]; then \
         pip install --no-cache-dir -U "jax[k8s,tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
       else \
-         pip install --no-cache-dir -U "jax[k8s]" jaxlib; \
+         pip install --no-cache-dir -U "jax[k8s,cpu]" jaxlib; \
       fi \
     elif [ "$JAX_VERSION" = "nightly" ]; then \
       if [ "$DEVICE" = "gpu" ]; then \
         pip install --no-cache-dir -U --pre "jax[k8s,cuda12]" jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
       elif [ "$DEVICE" = "tpu" ]; then \
         pip install --no-cache-dir -U --pre "jax[k8s,tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
+      else \
+        pip install --no-cache-dir -U --pre "jax[k8s,cpu]" jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
       fi \
     else \
       # Specific version
@@ -75,7 +86,7 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
       elif [ "$DEVICE" = "tpu" ]; then \
          pip install --no-cache-dir "jax[k8s,tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
       else \
-         pip install --no-cache-dir "jax[k8s]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}"; \
+         pip install --no-cache-dir "jax[k8s,cpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}"; \
       fi \
     fi
 
@@ -84,12 +95,25 @@ WORKDIR /app/orbax_repo/checkpoint
 RUN pip install --no-cache-dir .
 RUN pip install --no-cache-dir pathwaysutils
 
+# ---------------------------------------------------------
+# Place the compiled megascale extension in a dedicated directory.
+RUN mkdir -p /app/megascale
+COPY megascale_cpu_collectives.abi3.so /app/megascale/megascale_cpu_collectives.abi3.so
+RUN chmod 755 /app/megascale/megascale_cpu_collectives.abi3.so
+# ---------------------------------------------------------
+
 # 5. Environment Setup
-# Set PYTHONPATH so 'import orbax' works from the correctly mapped directory
-ENV PYTHONPATH=/app/orbax_repo/checkpoint
+# Set PYTHONPATH so 'import orbax' works and megascale .so is importable.
+ENV PYTHONPATH=/app/orbax_repo/checkpoint:/app/megascale
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"
+RUN echo "=== Shared library dependencies ===" && \
+    ldd /app/megascale/megascale_cpu_collectives.abi3.so || true && \
+    echo "=== Missing libraries ===" && \
+    ldd /app/megascale/megascale_cpu_collectives.abi3.so 2>&1 | grep "not found" || echo "None missing" && \
+    echo "=== Import test ===" && \
+    python3 -c "import megascale_cpu_collectives; print('Import OK')" || echo "Import FAILED (see above)"
 
 # 6. Entrypoint
 # We point to the benchmark script relative to the repo root structure

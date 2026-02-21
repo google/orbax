@@ -57,6 +57,7 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     restore_concurrent_gb: The number of concurrent GB to use for restoring.
     metric_tracemalloc_enabled: Whether to enable tracemalloc metric.
     metric_tensorstore_enabled: Whether to enable tensorstore metric.
+    use_load_and_broadcast: Whether to use load and broadcast.
     use_replica_parallel: Whether to use replica parallel.
     enable_replica_parallel_separate_folder: Whether to enable replica parallel
       separate folder.
@@ -71,6 +72,7 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   restore_concurrent_gb: int | None | Sequence[int | None] = None
   metric_tracemalloc_enabled: bool = False
   metric_tensorstore_enabled: bool = False
+  use_load_and_broadcast: bool | Sequence[bool] = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
   chunk_byte_size: int | None | Sequence[int | None] = None
@@ -103,6 +105,7 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
                 else None,
             ),
             loading=ocp.options.ArrayOptions.Loading(
+                use_load_and_broadcast=self.use_load_and_broadcast,
                 concurrent_bytes=self.restore_concurrent_gb * 1024**3
                 if self.restore_concurrent_gb is not None
                 else None,

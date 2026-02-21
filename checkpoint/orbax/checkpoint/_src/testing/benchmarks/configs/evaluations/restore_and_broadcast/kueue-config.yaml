@@ -1,0 +1,28 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "spot-flavor"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "xpk-cluster-queue"
+spec:
+  namespaceSelector: {} # Allows jobs from any namespace
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "spot-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 1000  # Set artificially high to allow scaling
+      - name: "memory"
+        nominalQuota: 4000Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: "multislice-queue" # XPK strictly looks for this name by default
+  namespace: "default"
+spec:
+  clusterQueue: "xpk-cluster-queue"
