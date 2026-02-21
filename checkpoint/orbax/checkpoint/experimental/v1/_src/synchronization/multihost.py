@@ -28,6 +28,15 @@ _DEFAULT_BARRIER_TIMEOUT = 300
 
 
 
+def is_pathways_backend() -> bool:
+  # Pathways is single-host.
+  return (
+      hasattr(jax.devices()[0].client, 'pathways')
+      or jax.devices()[0].client.runtime_type == 'pathways'
+      or jax.devices()[0].client.runtime_type == 'proxy/pathways'
+  )
+
+
 def coordination_timeout() -> int:
   """Returns the coordination timeout in seconds."""
   return _DEFAULT_BARRIER_TIMEOUT
@@ -37,6 +46,8 @@ def should_skip_process_sync(processes: Collection[int] | None = None) -> bool:
   if processes and len(processes) == 1 and process_index() in processes:
     return True
   if jax.process_count() == 1:
+    return True
+  if is_pathways_backend():
     return True
   return False
 
@@ -147,6 +158,8 @@ def process_count() -> int:
 
 
 def process_index() -> int:
+  if is_pathways_backend():
+    return jax.process_index()
   # Note that jax.process_index() does not return the same thing as
   # global_state.process_id. We rely on the latter to work with barriers over a
   # subset of processes.
@@ -155,6 +168,8 @@ def process_index() -> int:
 
 def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   """Broadcast data from a source host to all other hosts."""
+  if is_pathways_backend():
+    return in_tree
   if is_source is None:
     is_source = process_index() == 0
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
@@ -162,4 +177,6 @@ def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
 
 def process_allgather(in_tree, tiled: bool | None = None):
   """All-gather data from all hosts."""
+  if is_pathways_backend():
+    return in_tree
   return multihost_utils.process_allgather(in_tree, tiled=tiled)
