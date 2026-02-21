@@ -16,16 +16,16 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import jax.numpy as jnp
-from orbax.checkpoint._src.testing.benchmarks import v1_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.v1 import benchmark
 
 
-V1BenchmarkOptions = v1_benchmark.V1BenchmarkOptions
-V1Benchmark = v1_benchmark.V1Benchmark
+BenchmarkOptions = benchmark.BenchmarkOptions
+Benchmark = benchmark.Benchmark
 
 
-class V1BenchmarkTest(parameterized.TestCase):
+class BenchmarkTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -33,29 +33,29 @@ class V1BenchmarkTest(parameterized.TestCase):
 
   @parameterized.parameters(
       dict(
-          options=V1BenchmarkOptions(use_ocdbt=False, use_zarr3=True),
+          options=BenchmarkOptions(use_ocdbt=False, use_zarr3=True),
           expected_len=1,
       ),
       dict(
-          options=V1BenchmarkOptions(use_ocdbt=[False, True], use_zarr3=True),
+          options=BenchmarkOptions(use_ocdbt=[False, True], use_zarr3=True),
           expected_len=2,
       ),
       dict(
-          options=V1BenchmarkOptions(
+          options=BenchmarkOptions(
               use_ocdbt=[False, True], use_zarr3=[False, True]
           ),
           expected_len=4,
       ),
   )
   def test_generate_benchmarks(self, options, expected_len):
-    generator = V1Benchmark(
+    generator = Benchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     benchmarks = generator.generate()
     self.assertLen(benchmarks, expected_len)
-    for benchmark in benchmarks:
-      self.assertIsInstance(benchmark.options, V1BenchmarkOptions)
+    for b in benchmarks:
+      self.assertIsInstance(b.options, BenchmarkOptions)
 
   @parameterized.product(
       use_ocdbt=(False, True),
@@ -82,9 +82,9 @@ class V1BenchmarkTest(parameterized.TestCase):
     ):
       return
 
-    generator = V1Benchmark(
+    generator = Benchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
-        options=V1BenchmarkOptions(),
+        options=BenchmarkOptions(),
     )
 
     pytree = {
@@ -92,7 +92,7 @@ class V1BenchmarkTest(parameterized.TestCase):
         'b': {'c': jnp.ones((5, 5))},
     }
 
-    test_options = V1BenchmarkOptions(
+    test_options = BenchmarkOptions(
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         use_compression=use_compression,
@@ -116,7 +116,7 @@ class V1BenchmarkTest(parameterized.TestCase):
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
     # Check for expected metrics keys based on _metrics_to_measure
-    # in v1_benchmark.py and the metric.measure calls.
+    # in benchmark.py and the metric.measure calls.
     # The benchmark records "save_blocking", "save_background", "load".
     # Metric "time" is always added.
 
