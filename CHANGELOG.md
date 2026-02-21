@@ -48,6 +48,7 @@ permit more than one concurrent checkpointing attempt per second.
 ### Added
 - Support for generic transformation function in PyTreeCheckpointHandler.
 - Support n-digit checkpoint step format.
+- Enable training input checkpointing (in Pax)
 
 ### Fixed
 - Eliminate Flax dependency to fix circular dependency problem.
