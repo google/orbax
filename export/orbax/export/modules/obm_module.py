@@ -29,6 +29,9 @@ from orbax.export.modules import orbax_module_base
 from orbax.export.typing import PyTree
 import tensorflow as tf
 
+from .learning.brain.tfrt.python.saved_model.config import config as config_validator
+from .learning.brain.tfrt.saved_model.config import compilation_config_pb2
+
 ApplyFn = orbax_export_typing.ApplyFn
 
 
@@ -157,6 +160,23 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
             constants.ENABLE_BF16_OPTIMIZATION, False
         ),
     )
+
+  def _verify_xla_gpu_flags(
+      self, xla_flags_per_platform: Mapping[str, Sequence[str]]
+  ) -> None:
+    """Verifies that only stable xla_gpu_flags are used for GPU platforms."""
+    for platform, flags in xla_flags_per_platform.items():
+      if platform.lower() in ('cuda', 'rocm') and flags:
+        compilation_config = compilation_config_pb2.CompilationConfig(
+            xla_gpu_flags=flags,
+        )
+        try:
+          config_validator.validate_compilation_config(compilation_config)
+        except Exception as e:
+          raise ValueError(
+              'XLA GPU flag validation failed. Ensure only stable flags are'
+              ' used. See
+          ) from e
 
   def _normalize_apply_fn_map(
       self,
