@@ -22,7 +22,6 @@ import sys
 from absl import app
 from absl import flags
 from absl import logging
-import jax
 import pytest
 import yaml
 
@@ -86,14 +85,6 @@ def main(argv: Sequence[str]) -> None:
     raise app.UsageError('Too many command-line arguments.')
 
   install_deps()
-
-  try:
-    jax.distributed.initialize()
-    logging.info('JAX devices: %s', jax.devices())
-  except RuntimeError as e:
-    logging.warning(
-        'Could not initialize jax.distributed: %s. Proceeding without it.', e
-    )
 
   try:
     with open(FLAGS.filename, 'r') as f:

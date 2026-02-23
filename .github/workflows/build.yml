@@ -75,7 +75,7 @@ jobs:
         --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py \
-        $(python3 -c "import yaml; d=yaml.safe_load(open('orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml')); print(' '.join(['--ignore=' + t.replace(':', '/') + '.py' for k,v in d.items() if k.startswith('processes') and v for t in v]))")
+        $(python3 -c "import yaml; d=yaml.safe_load(open('orbax/checkpoint/_src/testing/oss/tagged_tests.yaml')); print(' '.join(['--ignore=' + t.replace(':', '/') + '.py' for k,v in d.items() if k.startswith('processes') and v for t in v]))")
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
     - name: Report success or failure as github status
@@ -284,13 +284,13 @@ jobs:
         TF_FORCE_GPU_ALLOW_GROWTH: true
         XLA_PYTHON_CLIENT_PREALLOCATE: false
       run: |
-        cd orbax/checkpoint/_src/testing
+        cd orbax/checkpoint/_src/testing/oss
         ls
         failed_benchmarks=""
         benchmark_configs_file="multiprocess_benchmark_configs.txt"
         echo "Running benchmarks specified in $benchmark_configs_file"
         benchmark_configs_file_path="$PWD/$benchmark_configs_file"
-        cd benchmarks
+        cd ../benchmarks
         while IFS= read -r entry || [ -n "$entry" ]; do
           if [ -n "$entry" ]; then
             echo "Running benchmark for $entry"
@@ -324,55 +324,53 @@ jobs:
             "context": "github-actions/build"
             }'
 
-  # multiprocess-unit-tests:
-    # name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    # runs-on: linux-x86-ct5lp-4tpu-x2
-    # container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
-    # defaults:
-    #   run:
-    #     working-directory: checkpoint
-    # strategy:
-    #   matrix:
-    #     python-version: ["3.11"]
-    #     jax-version: ["newest"]
-    # steps:
-    # - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-    # - name: Set up Python ${{ matrix.python-version }}
-    #   uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
-    #   with:
-    #     python-version: ${{ matrix.python-version }}
-    # - name: Install dependencies
-    #   run: |
-    #     pip install -e .
-    #     pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-    #     pip uninstall -y orbax
-    #     pip install gcsfs
-    #     pip install portpicker pytest chex pyyaml
-    #     if [ "${{ matrix.jax-version }}" = "newest" ]; then
-    #       pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-    #     elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
-    #       pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
-    #     else
-    #       pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-    #     fi
-    # - name: Run multiprocess tests
-    #   env:
-    #     TEST_TMPDIR: gs://orbax-benchmarks/unit-tests/${{ github.run_id }}
-    #   run: |
-    #     python orbax/checkpoint/_src/testing/multiprocess_unittests/run_tests.py --filename=orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml --processes=4
-    # - name: Report success or failure as github status
-    #   if: always()
-    #   shell: bash
-    #   run: |
-    #     status="${{ job.status }}"
-    #     lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
-    #     curl -sS --request POST \
-    #     --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
-    #     --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-    #     --header 'content-type: application/json' \
-    #     --data '{
-    #         "state": "'$lowercase_status'",
-    #         "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-    #         "description": "'$status'",
-    #         "context": "github-actions/build"
-    #         }'
+  multiprocess-unit-tests:
+    name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
+    runs-on: linux-x86-ct5lp-224-8tpu
+    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
+    defaults:
+      run:
+        working-directory: checkpoint
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+        jax-version: ["newest"]
+    steps:
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        pip install -e .
+        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip uninstall -y orbax
+        pip install gcsfs
+        pip install portpicker pytest chex pyyaml
+        if [ "${{ matrix.jax-version }}" = "newest" ]; then
+          pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
+          pip install -U --pre "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/
+        else
+          pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        fi
+    - name: Run multiprocess tests
+      run: |
+        python orbax/checkpoint/_src/testing/oss/run_multihost.py orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=4
+    - name: Report success or failure as github status
+      if: always()
+      shell: bash
+      run: |
+        status="${{ job.status }}"
+        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        curl -sS --request POST \
+        --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
+        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+        --header 'content-type: application/json' \
+        --data '{
+            "state": "'$lowercase_status'",
+            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "description": "'$status'",
+            "context": "github-actions/build"
+            }'
