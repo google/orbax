@@ -70,28 +70,11 @@ def _create_replicator_file(
   os.rename(temp_file, replicator_file)
 
 
-def initialize_multi_tier_checkpointing(
+def _initialize_jax_from_mtc(
     local_checkpoint_directory: epath.Path,
-    *,
-    backup_interval_minutes: int = 30,
-    num_slices: Optional[int] = None,
-    run_name: Optional[str] = None,
-    data_parallelism: Optional[int] = None,
     jax_initialization_timeout_seconds: int = 900,
-):
-  """Initializes multi-tier checkpointing.
-
-  Args:
-    local_checkpoint_directory: The local checkpoint directory.
-    backup_interval_minutes: The backup interval for the replicator service, in
-      minutes.
-    num_slices: The number of slices.
-    run_name: The name of the run.
-    data_parallelism: Number of identical pipelines in job, should be
-      equal to ICI data parallelism * DCN data parallelism. If not provided, it
-      will be inferred from the number of slices.
-    jax_initialization_timeout_seconds: The timeout for JAX initialization.
-  """
+) -> str:
+  """Initialize jax with jax_init_info."""
   local_checkpoint_directory = epath.Path(local_checkpoint_directory)
   process_id, coordinator_address = _retrieve_jax_init_info(
       local_checkpoint_directory
@@ -112,6 +95,43 @@ def initialize_multi_tier_checkpointing(
       coordinator_address=coordinator_address,
       initialization_timeout=jax_initialization_timeout_seconds,
   )
+  return process_id
+
+
+def initialize_multi_tier_checkpointing(
+    local_checkpoint_directory: epath.Path,
+    *,
+    backup_interval_minutes: int = 30,
+    num_slices: Optional[int] = None,
+    run_name: Optional[str] = None,
+    data_parallelism: Optional[int] = None,
+    jax_initialization_timeout_seconds: int = 900,
+    use_mtc_process_ids: bool = True,
+):
+  """Initializes multi-tier checkpointing.
+
+  Args:
+    local_checkpoint_directory: The local checkpoint directory.
+    backup_interval_minutes: The backup interval for the replicator service, in
+      minutes.
+    num_slices: The number of slices.
+    run_name: The name of the run.
+    data_parallelism: Number of identical pipelines in job, should be
+      equal to ICI data parallelism * DCN data parallelism. If not provided, it
+      will be inferred from the number of slices.
+    jax_initialization_timeout_seconds: The timeout for JAX initialization.
+    use_mtc_process_ids: Use the MTC rank server to calculate process ids.
+  """
+  if use_mtc_process_ids:
+    process_id = _initialize_jax_from_mtc(
+        local_checkpoint_directory, jax_initialization_timeout_seconds
+    )
+  else:
+    process_id = None
+    jax.distributed.initialize(
+        initialization_timeout=jax_initialization_timeout_seconds,
+    )
+
   multihost.initialize_runtime_to_distributed_ids()
   multihost.initialize_distributed_to_device_ids()
   _wait_for_replicator_file_to_disappear(local_checkpoint_directory)
@@ -127,14 +147,24 @@ def initialize_multi_tier_checkpointing(
   process_index_to_node_rank = (
       multihost.runtime_to_distributed_ids()
   )
-  logging.info(
-      'Mapping of IDs: jax-init-info.txt=%s, NodeRank=%s, ProcessIndex=%s,'
-      ' ProcessIndex->NodeRank=%s',
-      process_id,
-      node_rank,
-      my_process_index,
-      process_index_to_node_rank,
-  )
+  if use_mtc_process_ids:
+    logging.info(
+        'Mapping of IDs: jax-init-info.txt=%s, NodeRank=%s, ProcessIndex=%s,'
+        ' ProcessIndex->NodeRank=%s',
+        process_id,
+        node_rank,
+        my_process_index,
+        process_index_to_node_rank,
+    )
+  else:
+    logging.info(
+        'Mapping of IDs (jax-init-info not used): NodeRank=%s, ProcessIndex=%s,'
+        ' ProcessIndex->NodeRank=%s',
+        node_rank,
+        my_process_index,
+        process_index_to_node_rank,
+    )
+
   my_in_pipeline_index = my_process_index % nodes_per_slice
   peer_ranks = []
   for i in range(num_slices):
