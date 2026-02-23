@@ -40,8 +40,8 @@ def setup_test_directory(
     path = path / f"repeat_{repeat_index}"
   logging.info("Setting up test directory at: %s", path)
   if jax.process_index() == 0:
-    if path.exists():
+    if path.exists() and not base_path.startswith("gs://"):
       logging.warning("Test directory %s already exists. Deleting it.", path)
       path.rmtree()
-    path.mkdir(parents=True, exist_ok=False)
+    path.mkdir(parents=True, exist_ok=True)
   return path
