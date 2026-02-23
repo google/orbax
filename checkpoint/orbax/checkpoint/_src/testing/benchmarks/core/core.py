@@ -401,8 +401,12 @@ class TestSuite:
     self._num_repeats = num_repeats
     self._output_dir = output_dir
     self._local_directory = local_directory
+    tensorboard_dir = None
+    if output_dir:
+      tensorboard_dir = epath.Path(output_dir) / "tensorboard"
+
     self._suite_metrics = metric_lib.MetricsManager(
-        name=name, num_repeats=num_repeats
+        name=name, num_repeats=num_repeats, tensorboard_dir=tensorboard_dir
     )
 
   def run(self) -> Sequence[TestResult]:
@@ -452,11 +456,6 @@ class TestSuite:
     if not all_results:
       logging.warning("No benchmarks were run for this suite.")
 
-    if self._output_dir is not None:
-      self._suite_metrics.export_to_tensorboard(
-          epath.Path(self._output_dir) / "tensorboard"
-      )
-
-    logging.info(self._suite_metrics.generate_report())
+    self._suite_metrics.generate_report()
     multihost.sync_global_processes("test_suite:run_end")
     return all_results

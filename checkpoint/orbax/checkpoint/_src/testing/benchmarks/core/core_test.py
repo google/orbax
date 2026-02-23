@@ -354,7 +354,11 @@ class TestSuiteTest(parameterized.TestCase):
     core.TestSuite(
         name='my_suite', benchmarks_generators=[gen], output_dir=output_dir
     )
-    mock_metrics_manager.assert_called_once_with(name='my_suite', num_repeats=1)
+    mock_metrics_manager.assert_called_once_with(
+        name='my_suite',
+        num_repeats=1,
+        tensorboard_dir=epath.Path(output_dir) / 'tensorboard',
+    )
 
   @mock.patch.object(core.Benchmark, 'run')
   def test_run(self, mock_benchmark_run):
