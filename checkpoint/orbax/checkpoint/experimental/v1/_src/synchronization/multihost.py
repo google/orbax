@@ -28,6 +28,15 @@ _DEFAULT_BARRIER_TIMEOUT = 300
 
 
 
+def is_pathways_backend() -> bool:
+  # Pathways is single-host.
+  return (
+      hasattr(jax.devices()[0].client, 'pathways')
+      or jax.devices()[0].client.runtime_type == 'pathways'
+      or jax.devices()[0].client.runtime_type == 'proxy/pathways'
+  )
+
+
 def coordination_timeout() -> int:
   """Returns the coordination timeout in seconds."""
   return _DEFAULT_BARRIER_TIMEOUT
