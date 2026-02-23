@@ -15,6 +15,7 @@
 """AsyncCheckpointHandler interface."""
 
 import abc
+import asyncio
 from typing import List, Optional
 
 from etils import epath
@@ -23,7 +24,12 @@ from orbax.checkpoint._src.handlers import checkpoint_handler
 
 
 class AsyncCheckpointHandler(checkpoint_handler.CheckpointHandler):
-  """An interface providing async methods that can be used with CheckpointHandler."""
+  """An interface providing async methods that can be used with CheckpointHandler.
+
+  This is the legacy interface that expects resolved paths. For handlers that
+  support async directory creation via futures, use
+  FutureAwareAsyncCheckpointHandler.
+  """
 
   @abc.abstractmethod
   async def async_save(
@@ -42,5 +48,41 @@ class AsyncCheckpointHandler(checkpoint_handler.CheckpointHandler):
       directory: the directory to save to.
       *args: additional arguments for save.
       **kwargs: additional arguments for save.
+    """
+    pass
+
+
+class FutureAwareAsyncCheckpointHandler(AsyncCheckpointHandler):
+  """Extended interface supporting async directory creation via futures.
+
+  This interface allows handlers to accept Future[epath.Path] as the directory
+  parameter, enabling directory creation to overlap with pre-serialization work.
+  This is particularly beneficial for storage systems like TFHub where directory
+  allocation can take several seconds.
+  """
+
+  @abc.abstractmethod
+  async def async_save(  # pytype: disable=signature-mismatch
+      self, directory: 'asyncio.Future[epath.Path]', *args, **kwargs
+  ) -> Optional[List[future.Future]]:
+    """Constructs a save operation with support for future directories.
+
+    Synchronously awaits a copy of the item, before returning commit futures
+    necessary to save the item.
+
+    Implementations should delay awaiting the directory future until the
+    resolved
+    path is actually needed, allowing async directory creation to overlap with
+    pre-serialization work (e.g., batching param infos, preparing save args).
+
+    Args:
+      directory: An asyncio.Future that resolves to the directory path to save
+        to. This enables async directory creation to overlap with
+        pre-serialization work.
+      *args: additional arguments for save.
+      **kwargs: additional arguments for save.
+
+    Returns:
+      Optional list of commit futures for background operations.
     """
     pass

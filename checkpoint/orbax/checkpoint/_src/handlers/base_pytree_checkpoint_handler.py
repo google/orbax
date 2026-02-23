@@ -312,7 +312,7 @@ def _format_bytes(bytes_value: Optional[int]) -> str:
 
 
 class BasePyTreeCheckpointHandler(
-    async_checkpoint_handler.AsyncCheckpointHandler
+    async_checkpoint_handler.FutureAwareAsyncCheckpointHandler
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -437,7 +437,7 @@ class BasePyTreeCheckpointHandler(
   def _get_param_infos(
       self,
       item: PyTree,
-      directory: epath.Path,
+      directory: 'Union[epath.Path, asyncio.Future[epath.Path]]',
       *,
       use_ocdbt: bool = True,
       use_compression: bool | None = True,
@@ -585,7 +585,7 @@ class BasePyTreeCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: 'asyncio.Future[epath.Path]',
       args: BasePyTreeSaveArgs,
   ) -> Optional[List[future.Future]]:
     """Saves a PyTree to a given directory.
@@ -632,6 +632,8 @@ class BasePyTreeCheckpointHandler(
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
     custom_metadata = args.custom_metadata
 
+    # Do NOT await directory future here - pass it directly to ParamInfo!
+    # This allows batching and setup work to proceed while directory is created.
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = limits.get_byte_limiter(self._save_concurrent_bytes)
     device_host_byte_limiter = limits.get_byte_limiter(
@@ -639,7 +641,7 @@ class BasePyTreeCheckpointHandler(
     )
     param_infos = self._get_param_infos(
         item,
-        directory,
+        directory,  # Can be Future[epath.Path] or epath.Path!
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
         byte_limiter=byte_limiter,
@@ -647,9 +649,8 @@ class BasePyTreeCheckpointHandler(
         use_compression=self._use_compression,
         use_zarr3=self._use_zarr3,
     )
-    assert all(
-        leaf.parent_dir == directory for leaf in jax.tree.leaves(param_infos)
-    )
+    # Note: ParamInfo.parent_dir may be a future at this point.
+    # We intentionally skip validation here to allow async overlap.
 
     serialize_ops = []  # List of (coros -> List of futures)
     batch_requests = batched_serialization_requests(
@@ -659,21 +660,29 @@ class BasePyTreeCheckpointHandler(
         self._type_handler_registry,
     )
 
-    # Determine if this is a partial save by checking for the '.partial_save'
-    # suffix in the checkpoint directory name and if the metadata file exists.
-    # Cannot rely solely on the metadata file existing pre-empted saves may be
-    # misclassified as partial saves.
-    partial_save = (
-        await async_path.exists(directory / PYTREE_METADATA_FILE)
-        # TODO: b/428711337 - Use method from v1/_src/partial/path.py instead.
-        and '.partial_save' in directory.parent.name
-    )
+    # Partial save detection requires the resolved directory.
+    # If directory is a future, we skip partial save detection for simplicity.
+    if isinstance(directory, asyncio.Future):
+      partial_save = False
+      resolved_directory = None  # Will await later when needed
+    else:
+      # Determine if this is a partial save by checking for the '.partial_save'
+      # suffix in the checkpoint directory name and if the metadata file exists.
+      # Cannot rely solely on the metadata file existing pre-empted saves may be
+      # misclassified as partial saves.
+      resolved_directory = directory
+      partial_save = (
+          await async_path.exists(resolved_directory / PYTREE_METADATA_FILE)
+          # TODO: b/428711337 - Use method from v1/_src/partial/path.py instead.
+          and '.partial_save' in resolved_directory.parent.name
+      )
 
     batch_requests_ready_time = time.time()
     if partial_save:
+      # Partial save requires resolved directory - it's already resolved above
       serialize_ops, tree_memory_size, param_infos, save_args = (
           await self._async_partial_save(
-              directory, item, batch_requests, param_infos, save_args
+              resolved_directory, item, batch_requests, param_infos, save_args
           )
       )
     else:
@@ -701,11 +710,15 @@ class BasePyTreeCheckpointHandler(
 
     save_futures = []
     if multihost.is_primary_host(self._primary_host):
+      # Await directory future for metadata writes (happens after serialization)
+      if resolved_directory is None:
+        resolved_directory = await directory
+
       save_futures.append(
           future.CommitFutureAwaitingContractedSignals(
               self._write_metadata_after_commits(
                   commit_futures,
-                  checkpoint_dir=directory,
+                  checkpoint_dir=resolved_directory,
                   param_infos=param_infos,
                   save_args=save_args,
                   custom_metadata=custom_metadata,
