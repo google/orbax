@@ -3,15 +3,12 @@ name: build
 on:
   # continuous
   schedule:
-    # Run every hour
-    - cron: "0 * * * *"
+    # Run every 4 hour
+    - cron: "0 */4 * * *"
   push:
     branches:
       - main
       - 'test_*'
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
