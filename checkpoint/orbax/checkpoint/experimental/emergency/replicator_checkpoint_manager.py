@@ -31,6 +31,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
@@ -59,6 +60,7 @@ _DATASET_ITEM_NAME = 'dataset'
 
 def _local_checkpoint_handler(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+    use_colocated_python: bool = False,
 ) -> Tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
   """Create a PyTreeCheckpointHandler for local checkpoints."""
   if multiprocessing_options.primary_host is not None:
@@ -66,11 +68,17 @@ def _local_checkpoint_handler(
         'multiprocessing_options.primary_host must be set to None for local'
         ' checkpoints.'
     )
+
   local_registry = type_handler_registry.create_type_handler_registry(
       (
           jax.Array,
           type_handlers.ArrayHandler(
-              primary_host=None, replica_id=None, use_replica_parallel=False
+              primary_host=None,
+              replica_id=None,
+              use_replica_parallel=False,
+              dispatcher=dispatchers.ColocatedPythonDispatcher()
+              if use_colocated_python
+              else None,
           ),
       ),
   )
@@ -80,7 +88,10 @@ def _local_checkpoint_handler(
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=local_registry,
   )
-  metadata_handler = ProcessMetadataCheckpointHandler()
+
+  metadata_handler = ProcessMetadataCheckpointHandler(
+      use_colocated_python=use_colocated_python
+  )
   return pytree_handler, metadata_handler
 
 
@@ -90,6 +101,7 @@ class ReplicatorCheckpointManagerOptions:
   step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None
   should_save_fn: Callable[[int, int | None], bool] | None = None
   preservation_policy: preservation_policy_lib.PreservationPolicy | None = None
+  use_colocated_python: bool = False
 
 
 def _get_checkpoint_manager_options(
@@ -179,7 +191,8 @@ class ReplicatorCheckpointManager(
         step_name_format=self._step_name_format,
     )
     [state_handler, process_metadata_handler] = _local_checkpoint_handler(
-        multiprocessing_options
+        multiprocessing_options,
+        use_colocated_python=self._options.use_colocated_python,
     )
     replicator_options = _get_checkpoint_manager_options(
         options, multiprocessing_options
@@ -345,9 +358,20 @@ class ReplicatorCheckpointManager(
       previous_device_ids: List[int],
       args: args_lib.Composite,
   ) -> tuple[args_lib.Composite, args_lib.Composite]:
+
+    # Bypass multihost if using colocated Python (Single-Controller)
+    if getattr(self._options, 'use_colocated_python', False):
+      devices = jax.devices()
+      current_distributed_to_device_ids = [
+          sorted(d.id for d in devices if d.process_index == pid)
+          for pid in range(jax.process_count())
+      ]
+    else:
+      current_distributed_to_device_ids = multihost.distributed_to_device_ids()
+
     restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
         self._global_mesh,
-        multihost.distributed_to_device_ids(),
+        current_distributed_to_device_ids,
         previous_distributed_to_device_ids=previous_distributed_to_device_ids,
         previous_device_ids=previous_device_ids,
     )

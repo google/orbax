@@ -335,9 +335,11 @@ class ColocatedPythonDispatcher(Dispatcher):
         input_arrays, abstract=True
     )
     cpu_result_specs = self._transform_pytree_shardings(result_specs)
-    _cp_wrapper.specialize(out_specs_fn=lambda _: cpu_result_specs)
+    specialized_wrapper = _cp_wrapper.specialize(
+        out_specs_fn=lambda _: cpu_result_specs
+    )
 
-    result = _cp_wrapper(self.to_colocated_python(input_arrays))
+    result = specialized_wrapper(self.to_colocated_python(input_arrays))
     return self._to_final_specs(result, result_specs)
 
 
