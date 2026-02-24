@@ -406,6 +406,7 @@ class LeafHandlerRegistry(Protocol):
       abstract_type: Type[AbstractLeaf],
       handler_type: Type[LeafHandler[Leaf, AbstractLeaf]],
       override: bool = False,
+      recognized_typestrs: Sequence[str] | None = None,
   ):
     """Registers the handler_type for a leaf_type and abstract_type pair.
 
@@ -420,6 +421,8 @@ class LeafHandlerRegistry(Protocol):
       abstract_type: The abstract type to register the handler for.
       handler_type: The handler to register.
       override: Whether to override the handler if it already exists.
+      recognized_typestrs: A sequence of alternate typestrs that are recognized
+        and mapped to this handler.
     """
     ...
 
@@ -429,4 +432,18 @@ class LeafHandlerRegistry(Protocol):
 
   def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
     """Returns True if the abstract_type is handlable by any registered handler."""
+    ...
+
+  def get_recognized_handler_typestrs(
+      self, handler_type: Type[LeafHandler[Any, Any]]
+  ) -> Sequence[str]:
+    """Returns the recognized handler typestrs for a given handler_type.
+
+    Args:
+      handler_type: The handler to get the recognized typestrs for.
+
+    Returns:
+      The recognized typestrs for the handler_type, empty sequence if none
+      registered.
+    """
     ...
