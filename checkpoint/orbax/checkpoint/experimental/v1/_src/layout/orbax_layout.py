@@ -20,6 +20,7 @@ from typing import Any, Awaitable
 
 from absl import logging
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import temporary_paths
@@ -27,7 +28,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.loading import v0_compatibility
+from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -41,6 +42,9 @@ class CheckpointVersion(enum.Enum):
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = path_types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
+InternalCheckpointMetadata = (
+    step_metadata_serialization.InternalCheckpointMetadata
+)
 
 PYTREE_METADATA_FILE = "_METADATA"
 ORBAX_CHECKPOINT_INDICATOR_FILE = "orbax.checkpoint"
@@ -149,6 +153,19 @@ async def _create_orbax_identifier_file(
     )
 
 
+async def _read_checkpoint_metadata(
+    directory: path_types.Path,
+) -> InternalCheckpointMetadata:
+  """Returns the step metadata for a given path."""
+  serialized_metadata = (
+      await metadata_serialization.read(
+          metadata_serialization.checkpoint_metadata_file_path(directory)
+      )
+      or {}
+  )
+  return InternalCheckpointMetadata.deserialize(serialized_metadata)
+
+
 class OrbaxLayout(CheckpointLayout):
   """OrbaxLayout.
 
@@ -172,13 +189,37 @@ class OrbaxLayout(CheckpointLayout):
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata describing the Orbax checkpoint."""
-    # Uses the v0 checkpointer to get v0 StepMetadata
-    checkpointer, _ = v0_compatibility.get_v0_checkpointer_and_args(
-        path, None, context=context_lib.get_context()
+    checkpoint_metadata = await _read_checkpoint_metadata(
+        path
     )
-    step_metadata = checkpointer.metadata(path)
+    handlers_for_load = await handler_resolution.get_handlers_for_load(
+        path, self._handler_registry, {}, checkpoint_metadata
+    )
+    existing_checkpointable_names = await _existing_checkpointable_names(path)
+    abstract_checkpointables = {
+        name: None
+        for name in handlers_for_load.keys()
+        if name in existing_checkpointable_names
+    }
+    if any(
+        name not in existing_checkpointable_names
+        for name in abstract_checkpointables.keys()
+    ):
+      raise KeyError(
+          "Inferred checkpointables from metadata:"
+          f" {abstract_checkpointables.keys()} for loading were not found in"
+          " the checkpoint. Available checkpointables:"
+          f" {existing_checkpointable_names}"
+      )
 
-    item_metadata = {k: v for k, v in step_metadata.item_metadata.items()}
+    # Default to none for all existing checkpointable names, for
+    # subdirectories that we are unable to find a handler for and load.
+    item_metadata = {name: None for name in existing_checkpointable_names}
+    for checkpointable_name in abstract_checkpointables.keys():
+      handler = handlers_for_load[checkpointable_name]
+      item_metadata[checkpointable_name] = await handler.metadata(
+          path / checkpointable_name
+      )
     # Exclude `metrics` if present. This is relevant only for
     # `training.Checkpointer`, and is separately added to the
     # `training.CheckpointMetadata` object.
@@ -186,9 +227,9 @@ class OrbaxLayout(CheckpointLayout):
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
         metadata=item_metadata,
-        init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
-        commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
-        custom_metadata=step_metadata.custom_metadata,
+        init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
+        custom_metadata=checkpoint_metadata.custom_metadata,
     )
 
   async def _validate_pytree(self, path: Path, checkpointable_name: str | None):
@@ -356,8 +397,14 @@ class OrbaxLayout(CheckpointLayout):
       the checkpoint.
     """
     abstract_checkpointables = abstract_checkpointables or {}
+    checkpoint_metadata = await _read_checkpoint_metadata(
+        path
+    )
     handlers_for_load = await handler_resolution.get_handlers_for_load(
-        path, self._handler_registry, abstract_checkpointables
+        path,
+        self._handler_registry,
+        abstract_checkpointables,
+        checkpoint_metadata,
     )
     existing_checkpointable_names = await _existing_checkpointable_names(path)
     if not abstract_checkpointables:
