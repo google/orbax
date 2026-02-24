@@ -15,7 +15,6 @@
 """Define types for :py:class:`.LeafHandler`."""
 
 import dataclasses
-import typing
 from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
 
 import jax
@@ -96,19 +95,52 @@ def is_placeholder(value: Any) -> bool:
   return value is PLACEHOLDER
 
 
-@typing.final
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass
 class SerializationParam(Generic[Leaf]):
+  """Represents a specific leaf-level parameter within a PyTree.
+
+  SerializationParam represents a single PyTree leaf by pairing its value
+  (data or metadata) with its keypath (the location within the original nested
+  structure). It serves as a container for the parameters passed to
+  `LeafHandler`, which enables the implementation of serialization support for
+  custom leaf objects.
+
+  Example Usage:
+    SerializationParam is used when implementing custom LeafHandlers::
+
+      class MyCustomHandler(LeafHandler):
+        async def serialize(
+            self,
+            params: Sequence[SerializationParam],
+            context: SerializationContext
+        ):
+          for param in params:
+            # param.value contains the object to be serialized.
+            data = param.value
+
+            # Derive the name from the keypath.
+            leaf_name = "/".join(str(k) for k in param.keypath)
+
+            # Using the context to determine the save location
+            print(f"Saving {leaf_name} to {context.parent_dir}")
+
+  Attributes:
+    keypath (Tuple[Any, ...]): A tuple of keys (often JAX Key objects) that
+      defines the path from the root of the PyTree to this specific leaf.
+    value (Any): The data associated with the leaf. This could be a jax.Array,
+      a numpy.ndarray, or a metadata object depending on the stage of
+      the checkpointing process.
+  """
   keypath: tree_types.PyTreeKeyPath
   value: Leaf
 
   @property
   def name(self) -> str:
+    """The name of the parameter derived from its keypath."""
     return tree_utils.param_name_from_keypath(self.keypath)
 
 
-@typing.final
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass
 class SerializationContext:
   """A container for the execution context passed to :py:class:`LeafHandler`.
 
@@ -147,19 +179,53 @@ class SerializationContext:
   byte_limiter: limits.LimitInFlightBytes | None = None
 
 
-@typing.final
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass
 class DeserializationParam(Generic[AbstractLeaf]):
+  """Represents a leaf-level entry for PyTree restoration.
+
+  DeserializationParam represents a single PyTree leaf during the restoration
+  process by pairing its keypath (the location within the target structure)
+  with an optional template value. It serves as a container for the parameters
+  passed to `LeafHandler`, which enables the implementation of deserialization
+  support for custom leaf objects.
+
+  Example Usage:
+    DeserializationParam is utilized when implementing custom LeafHandlers::
+
+      class MyCustomHandler(LeafHandler):
+        async def deserialize(
+            self,
+            params: Sequence[DeserializationParam],
+            context: DeserializationContext
+        ):
+          results = []
+          for param in params:
+            leaf_name = "/".join(str(k) for k in param.keypath)
+
+            # The param argument provides the template metadata.
+            if param.value is not None:
+              print(f"Restoring {leaf_name} with shape: {param.value.shape}")
+
+            # results.append(restored_object)
+          return results
+
+  Attributes:
+    keypath (Tuple[Any, ...]): A tuple of keys defining the path from the
+      PyTree root to this specific leaf.
+    value (Optional[Any]): An optional template object (such as a
+      jax.ShapeDtypeStruct or an existing array) that provides the
+      metadata necessary to correctly instantiate the restored leaf.
+  """
   keypath: tree_types.PyTreeKeyPath
   value: AbstractLeaf | Type[AbstractLeaf] | None = None
 
   @property
   def name(self) -> str:
+    """The name of the parameter derived from its keypath."""
     return tree_utils.param_name_from_keypath(self.keypath)
 
 
-@typing.final
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass
 class DeserializationContext:
   """A container for the execution context passed to :py:class:`LeafHandler`.
 
