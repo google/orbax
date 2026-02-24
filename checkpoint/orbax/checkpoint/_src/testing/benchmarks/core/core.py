@@ -25,6 +25,7 @@ from typing import Any, Callable
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
@@ -171,6 +172,7 @@ class Benchmark(abc.ABC):
       )
     else:
       data = checkpoint_generation.load_checkpoint(self.checkpoint_config)
+    logging.info("data: %s", test_utils.pretty_format_pytree(data))
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_pytree"
