@@ -15,7 +15,6 @@
 """Logic for resolving handlers for saving and loading."""
 from __future__ import annotations
 
-import itertools
 from typing import Any
 
 from absl import logging
@@ -23,27 +22,9 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
-from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 InternalCheckpointMetadata = (
     step_metadata_serialization.InternalCheckpointMetadata
-)
-
-
-def _subdirs(directory: path_types.Path, *, limit: int = 3) -> list[str]:
-  return list(
-      itertools.islice(
-          (subdir.name for subdir in directory.iterdir() if subdir.is_dir()),
-          limit,
-      )
-  )
-
-
-_V0_ERROR_MESSAGE = (
-    'If your checkpoint was saved with the Orbax V0 API, please follow the'
-    ' instructions at'
-    ' https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/orbax_v0_to_v1_migration.html'
-    ' to load it with the Orbax V1 API.'
 )
 
 
@@ -60,60 +41,172 @@ def get_handlers_for_save(
   }
 
 
+def _resolve_single_handler_for_load(
+    checkpointable_name: str,
+    handler_registry: registration.CheckpointableHandlerRegistry,
+    abstract_checkpointable: Any,
+    metadata_handler_typestr: str | None,
+) -> handler_types.CheckpointableHandler:
+  """Logic to resolve a checkpointable's loading handler.
+
+  1. registration.resolve_handler_for_load performs handler discovery based on
+  abstract_checkpointable type and handler_typestr.
+  2. If this fails or if abstract_checkpointable and handler_typestr are not
+  available, we try to resolve using the default pytree handler if registered.
+
+  Args:
+    checkpointable_name: The checkpointable name to resolve the handler for.
+    handler_registry: The handler registry to use for resolution.
+    abstract_checkpointable: The abstract checkpointable to load.
+    metadata_handler_typestr: The handler typestr from the checkpoint metadata.
+
+  Returns:
+    The handler for the checkpointable.
+
+  Raises:
+    registration.NoEntryError: If no handler is resolved and 'pytree' name is
+    not registered.
+  """
+  # 1. Resolve the handler using handler_typestr and
+  # abstract_checkpointable type if either is specified.
+  if abstract_checkpointable or metadata_handler_typestr:
+    try:
+      return registration.resolve_handler_for_load(
+          handler_registry,
+          abstract_checkpointable,
+          name=checkpointable_name,
+          handler_typestr=metadata_handler_typestr,
+      )
+    except registration.NoEntryError as e:
+      logging.warning(
+          "Failed to resolve handler for checkpointable: '%s'. Attempting to"
+          " load using pytree handler, otherwise defaulting to a None"
+          " return value. Error: %s",
+          checkpointable_name,
+          e,
+      )
+  else:
+    logging.info(
+        "No metadata present in checkpoint and no abstract checkpointable"
+        " provided for checkpointable: '%s'. Attempting to load using"
+        " pytree handler, otherwise defaulting to a None return value.",
+        checkpointable_name,
+    )
+
+  # 2. If no handler is resolved yet, try to resolve using the default
+  # pytree handler.
+  pytree_handler = registration.get_registered_handler_by_name(
+      handler_registry, "pytree"
+  )
+  if not pytree_handler:
+    raise registration.NoEntryError(
+        f"Could not resolve a handler for '{checkpointable_name}' and no"
+        f"'pytree' handler found in {handler_registry}).\n"
+        "Please inspect the checkpoint contents via"
+        " `loading.checkpointables_metadata`. You may need to provide an"
+        " abstract_checkpointable or register a missing handler for this name"
+        " or for 'pytree' name which is used as a fallback."
+    )
+  return pytree_handler
+
+
 async def get_handlers_for_load(
-    directory: path_types.Path,
     handler_registry: registration.CheckpointableHandlerRegistry,
     abstract_checkpointables: dict[str, Any],
     checkpoint_metadata: InternalCheckpointMetadata,
 ) -> dict[str, handler_types.CheckpointableHandler]:
-  """Returns a mapping from checkpointable name to handler."""
-  existing_checkpointable_names_to_handler_typestrs = (
-      await _get_saved_handler_typestrs(directory, checkpoint_metadata)
-  )
-  abstract_checkpointables = abstract_checkpointables or {
-      name: None for name in existing_checkpointable_names_to_handler_typestrs
-  }
+  """Returns a mapping from checkpointable name to handler.
 
-  loadable_checkpointable_names_to_handlers = {}
-  for name, abstract_checkpointable in abstract_checkpointables.items():
-    if name not in existing_checkpointable_names_to_handler_typestrs:
-      raise KeyError(
-          f'Checkpointable "{name}" was not found in the checkpoint.'
-          ' Available names:'
-          f' {existing_checkpointable_names_to_handler_typestrs.keys()}'
-      )
-    handler_typestr = existing_checkpointable_names_to_handler_typestrs[name]
-    handler = registration.resolve_handler_for_load(
+  Gathers and returns a mapping from checkpointable name to handler by
+  checking the following in order:
+
+  1. Check for handler_typestr in checkpoint metadata item_handlers using
+  checkpointable_name as key.
+  2. Find the handler for each checkpointable using
+  _resolve_single_handler_for_load.
+  3. If no handler is resolved for a checkpointable, raise a NoEntryError.
+
+  Args:
+    handler_registry: The handler registry to use for resolution.
+    abstract_checkpointables: The abstract checkpointables to load.
+    checkpoint_metadata: InternalCheckpointMetadata to read handler_typestr(s)
+      from.
+
+  Returns:
+    A mapping from checkpointable name to handler.
+
+  Raises:
+    registration.NoEntryError: If no handler is resolved.
+  """
+  handlers_for_load: dict[str, handler_types.CheckpointableHandler] = {}
+  for (
+      checkpointable_name,
+      abstract_checkpointable,
+  ) in abstract_checkpointables.items():
+    metadata_handler_typestr = _get_saved_handler_typestr(
+        checkpointable_name, checkpoint_metadata
+    )
+    handlers_for_load[checkpointable_name] = _resolve_single_handler_for_load(
+        checkpointable_name,
         handler_registry,
         abstract_checkpointable,
-        name=name,
-        handler_typestr=handler_typestr,
+        metadata_handler_typestr,
     )
-    loadable_checkpointable_names_to_handlers[name] = handler
-  return loadable_checkpointable_names_to_handlers
+  return handlers_for_load
 
 
-async def _get_saved_handler_typestrs(
-    directory: path_types.Path,
+async def get_handler_for_load_direct_pytree(
+    checkpointable_name: str,
+    handler_registry: registration.CheckpointableHandlerRegistry,
+    abstract_checkpointable: Any,
     checkpoint_metadata: InternalCheckpointMetadata,
-) -> dict[str, str]:
-  """Reads from the checkpoint metadata to get saved handler typestrs."""
-  if checkpoint_metadata.item_handlers:
-    if isinstance(checkpoint_metadata.item_handlers, dict):
-      return checkpoint_metadata.item_handlers  # found step level metadata.
-    raise ValueError(
-        f'Path at {directory} contains subdirectories:'
-        f' {_subdirs(directory)}, which are expected to'
-        ' match the keys given by the _CHECKPOINT_METADATA file:'
-        f' {checkpoint_metadata.item_handlers}. If you intended to load a'
-        ' pytree checkpoint from the given path, then please consider using'
-        ' `loading.load_pytree(..., checkpointable_name=None)` instead.'
-        f' {_V0_ERROR_MESSAGE}'
-    )
+) -> handler_types.CheckpointableHandler:
+  """Returns a handler for direct load of a pytree checkpoint.
 
-  logging.warning(
-      'Given dir does not contain checkpoint metadata file: %s. No handler'
-      ' typestrs found.',
-      directory,
+  1. Check for checkpointable_name in checkpoint metadata item_handlers.
+  2. resolve_handler_for_load performs handler discovery based on
+  abstract_checkpointable type and handler_typestr.
+  2. Find the handler for each checkpointable using
+  _resolve_single_handler_for_load.
+  3. If no handler is resolved for a checkpointable, raise a NoEntryError.
+
+  Args:
+    checkpointable_name: The checkpointable name to resolve the handler for.
+    handler_registry: The handler registry to use for resolution.
+    abstract_checkpointable: The abstract checkpointable to load.
+    checkpoint_metadata: InternalCheckpointMetadata to read handler_typestr
+      from.
+
+  Returns:
+    The handler for direct load of a pytree checkpoint.
+  """
+  metadata_handler_typestr = _get_saved_handler_typestr_direct_pytree(
+      checkpoint_metadata
   )
-  return {}
+  return _resolve_single_handler_for_load(
+      checkpointable_name,
+      handler_registry,
+      abstract_checkpointable,
+      metadata_handler_typestr,
+  )
+
+
+def _get_saved_handler_typestr(
+    checkpointable_name: str,
+    checkpoint_metadata: InternalCheckpointMetadata,
+) -> str | None:
+  """Reads from the checkpoint metadata to get saved handler typestrs."""
+  if isinstance(checkpoint_metadata.item_handlers, dict) and (
+      checkpointable_name in checkpoint_metadata.item_handlers
+  ):
+    return checkpoint_metadata.item_handlers[checkpointable_name]
+  return None
+
+
+def _get_saved_handler_typestr_direct_pytree(
+    checkpoint_metadata: InternalCheckpointMetadata,
+) -> str | None:
+  """Reads from the checkpoint metadata to get saved handler typestrs."""
+  if isinstance(checkpoint_metadata.item_handlers, str):
+    return checkpoint_metadata.item_handlers
+  return None
