@@ -89,8 +89,6 @@ class CheckpointConfig:
   sharding_config_path: str | None = None
 
   def __post_init__(self):
-    if self.path is None and self.spec is None:
-      raise ValueError('Either path or spec must be provided.')
     if self.path is not None and self.spec is not None:
       raise ValueError('Only one of path or spec can be provided.')
     if self.sharding_config_path is not None and self.path is None:

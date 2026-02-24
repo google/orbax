@@ -127,34 +127,28 @@ def _partition_axis_name(offset: int) -> str:
 
 
 
-def _get_abstract_state(
-    config: configs.CheckpointConfig,
+def get_abstract_state_with_generated_shardings(pytree_metadata: Any) -> Any:
+  abstract_state = jax.tree.map(
+      abstract_arrays.to_shape_dtype_struct, pytree_metadata
+  )
+  shardings = sharding_utils.construct_maximal_shardings(abstract_state)
+  return jax.tree.map(
+      lambda sds, sharding: jax.ShapeDtypeStruct(
+          sds.shape, sds.dtype, sharding=sharding
+      ),
+      abstract_state,
+      shardings,
+  )
+
+
+def get_abstract_state_from_sharding_config(
+    sharding_config_path: epath.Path,
+    metadata: Any,
     *,
-    use_ocdbt: bool,
-    devices: list[jax.Device] | None = None,
+    devices: list[jax.Device],
 ) -> Any:
-  """Loads sharding configuration from a JSON file."""
-  path = epath.Path(config.path)
-  devices = devices or jax.devices()
-  with checkpointer.Checkpointer(
-      pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)
-  ) as ckptr:
-    metadata = ckptr.metadata(path).item_metadata
-
-  if config.sharding_config_path is None:
-    abstract_state = jax.tree.map(
-        abstract_arrays.to_shape_dtype_struct, metadata.tree
-    )
-    shardings = sharding_utils.construct_maximal_shardings(abstract_state)
-    return jax.tree.map(
-        lambda sds, sharding: jax.ShapeDtypeStruct(
-            sds.shape, sds.dtype, sharding=sharding
-        ),
-        abstract_state,
-        shardings,
-    )
-
-  path = epath.Path(config.sharding_config_path)
+  """Loads abstract state from a JSON file."""
+  path = epath.Path(sharding_config_path)
   parsed_config = json.loads(path.read_text())
   flat_abstract_state = {}
   for k, v in parsed_config.items():
@@ -169,9 +163,28 @@ def _get_abstract_state(
             spec=jax.sharding.PartitionSpec(*v['sharding']['spec']),
         ),
     )
-    return tree_utils.from_flat_dict(
-        flat_abstract_state, metadata.tree, sep='.'
-    )
+  return tree_utils.from_flat_dict(flat_abstract_state, metadata, sep='.')
+
+
+def _get_abstract_state(
+    config: configs.CheckpointConfig,
+    *,
+    use_ocdbt: bool,
+    devices: list[jax.Device] | None = None,
+) -> Any:
+  """Creates abstract state for a provided CheckpointConfig."""
+  path = epath.Path(config.path)
+  devices = devices or jax.devices()
+  with checkpointer.Checkpointer(
+      pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)
+  ) as ckptr:
+    metadata = ckptr.metadata(path).item_metadata
+
+  if config.sharding_config_path is None:
+    return get_abstract_state_with_generated_shardings(metadata.tree)
+  return get_abstract_state_from_sharding_config(
+      epath.Path(config.sharding_config_path), metadata, devices=devices
+  )
 
 
 def load_checkpoint(config: configs.CheckpointConfig) -> Any:

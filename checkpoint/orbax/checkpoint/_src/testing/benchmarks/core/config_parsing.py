@@ -84,12 +84,6 @@ def _validate_config(config: Dict[str, Any]) -> None:
     if key not in config:
       raise ValueError(f'Missing required key in YAML config: {key}')
 
-  if 'checkpoint_config' not in config and 'checkpoint_configs' not in config:
-    raise ValueError(
-        'Missing required key in YAML config: checkpoint_config or'
-        ' checkpoint_configs'
-    )
-
   if not isinstance(config['benchmarks'], list):
     raise ValueError("'benchmarks' must be a list.")
 
@@ -137,10 +131,12 @@ def create_test_suite_from_config(
     checkpoint_configs = [
         config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
     ]
-  else:
+  elif 'checkpoint_config' in config:
     checkpoint_configs = [
         config_lib.CheckpointConfig(**config['checkpoint_config'])
     ]
+  else:
+    checkpoint_configs = [config_lib.CheckpointConfig()]
 
   if 'mesh_configs' in config:
     mesh_configs = [

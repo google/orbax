@@ -73,7 +73,7 @@ class TestContext:
   """Input object passed to each test function, providing pre-configured components for the test run.
 
   Attributes:
-    pytree: The generated or loaded checkpoint data.
+    pytree: The generated or loaded checkpoint data. May be None.
     path: The test directory path.
     options: The specific BenchmarkOptions for this test variant.
     mesh: The mesh used for sharding the checkpoint data.
@@ -82,7 +82,7 @@ class TestContext:
     local_path: The local path to store the checkpoint data.
   """
 
-  pytree: Any
+  pytree: Any | None
   path: epath.Path
   options: BenchmarkOptions  # The specific options for this test variant.
   mesh: jax.sharding.Mesh | None = None
@@ -165,12 +165,14 @@ class Benchmark(abc.ABC):
     ):
       multihost.sync_global_processes("benchmark:setup_test_directory")
 
-    if self.checkpoint_config.path is None:
-      data = checkpoint_generation.generate_checkpoint(
+    if self.checkpoint_config.path is not None:
+      pytree = checkpoint_generation.load_checkpoint(self.checkpoint_config)
+    elif self.checkpoint_config.spec is not None:
+      pytree = checkpoint_generation.generate_checkpoint(
           self.checkpoint_config, mesh=self.mesh
       )
     else:
-      data = checkpoint_generation.load_checkpoint(self.checkpoint_config)
+      pytree = None
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_pytree"
@@ -178,7 +180,7 @@ class Benchmark(abc.ABC):
       multihost.sync_global_processes("benchmark:setup_pytree")
 
     context = TestContext(
-        pytree=data,
+        pytree=pytree,
         path=path,
         options=self.options,
         mesh=self.mesh,

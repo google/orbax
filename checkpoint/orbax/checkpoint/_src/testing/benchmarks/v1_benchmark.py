@@ -28,7 +28,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
-def _metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
+def get_metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
   metrics = ["time", "rss", "io"]
   if options.metric_tracemalloc_enabled:
@@ -73,9 +73,10 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   metric_tensorstore_enabled: bool = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
+  chunk_byte_size: int | None | Sequence[int | None] = None
   enable_trace: bool = False
 
-  def is_valid(self):
+  def is_valid(self) -> bool:
     assert isinstance(self.use_replica_parallel, bool)
     assert isinstance(self.enable_replica_parallel_separate_folder, bool)
     if self.enable_replica_parallel_separate_folder and (
@@ -89,6 +90,9 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     return ocp.Context(
         array_options=ocp.options.ArrayOptions(
             saving=ocp.options.ArrayOptions.Saving(
+                storage_options=ocp.options.ArrayOptions.Saving.StorageOptions(
+                    chunk_byte_size=self.chunk_byte_size,
+                ),
                 use_ocdbt=self.use_ocdbt,
                 use_zarr3=self.use_zarr3,
                 use_replica_parallel=self.use_replica_parallel,
@@ -107,6 +111,13 @@ class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     )
 
 
+def clear_pytree(pytree: Any) -> Any:
+  """Clears the pytree to free up memory."""
+  return jax.tree.map(
+      lambda x: x.delete() if isinstance(x, jax.Array) else None, pytree
+  )
+
+
 # ==============================================================================
 # 2. Implement the Benchmark Generator
 # ==============================================================================
@@ -117,12 +128,6 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
   This class provides the specific test logic for benchmarking the
   V1BenchmarkHandler with various configurations.
   """
-
-  def _clear_pytree(self, pytree: Any) -> Any:
-    """Clears the pytree to free up memory."""
-    return jax.tree.map(
-        lambda x: x.delete() if isinstance(x, jax.Array) else None, pytree
-    )
 
   def test_fn(
       self, context: benchmarks_core.TestContext
@@ -147,7 +152,7 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
     assert isinstance(options, V1BenchmarkOptions)
 
     logging.info("Benchmark options: %s", pprint.pformat(options))
-    metrics_to_measure = _metrics_to_measure(options)
+    metrics_to_measure = get_metrics_to_measure(options)
 
     with ocp.Context(context=options.context):
       if options.enable_trace:
@@ -162,7 +167,7 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
           ocp.save_pytree(save_path, pytree)
         with metrics.measure("save_background", metrics_to_measure):
           pass
-      context.pytree = self._clear_pytree(context.pytree)
+      context.pytree = clear_pytree(context.pytree)
       if options.enable_trace:
         jax.profiler.stop_trace()
 
@@ -170,7 +175,7 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
         jax.profiler.start_trace(context.path / "trace_load")
       with metrics.measure("load", metrics_to_measure):
         restored_pytree = ocp.load_pytree(save_path, abstract_pytree)
-      self._clear_pytree(restored_pytree)
+      clear_pytree(restored_pytree)
       if options.enable_trace:
         jax.profiler.stop_trace()
 

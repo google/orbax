@@ -109,16 +109,6 @@ class TestValidateConfig(parameterized.TestCase):
     ):
       config_parsing._validate_config(config)
 
-  def test_missing_checkpoint_config_and_configs(self):
-    config = self._get_valid_config()
-    del config['checkpoint_config']
-    with self.assertRaisesRegex(
-        ValueError,
-        'Missing required key in YAML config: checkpoint_config or'
-        ' checkpoint_configs',
-    ):
-      config_parsing._validate_config(config)
-
   def test_benchmarks_not_list(self):
     config = self._get_valid_config()
     config['benchmarks'] = {}
@@ -364,6 +354,29 @@ benchmarks:
                 spec={'b': 'numpy.ndarray:float32:20'}
             ),
         ],
+    )
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_valid_creation_no_checkpoint_config(self, mock_import, mock_load):
+    yaml_content = """
+suite_name: No Checkpoint Config
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+"""
+    mock_load.return_value = yaml.safe_load(yaml_content)
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    self.assertLen(test_suite._benchmarks_generators, 1)
+    # Defaults to a single empty CheckpointConfig.
+    self.assertEqual(
+        test_suite._benchmarks_generators[0]._checkpoint_configs,
+        [config_lib.CheckpointConfig()],
     )
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)

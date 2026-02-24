@@ -171,6 +171,45 @@ class BenchmarkTest(parameterized.TestCase):
 
   @mock.patch.object(directory_setup, 'setup_test_directory')
   @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
+  @mock.patch.object(checkpoint_generation, 'load_checkpoint')
+  @mock.patch.object(metric_lib.Metrics, 'report')
+  def test_run_with_empty_checkpoint_config(
+      self,
+      mock_metrics_report,
+      mock_load_checkpoint,
+      mock_generate_checkpoint,
+      mock_setup_test_directory,
+  ):
+    path = epath.Path(self.create_tempdir().full_path)
+    mock_setup_test_directory.return_value = path
+    options = MyBenchmarkOptions()
+
+    def test_fn(context):
+      self.assertIsNone(context.pytree)
+      self.assertEqual(context.path, path)
+      self.assertEqual(context.options, options)
+      self.assertIsNone(context.mesh)
+      return core.TestResult(metrics=metric_lib.Metrics())
+
+    ckpt_config = configs.CheckpointConfig()
+    benchmark = core.Benchmark(
+        test_fn=test_fn,
+        checkpoint_config=ckpt_config,
+        options=options,
+        name='test_benchmark',
+    )
+
+    benchmark.run()
+
+    mock_setup_test_directory.assert_called_once_with(
+        'test_benchmark', None, None
+    )
+    mock_generate_checkpoint.assert_not_called()
+    mock_load_checkpoint.assert_not_called()
+    self.assertEqual(mock_metrics_report.call_count, 2)
+
+  @mock.patch.object(directory_setup, 'setup_test_directory')
+  @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
   @mock.patch.object(device_mesh, 'create_mesh')
   @mock.patch.object(metric_lib.Metrics, 'report')
   def test_run_with_repeat_index(
