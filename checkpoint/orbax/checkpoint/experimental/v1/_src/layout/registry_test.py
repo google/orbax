@@ -96,14 +96,11 @@ class PyTreeCheckpointableResolutionAsyncTest(
           self.v1_directory / 'pytree', CheckpointLayoutEnum.ORBAX, None
       )
 
-  async def test_v0_direct_path(self):
-    layout = await get_checkpoint_layout_pytree(
-        self.v0_directory / 'state', CheckpointLayoutEnum.ORBAX, None
-    )
-    self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
-    self.assertFalse(
-        await orbax_layout.has_indicator_file(self.v0_directory / 'state')
-    )
+  async def test_v0_child_path_load_failure(self):
+    with self.assertRaises(registry.InvalidLayoutError):
+      await get_checkpoint_layout_pytree(
+          self.v0_directory / 'state', CheckpointLayoutEnum.ORBAX, None
+      )
 
   async def test_v1_missing_indicator_file(self):
     (self.v1_directory / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).unlink()
