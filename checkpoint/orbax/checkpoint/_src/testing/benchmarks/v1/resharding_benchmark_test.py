@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import json
 
 from absl.testing import absltest
@@ -21,18 +20,18 @@ from etils import epath
 import jax
 import jax.numpy as jnp
 from orbax.checkpoint import v1 as ocp
-from orbax.checkpoint._src.testing.benchmarks import v1_resharding_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
+from orbax.checkpoint._src.testing.benchmarks.v1 import resharding_benchmark
 
 
-V1ReshardingBenchmarkOptions = (
-    v1_resharding_benchmark.V1ReshardingBenchmarkOptions
+ReshardingBenchmarkOptions = (
+    resharding_benchmark.ReshardingBenchmarkOptions
 )
-V1ReshardingBenchmark = v1_resharding_benchmark.V1ReshardingBenchmark
+ReshardingBenchmark = resharding_benchmark.ReshardingBenchmark
 
 
-class V1ReshardingBenchmarkTest(parameterized.TestCase):
+class ReshardingBenchmarkTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -40,14 +39,14 @@ class V1ReshardingBenchmarkTest(parameterized.TestCase):
 
   @parameterized.parameters(
       dict(
-          options=V1ReshardingBenchmarkOptions(
+          options=ReshardingBenchmarkOptions(
               reference_checkpoint_path='ckpt_path',
               reference_sharding_path='sharding_path',
           ),
           expected_len=1,
       ),
       dict(
-          options=V1ReshardingBenchmarkOptions(
+          options=ReshardingBenchmarkOptions(
               reference_checkpoint_path='ckpt_path',
               reference_sharding_path='sharding_path',
               use_ocdbt=[False, True],
@@ -56,14 +55,14 @@ class V1ReshardingBenchmarkTest(parameterized.TestCase):
       ),
   )
   def test_generate_benchmarks(self, options, expected_len):
-    generator = V1ReshardingBenchmark(
+    generator = ReshardingBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     benchmarks = generator.generate()
     self.assertLen(benchmarks, expected_len)
     for benchmark in benchmarks:
-      self.assertIsInstance(benchmark.options, V1ReshardingBenchmarkOptions)
+      self.assertIsInstance(benchmark.options, ReshardingBenchmarkOptions)
 
   def test_benchmark_test_fn(self):
     # Setup real checkpoint and sharding config
@@ -92,11 +91,11 @@ class V1ReshardingBenchmarkTest(parameterized.TestCase):
     sharding_config_path = self.directory / 'sharding_config.json'
     sharding_config_path.write_text(json.dumps(sharding_config))
 
-    options = V1ReshardingBenchmarkOptions(
+    options = ReshardingBenchmarkOptions(
         reference_checkpoint_path=str(ref_ckpt_path),
         reference_sharding_path=str(sharding_config_path),
     )
-    generator = V1ReshardingBenchmark(
+    generator = ReshardingBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )

@@ -1,0 +1,31 @@
+# The name for the entire test suite run.
+# Assumes v5p-8 (4 chips) X 2 replicas
+suite_name: "llama-8b_replicas_2"
+num_repeats: 20
+
+
+mesh_config:
+  mesh_axes: ["replica", "model"]
+  # Should match reference_sharding_path.
+  ici_parallelism: {"replica": 1, "model": 4}
+  dcn_parallelism: {"replica": 2}
+
+# Note: checkpoint_config field not specified.
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `RestoreAndBroadcastBenchmarkOptions` class
+      # associated with the `RestoreAndBroadcastBenchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_compression: true
+      # Note, uses a bucket in EU, assuming the benchmark will run from a cell in the US. This
+      # should increase the storage latency and make the effect of broadcasting more pronounced,
+      # since the scale we can run at is too small to see much difference otherwise.
+      reference_checkpoint_path: "gs://cpgaffney-eu-bucket/checkpoints/llama-8b_generate_8-2-1/ckpt"
+      reference_sharding_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-8b-v5p-8-data-1-fsdp-4-tensor-1/abstract_state.json"
+      use_load_and_broadcast: true
