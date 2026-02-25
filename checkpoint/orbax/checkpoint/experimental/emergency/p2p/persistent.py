@@ -14,7 +14,7 @@
 
 """Handles persistent storage logic (GCS/S3) for P2P checkpointing."""
 
-from typing import Any, final
+from typing import Any, Sequence, final
 
 from absl import logging
 from etils import epath
@@ -136,6 +136,9 @@ class PersistentCheckpointManager:
   @property
   def directory(self) -> epath.Path:
     return self._directory
+
+  def all_steps(self, read: bool = False) -> Sequence[int]:
+    return self._manager.all_steps(read)
 
   def latest_step(self) -> int | None:
     return self._manager.latest_step()

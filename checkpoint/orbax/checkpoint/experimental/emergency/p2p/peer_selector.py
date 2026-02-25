@@ -111,6 +111,10 @@ class PeerSelector:
 
     return max(complete_steps) if complete_steps else None
 
+  def get_all_steps(self) -> list[int]:
+    """Returns all steps known to the registry."""
+    return list(self._registry.iter_steps())
+
   def get_source_peer(
       self, step: int, target_process_index: int
   ) -> protocol.PeerDiscoveryInfo | None:

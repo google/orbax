@@ -39,7 +39,9 @@ class LocalCheckpointManagerTest(absltest.TestCase):
       multihost.initialize_runtime_to_distributed_ids()
     self.directory = epath.Path(self.create_tempdir().full_path)
     self.mesh = Mesh(np.array(jax.devices()), axis_names=('x',))
-    self.options = options_lib.CheckpointManagerOptions()
+    self.options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1)
+    )
 
   @mock.patch(
       'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0

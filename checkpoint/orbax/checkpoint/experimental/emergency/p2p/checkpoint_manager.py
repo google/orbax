@@ -160,11 +160,8 @@ class _P2PSubsystem:
       )
       return False
     assert self._p2p_node is not None
-    if (
-        peer_info.ip == self._p2p_node.ip
-        and peer_info.port == self._p2p_node.port
-    ):
-      return True
+
+    # TODO(exlin): optimization to process when peer is localhost
 
     return self._p2p_node.fetch_shard_from_peer(
         peer_info.ip, peer_info.port, step, peer_info.process_index
@@ -174,6 +171,11 @@ class _P2PSubsystem:
     """Returns the latest step that is complete in the P2P network."""
     assert self._peer_selector is not None
     return self._peer_selector.get_latest_complete_step()
+
+  def get_all_steps_from_peers(self) -> list[int]:
+    """Returns all steps available in any peer in P2P network."""
+    assert self._peer_selector is not None
+    return self._peer_selector.get_all_steps()
 
   def has_shard_for_step(self, step: int) -> bool:
     """Checks if this process's shard for a given step exists in the P2P network."""
@@ -299,7 +301,12 @@ class CheckpointManager(
 
   @override
   def all_steps(self, read: bool = False) -> Sequence[int]:
-    return self._local_manager.all_steps(read)
+    self._p2p.sync_registry_if_stale()
+    all_steps = set(self._local_manager.all_steps(read))
+    all_steps.update(self._p2p.get_all_steps_from_peers())
+    if self._persistent_manager:
+      all_steps.update(self._persistent_manager.all_steps(read))
+    return sorted(list(all_steps))
 
   @override
   def latest_step(self) -> int | None:

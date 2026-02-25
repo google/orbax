@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
+from orbax.checkpoint.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
@@ -139,7 +140,11 @@ class LocalCheckpointManager:
 
     p2p_specific_options = checkpoint_manager.CheckpointManagerOptions(
         step_name_format=options.step_name_format,
-        save_interval_steps=options.local.save_interval_steps,
+        # Specify save_decision_policy to skip InitialSavePolicy, which
+        # results in inconsistent save policy across processes with local.
+        save_decision_policy=save_decision_policy_lib.FixedIntervalPolicy(
+            options.local.save_interval_steps
+        ),
         max_to_keep=options.local.max_to_keep,
         multiprocessing_options=mp_options,
         create=False,
@@ -204,6 +209,12 @@ class LocalCheckpointManager:
         detected_index,
     )
     return detected_index, steps
+
+  def all_steps(self, _: bool = False) -> Sequence[int]:
+    detected_index, steps = self.scan_stored_steps()
+    if self._process_index != detected_index:
+      return []
+    return steps
 
   def save(
       self,
