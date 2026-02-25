@@ -355,6 +355,9 @@ jobs:
     - name: Run multiprocess tests
       run: |
         python orbax/checkpoint/_src/testing/oss/run_multihost.py orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=4
+    - name: Run single process tests
+      run: |
+        python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=1 --tpu_chips_per_process=8 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=1
     - name: Report success or failure as github status
       if: always()
       shell: bash

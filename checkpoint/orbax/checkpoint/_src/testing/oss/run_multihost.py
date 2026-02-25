@@ -154,6 +154,9 @@ def main():
     if tpu_chips_per_process == 1:
       tpu_host_bounds = "4,2,1"
       tpu_chips_per_host_bounds = "1,1,1"
+    elif tpu_chips_per_process == 2:
+      tpu_host_bounds = "2,2,1"
+      tpu_chips_per_host_bounds = "1,2,1"
     elif tpu_chips_per_process == 4:
       # Note: this branch assumes we are using 2x4 v6e LitePod, and will not
       # work with 4x2 v5e LitePod.

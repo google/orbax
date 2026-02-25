@@ -31,8 +31,6 @@ TEST_RULES = [
 EXCLUDED_PATHS = [
     'orbax/checkpoint/experimental',
     'orbax/checkpoint/google',
-    'orbax/checkpoint/_src/serialization',
-    'orbax/checkpoint/single_host_test.py',
 ]
 
 
@@ -60,6 +58,55 @@ def get_str_val(node):
   if isinstance(node, ast.Constant) and isinstance(node.value, str):
     return node.value
   return None
+
+
+def inherits_from_multiprocess_test(test_file_path):
+  """Checks if test file inherits from MultiProcessTest."""
+  try:
+    with open(test_file_path, 'r') as f:
+      content = f.read()
+  except FileNotFoundError:
+    return False
+  try:
+    tree = ast.parse(content, filename=test_file_path)
+  except SyntaxError:
+    return False
+
+  imported_as_name = None  # if imported as `from ... import MultiProcessTest`
+  imported_as_module = []  # if imported as `from ... import multiprocess_test`
+
+  for node in tree.body:
+    if isinstance(node, ast.ImportFrom):
+      if node.module == 'orbax.checkpoint._src.testing.multiprocess_test':
+        for alias in node.names:
+          if alias.name == 'MultiProcessTest':
+            imported_as_name = alias.asname or alias.name
+      elif node.module == 'orbax.checkpoint._src.testing':
+        for alias in node.names:
+          if alias.name == 'multiprocess_test':
+            imported_as_module.append(alias.asname or alias.name)
+
+  if not imported_as_name and not imported_as_module:
+    return False
+
+  for node in tree.body:
+    if isinstance(node, ast.ClassDef):
+      for base in node.bases:
+        if (
+            imported_as_name
+            and isinstance(base, ast.Name)
+            and base.id == imported_as_name
+        ):
+          return True
+        if (
+            imported_as_module
+            and isinstance(base, ast.Attribute)
+            and isinstance(base.value, ast.Name)
+            and base.value.id in imported_as_module
+            and base.attr == 'MultiProcessTest'
+        ):
+          return True
+  return False
 
 
 def get_build_targets(build_file_path):
@@ -99,6 +146,7 @@ def get_build_targets(build_file_path):
 def run(root_dir, output_file):
   """Runs the script to generate tagged tests file."""
   tests_by_tag = {tag: [] for tag in TAG_MAPPING.values()}
+  tests_by_tag['processes:1'] = []
 
   count = 0
   for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -123,9 +171,18 @@ def run(root_dir, output_file):
             os.path.join(dirpath, srcs[0]).startswith(p) for p in EXCLUDED_PATHS
         ):
           continue
-        for tag in tags:
-          if tag in TAG_MAPPING:
-            tests_by_tag[TAG_MAPPING[tag]].append(f'{package_path}:{name}')
+        is_multiprocess = False
+        if srcs:
+          is_multiprocess = inherits_from_multiprocess_test(
+              os.path.join(dirpath, srcs[0])
+          )
+        target_path = f'{package_path}:{name}'
+        if not is_multiprocess:
+          tests_by_tag['processes:1'].append(target_path)
+        else:
+          for tag in tags:
+            if tag in TAG_MAPPING:
+              tests_by_tag[TAG_MAPPING[tag]].append(target_path)
 
   print(f'Processed {count} BUILD files.')
 
@@ -145,5 +202,5 @@ if __name__ == '__main__':
   if 'BUILD_WORKING_DIRECTORY' in os.environ:
     os.chdir(os.environ['BUILD_WORKING_DIRECTORY'])
   orbax_dir = 'orbax/checkpoint'
-  output = 'orbax/checkpoint/_src/testing/multiprocess_unittests/tagged_tests.yaml'
+  output = 'orbax/checkpoint/_src/testing/oss/tagged_tests.yaml'
   run(orbax_dir, output)

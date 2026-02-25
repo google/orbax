@@ -1,4 +1,17 @@
 # DO NOT EDIT!
+processes:1:
+- orbax/checkpoint/_src/metadata:sharding_tpu_test
+- orbax/checkpoint/_src/multihost:multihost_test
+- orbax/checkpoint/_src/multihost:multislice_ghostfish_test
+- orbax/checkpoint/_src/multihost:multislice_test
+- orbax/checkpoint/_src/serialization:colocated_pathways_local_type_handlers_test
+- orbax/checkpoint/_src/serialization:colocated_pathways_memory_usage_test
+- orbax/checkpoint/_src/serialization:local_type_handlers_test
+- orbax/checkpoint/_src/serialization:pathways_local_type_handlers_test
+- orbax/checkpoint/_src/serialization:pathways_memory_usage_test
+- orbax/checkpoint/_src/serialization:replica_slices_test
+- orbax/checkpoint/_src/serialization:serialization_test
+- orbax/checkpoint:single_host_test
 processes:4:
 - orbax/checkpoint/_src/checkpointers:async_checkpointer_test
 - orbax/checkpoint/_src/checkpointers:checkpointer_test
@@ -6,8 +19,7 @@ processes:4:
 - orbax/checkpoint/_src/handlers:array_checkpoint_handler_test
 - orbax/checkpoint/_src/handlers:pytree_checkpoint_handler_test
 - orbax/checkpoint/_src/handlers:standard_checkpoint_handler_test
-- orbax/checkpoint/_src/metadata:sharding_tpu_test
-- orbax/checkpoint/_src/multihost:multihost_test
+- orbax/checkpoint/_src/serialization:type_handlers_test
 - orbax/checkpoint/_src/testing/tree_verity:checkpoint_manager_test
 - orbax/checkpoint/testing:local_path_test
 - orbax/checkpoint:checkpoint_manager_slice_test
