@@ -1,0 +1,27 @@
+# The name for the entire test suite run.
+# Assumes v5p-256 (128 chips)
+# This benchmark is the no-resharding baseline.
+suite_name: "llama-70b_reshard_4-8-4_to_4-8-4"
+num_repeats: 20
+
+
+mesh_config:
+  mesh_axes: ["data", "fsdp", "tensor"]
+  # Should match reference_sharding_path.
+  ici_parallelism: {"data": 4, "fsdp": 8, "tensor": 4}
+
+# Note: checkpoint_config field not specified.
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1_resharding_benchmark.V1ReshardingBenchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `V1ReshardingBenchmarkOptions` class
+      # associated with the `V1ReshardingBenchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_compression: true
+      reference_checkpoint_path: "gs://orbax-benchmarks/checkpoints/llama-70b_generate_4-8-4/ckpt"
+      reference_sharding_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-256-data-4-fsdp-8-tensor-4/abstract_state.json"
