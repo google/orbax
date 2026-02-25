@@ -23,7 +23,7 @@ PYGRAIN_STATES_FILENAME = 'pygrain_states.json'
 
 # Tuning for high-throughput networks (16MB buffers)
 SOCKET_BUFFER_SIZE = 16 * 1024 * 1024
-CHUNK_SIZE = 1024 * 1024
+CHUNK_SIZE = 4 * 1024 * 1024
 
 # Timeouts
 CONNECT_TIMEOUT_SECONDS = 5

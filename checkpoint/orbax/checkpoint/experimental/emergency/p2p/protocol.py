@@ -298,10 +298,12 @@ class TCPClient:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with dest_path.open('wb') as f:
           received = 0
+          buf = bytearray(constants.CHUNK_SIZE)
+          view = memoryview(buf)
           while received < filesize:
             to_read = min(constants.CHUNK_SIZE, filesize - received)
-            chunk = sock.recv(to_read)
-            if not chunk:
+            nbytes = sock.recv_into(view[:to_read])
+            if nbytes == 0:
               logging.error(
                   'Connection closed prematurely by peer %s:%d while'
                   ' downloading %s. Received %d/%d bytes.',
@@ -312,8 +314,8 @@ class TCPClient:
                   filesize,
               )
               break
-            f.write(chunk)
-            received += len(chunk)
+            f.write(view[:nbytes])
+            received += nbytes
 
         if received != filesize:
           logging.error(
