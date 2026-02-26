@@ -262,7 +262,7 @@ class ArrayOptions:
     ocdbt_target_data_file_size: int | None = None
     enable_pinned_host_transfer: bool | None = None
     enable_post_merge_validation: bool = True
-    use_replica_parallel: bool = True
+    use_replica_parallel: bool | None = None
     min_slice_bytes_for_replica_parallel: int | None = None
     max_replicas_for_replica_parallel: int | None = None
     enable_replica_parallel_separate_folder: bool = False

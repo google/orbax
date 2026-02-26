@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import os
 import time
 from typing import Any, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
@@ -910,6 +911,13 @@ def _get_abstract_arrays(
   return abstract_arrays
 
 
+def _get_default_use_replica_parallel():
+  platform = os.environ.get('JAX_PLATFORMS', '').lower()
+  if 'gpu' in platform or 'cuda' in platform:
+    return False
+  return True
+
+
 class ArrayHandler(types.TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
@@ -918,7 +926,7 @@ class ArrayHandler(types.TypeHandler):
       metadata_key: str | None = None,
       primary_host: int | None = 0,
       replica_id: int | None = 0,
-      use_replica_parallel: bool = True,
+      use_replica_parallel: bool | None = None,
       min_slice_bytes_for_replica_parallel: int | None = None,
       max_replicas_for_replica_parallel: int | None = None,
       enable_write_sharding_file: bool = True,
@@ -954,7 +962,11 @@ class ArrayHandler(types.TypeHandler):
     self._primary_host = primary_host
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
-    self._use_replica_parallel = use_replica_parallel
+    self._use_replica_parallel = (
+        _get_default_use_replica_parallel()
+        if use_replica_parallel is None
+        else use_replica_parallel
+    )
     self._min_slice_bytes_for_replica_parallel = (
         min_slice_bytes_for_replica_parallel
     )
