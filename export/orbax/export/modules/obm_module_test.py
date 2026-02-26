@@ -383,6 +383,62 @@ class ObmModuleTest(parameterized.TestCase):
     with self.subTest('test_weights_b_dtype'):
       self.assertEqual(module.model_params['b'].dtype, expected_dtype)
 
+  def test_obm_module_gpu_xla_flags_success(self):
+    param_shape = (2, 5)
+    param_dtype = jnp.dtype(jnp.float32)
+    param_spec = jax.ShapeDtypeStruct(shape=param_shape, dtype=param_dtype)
+    model_function_name = 'simple_add'
+
+    jax2obm_kwargs = {
+        constants.CHECKPOINT_PATH: 'checkpoint_path',
+        constants.NATIVE_SERIALIZATION_PLATFORMS: ('cuda',),
+        constants.XLA_FLAGS_PER_PLATFORM: {
+            'cuda': ['--xla_gpu_enable_latency_hiding_scheduler=true']
+        },
+    }
+
+    orbax_model_module = obm_module.ObmModule(
+        params=param_spec,
+        apply_fn={model_function_name: simple_add},
+        jax2obm_kwargs=jax2obm_kwargs,
+    )
+
+    xla_compile_options_map = (
+        orbax_model_module.xla_compile_options_per_platform
+    )
+    self.assertIsNotNone(xla_compile_options_map)
+    build_options_cuda = xla_compile_options_map.map['cuda']
+    self.assertIn(
+        'xla_gpu_enable_latency_hiding_scheduler',
+        build_options_cuda.env_option_overrides,
+    )
+    self.assertTrue(
+        build_options_cuda.env_option_overrides[
+            'xla_gpu_enable_latency_hiding_scheduler'
+        ].bool_field
+    )
+
+  def test_obm_module_gpu_xla_flags_rejection(self):
+    param_shape = (2, 5)
+    param_dtype = jnp.dtype(jnp.float32)
+    param_spec = jax.ShapeDtypeStruct(shape=param_shape, dtype=param_dtype)
+    model_function_name = 'simple_add'
+
+    jax2obm_kwargs = {
+        constants.CHECKPOINT_PATH: 'checkpoint_path',
+        constants.NATIVE_SERIALIZATION_PLATFORMS: ('cuda',),
+        constants.XLA_FLAGS_PER_PLATFORM: {
+            'cuda': ['--xla_gpu_experimental_unstable_flag=true']
+        },
+    }
+
+    with self.assertRaisesRegex(ValueError, 'XLA GPU flag validation failed'):
+      obm_module.ObmModule(
+          params=param_spec,
+          apply_fn={model_function_name: simple_add},
+          jax2obm_kwargs=jax2obm_kwargs,
+      )
+
 
 if __name__ == '__main__':
   absltest.main()

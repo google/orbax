@@ -38,6 +38,35 @@ _XLA_FLAG_TO_FIELD_MAP = {
 }
 
 
+def _parse_env_option_overrides(
+    xla_flags: Sequence[str],
+) -> dict[str, compile_options_pb2.OptionOverrideProto]:
+  """Parses a list of XLA flags into a dictionary of OptionOverrideProto."""
+  overrides = {}
+  for flag in xla_flags:
+    if not flag.startswith('--'):
+      raise ValueError(f"Flag {flag} must start with '--'")
+
+    key, value = flag[2:].split('=', 1)
+    override_proto = compile_options_pb2.OptionOverrideProto()
+
+    # Infer type (similar to C++ CreateEnvironmentOptionOverridesFromFlags)
+    if value.lower() == 'true':
+      override_proto.bool_field = True
+    elif value.lower() == 'false':
+      override_proto.bool_field = False
+    elif value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+      override_proto.int_field = int(value)
+    else:
+      try:
+        override_proto.double_field = float(value)
+      except ValueError:
+        override_proto.string_field = value
+
+    overrides[key] = override_proto
+  return overrides
+
+
 def _generate_tpu_compilation_env(
     xla_flags_overrides: Sequence[str] | None = None,
 ) -> xla_pb2.CompilationEnvironmentsProto:
@@ -202,11 +231,27 @@ def generate_xla_compile_options(
       else:
         xla_flags_overrides = None
       compile_environment = _generate_tpu_compilation_env(xla_flags_overrides)
+      compile_options_map.map[platform.lower()].CopyFrom(
+          _generate_compilation_options(compile_environment, jax_mesh)
+      )
+    elif platform.lower() in ('cuda', 'rocm'):
+      compile_environment = xla_pb2.CompilationEnvironmentsProto()
+      compile_options = _generate_compilation_options(
+          compile_environment, jax_mesh
+      )
+      if xla_flags_per_platform:
+        gpu_flags = xla_flags_per_platform.get(platform, None)
+        if gpu_flags:
+          _validate_xla_flags_setting(gpu_flags, persist_xla_flags)
+          overrides_map = _parse_env_option_overrides(gpu_flags)
+          for k, v in overrides_map.items():
+            compile_options.env_option_overrides[k].CopyFrom(v)
+      compile_options_map.map[platform.lower()].CopyFrom(compile_options)
     else:
-      compile_environment = None
-    compile_options_map.map[platform.lower()].CopyFrom(
-        _generate_compilation_options(compile_environment, jax_mesh)
-    )
+      compile_environment = xla_pb2.CompilationEnvironmentsProto()
+      compile_options_map.map[platform.lower()].CopyFrom(
+          _generate_compilation_options(compile_environment, jax_mesh)
+      )
   if not persist_xla_flags:
     for compile_options in compile_options_map.map.values():
       compile_options.executable_build_options.comp_envs.Clear()
