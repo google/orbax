@@ -50,7 +50,15 @@ async def mkdir(
 
 
 async def write_bytes(path: epath.Path, data: Any) -> int:
-  return await asyncio.to_thread(path.write_bytes, data)
+
+  def _write():
+    try:
+      path.unlink()
+    except OSError:
+      pass
+    return path.write_bytes(data)
+
+  return await asyncio.to_thread(_write)
 
 
 async def read_bytes(path: epath.Path) -> bytes:
@@ -58,7 +66,15 @@ async def read_bytes(path: epath.Path) -> bytes:
 
 
 async def write_text(path: epath.Path, text: str) -> int:
-  return await asyncio.to_thread(path.write_text, text)
+
+  def _write():
+    try:
+      path.unlink()
+    except OSError:
+      pass
+    return path.write_text(text)
+
+  return await asyncio.to_thread(_write)
 
 
 async def read_text(path: epath.Path) -> str:
