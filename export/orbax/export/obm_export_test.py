@@ -25,7 +25,6 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 from jaxtyping import PyTree
-from orbax.export import config
 from orbax.export import constants
 from orbax.export import export_testing_utils
 from orbax.export import jax_module

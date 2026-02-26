@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.export import constants
+from orbax.export import obm_configs
 from orbax.export.modules import obm_module
 
 @jax.jit
@@ -382,6 +383,55 @@ class ObmModuleTest(parameterized.TestCase):
       self.assertEqual(module.model_params['w'].dtype, expected_dtype)
     with self.subTest('test_weights_b_dtype'):
       self.assertEqual(module.model_params['b'].dtype, expected_dtype)
+
+
+class GetSharedValueTest(parameterized.TestCase):
+
+  def test_get_shared_value_single_object(self):
+    options = obm_configs.Jax2ObmOptions(enable_bf16_optimization=True)
+    self.assertTrue(
+        obm_module._get_shared_value(options, None, 'enable_bf16_optimization')
+    )
+
+  def test_get_shared_value_mapping_same_values(self):
+    options_map = {
+        'a': obm_configs.Jax2ObmOptions(enable_bf16_optimization=True),
+        'b': obm_configs.Jax2ObmOptions(enable_bf16_optimization=True),
+    }
+    self.assertTrue(
+        obm_module._get_shared_value(
+            options_map, ['a', 'b'], 'enable_bf16_optimization'
+        )
+    )
+
+  def test_get_shared_value_mapping_different_values(self):
+    options_map = {
+        'a': obm_configs.Jax2ObmOptions(enable_bf16_optimization=True),
+        'b': obm_configs.Jax2ObmOptions(enable_bf16_optimization=False),
+    }
+    with self.assertRaisesRegex(
+        ValueError,
+        r'Not all values for `enable_bf16_optimization` in the mapping are the'
+        r' same.',
+    ):
+      obm_module._get_shared_value(
+          options_map, ['a', 'b'], 'enable_bf16_optimization'
+      )
+
+  def test_get_shared_value_mapping_missing_key(self):
+    options_map = {
+        'a': obm_configs.Jax2ObmOptions(enable_bf16_optimization=True),
+    }
+    with self.assertRaisesRegex(
+        ValueError, r'Key b is not found in mapping {\'a\':*'
+    ):
+      obm_module._get_shared_value(
+          options_map, ['a', 'b'], 'enable_bf16_optimization'
+      )
+
+  def test_get_shared_value_empty_mapping(self):
+    with self.assertRaisesRegex(ValueError, r'Input mapping is empty.'):
+      obm_module._get_shared_value({}, ['a'], 'enable_bf16_optimization')
 
 
 if __name__ == '__main__':

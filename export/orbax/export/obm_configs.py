@@ -20,6 +20,7 @@ import enum
 import itertools
 import logging
 import jax
+from jax import export as jax_export
 
 
 # LINT.IfChange
@@ -309,6 +310,8 @@ class Jax2ObmOptions:
       bfloat16 to save memory.
     enable_auto_layout: If set to True, automatically generate the optimal
       layout for model parameters to improve serving performance.
+    native_serialization_disabled_checks: A sequence of
+      `jax_export.DisabledSafetyCheck` to disable when exporting.
   """
 
   # TODO: b/448900820 - Consider constraint the type to the proto enums.
@@ -326,6 +329,9 @@ class Jax2ObmOptions:
   persist_xla_flags: bool = True
   enable_bf16_optimization: bool = False
   enable_auto_layout: bool = False
+  native_serialization_disabled_checks: Sequence[
+      jax_export.DisabledSafetyCheck
+  ] = ()
 
 
 @dataclasses.dataclass(kw_only=True)

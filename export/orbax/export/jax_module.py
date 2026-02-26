@@ -75,7 +75,11 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       allow_multi_axis_sharding_consolidation: Optional[bool] = None,
       export_version: constants.ExportModelType = constants.ExportModelType.TF_SAVEDMODEL,
       jax2obm_kwargs: Optional[Mapping[str, Any]] = None,
-      jax2obm_options: obm_configs.Jax2ObmOptions | None = None,
+      jax2obm_options: (
+          obm_configs.Jax2ObmOptions
+          | Mapping[str, obm_configs.Jax2ObmOptions]
+          | None
+      ) = None,
   ):
     """JaxModule constructor.
 
@@ -137,7 +141,11 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         to the Orbax Model export. Accepted arguments are
         'native_serialization_platforms' which must be a tuple of
         OrbaxNativeSerializationType.
-      jax2obm_options: Options for jax2obm conversion.
+      jax2obm_options: Options for jax2obm conversion. If `apply_fn` is a
+        mapping, this can also be a mapping from method keys to
+        `Jax2ObmOptions`.Currently, when it is a mapping, most options must be
+        shared across different apply functions, except for `enable_auto_layout`
+        and `native_serialization_disabled_checks`.
 
     Raises:
       ValueError: If `jax2obm_kwargs` and `jax2obm_options` are both provided,
