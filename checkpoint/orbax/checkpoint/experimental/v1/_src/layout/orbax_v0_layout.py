@@ -112,16 +112,18 @@ class OrbaxV0Layout(CheckpointLayout):
     Returns:
       The metadata describing the Orbax checkpoint.
     """
-    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(
-        path
-    )
-    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
-    if checkpoint_metadata and isinstance(
-        checkpoint_metadata.item_handlers, dict
+    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
+    if (
+        checkpoint_metadata
+        and isinstance(checkpoint_metadata.item_handlers, str)
+        or await orbax_layout.has_pytree_metadata_file(path)
     ):
-      return await self._orbax_layout.metadata(path)
-    # Otherwise, load the metadata as a PyTree checkpoint.
-    return await self._load_pytree_metadata(path, checkpoint_metadata)
+      return await self._load_pytree_metadata(path, checkpoint_metadata)
+    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
+    # If there is no checkpoint metadata, we assume it is a composite
+    # checkpoint, and even if it is a direct pytree checkpoint it will load as
+    # a composite checkpoint as there is no metadata to indicate otherwise.
+    return await self._orbax_layout.metadata(path)
 
   async def _validate(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
@@ -157,13 +159,11 @@ class OrbaxV0Layout(CheckpointLayout):
     ):
       raise ValueError(f"Found incomplete checkpoint at {path}.")
 
-    if await async_path.exists(
-        path.parent
-    ) and await orbax_layout.has_indicator_file(path.parent):
+    if await orbax_layout.has_checkpoint_metadata_file(path.parent):
       raise InvalidLayoutError(
-          f"You are currently reading in checkpointable {path.name}, which is"
-          " a subdirectory of a V1 Orbax checkpoint. Please consider loading"
-          f" from {path.parent} instead."
+          f"The path ({path}) configured for loading appears to be a"
+          " subdirectory of an Orbax checkpoint. Please try loading from the"
+          f" parent directory: {path.parent} instead."
       )
 
     if not await orbax_layout.has_checkpoint_metadata_file(path):
@@ -184,8 +184,8 @@ class OrbaxV0Layout(CheckpointLayout):
       ]
       if checkpoint_subdirectories:
         raise InvalidLayoutError(
-            "You are currently attempting to read a V0 checkpoint from a root"
-            " directory, please consider loading one of the following"
+            "You are currently attempting to read an Orbax checkpoint from a"
+            " root directory, please consider loading one of the following"
             f" checkpoint subdirectories: {checkpoint_subdirectories}"
         )
 
@@ -263,7 +263,6 @@ class OrbaxV0Layout(CheckpointLayout):
     except BaseException as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V0 Orbax checkpoint."
-          f" due to error encountered during validation: {e}"
       ) from e
 
   async def validate_pytree(
@@ -286,8 +285,7 @@ class OrbaxV0Layout(CheckpointLayout):
       await self._validate_pytree(path, checkpointable_name)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a V0 Orbax PyTree"
-          f" checkpoint. Encountered error during validation: {e}"
+          f"Failed to interpret path {path} as a V0 Orbax PyTree."
       ) from e
 
   async def load_pytree(

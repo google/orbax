@@ -132,6 +132,10 @@ def load_pytree(
   """
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
+
+  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
+  validation.validate_pytree_checkpointable_name(checkpointable_name)
+
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
   layout = asyncio_utils.run_sync(
@@ -139,9 +143,6 @@ def load_pytree(
           path, ctx.checkpoint_layout, checkpointable_name
       )
   )
-  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
-
-  validation.validate_pytree_checkpointable_name(checkpointable_name)
 
   loaded_pytree = _load_impl(
       path,
@@ -257,16 +258,17 @@ def load_checkpointables(
   """
   start_time = time.time()
   logging.info('Loading checkpoint from %s.', path)
-  ctx = context_lib.get_context()
-  path = ctx.file_options.path_class(path)
-  layout = asyncio_utils.run_sync(
-      layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
-  )
 
   abstract_checkpointables = _standardize_abstract_checkpointables(
       abstract_checkpointables
   )
   validation.validate_abstract_checkpointables(abstract_checkpointables)
+
+  ctx = context_lib.get_context()
+  path = ctx.file_options.path_class(path)
+  layout = asyncio_utils.run_sync(
+      layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
+  )
 
   if not hasattr(layout, 'load_checkpointables'):
     raise NotImplementedError(

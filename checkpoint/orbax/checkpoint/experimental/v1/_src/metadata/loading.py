@@ -16,12 +16,14 @@
 
 from typing import Any
 
+import logging
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
+from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
@@ -30,6 +32,7 @@ CheckpointMetadata = metadata_types.CheckpointMetadata
 InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 
 def pytree_metadata(
@@ -85,6 +88,7 @@ def pytree_metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
+  validation.validate_pytree_checkpointable_name(checkpointable_name)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
