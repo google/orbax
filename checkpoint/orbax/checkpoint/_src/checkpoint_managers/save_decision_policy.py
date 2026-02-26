@@ -123,7 +123,46 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
 
 @dataclasses.dataclass(kw_only=True)
 class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
-  """Checkpoint as often as possible, as long as a save is not ongoing."""
+  """Checkpoint as often as possible, as long as a save is not ongoing.
+
+  This policy evaluates to True as often as possible. It enforces two primary
+  constraints to prevent blocking training or causing other regressions.:
+  1. It will never trigger a new save if a save is currently in progress
+     (checked via the provided `DecisionContext`); this prevents blocking on an
+     ongoing save, which would hurt accelerator utilization.
+  2. It optionally respects a minimum time interval between saves if
+     `minimum_interval_secs` is configured. This sets a floor on how
+     frequently checkpoints are saved, which can be used to avoid excessive
+     burden on the filesystem, or blocking too frequently (due to
+     synchronous D2H).
+
+  In a distributed training environment, to ensure perfect synchronization
+  and avoid race conditions, the time and state-based save decision is
+  computed exclusively on the primary host. The result is then broadcast
+  to all other hosts via a blocking barrier.
+
+  For usage examples, please refer to the parent class `SaveDecisionPolicy`.
+
+  Attributes:
+    minimum_interval_secs (int | None): The minimum time in seconds that must
+      elapse between the timestamp of the previous checkpoint and the current
+      step. If `None` (the default), back-to-back saves are permitted as soon
+      as the ongoing save completes.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates the current state and synchronizes across all hosts to return
+      a boolean indicating whether a checkpoint should be saved.
+
+      Args:
+        step (PolicyCheckpointInfo): Information about the current training
+          step, including the step index and timestamp.
+        previous_steps (Sequence[PolicyCheckpointInfo]): A chronological list
+          of metadata for all steps where a checkpoint was successfully saved.
+        context (DecisionContext): A container for auxiliary information,
+          such as the current saving state (`is_saving_in_progress`) and
+          multiprocessing configuration used to inform the decision.
+  """
 
   minimum_interval_secs: int | None = None
 
