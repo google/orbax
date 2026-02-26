@@ -155,6 +155,7 @@ async def _async_serialize_shardings(
   for sharding, info in zip(shardings, infos):
     if sharding is None:
       continue
+    await info.await_path_creation()
     if info.parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
@@ -568,6 +569,7 @@ async def _async_serialize_replica_slices(
             'Replica_separate_folder is disabled as OCDBT is not enabled.',
             1,
         )
+    await info.await_path_creation()
     array_write_spec = ts_utils.build_array_write_spec(
         info=info,
         arg=arg,
@@ -1003,6 +1005,7 @@ class ArrayHandler(types.TypeHandler):
     open_ops = []
     sharding_open_ops = []
     shardings = []
+    await asyncio.gather(*[info.await_path_creation() for info in infos])
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING_FILE_NAME
@@ -1197,6 +1200,7 @@ class ArrayHandler(types.TypeHandler):
     if args is None:
       raise ValueError('Must provide ArrayRestoreArgs to restore as jax.Array.')
     types.check_input_arguments(infos, args)
+    await asyncio.gather(*[info.await_path_creation() for info in infos])
     if infos[0].parent_dir is None:
       raise ValueError('parent_dir cannot be None')
     sharding_file_path = infos[0].parent_dir / _SHARDING_FILE_NAME

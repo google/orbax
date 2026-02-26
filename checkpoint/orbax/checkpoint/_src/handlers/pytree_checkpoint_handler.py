@@ -680,7 +680,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """Deserializes values or gets them from the aggregate file."""
     byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
     param_infos = jax.tree.map(
-        lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
+        lambda info: info.replace(byte_limiter=byte_limiter),
         param_infos,
     )
 

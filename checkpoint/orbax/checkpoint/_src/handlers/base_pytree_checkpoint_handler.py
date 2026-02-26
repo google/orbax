@@ -648,9 +648,11 @@ class BasePyTreeCheckpointHandler(
         use_compression=self._use_compression,
         use_zarr3=self._use_zarr3,
     )
-    assert all(
-        leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
-    )
+    # TODO(b/425293362): Add validation for PathAwaitingCreation.
+    if isinstance(directory, epath.Path):
+      assert all(
+          leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
+      )
 
     serialize_ops = []  # List of (coros -> List of futures)
     batch_requests = batched_serialization_requests(
@@ -710,7 +712,6 @@ class BasePyTreeCheckpointHandler(
           future.CommitFutureAwaitingContractedSignals(
               self._write_metadata_after_commits(
                   commit_futures,
-                  checkpoint_dir=directory,
                   param_infos=param_infos,
                   save_args=save_args,
                   custom_metadata=custom_metadata,
@@ -790,7 +791,7 @@ class BasePyTreeCheckpointHandler(
     flat_metadata = tree_utils.to_flat_dict(metadata)
     byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
     param_infos = jax.tree.map(
-        lambda info: dataclasses.replace(info, byte_limiter=byte_limiter),
+        lambda info: info.replace(byte_limiter=byte_limiter),
         param_infos,
     )
     batch_requests = batched_serialization_requests(
@@ -1156,9 +1157,8 @@ class BasePyTreeCheckpointHandler(
             f'No ArrayMetadata found for param_info: {param_info}, checkpoint'
             f' directory: {checkpoint_dir}, process_index={process_index}.'
         )
-      return dataclasses.replace(
-          param_info,
-          write_shape=array_metadatas_cache[param_info.name].write_shape,
+      return param_info.replace(
+          write_shape=array_metadatas_cache[param_info.name].write_shape
       )
 
     return jax.tree.map(update_param_info, param_infos)
@@ -1210,7 +1210,6 @@ class BasePyTreeCheckpointHandler(
   async def _write_metadata_after_commits(
       self,
       commit_futures: List[future.Future],
-      checkpoint_dir: epath.Path,
       *,
       param_infos: PyTree,
       save_args: PyTree,
@@ -1224,6 +1223,11 @@ class BasePyTreeCheckpointHandler(
       return
     for commit_future in commit_futures:
       await asyncio.to_thread(commit_future.result)
+
+    await asyncio.gather(
+        *[info.await_path_creation() for info in jax.tree.leaves(param_infos)]
+    )
+    checkpoint_dir = jax.tree.leaves(param_infos)[0].parent_dir
 
     commit_time = time.time()
     # `write_shape` is extracted from ArrayMetadata store saved during

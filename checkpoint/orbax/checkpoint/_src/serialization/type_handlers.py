@@ -85,6 +85,7 @@ class NumpyHandler(types.TypeHandler):
   ) -> Sequence[value_metadata.ArrayMetadata]:
     open_ops = []
     for info in infos:
+      await info.await_path_creation()
       # Use OCDBT flag from the existing checkpoint.
       use_ocdbt = info.is_ocdbt_checkpoint
       array_read_spec = ts_utils.build_array_read_spec(
@@ -122,6 +123,7 @@ class NumpyHandler(types.TypeHandler):
     """Serializes numpy arrays in a background thread."""
     write_coros = []
     for value, info, arg in zip(values, infos, args):
+      await info.await_path_creation()
       array_write_spec = ts_utils.build_array_write_spec(
           info=info,
           arg=arg,
@@ -175,6 +177,7 @@ class NumpyHandler(types.TypeHandler):
     types.check_input_arguments(infos, args)
     open_futures = []
     for info, arg in zip(infos, args):
+      await info.await_path_creation()
       if not info.is_ocdbt_checkpoint:
         await ts_utils.assert_parameter_files_exist(
             info.parent_dir / info.name, self._metadata_key, info.use_zarr3
@@ -308,6 +311,8 @@ class StringHandler(types.TypeHandler):
   async def metadata(
       self, infos: Sequence[types.ParamInfo]
   ) -> Sequence[StringMetadata]:
+    for info in infos:
+      await info.await_path_creation()
     return [
         StringMetadata(name=info.name, directory=info.parent_dir)
         for info in infos
@@ -330,6 +335,7 @@ class StringHandler(types.TypeHandler):
         info,
         value,
     ) in zip(infos, values):
+      await info.await_path_creation()
       tspec = self._get_json_tspec(info)
       if multihost.process_index() == 0:
         t = await ts.open(
@@ -368,6 +374,7 @@ class StringHandler(types.TypeHandler):
     open_futures = []
 
     for info in infos:
+      await info.await_path_creation()
       tspec = self._get_json_tspec(info)
       open_future = ts.open(
           tspec, open=True, read=True, context=self._ts_context

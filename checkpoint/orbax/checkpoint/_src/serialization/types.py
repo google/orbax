@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import abc
+import copy
 import dataclasses
 from typing import Any, Callable, Optional, Protocol, Sequence, Tuple
 
@@ -30,6 +31,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
 import tensorstore as ts
 
@@ -60,7 +62,6 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
-@dataclasses.dataclass(kw_only=True)
 class ParamInfo:
   """Information describing a parameter in a PyTree.
 
@@ -68,73 +69,116 @@ class ParamInfo:
   represents information not provided by a user, and should be computed
   internally.
 
-  name:
-    Name of the parameter.
-  parent_dir:
-    A path providing location where all files under the same checkpoint should
-    be saved under. All `ParamInfo` provided to a given TypeHandler should have
-    the same `parent_dir`. The parent_dir is assumed to be a directory.
-  path:
-    Do not provide directly. Automatically set to `parent_dir / name`.
-  skip_deserialize:
-    If specified, skips deserialization of the given parameter using the
-    TypeHandler. This may be for multiple different reasons, including that the
-    parameter may have been aggregated, or it will be unneeded after
-    transformations. Note: this parameter is handled by PyTreeCheckpointHandler,
-    so it is unnecessary for TypeHandler implementations to deal with it.
-  byte_limiter:
-    Object to limit the number of bytes that can be read or written in
-    parallel.
-  device_host_byte_limiter:
-    Object to limit the number of bytes that can be transferred from device to
-    host memory in parallel.
-  is_ocdbt_checkpoint:
-    Indicates whether the checkpoint path uses OCDBT format
-    or not. Only used for restoration.
-  use_compression:
-    When True, turn on zstd compression. Default is True.
-  use_zarr3:
-    If True, use Zarr ver3 otherwise ver2.
-  ocdbt_target_data_file_size:
-    Specifies the target size (in bytes) of each OCDBT data file. If set to 0,
-    data file size is not limited. If omitted (None), the TensorStore default
-    is used.
-  ts_context:
-    Tensorstore context to use for reading/writing.
-  value_typestr: stores the original value's typestr (from TypeHandler).
-    Only required when saving.
-  enable_pinned_host_transfer:
-    True by default. If False, disables transfer to pinned host when copying
-    from device to host, regardless of the presence of pinned host memory.
-  raise_array_data_missing_error:
-    Only used for restoring. See documentation in `tensorstore_utils.py`. Comes
-    from tree metadata and should be the same across all parameters.
-  write_shape:
-    Shape of the array shard. Used in the subchunking context.
-  is_prioritized_key_fn: See `IsPrioritizedKeyFn` definition.
+  Attributes:
+    name: Name of the parameter.
+    parent_dir: A path providing location where all files under the same
+      checkpoint should be saved under. All ParamInfo provided to a given
+      TypeHandler should have the same parent_dir. The parent_dir is assumed to
+      be a directory. Accessing this property raises ValueError if the
+      underlying path is a PathAwaitingCreation that has not been resolved via
+      await_path_creation().
+    path: Automatically set to parent_dir / name. Accessing this property raises
+      ValueError if the underlying path is a PathAwaitingCreation that has not
+      been resolved via await_path_creation().
+    skip_deserialize: If specified, skips deserialization of the given parameter
+      using the TypeHandler.
+    byte_limiter: Object to limit the number of bytes that can be read or
+      written in parallel.
+    device_host_byte_limiter: Object to limit the number of bytes that can be
+      transferred from device to host memory in parallel.
+    is_ocdbt_checkpoint: Indicates whether the checkpoint path uses OCDBT format
+      or not. Only used for restoration.
+    use_compression: When True, turn on zstd compression. Default is True.
+    use_zarr3: If True, use Zarr ver3 otherwise ver2.
+    ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
+      OCDBT data file.
+    ts_context: Tensorstore context to use for reading/writing.
+    value_typestr: Stores the original value's typestr (from TypeHandler).
+    enable_pinned_host_transfer: If False, disables transfer to pinned host.
+    raise_array_data_missing_error: Only used for restoring.
+    write_shape: Shape of the array shard. Used in the subchunking context.
+    is_prioritized_key_fn: See ``IsPrioritizedKeyFn`` definition.
+    keypath: Tuple of keys identifying the parameter's position in the PyTree.
   """
 
-  name: str
-  parent_dir: epath.Path
-  path: Optional[epath.Path] = None
-  keypath: Optional[Tuple[Any, ...]] = None
-  skip_deserialize: Optional[bool] = None
-  byte_limiter: Optional[limits.ByteLimiter] = None
-  device_host_byte_limiter: Optional[limits.ByteLimiter] = None
-  is_ocdbt_checkpoint: Optional[bool] = None
-  use_compression: bool | None = True
-  use_zarr3: Optional[bool] = False
-  ocdbt_target_data_file_size: Optional[int] = None
-  ts_context: Optional[ts.Context] = None
-  value_typestr: Optional[str] = None
-  enable_pinned_host_transfer: bool = False
-  raise_array_data_missing_error: bool = True
-  write_shape: arrays_types.Shape | None = None
-  is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None
+  def __init__(
+      self,
+      *,
+      name: str,
+      parent_dir: epath.Path | path_types.PathAwaitingCreation,
+      path: epath.Path | path_types.PathAwaitingCreation | None = None,
+      keypath: Optional[Tuple[Any, ...]] = None,
+      skip_deserialize: Optional[bool] = None,
+      byte_limiter: Optional[limits.ByteLimiter] = None,
+      device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
+      is_ocdbt_checkpoint: Optional[bool] = None,
+      use_compression: bool | None = True,
+      use_zarr3: Optional[bool] = False,
+      ocdbt_target_data_file_size: Optional[int] = None,
+      ts_context: Optional[ts.Context] = None,
+      value_typestr: Optional[str] = None,
+      enable_pinned_host_transfer: bool = False,
+      raise_array_data_missing_error: bool = True,
+      write_shape: arrays_types.Shape | None = None,
+      is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
+  ):
+    self.name = name
+    self._parent_dir = parent_dir
+    self._path = path if path is not None else parent_dir / name
+    self.keypath = keypath
+    self.skip_deserialize = skip_deserialize
+    self.byte_limiter = byte_limiter
+    self.device_host_byte_limiter = device_host_byte_limiter
+    self.is_ocdbt_checkpoint = is_ocdbt_checkpoint
+    self.use_compression = use_compression
+    self.use_zarr3 = use_zarr3
+    self.ocdbt_target_data_file_size = ocdbt_target_data_file_size
+    self.ts_context = ts_context
+    self.value_typestr = value_typestr
+    self.enable_pinned_host_transfer = enable_pinned_host_transfer
+    self.raise_array_data_missing_error = raise_array_data_missing_error
+    self.write_shape = write_shape
+    self.is_prioritized_key_fn = is_prioritized_key_fn
 
-  def __post_init__(self):
-    if self.path is None:
-      self.path = self.parent_dir / self.name
+  @property
+  def parent_dir(self) -> epath.Path:
+    if isinstance(self._parent_dir, path_types.PathAwaitingCreation):
+      raise ValueError(
+          'parent_dir is a PathAwaitingCreation and has not been resolved yet. '
+          'Call `await info.await_path_creation()` first.'
+      )
+    return self._parent_dir
+
+  @parent_dir.setter
+  def parent_dir(self, value: epath.Path | path_types.PathAwaitingCreation):
+    self._parent_dir = value
+
+  @property
+  def path(self) -> epath.Path:
+    if isinstance(self._path, path_types.PathAwaitingCreation):
+      raise ValueError(
+          'path is a PathAwaitingCreation and has not been resolved yet. '
+          'Call `await info.await_path_creation()` first.'
+      )
+    if self._path is None:
+      raise ValueError('path is None.')
+    return self._path
+
+  @path.setter
+  def path(self, value: epath.Path | path_types.PathAwaitingCreation | None):
+    self._path = value
+
+  def replace(self, **kwargs) -> ParamInfo:
+    new = copy.copy(self)
+    for k, v in kwargs.items():
+      setattr(new, k, v)
+    return new
+
+  async def await_path_creation(self) -> None:
+    if isinstance(self._parent_dir, path_types.PathAwaitingCreation):
+      resolved_path = await self._parent_dir.await_creation()
+      self._parent_dir = resolved_path
+      self._path = resolved_path / self.name
 
 
 @dataclasses.dataclass
