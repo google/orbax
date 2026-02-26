@@ -15,7 +15,9 @@
 """Converts TF concrete functions to OBM functions (allowing TF resources)."""
 
 from collections.abc import Mapping, Sequence
+import copy
 import os
+import tempfile
 from typing import Any, Dict, NamedTuple, Tuple
 
 from jax import tree_util as jax_tree_util
@@ -26,6 +28,8 @@ import tensorflow as tf
 
 from .learning.brain.contrib.tpu_modeling.inference_converter_v2 import converter_options_v2_pb2
 from .learning.brain.contrib.tpu_modeling.inference_converter_v2.python import converter
+from tensorflow.core.protobuf import meta_graph_pb2  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.protobuf import saved_model_pb2  # pylint: disable=g-direct-tensorflow-import
 
 TF_CONCRETE_FUNCTION_HANDLE_MIME_TYPE = (
     'application/protobuf;'
@@ -52,6 +56,10 @@ def _is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
 def convert_function(
     fn_name: str,
     fn: tf.types.experimental.ConcreteFunction,
+    converter_options: (
+        converter_options_v2_pb2.ConverterOptionsV2 | None
+    ) = None,
+    trackable_resources: Any | None = None,
 ) -> obm.SerializableFunction:
   """Converts the TF concrete function to an OBM function.
 
@@ -62,15 +70,35 @@ def convert_function(
     fn_name: The name to be used in the OBM manifest to refer to the TF
       function.
     fn: The TF concrete function.
+    converter_options: The converter options to use for the TF SavedModel. If
+      set, the TF SavedModel will be converted using Inference Converter V2 in
+      order to get the correct types for the input and output signatures.
+    trackable_resources: Trackable resources used by the function.
 
   Returns:
     The OBM function referring to the original TF function in the TF SavedModel.
   """
-  input_signature = fn.structured_input_signature
-  output_signature = get_output_signature(fn)
 
   input_names, _, _ = _flat_input_signature(fn)
   output_names = _output_names(fn)
+
+  if converter_options is not None:
+    converterted_signature_def = _get_converted_function_signature_def(
+        fn_name, fn, trackable_resources, converter_options
+    )
+    input_signature = _copy_types_from_signature_def(
+        fn.structured_input_signature,
+        converterted_signature_def.inputs,
+        input_names,
+    )
+    output_signature = _copy_types_from_signature_def(
+        get_output_signature(fn),
+        converterted_signature_def.outputs,
+        output_names,
+    )
+  else:
+    input_signature = fn.structured_input_signature
+    output_signature = get_output_signature(fn)
 
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(
@@ -406,12 +434,23 @@ def save_tf_functions(
 
   target_path = os.path.join(model_dir, tf_saved_model_sub_dir)
   if converter_options is not None:
+    # Inference Converter V2 modifies the converter_options in place, so we
+    # need to deepcopy it to avoid modifying the original options and keep
+    # them re-usable.
+    converter_options_copy = copy.deepcopy(converter_options)
     pre_conversion_path = os.path.join(model_dir, 'tmp_tf_saved_model')
-    tf.saved_model.save(tf_module, pre_conversion_path, signatures=wrapped_fns)
+    tf.saved_model.save(
+        tf_module,
+        pre_conversion_path,
+        signatures=wrapped_fns,
+        # Function aliases are used by the Inference Converter V2 to
+        # identify XLA functions.
+        options=tf.saved_model.SaveOptions(function_aliases=wrapped_fns),
+    )
     converter.ConvertSavedModel(
         pre_conversion_path,
         target_path,
-        converter_options,
+        converter_options_copy,
     )
     tf.io.gfile.rmtree(pre_conversion_path)
   else:
@@ -422,3 +461,89 @@ def save_tf_functions(
           tf_saved_model_as_obm_supplemental(tf_saved_model_sub_dir)
       )
   }
+
+
+def _copy_types_from_signature_def(
+    original_signature: Any,
+    signature_def_args: Mapping[str, meta_graph_pb2.TensorInfo],
+    arg_names: Sequence[str],
+) -> Any:
+  """Copies types from TF SignatureDef to the original signature.
+
+  Args:
+    original_signature: The original signature that needs new types.
+    signature_def_args: The TF SignatureDef arguments to copy types from.
+    arg_names: The argument names of the original TF function. They are used to
+      infer the input order in the original signature.
+
+  Returns:
+    The original signature with types copied from the signature_def for the
+    corresponding input names.
+
+  Raises:
+    ValueError: If any of the argument names is not found in the SignatureDef.
+  """
+
+  arg_names_iter = iter(arg_names)
+
+  def _copy_type(t: Any) -> Any:
+    arg_name = next(arg_names_iter)
+    if arg_name not in signature_def_args:
+      raise ValueError(
+          f'Argument name {arg_name!r} not found in SignatureDef: '
+          f'{signature_def_args.keys()!r}'
+      )
+
+    if not isinstance(t, tf.TensorSpec):
+      return t
+
+    return tf.TensorSpec(
+        shape=t.shape,
+        dtype=tf.as_dtype(signature_def_args[arg_name].dtype),
+        name=arg_name,
+    )
+
+  return jax_tree_util.tree_map(
+      _copy_type,
+      original_signature,
+  )
+
+
+def _get_converted_function_signature_def(
+    fn_name: str,
+    fn: tf.types.experimental.ConcreteFunction,
+    trackable_resources: Any,
+    converter_options: converter_options_v2_pb2.ConverterOptionsV2,
+) -> meta_graph_pb2.SignatureDef:
+  """Saves the function, converts it, returns its SignatureDef.
+
+  Args:
+    fn_name: The name of the function in the SavedModel.
+    fn: The concrete function to save.
+    trackable_resources: The trackable resources to save.
+    converter_options: The converter options to use for the TF SavedModel.
+
+  Returns:
+    The SignatureDef of the converted function.
+  """
+
+  opts_copy = copy.deepcopy(converter_options)
+  # There is no need to convert the checkpoint in this case, since we are only
+  # interested in the signature.
+  opts_copy.bfloat16_optimization_options.experimental.convert_checkpoint = (
+      False
+  )
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    save_tf_functions(
+        temp_dir,
+        {fn_name: fn},
+        trackable_resources=trackable_resources,
+        converter_options=opts_copy,
+    )
+
+    converted_model_path = os.path.join(temp_dir, OBM_TF_SAVED_MODEL_SUB_DIR)
+    with open(os.path.join(converted_model_path, 'saved_model.pb'), 'rb') as f:
+      saved_model_proto = saved_model_pb2.SavedModel.FromString(f.read())
+
+    return saved_model_proto.meta_graphs[0].signature_def[fn_name]
