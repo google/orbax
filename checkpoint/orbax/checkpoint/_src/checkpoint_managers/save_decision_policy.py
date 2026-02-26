@@ -75,7 +75,27 @@ def _log_save_decision(
 
 @dataclasses.dataclass
 class FixedIntervalPolicy(SaveDecisionPolicy):
-  """Checkpoint at a fixed interval."""
+  """Checkpoint at a fixed interval.
+
+  This policy evaluates to True whenever the current training step is an exact
+  multiple of the configured `interval` (i.e., `step.step % interval == 0`).
+  It makes its decision purely based on the current step index, strictly
+  ignoring previous save history or external context.
+
+  Attributes:
+    interval: The frequency at which checkpoints should be saved. For example,
+      an interval of 100 means a save is triggered at steps 100, 200, 300, etc.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates whether the current step index is a multiple of the interval.
+
+      Args:
+        step (PolicyCheckpointInfo): Information about the current training
+          step, primarily using the step index for modulo arithmetic.
+        previous_steps (Sequence[PolicyCheckpointInfo]): Ignored by this policy.
+        context (DecisionContext): Ignored by this policy.
+  """
 
   interval: int
 
@@ -99,7 +119,27 @@ class FixedIntervalPolicy(SaveDecisionPolicy):
 
 @dataclasses.dataclass
 class SpecificStepsPolicy(SaveDecisionPolicy):
-  """Checkpoint at specific steps."""
+  """Checkpoint at specific steps.
+
+  This policy evaluates to True whenever the current training step index exists
+  within the configured `steps` container (i.e., `step.step in steps`). It
+  makes its decision purely based on the current step index, strictly ignoring
+  previous save history or external context.
+
+  Attributes:
+    steps (Container[int]): A collection (such as a `set`, `list`, or `tuple`)
+      of step indices where checkpoints should be saved.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates whether the current step index exists in the steps container.
+
+      Args:
+        step (PolicyCheckpointInfo): Information about the current training
+          step, primarily using the step index for membership testing.
+        previous_steps (Sequence[PolicyCheckpointInfo]): Ignored by this policy.
+        context (DecisionContext): Ignored by this policy.
+  """
 
   steps: Container[int]
 
