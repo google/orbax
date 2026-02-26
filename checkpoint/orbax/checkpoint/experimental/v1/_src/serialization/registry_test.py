@@ -14,6 +14,7 @@
 
 """Unit tests for the LeafHandlerRegistry."""
 
+from typing import Any
 from absl.testing import absltest
 import jax
 import jax.numpy as jnp
@@ -30,6 +31,15 @@ class DummyIntHandlerInt(types.LeafHandler[int, int]):
 
 class DummyJaxHandler(types.LeafHandler[jax.Array, types.AbstractShardedArray]):
 
+  def __init__(self, context: context_lib.Context | None = None):
+    del context
+
+
+class DummyGenericAbstractType:
+  pass
+
+
+class DummyGenericHandler(types.LeafHandler[Any, DummyGenericAbstractType]):
   def __init__(self, context: context_lib.Context | None = None):
     del context
 
@@ -133,6 +143,135 @@ class RegistryTest(absltest.TestCase):
         )
       else:
         self.fail(f"Unexpected item: {item}")
+
+  def test_secondary_typestrs(self):
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(
+        int,
+        int,
+        DummyIntHandlerInt,
+        secondary_typestrs=["alias1", "alias2"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(DummyIntHandlerInt), ["alias1", "alias2"]
+    )
+
+    reg.add(jax.Array, types.AbstractShardedArray, DummyJaxHandler)
+    self.assertEqual(reg.get_secondary_typestrs(DummyJaxHandler), [])
+
+  def test_multiple_concrete_to_abstract(self):
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(int, DummyGenericAbstractType, DummyGenericHandler)
+    reg.add(float, DummyGenericAbstractType, DummyGenericHandler)
+
+    # Both concrete types should reliably use DummyGenericHandler
+    self.assertEqual(reg.get(int), DummyGenericHandler)
+    self.assertEqual(reg.get(float), DummyGenericHandler)
+    self.assertEqual(
+        reg.get_abstract(DummyGenericAbstractType), DummyGenericHandler
+    )
+
+  def test_override_abstract_with_different_handler(self):
+    class DummyGenericHandler2(
+        types.LeafHandler[Any, DummyGenericAbstractType]
+    ):
+      def __init__(self, context: context_lib.Context | None = None):
+        del context
+
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(str, DummyGenericAbstractType, DummyGenericHandler)
+    reg.add(float, DummyGenericAbstractType, DummyGenericHandler)
+
+    # Try registering with an abstract type that is already registered.
+    with self.assertRaisesRegex(
+        ValueError, r"abstract_type\[.*\] is already handled by.*"
+    ):
+      reg.add(int, DummyGenericAbstractType, DummyGenericHandler2)
+
+    reg.add(int, int, DummyIntHandlerInt)
+    self.assertEqual(reg.get(int), DummyIntHandlerInt)
+
+    # Override both the concrete and the abstract type with a different handler.
+    reg.add(int, DummyGenericAbstractType, DummyGenericHandler2, override=True)
+    self.assertEqual(reg.get(int), DummyGenericHandler2)
+    self.assertEqual(
+        reg.get_abstract(DummyGenericAbstractType), DummyGenericHandler2
+    )
+
+    with self.assertRaisesRegex(ValueError, "Unknown Leaf type"):
+      reg.get(str)
+    with self.assertRaisesRegex(ValueError, "Unknown Leaf type"):
+      reg.get(float)
+
+  def test_abstract_registration_order(self):
+    class DummyArrayType:
+      array: jax.Array
+
+    class DummySpecificArrayHandler(
+        types.LeafHandler[Any, types.AbstractShardedArray]
+    ):
+      def __init__(self, context: context_lib.Context | None = None):
+        del context
+
+    class DummyGenericArrayHandler(types.LeafHandler[Any, types.AbstractArray]):
+      def __init__(self, context: context_lib.Context | None = None):
+        del context
+
+    # Test registration order of leaf and abstract types.
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(jax.Array, types.AbstractShardedArray, DummySpecificArrayHandler)
+    # Register the more generic abstract type last.
+    reg.add(DummyArrayType, types.AbstractArray, DummyGenericArrayHandler)
+
+    # An abstract object that satisfies BOTH protocols. The specific protocol
+    # must be matched first because of sorting.
+    self.assertEqual(
+        reg.get_abstract(jax.ShapeDtypeStruct), DummySpecificArrayHandler
+    )
+
+    # An abstract object that ONLY satisfies the generic AbstractArray protocol
+    class PureArrayStruct:
+      shape = (1,)
+      dtype = jnp.float32
+    self.assertEqual(
+        reg.get_abstract(PureArrayStruct), DummyGenericArrayHandler
+    )
+    reg2 = registry.BaseLeafHandlerRegistry()
+    reg2.add(DummyArrayType, types.AbstractArray, DummyGenericArrayHandler)
+    reg2.add(jax.Array, types.AbstractShardedArray, DummySpecificArrayHandler)
+    self.assertEqual(
+        reg2.get_abstract(jax.ShapeDtypeStruct), DummySpecificArrayHandler
+    )
+    self.assertEqual(
+        reg2.get_abstract(PureArrayStruct), DummyGenericArrayHandler
+    )
+
+  def test_standard_registrations(self):
+    reg = registry.StandardLeafHandlerRegistry()
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.array_leaf_handler.ArrayLeafHandler
+        ),
+        ["jax.Array"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.numpy_leaf_handler.NumpyLeafHandler
+        ),
+        ["np.ndarray"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.scalar_leaf_handler.ScalarLeafHandler
+        ),
+        ["scalar"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.string_leaf_handler.StringLeafHandler
+        ),
+        ["string"],
+    )
 
 
 if __name__ == "__main__":

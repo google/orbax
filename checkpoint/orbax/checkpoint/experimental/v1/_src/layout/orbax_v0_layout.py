@@ -157,13 +157,11 @@ class OrbaxV0Layout(CheckpointLayout):
     ):
       raise ValueError(f"Found incomplete checkpoint at {path}.")
 
-    if await async_path.exists(
-        path.parent
-    ) and await orbax_layout.has_indicator_file(path.parent):
+    if await orbax_layout.has_checkpoint_metadata_file(path.parent):
       raise InvalidLayoutError(
-          f"You are currently reading in checkpointable {path.name}, which is"
-          " a subdirectory of a V1 Orbax checkpoint. Please consider loading"
-          f" from {path.parent} instead."
+          f"The path ({path}) configured for loading appears to be a"
+          " subdirectory of an Orbax checkpoint. Please try loading from the"
+          f" parent directory: {path.parent} instead."
       )
 
     if not await orbax_layout.has_checkpoint_metadata_file(path):
@@ -184,8 +182,8 @@ class OrbaxV0Layout(CheckpointLayout):
       ]
       if checkpoint_subdirectories:
         raise InvalidLayoutError(
-            "You are currently attempting to read a V0 checkpoint from a root"
-            " directory, please consider loading one of the following"
+            "You are currently attempting to read an Orbax checkpoint from a"
+            " root directory, please consider loading one of the following"
             f" checkpoint subdirectories: {checkpoint_subdirectories}"
         )
 
@@ -263,7 +261,6 @@ class OrbaxV0Layout(CheckpointLayout):
     except BaseException as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V0 Orbax checkpoint."
-          f" due to error encountered during validation: {e}"
       ) from e
 
   async def validate_pytree(
@@ -286,8 +283,7 @@ class OrbaxV0Layout(CheckpointLayout):
       await self._validate_pytree(path, checkpointable_name)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a V0 Orbax PyTree"
-          f" checkpoint. Encountered error during validation: {e}"
+          f"Failed to interpret path {path} as a V0 Orbax PyTree."
       ) from e
 
   async def load_pytree(
