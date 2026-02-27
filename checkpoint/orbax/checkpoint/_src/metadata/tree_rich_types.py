@@ -21,6 +21,7 @@ import functools
 from typing import Any, Iterable, Mapping, Sequence, Type, TypeAlias
 
 import jax
+from orbax.checkpoint._src.metadata import key_types
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import value_metadata_entry
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -77,6 +78,10 @@ def _module_and_class_name(cls) -> tuple[str, str]:
   """Returns the module and class name of the given class instance."""
   return cls.__module__, cls.__qualname__
 
+_DICT_META = 'dict_meta'
+_KEY_PYTHON_TYPE = 'key_python_type'
+_VALUE = 'value'
+
 
 _VALUE_METADATA_ENTRY_CLAZZ = 'ValueMetadataEntry'
 _VALUE_METADATA_ENTRY_MODULE_AND_CLASS = _module_and_class_name(
@@ -122,7 +127,15 @@ def _value_metadata_tree_for_json_dumps(obj: Any) -> Any:
     )
 
   if isinstance(obj, Mapping):
-    return {k: _value_metadata_tree_for_json_dumps(v) for k, v in obj.items()}
+    return {
+        str(k): {
+            _KEY_PYTHON_TYPE: (
+                key_types.KeyPythonType.from_jax_python_type(k).to_json()
+            ),
+            _VALUE: _value_metadata_tree_for_json_dumps(v),
+        }
+        for k, v in obj.items()
+    }
 
   if isinstance(obj, list):
     return [_value_metadata_tree_for_json_dumps(e) for e in obj]
@@ -175,7 +188,29 @@ def _value_metadata_tree_for_json_loads(obj):
           ],
       )
 
-  return {k: _value_metadata_tree_for_json_loads(v) for k, v in obj.items()}
+  # Deserialize dictionary mapping according to orignal key type.
+  restored_dict = {}
+  for k, v in obj.items():
+    # Check if original key type is present in the metadata.
+    if isinstance(v, Mapping) and _KEY_PYTHON_TYPE in v:
+      key_val = k
+      key_python_type = key_types.KeyPythonType.from_json(v[_KEY_PYTHON_TYPE])
+
+      try:
+        if key_python_type is key_types.KeyPythonType.INT:
+          key_val = int(key_val)
+        elif key_python_type is key_types.KeyPythonType.STR:
+          pass
+      except ValueError as e:
+        raise ValueError(
+            f'Failed to restore key {key_val} to type {key_python_type}.'
+        ) from e
+
+      restored_dict[key_val] = _value_metadata_tree_for_json_loads(v[_VALUE])
+    else:
+      # If original key type is not present, then it is a standard dict entry.
+      restored_dict[k] = _value_metadata_tree_for_json_loads(v)
+  return restored_dict
 
 
 def value_metadata_tree_to_json_str(tree: PyTree) -> str:
@@ -185,12 +220,64 @@ def value_metadata_tree_to_json_str(tree: PyTree) -> str:
   ```
   '{
     "mu_nu": {
-      "category": "namedtuple",
-      "module": "orbax.checkpoint._src.testing.test_tree_utils",
-      "clazz": "MuNu",
-      "entries": [
-        {
-          "key": "mu",
+      // enum value 2 -> str
+      "key_python_type": 2,
+      "value": {
+        "category": "namedtuple",
+        "module": "orbax.checkpoint._src.testing.test_tree_utils",
+        "clazz": "MuNu",
+        "entries": [
+          {
+            "key": "mu",
+            "value": {
+              "category": "custom",
+              "clazz": "ValueMetadataEntry",
+              "data": {
+                "value_type": "jax.Array",
+                "skip_deserialize": false
+              }
+            }
+          },
+          {
+            "key": "nu",
+            "value": {
+              "category": "custom",
+              "clazz": "ValueMetadataEntry",
+              "data": {
+                "value_type": "np.ndarray",
+                "skip_deserialize": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    "my_tuple": {
+      // enum value 2 -> str
+      "key_python_type": 2,
+      "value": {
+        "category": "custom",
+        "clazz": "tuple",
+        "entries": [
+            {
+              "category": "custom",
+              "clazz": "ValueMetadataEntry",
+              "data": {
+                "value_type": "np.ndarray",
+                "skip_deserialize": false
+              }
+            }
+        ]
+      }
+    },
+    "my_dict": {
+      // enum value 2 -> str
+      "key_python_type": 2,
+      "value": {
+        // This key ("0") will be restored as the integer .
+        "0": {
+          // enum value 1 -> int
+          "key_python_type": 1,
           "value": {
             "category": "custom",
             "clazz": "ValueMetadataEntry",
@@ -200,8 +287,9 @@ def value_metadata_tree_to_json_str(tree: PyTree) -> str:
             }
           }
         },
-        {
-          "key": "nu",
+        "str_key": {
+          // enum value 2 -> str
+          "key_python_type": 2,
           "value": {
             "category": "custom",
             "clazz": "ValueMetadataEntry",
@@ -211,21 +299,7 @@ def value_metadata_tree_to_json_str(tree: PyTree) -> str:
             }
           }
         }
-      ]
-    },
-    "my_tuple": {
-      "category": "custom",
-      "clazz": "tuple",
-      "entries": [
-          {
-            "category": "custom",
-            "clazz": "ValueMetadataEntry",
-            "data": {
-              "value_type": "np.ndarray",
-              "skip_deserialize": false
-            }
-          }
-      ]
+      }
     }
   }'
   ```
@@ -234,10 +308,7 @@ def value_metadata_tree_to_json_str(tree: PyTree) -> str:
     tree: A PyTree to be converted to JSON string.
   """
   return simplejson.dumps(
-      tree,
-      default=_value_metadata_tree_for_json_dumps,
-      tuple_as_array=False,  # Must be False to preserve tuples.
-      namedtuple_as_object=False,  # Must be False to preserve namedtuples.
+      _value_metadata_tree_for_json_dumps(tree),
   )
 
 
