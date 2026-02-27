@@ -96,19 +96,17 @@ class Checkpointer(epy.ContextManager):
     of checkpoints are saved at regular intervals. Example usage::
 
       # Configure the frequency at which checkpoints are saved.
-      save_decision_policies = ocp.training.save_decision_policies
-      # Save every 1000 steps, or when a preemption is detected.
-      save_decision_policy = save_decision_policies.AnySavePolicy([
-          save_decision_policies.FixedIntervalPolicy(1000),
-          save_decision_policies.PreemptionPolicy(),
+      save_decision = ocp.training.save_decision
+      save_decision_policy = save_decision.AnySavePolicy([
+          save_decision.FixedIntervalPolicy(1000),
+          save_decision.PreemptionPolicy(),
       ])
 
       # Configure the checkpoints to preserve (avoid garbage collection).
-      preservation_policies = ocp.training.preservation_policies
-      # Avoid garbage collection on the latest 10, or every 10000 steps.
-      preservation_policy = preservation_policies.AnyPreservationPolicy([
-          preservation_policies.LatestN(10),
-          preservation_policies.EveryNSteps(10000),
+      preservation = ocp.training.preservation
+      preservation_policy = preservation.AnyPreservationPolicy([
+          preservation.LatestN(10),
+          preservation.EveryNSteps(10000),
       ])
 
       with ocp.training.Checkpointer(
@@ -150,6 +148,7 @@ class Checkpointer(epy.ContextManager):
         metadata. This should be information that is relevant to the entire
         sequence of checkpoints, rather than to any single checkpoint.
     """
+
     context = context_lib.get_context()
 
     default_save_decision_policy = save_decision_policies.AnySavePolicy([
