@@ -25,12 +25,12 @@ from typing import Any, Callable
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,7 +148,7 @@ class Benchmark(abc.ABC):
       name += f"_repeat_{repeat_index}"
     logging.info(
         "[process_id=%s] Setting up test: %s",
-        multihost.process_index(),
+        multihost.get_process_index(),
         name,
     )
 
@@ -193,7 +193,7 @@ class Benchmark(abc.ABC):
 
     logging.info(
         "[process_id=%s] Executing test function: %s",
-        multihost.process_index(),
+        multihost.get_process_index(),
         name,
     )
     try:
@@ -203,13 +203,13 @@ class Benchmark(abc.ABC):
       # execution is recorded in the TestResult.
       if sys.version_info >= (3, 11):
         e.add_note(
-            f"[process_id={multihost.process_index()}],"
+            f"[process_id={multihost.get_process_index()}],"
             f" {test_context_summary[:100]}"
         )
       logging.error(
           "[process_id=%s] Test function '%s' context: %s, raised an"
           " exception: %s",
-          multihost.process_index(),
+          multihost.get_process_index(),
           name,
           test_context_summary[:100],
           e,
@@ -223,7 +223,7 @@ class Benchmark(abc.ABC):
 
     logging.info(
         "[process_id=%s] Test finished: %s",
-        multihost.process_index(),
+        multihost.get_process_index(),
         name,
     )
 
@@ -306,13 +306,13 @@ class BenchmarksGenerator(abc.ABC):
         option_instances.append(option_instance)
         logging.info(
             "[process_id=%s] Generating valid option combination: %s",
-            multihost.process_index(),
+            multihost.get_process_index(),
             option_instance,
         )
       else:
         logging.info(
             "[process_id=%s] Skipping invalid option combination: %s",
-            multihost.process_index(),
+            multihost.get_process_index(),
             option_instance,
         )
     return option_instances
