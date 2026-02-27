@@ -44,6 +44,7 @@ from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as handler_registry
@@ -470,7 +471,9 @@ def _concurrent_bytes(
     return concurrent_gb * 10**9
 
 
-class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
+class PyTreeCheckpointHandler(
+    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
+):
   """A CheckpointHandler implementation for any PyTree structure.
 
   See JAX documentation for more information on what consistutes a "PyTree".
@@ -608,7 +611,7 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       item: Optional[PyTree] = None,
       save_args: Optional[PyTreeSaveArgs] = None,
       args: Optional[PyTreeSaveArgs] = None,

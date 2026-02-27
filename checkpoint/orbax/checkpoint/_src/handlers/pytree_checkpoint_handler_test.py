@@ -61,6 +61,7 @@ from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint.google.path import tfhub_atomicity
 
 
 PyTree = Any
@@ -2947,6 +2948,51 @@ class PyTreeCheckpointHandlerTest(
           ),
       )
       test_utils.assert_tree_equal(self, expected, restored)
+
+  async def test_save_with_deferred_path(self):
+    """Tests that async_save works with deferred paths."""
+    deferred_path = tfhub_atomicity.DeferredPath()
+    save_dir = self.directory / 'deferred_path_ckpt'
+    await_creation_called = False
+    original_await = tfhub_atomicity.DeferredPath.await_creation
+
+    async def mock_await_creation(dp_self):
+      """Sets the path only once await_creation is called.
+
+      This ensures the path is not resolved before the handler awaits it, fully
+      exercising the deferred path resolution contract.
+
+      Args:
+        dp_self: The DeferredPath instance.
+
+      Returns:
+        The result of the original await_creation method.
+      """
+      nonlocal await_creation_called
+      if not dp_self._future_path.done():
+        save_dir.mkdir(parents=True, exist_ok=True)
+        dp_self.set_path(save_dir)
+      await_creation_called = True
+      return await original_await(dp_self)
+
+    with self.ocdbt_checkpoint_handler(use_ocdbt=False) as handler:
+      with mock.patch.object(
+          tfhub_atomicity.DeferredPath,
+          'await_creation',
+          mock_await_creation,
+      ):
+        await handler.async_save(
+            deferred_path,
+            args=PyTreeSaveArgs(self.pytree),
+        )
+
+      self.assertTrue(await_creation_called)
+      self.validate_save(
+          save_dir,
+          self.pytree,
+          handler,
+          restore_args=self.restore_args,
+      )
 
 
 if __name__ == '__main__':
