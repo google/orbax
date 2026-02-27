@@ -152,6 +152,11 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
+def _shard_sort_device_key(shard_data):
+  d = list(shard_data.devices())[0]
+  return (d.process_index, d.id)
+
+
 def fully_replicated_host_local_array_to_global_array(
     arr: jax.Array,
 ) -> jax.Array:
@@ -178,7 +183,7 @@ def fully_replicated_host_local_array_to_global_array(
   # pmap-produced Array has a "scrambled" device order.
   dbs = sorted(
       [shard.data for shard in arr.addressable_shards],
-      key=lambda x: list(x.devices())[0].id,
+      key=_shard_sort_device_key
   )
   if global_shape != arr.shape:
     dbs = [s[0] for s in dbs]
