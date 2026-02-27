@@ -17,7 +17,6 @@
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
-import functools
 import itertools
 import os
 from typing import Any, cast
@@ -41,6 +40,7 @@ import tensorflow as tf
 
 
 _obm_export_config = config.config
+
 
 class ObmExport(export_base.ExportBase):
   """Defines the save and load methods for exporting a model using Orbax Model export."""
