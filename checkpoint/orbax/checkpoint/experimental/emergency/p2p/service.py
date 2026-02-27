@@ -143,9 +143,7 @@ class P2PNode:
     self._thread.join(timeout=2.0)
     self._thread = None
 
-  def handle_get_manifest(
-      self, payload: dict[str, Any]
-  ) -> list[dict[str, Any]]:
+  def handle_get_manifest(self, payload: dict[str, Any]) -> protocol.Manifest:
     """Handles GET_MANIFEST request.
 
     Args:
@@ -194,6 +192,7 @@ class P2PNode:
           step,
           req_process_index,
       )
+
     return files
 
   def handle_download(self, sock, payload: dict[str, Any]):
@@ -237,7 +236,7 @@ class P2PNode:
     """
     logging.info('Requesting manifest from %s:%d for step %d', ip, port, step)
 
-    manifest = protocol.TCPClient.request(
+    manifest: protocol.Manifest = protocol.TCPClient.request(
         ip,
         port,
         protocol.OP_GET_MANIFEST,

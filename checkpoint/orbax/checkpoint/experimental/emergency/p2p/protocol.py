@@ -18,6 +18,7 @@ import dataclasses
 import json
 import socket
 import struct
+import typing
 from typing import Any, Final
 from absl import logging
 from etils import epath
@@ -58,6 +59,16 @@ class PeerDiscoveryInfo:
         process_index=data['process_index'],
         steps=data.get('steps', []),
     )
+
+
+class ManifestEntry(typing.TypedDict):
+  """Type definition for a single file entry in a manifest."""
+
+  rel_path: str
+  size: int
+
+
+Manifest = list[ManifestEntry]
 
 
 def optimize_socket(sock: socket.socket) -> None:
