@@ -31,7 +31,25 @@ PolicyCheckpointInfo = policy_checkpoint_info.PolicyCheckpointInfo
 
 @dataclasses.dataclass(kw_only=True)
 class DecisionContext:
-  """Additional properties for making a save decision."""
+  """Additional properties for making a save decision.
+
+  This dataclass is populated by the checkpointer framework and passed into the
+  `should_save` method of all `SaveDecisionPolicy` implementations. It provides
+  essential external system context, allowing policies to make safe, state-aware
+  decisions.
+
+  Attributes:
+    is_saving_in_progress: Indicates whether an asynchronous checkpoint
+      save operation is currently running in the background. Policies (like
+      `ContinuousCheckpointingPolicy`) use this to avoid triggering overlapping
+      save operations.
+    reached_preemption: Indicates whether a preemption signal has been
+      received from the cluster manager, meaning the training job is about to
+      be terminated.
+    multiprocessing_options: Configuration details for distributed multihost
+      training. This provides information such as primary host identification
+      for synchronization barriers.
+  """
 
   is_saving_in_progress: bool
   reached_preemption: bool
@@ -166,7 +184,8 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
   """Checkpoint as often as possible, as long as a save is not ongoing.
 
   This policy evaluates to True as often as possible. It enforces two primary
-  constraints to prevent blocking training or causing other regressions.:
+  constraints to prevent blocking training or causing other regressions.
+
   1. It will never trigger a new save if a save is currently in progress
      (checked via the provided `DecisionContext`); this prevents blocking on an
      ongoing save, which would hurt accelerator utilization.
@@ -254,7 +273,31 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
 
 
 class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
-  """Save a checkpoint when a preemption is detected."""
+  """Save a checkpoint when a preemption is detected.
+
+  This policy evaluates to True strictly when the provided `DecisionContext`
+  indicates that a preemption signal has been received (i.e.,
+  `context.reached_preemption` is True). It can be useful for ensuring that
+  training progress is safely stored before the job is killed by the cluster
+  scheduler.
+
+  Note that saving on preemption is not strictly necessary, however. For
+  example, if continuous checkpointing is employed, and checkpoints are saved
+  frequently enough, the cost of re-computing some amount of steps can be
+  cheaper than the cost of waiting for a checkpoint to complete after
+  preemption.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates whether a preemption signal has been registered in the context.
+
+      Args:
+        step (PolicyCheckpointInfo): Ignored by this policy.
+        previous_steps (Sequence[PolicyCheckpointInfo]): Ignored by this policy.
+        context (DecisionContext): A container for auxiliary information. This
+          policy specifically checks the `reached_preemption` boolean flag to
+          make its decision.
+  """
 
   def should_save(
       self,
@@ -274,7 +317,24 @@ class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
 
 
 class InitialSavePolicy(SaveDecisionPolicy):
-  """Checkpoint as soon as possible if no checkpoints already exist."""
+  """Save a checkpoint as soon as possible if no checkpoints already exist.
+
+  This policy evaluates to True only if the `previous_steps` sequence is empty.
+  It is highly useful for ensuring a baseline checkpoint is created immediately
+  upon starting a fresh training run, while safely evaluating to False if the
+  job is restarting from an existing checkpoint.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates whether the `previous_steps` history is empty.
+
+      Args:
+        step (PolicyCheckpointInfo): Ignored by this policy.
+        previous_steps (Sequence[PolicyCheckpointInfo]): A chronological list
+          of metadata for previously saved steps. The policy checks if this is
+          empty.
+        context (DecisionContext): Ignored by this policy.
+  """
 
   def should_save(
       self,
@@ -297,8 +357,25 @@ class InitialSavePolicy(SaveDecisionPolicy):
 class AnySavePolicy(SaveDecisionPolicy):
   """Evaluates all policies and saves if any of them returns True.
 
-  Each policy is evaluated in order, and if all are False, the final result is
-  False. If at least one is True, the final result is True.
+  This policy iterates through a provided sequence of child policies. It
+  evaluates each one in order and returns True immediately if any child policy
+  returns True. If all child policies return False, this policy returns False.
+  It is highly useful for combining time-based, step-based, and event-based
+  saving rules into a single, unified checkpointer configuration.
+
+  Attributes:
+    policies (Sequence[SaveDecisionPolicy]): An ordered collection of underlying
+      policies to evaluate.
+
+  Methods:
+    should_save(step, previous_steps, *, context):
+      Evaluates the sequence of configured policies.
+
+      Args:
+        step (PolicyCheckpointInfo): Passed down to each child policy.
+        previous_steps (Sequence[PolicyCheckpointInfo]): Passed down to each
+          child policy.
+        context (DecisionContext): Passed down to each child policy.
   """
 
   policies: Sequence[SaveDecisionPolicy]
