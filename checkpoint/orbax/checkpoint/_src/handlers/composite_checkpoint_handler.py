@@ -72,7 +72,6 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 
-
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
 CheckpointArgs = checkpoint_args.CheckpointArgs
