@@ -26,6 +26,7 @@ from absl import logging
 from etils import epath
 
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import s3_utils
 
 
 
@@ -38,6 +39,8 @@ def get_storage_type(path: epath.Path | str) -> str:
 
   if gcs_utils.is_gcs_path(path):
     return 'gcs'
+  elif s3_utils.is_s3_path(path):
+    return 's3'
   else:
     return 'other'
 

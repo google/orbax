@@ -27,6 +27,7 @@ import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import s3_utils
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -50,6 +51,7 @@ is_primary_host = multihost.is_primary_host
 is_pathways_backend = multihost.is_pathways_backend
 
 is_gcs_path = gcs_utils.is_gcs_path
+is_s3_path = s3_utils.is_s3_path
 checkpoint_steps = step_lib.checkpoint_steps
 any_checkpoint_step = step_lib.any_checkpoint_step
 is_checkpoint_finalized = step_lib.is_path_finalized

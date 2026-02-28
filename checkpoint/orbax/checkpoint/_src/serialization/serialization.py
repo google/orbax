@@ -93,6 +93,30 @@ def _get_kvstore_for_gcs(ckpt_path: str):
       'path': path_without_bucket,
   }
 
+def _get_kvstore_for_s3(ckpt_path: str):
+  """Constructs a TensorStore kvstore spec for a S3 path.
+
+  Args:
+    ckpt_path: A S3 path of the form s3://<bucket>/<path>.
+  Returns:
+    A dictionary containing the TensorStore kvstore spec.
+  Raises:
+    ValueError: if ckpt_path is not a valid S3 path.
+  """
+  m = re.fullmatch('^s3://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
+  if m is None:
+    raise ValueError(
+        'The ckpt_path should contain the bucket name and the '
+        f'file path inside the bucket. Got: {ckpt_path}'
+    )
+  s3_bucket = m.group(1)
+  path_without_bucket = m.group(2)
+  return {
+      'driver': 's3',
+      'bucket': s3_bucket,
+      'path': path_without_bucket,
+  }
+
 
 def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
   """Constructs a TensorStore spec for the given checkpoint path."""
@@ -100,9 +124,10 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
   # fix the path prefix to add back the stripped '/'.
   ckpt_path = os.path.normpath(ckpt_path).replace('gs:/', 'gs://')
   is_gcs_path = ckpt_path.startswith('gs://')
+  is_s3_path = ckpt_path.startswith('s3://')
   spec = {'driver': 'zarr', 'kvstore': {}}
   if ocdbt:
-    if not is_gcs_path and not os.path.isabs(ckpt_path):
+    if not is_gcs_path and not is_s3_path and not os.path.isabs(ckpt_path):
       raise ValueError(f'Checkpoint path should be absolute. Got {ckpt_path}')
     base_path = os.path.dirname(ckpt_path)
     base_driver_spec = (
@@ -118,6 +143,8 @@ def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
   else:
     if is_gcs_path:
       spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
+    elif is_s3_path:
+      spec['kvstore'] = _get_kvstore_for_s3(ckpt_path)
     else:
       spec['kvstore'] = {'driver': ts_utils.DEFAULT_DRIVER, 'path': ckpt_path}
 

@@ -29,6 +29,7 @@ import jax
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import s3_utils
 from orbax.checkpoint._src.path import step as step_lib
 
 
@@ -188,6 +189,10 @@ class StandardCheckpointDeleter:
           # This is recommended for GCS buckets with HNS enabled and requires
           # `_todelete_full_path` to be specified.
           self._gcs_rename_step(step, delete_target)
+        elif s3_utils.is_s3_path(self._directory):
+          # This is recommended for S3 buckets and requires
+          # `_todelete_full_path` to be specified.
+          self._s3_rename_step(step, delete_target)
         else:
           raise NotImplementedError()
       # Attempt to rename to local subdirectory using `todelete_subdir`
@@ -234,6 +239,51 @@ class StandardCheckpointDeleter:
       # Construct the destination path inside the `_todelete_full_path` dir.
       destination_parent_path = epath.Path(
           f'gs://{bucket_name}/{self._todelete_full_path}'
+      )
+      destination_parent_path.mkdir(parents=True, exist_ok=True)
+
+      # Create a unique name for the destination to avoid collisions.
+      now = datetime.datetime.now()
+      timestamp_str = now.strftime('%Y%m%d-%H%M%S-%f')
+      new_name_with_timestamp = f'{delete_target.name}-{timestamp_str}'
+      dest_path = destination_parent_path / new_name_with_timestamp
+
+      logging.info(
+          'Executing filesystem-aware rename: Source=`%s`, Destination=`%s`',
+          delete_target,
+          dest_path,
+      )
+
+      # Call the high-level rename method.
+      # This will be fast on HNS and slow (but functional) on non-HNS.
+      delete_target.rename(dest_path)
+      logging.info('Successfully renamed step %d to %s', step, dest_path)
+
+    except Exception as e:
+      message = f'Rename failed for step {step}. Error: {e}'
+      logging.error(message)
+      raise RuntimeError(message) from e
+
+  def _s3_rename_step(
+      self, step: int, delete_target: epath.Path
+  ):
+    """Renames a S3 directory to a temporary location for deletion.
+
+    Args:
+      step: The checkpoint step number.
+      delete_target: The path to the directory to be renamed.
+    """
+    try:
+      # Get the bucket name from the source path
+      bucket_name = urlparse(str(delete_target)).netloc
+      if not bucket_name:
+        raise ValueError(
+            f'Could not parse bucket name from path: {delete_target}'
+        )
+
+      # Construct the destination path inside the `_todelete_full_path` dir.
+      destination_parent_path = epath.Path(
+          f's3://{bucket_name}/{self._todelete_full_path}'
       )
       destination_parent_path.mkdir(parents=True, exist_ok=True)
 
