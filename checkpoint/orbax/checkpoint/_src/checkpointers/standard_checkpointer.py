@@ -132,7 +132,7 @@ class StandardCheckpointer(async_checkpointer.AsyncCheckpointer):
     """Restores a checkpoint.
 
     Args:
-      directory: Path where the checkpoint will be saved.
+      directory: Path to the saved checkpoint.
       target: a PyTree representing the expected structure of the checkpoint.
         Values may be either real array or scalar values, or they may be
         jax.ShapeDtypeStruct. If real values are provided, that value will be
