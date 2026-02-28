@@ -344,7 +344,7 @@ jobs:
         pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
         pip install gcsfs
-        pip install portpicker pytest chex pyyaml
+        pip install portpicker pytest chex pyyaml pathwaysutils
         if [ "${{ matrix.jax-version }}" = "newest" ]; then
           pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
@@ -352,9 +352,34 @@ jobs:
         else
           pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         fi
-    - name: Run multiprocess tests
+    - name: Run pathways tests
+      env:
+        JAX_DEFAULT_BACKEND: pathways
+        JAX_PLATFORMS: tpu
+        # Configures JAX to target a subslice within the TPU allocation.
+        JAX_BACKEND_TARGET: subslice
+        # Enables IFRT in Pathways.
+        PATHWAYS_IFRT: true
+        # Allows JAX to run even if some TPUs are not utilized.
+        JAX_ALLOW_UNUSED_TPUS: true
       run: |
-        python orbax/checkpoint/_src/testing/oss/run_multihost.py orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=4
+        python -c "import pathwaysutils; pathwaysutils.initialize(); print('Pathways initialized'); import jax; print(jax.devices());" && python orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --pathways=1
+    - name: Run colacated pathways tests
+      env:
+        JAX_PLATFORMS: pathways
+        JAX_BACKEND_TARGET: subslice
+        PATHWAYS_IFRT: true
+        JAX_ALLOW_UNUSED_TPUS: true
+        PATHWAYS_EXPECTED_INSTANCES: df=1x1,df=1x1,df=1x1,df=1x1
+        USE_COLOCATED_PYTHON: true
+      run: |
+        python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=1 --tpu_chips_per_process=8 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --pathways=1
+    - name: Run 2 multiprocess tests
+      run: |
+        python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=2 --tpu_chips_per_process=4 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=2
+    - name: Run 4 multiprocess tests
+      run: |
+        python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=4 --tpu_chips_per_process=2 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=4
     - name: Run single process tests
       run: |
         python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=1 --tpu_chips_per_process=8 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests.yaml --processes=1

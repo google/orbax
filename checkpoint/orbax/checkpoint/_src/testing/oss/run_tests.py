@@ -36,6 +36,11 @@ flags.DEFINE_integer(
     None,
     'Number of processes to select test list from yaml file.',
 )
+flags.DEFINE_integer(
+    'pathways',
+    None,
+    'Number of pathways to select test list from yaml file.',
+)
 
 
 def install_deps():
@@ -84,6 +89,13 @@ def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
+  if FLAGS.processes is None and FLAGS.pathways is None:
+    raise app.UsageError('Either --processes or --pathways must be specified.')
+  if FLAGS.processes is not None and FLAGS.pathways is not None:
+    raise app.UsageError(
+        'Only one of --processes or --pathways can be specified.'
+    )
+
   install_deps()
 
   try:
@@ -97,13 +109,15 @@ def main(argv: Sequence[str]) -> None:
     logging.error('YAML file not found: %s', FLAGS.filename)
     sys.exit(1)
 
-  key = f'processes:{FLAGS.processes}'
+  if FLAGS.processes is not None:
+    key = f'processes:{FLAGS.processes}'
+  else:
+    key = f'pathways:{FLAGS.pathways}'
+
   if key not in tests_by_process_count:
     logging.error(
-        'key=%s (from processes=%d) not found as a key in %s. Available'
-        ' keys: %s',
+        'key=%s not found as a key in %s. Available keys: %s',
         key,
-        FLAGS.processes,
         FLAGS.filename,
         list(tests_by_process_count.keys()),
     )
@@ -112,8 +126,8 @@ def main(argv: Sequence[str]) -> None:
   test_files = tests_by_process_count[key]
   if not test_files:
     logging.warning(
-        'No test files found for processes=%d in %s.',
-        FLAGS.processes,
+        'No test files found for key=%s in %s.',
+        key,
         FLAGS.filename,
     )
     return
@@ -157,5 +171,4 @@ def main(argv: Sequence[str]) -> None:
 
 if __name__ == '__main__':
   flags.mark_flag_as_required('filename')
-  flags.mark_flag_as_required('processes')
   app.run(main)
