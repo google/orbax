@@ -798,18 +798,26 @@ def checkpoint_steps(checkpoint_dir: epath.PathLike) -> List[int]:
 
 
 def any_checkpoint_step(checkpoint_dir: epath.PathLike) -> Optional[int]:
-  """Returns any finalized checkpoint step in the directory or None.
-
-  This avoids iterating over the entire directory.
+  """Returns any (preferably the latest) finalized checkpoint step in the directory or None.
 
   Args:
     checkpoint_dir: Checkpoint directory.
 
   Returns:
-    Any finalized checkpoint step in the directory or None.
+    Latest finalized checkpoint step in the directory or None.
   """
   checkpoint_dir = epath.Path(checkpoint_dir)
+  valid_steps = []
   for s in checkpoint_dir.iterdir():
     if _is_legacy_finalized_step_checkpoint(s):
-      return step_from_checkpoint_name(s.name)
+      valid_steps.append(step_from_checkpoint_name(s.name))
+      logging.info('Found valid checkpoint step: %s', s.name)
+    else:
+      logging.info('Skipping invalid checkpoint: %s', s.name)
+
+  if valid_steps:
+    selected_step = max(valid_steps)
+    logging.info('Latest valid step found: %s', selected_step)
+    return selected_step
+
   return None
