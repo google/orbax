@@ -454,6 +454,7 @@ def construct_restore_args(
     sharding_tree: Optional[PyTree] = None,
     set_global_shape: bool = True,
     support_layout: bool = False,
+    allow_uneven_sharding: bool = False,
 ) -> PyTree:
   """Creates restore_args given a target PyTree.
 
@@ -496,6 +497,7 @@ def construct_restore_args(
     set_global_shape: If true, set the `global_shape` field of ArrayRestoreArgs.
     support_layout: If true, layout is extracted from jax.Array or
       jax.ShapeDtypeStruct.
+    allow_uneven_sharding: If true, allow padding/slicing for uneven sharding.
 
   Returns:
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
@@ -517,6 +519,7 @@ def construct_restore_args(
         sharding=sharding,
         global_shape=global_shape,
         dtype=dtype,
+        strict=not allow_uneven_sharding,
     )
 
   def _restore_args(
