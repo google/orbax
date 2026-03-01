@@ -91,6 +91,65 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
 
   @parameterized.product(
+      support_rich_types=(True, False),
+  )
+  def test_integer_dict_keys(self, support_rich_types):
+    tree = {0: 'a', 1: 'b'}
+    pytree_metadata_options = tree_metadata_lib.PyTreeMetadataOptions(
+        support_rich_types=support_rich_types
+    )
+    original_internal_tree_metadata = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(
+            tree, pytree_metadata_options=pytree_metadata_options
+        ),
+        pytree_metadata_options=pytree_metadata_options,
+    )
+    json_object = original_internal_tree_metadata.to_json()
+    restored_internal_tree_metadata = InternalTreeMetadata.from_json(
+        json_object, pytree_metadata_options=pytree_metadata_options
+    )
+    restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
+    self.assertSequenceEqual([0, 1], list(restored_tree_metadata.keys()))
+
+  @parameterized.product(
+      support_rich_types=(True, False),
+  )
+  def test_missing_key_python_type(self, support_rich_types):
+    # JSON representation of a tree {'1': 1} with missing key_python_type using
+    # both data-rich and non data-rich format.
+    json_object = {
+        'tree_metadata': {
+            "('1',)": {
+                'key_metadata': ({'key': '1', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'scalar',
+                    'skip_deserialize': False,
+                },
+            }
+        },
+        'use_zarr3': False,
+        'store_array_data_equal_to_fill_value': False,
+        'custom_metadata': None,
+    }
+    if support_rich_types:
+      json_object['value_metadata_tree'] = (
+          '{"1": {"value": {"category": "custom",'
+          ' "clazz": "ValueMetadataEntry", "data": {"value_type": "scalar",'
+          ' "skip_deserialize": false}}}}'
+      )
+    pytree_metadata_options = tree_metadata_lib.PyTreeMetadataOptions(
+        support_rich_types=support_rich_types
+    )
+    restored_internal_tree_metadata = InternalTreeMetadata.from_json(
+        json_object,
+        pytree_metadata_options=pytree_metadata_options,
+    )
+    restored_tree_metadata = restored_internal_tree_metadata.as_nested_tree()
+    # Should fall back to string keys when key_python_type is missing.
+    self.assertIn('1', restored_tree_metadata)
+    self.assertSequenceEqual(['1'], list(restored_tree_metadata.keys()))
+
+  @parameterized.product(
       test_pytree=test_tree_utils.TEST_PYTREES,
       pytree_metadata_options_switch=[
           (
