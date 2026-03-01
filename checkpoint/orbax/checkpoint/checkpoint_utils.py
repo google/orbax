@@ -454,6 +454,7 @@ def construct_restore_args(
     sharding_tree: Optional[PyTree] = None,
     set_global_shape: bool = True,
     support_layout: bool = False,
+    use_single_replica_array_handler: bool = False,
 ) -> PyTree:
   """Creates restore_args given a target PyTree.
 
@@ -496,6 +497,8 @@ def construct_restore_args(
     set_global_shape: If true, set the `global_shape` field of ArrayRestoreArgs.
     support_layout: If true, layout is extracted from jax.Array or
       jax.ShapeDtypeStruct.
+    use_single_replica_array_handler: If true, use
+      `SingleReplicaArrayRestoreArgs`.
 
   Returns:
     A PyTree matching target of RestoreArgs (or ArrayRestoreArgs) objects.
@@ -512,6 +515,8 @@ def construct_restore_args(
         value.dtype, jax.dtypes.prng_key
     ):
       global_shape = value.shape
+    if use_single_replica_array_handler:
+      return type_handlers.SingleReplicaArrayRestoreArgs()
     return type_handlers.ArrayRestoreArgs(
         restore_type=jax.Array,
         sharding=sharding,
