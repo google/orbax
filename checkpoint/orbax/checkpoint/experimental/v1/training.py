@@ -20,8 +20,8 @@ from orbax.checkpoint.experimental.v1._src.training.checkpointer import (
     Checkpointer,
 )
 
-from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
-from orbax.checkpoint.experimental.v1._src.training import preservation_policies
+from orbax.checkpoint.experimental.v1._src.training import save_decision_policies as save_decision
+from orbax.checkpoint.experimental.v1._src.training import preservation_policies as preservation
 from orbax.checkpoint.experimental.v1._src.training import errors
 
 from orbax.checkpoint.experimental.v1._src.training.metadata.types import (

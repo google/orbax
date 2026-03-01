@@ -65,7 +65,7 @@ class SaveDecisionPolicy(Protocol):
   save frequency. For example::
 
     from orbax.checkpoint.experimental.v1 import training
-    policies = training.save_decision_policies
+    policies = training.save_decision
 
     # Save every 1000 steps, or when a preemption is detected.
     policy = policies.AnySavePolicy([
@@ -102,9 +102,9 @@ class SaveDecisionPolicy(Protocol):
           containing the step index, timestamp, and metadata.
         previous_steps (Sequence[CheckpointMetadata]): A chronological list of
           metadata for all steps where a checkpoint was successfully saved.
-        context (DecisionContext): A container for auxiliary information,
-          such as validation loss or performance metrics, used to inform the
-          save decision.
+        context (DecisionContext): A container for auxiliary information, such
+          as validation loss or performance metrics, used to inform the save
+          decision.
   """
 
   def should_save(
