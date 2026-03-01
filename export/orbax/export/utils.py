@@ -176,6 +176,7 @@ def with_default_args(
 
 def _runtime_batch_size(x: tf.Tensor) -> tf.Tensor:
   """Gets the runtime batch size of a tensor."""
+  tf.debugging.assert_rank_at_least(x, 1)
   return tf.shape(x)[0]
 
 
