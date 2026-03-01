@@ -1,0 +1,23 @@
+suite_name: "ArrayHandler Benchmark"
+
+mesh_configs:
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 2, "model": 2}
+    dcn_parallelism: {"data": 2, "model": 1}
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
+
+checkpoint_config:
+  spec:
+    array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.array_handler_benchmark.ArrayHandlerBenchmark"
+    options:
+      use_ocdbt: [True, False]
+      use_zarr3: [True, False]
+      use_replica_parallel: [True, False]
+      enable_replica_parallel_separate_folder: [True, False]
+      use_metadata_store: [True, False]
+
