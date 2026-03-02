@@ -1,0 +1,1 @@
+{"item_handlers": {"state": "UnregisteredHandler", "metadata": "UnregisteredHandler", "descriptor": "orbax.checkpoint.experimental.v1._src.handlers.descriptor_handler.DescriptorHandler"}, "metrics": {}, "performance_metrics": {}, "init_timestamp_nsecs": 1772113726276158464, "commit_timestamp_nsecs": 1772113726919775524, "custom_metadata": {}}
