@@ -347,6 +347,11 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
     ...
 
 
+def typestr(handler_cls: Type[LeafHandler]) -> str:
+  """A name for the handler class that uniquely identifies it."""
+  return f'{handler_cls.__module__}.{handler_cls.__qualname__}'
+
+
 LeafHandlerRegistryItem = Tuple[
     Type[Leaf], Type[AbstractLeaf], Type[LeafHandler[Leaf, AbstractLeaf]]
 ]
