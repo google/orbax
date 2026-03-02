@@ -215,5 +215,9 @@ class PersistentCheckpointManager:
   def check_for_errors(self):
     self._manager.check_for_errors()
 
+  def reload(self):
+    """Reloads the internal checkpoint manager."""
+    self._manager.reload()
+
   def close(self):
     self._manager.close()

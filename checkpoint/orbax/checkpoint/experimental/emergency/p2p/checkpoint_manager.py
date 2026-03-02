@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Composite Checkpoint Manager handling P2P syncing with optional Persistent Fallback."""
+"""Composite Checkpoint Manager with P2P syncing and Persistent Fallback."""
 
 import shutil
 import threading
@@ -178,7 +178,7 @@ class _P2PSubsystem:
     return self._peer_selector.get_all_steps()
 
   def has_shard_for_step(self, step: int) -> bool:
-    """Checks if this process's shard for a given step exists in the P2P network."""
+    """Checks if this process's shard for a step exists in P2P."""
     assert self._peer_selector is not None
     return (
         self._peer_selector.get_source_peer(step, self._process_index)
@@ -212,7 +212,7 @@ class _P2PSubsystem:
 class CheckpointManager(
     abstract_checkpoint_manager.AbstractCheckpointManager, epy.ContextManager
 ):
-  """Orchestrates P2P local checkpointing with optional persistent storage failover.
+  """P2P local checkpointing with persistent storage failover.
 
   Restoration Strategy:
     1. Check Local Disk (Fastest)
@@ -333,7 +333,15 @@ class CheckpointManager(
 
   @override
   def reload(self):
+    """Reloads the checkpoint manager and its components.
+
+    This method refreshes the local and persistent managers and marks the P2P
+    registry as stale, forcing a re-sync on the next access.
+    """
+    self._p2p.mark_registry_stale()
     self._local_manager.reload()
+    if self._persistent_manager:
+      self._persistent_manager.reload()
 
   @override
   def reached_preemption(self, step: int) -> bool:
