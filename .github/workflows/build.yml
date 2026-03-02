@@ -27,10 +27,10 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
         jax-version: ["newest"]
         include:
-          - python-version: "3.10"
+          - python-version: "3.11"
             jax-version: "0.6.0"  # keep in sync with minimum version in checkpoint/pyproject.toml
           # TODO(b/401258175) Re-enable once JAX nightlies are fixed.
           # - python-version: "3.13"
@@ -253,7 +253,7 @@ jobs:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.11"]
         jax-version: ["0.6.0"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2

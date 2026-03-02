@@ -19,7 +19,6 @@ from collections.abc import Sequence
 import dataclasses
 import hashlib
 import itertools
-import sys
 from typing import Any, Callable
 
 from absl import logging
@@ -201,11 +200,10 @@ class Benchmark(abc.ABC):
     except Exception as e:  # pylint: disable=broad-exception-caught
       # We catch all exceptions to ensure that any error during the test
       # execution is recorded in the TestResult.
-      if sys.version_info >= (3, 11):
-        e.add_note(
-            f"[process_id={multihost.process_index()}],"
-            f" {test_context_summary[:100]}"
-        )
+      e.add_note(
+          f"[process_id={multihost.process_index()}],"
+          f" {test_context_summary[:100]}"
+      )
       logging.error(
           "[process_id=%s] Test function '%s' context: %s, raised an"
           " exception: %s",
