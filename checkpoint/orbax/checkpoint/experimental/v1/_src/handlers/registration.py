@@ -73,7 +73,13 @@ def add_all(
 ) -> CheckpointableHandlerRegistry:
   """Adds all entries from `other_registry` to `registry`."""
   for handler, checkpointable in other_registry.get_all_entries():
-    registry.add(handler, checkpointable)
+    registry.add(
+        handler,
+        checkpointable,
+        recognized_handler_typestrs=other_registry.get_recognized_handler_typestrs(
+            handler
+        ),
+    )
   return registry
 
 
@@ -87,6 +93,7 @@ class CheckpointableHandlerRegistry(Protocol):
       self,
       handler_type: Type[CheckpointableHandler],
       checkpointable: str | None = None,
+      recognized_handler_typestrs: Sequence[str] | None = None,
   ) -> CheckpointableHandlerRegistry:
     """Adds an entry to the registry."""
     ...
@@ -110,6 +117,13 @@ class CheckpointableHandlerRegistry(Protocol):
   ) -> Sequence[RegistryEntry]:
     ...
 
+  def get_recognized_handler_typestrs(
+      self,
+      handler_type: Type[CheckpointableHandler],
+  ) -> Sequence[str]:
+    """Returns the recognized handler typestrs for a given handler_type."""
+    ...
+
 
 class AlreadyExistsError(ValueError):
   """Raised when an entry already exists in the registry."""
@@ -126,6 +140,9 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       self, other_registry: CheckpointableHandlerRegistry | None = None
   ):
     self._registry: list[RegistryEntry] = []
+    self._recognized_handler_typestrs: dict[
+        Type[CheckpointableHandler], Sequence[str]
+    ] = {}
 
     # Initialize the registry with entries from other registry.
     if other_registry:
@@ -135,6 +152,7 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       self,
       handler_type: Type[CheckpointableHandler],
       checkpointable: str | None = None,
+      recognized_handler_typestrs: Sequence[str] | None = None,
   ) -> CheckpointableHandlerRegistry:
     """Adds an entry to the registry.
 
@@ -143,6 +161,8 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       checkpointable: The checkpointable name. If not-None, the registered
         handler will be scoped to that specific name. Otherwise, the handler
         will be available for any checkpointable name.
+      recognized_handler_typestrs: A sequence of alternate typestrs that are
+        recognized and mapped to this handler.
 
     Returns:
       The registry itself.
@@ -170,6 +190,10 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
           f'Handler type {handler_type} already exists in the registry.'
       )
     self._registry.append((handler_type, checkpointable))
+    if recognized_handler_typestrs is not None:
+      self._recognized_handler_typestrs[handler_type] = (
+          recognized_handler_typestrs
+      )
     return self
 
   def get(
@@ -220,6 +244,13 @@ class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
     """Returns all entries in the registry."""
     return self._registry
 
+  def get_recognized_handler_typestrs(
+      self,
+      handler_type: Type[CheckpointableHandler],
+  ) -> Sequence[str]:
+    """Returns the recognized handler typestrs for a given handler_type."""
+    return self._recognized_handler_typestrs.get(handler_type, [])
+
   def __repr__(self):
     return f'_DefaultCheckpointableHandlerRegistry({self.get_all_entries()})'
 
@@ -237,6 +268,7 @@ class ReadOnlyCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       self,
       handler_type: Type[CheckpointableHandler],
       checkpointable: str | None = None,
+      recognized_handler_typestrs: Sequence[str] | None = None,
   ) -> CheckpointableHandlerRegistry:
     raise NotImplementedError('Adding not implemented for read-only registry.')
 
@@ -256,6 +288,12 @@ class ReadOnlyCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
       self,
   ) -> Sequence[RegistryEntry]:
     return self._registry.get_all_entries()
+
+  def get_recognized_handler_typestrs(
+      self,
+      handler_type: Type[CheckpointableHandler],
+  ) -> Sequence[str]:
+    return self._registry.get_recognized_handler_typestrs(handler_type)
 
   def __repr__(self):
     return f'ReadOnlyCheckpointableHandlerRegistry({self.get_all_entries()})'
@@ -303,6 +341,8 @@ CheckpointableHandlerType = TypeVar(
 
 def register_handler(
     cls: CheckpointableHandlerType,
+    *,
+    recognized_handler_typestrs: Sequence[str] | None = None,
 ) -> CheckpointableHandlerType:
   """Registers a :py:class:`~.v1.handlers.CheckpointableHandler` globally.
 
@@ -322,11 +362,15 @@ def register_handler(
 
   Args:
     cls: The handler class.
+    recognized_handler_typestrs: A sequence of alternate handler typestrs that
+      are recognized and mapped to this handler.
 
   Returns:
     The handler class.
   """
-  _GLOBAL_REGISTRY.add(cls)
+  _GLOBAL_REGISTRY.add(
+      cls, recognized_handler_typestrs=recognized_handler_typestrs
+  )
   return cls
 
 
@@ -392,6 +436,16 @@ def _get_possible_handlers(
   return possible_handlers
 
 
+def get_registered_handler_by_name(
+    registry: CheckpointableHandlerRegistry,
+    name: str,
+) -> CheckpointableHandler | None:
+  """Returns the handler for the given name if registered."""
+  if registry.has(name):
+    return _construct_handler_instance(name, registry.get(name))
+  return None
+
+
 def resolve_handler_for_save(
     registry: CheckpointableHandlerRegistry,
     checkpointable: Any,
@@ -435,7 +489,7 @@ def resolve_handler_for_save(
       registry, is_handleable_fn, checkpointable, name
   )
 
-  # Prefer the first handler in the absence of any other information.
+  # Prefer the last handler in the absence of any other information.
   return possible_handlers[-1]
 
 
@@ -444,7 +498,7 @@ def resolve_handler_for_load(
     abstract_checkpointable: Any | None,
     *,
     name: str,
-    handler_typestr: str,
+    handler_typestr: str | None = None,
 ) -> CheckpointableHandler:
   """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for loading.
 
@@ -471,7 +525,9 @@ def resolve_handler_for_load(
     abstract_checkpointable: An abstract checkpointable to resolve.
     name: The name of the checkpointable.
     handler_typestr: A :py:class:`~.v1.handlers.CheckpointableHandler` typestr
-      to guide resolution.
+      to guide resolution. We allow a None value for handler_typestr as its
+      possible to find the last registered handler given a specified
+      abstract_checkpointable.
 
   Returns:
     A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
@@ -492,15 +548,34 @@ def resolve_handler_for_load(
       handler_types.typestr(type(handler)) for handler in possible_handlers
   ]
 
-  try:
-    idx = possible_handler_typestrs.index(handler_typestr)
-    return possible_handlers[idx]
-  except ValueError:
+  if handler_typestr:
+    if handler_typestr in possible_handler_typestrs:
+      idx = possible_handler_typestrs.index(handler_typestr)
+      return possible_handlers[idx]
+
+    # Check if handler_typestr is recognized by any possible handler.
+    # Check backwards to prioritize most recently added handlers.
+    for i in reversed(range(len(possible_handlers))):
+      if handler_typestr in registry.get_recognized_handler_typestrs(
+          type(possible_handlers[i])
+      ):
+        return possible_handlers[i]
+
+    # 3. If neither worked, log the warning and fall through.
     logging.warning(
-        'No handler found for typestr %s. The checkpointable may be restored'
-        ' with different handler logic than was used for saving.',
+        'No handler found for typestr %s (or its converted form). The '
+        'checkpointable may be restored with different handler logic '
+        'than was used for saving.',
         handler_typestr,
     )
 
-  # Prefer the first handler in the absence of any other information.
-  return possible_handlers[-1]
+  if abstract_checkpointable:
+    # Prefer the last handler in the absence of any other information.
+    return possible_handlers[-1]
+
+  raise NoEntryError(
+      f'No entry for checkpointable={name} in the registry, using'
+      f' handler_typestr={handler_typestr} and'
+      f' abstract_checkpointable={abstract_checkpointable}. Registry contents:'
+      f' {registry.get_all_entries()}'
+  )

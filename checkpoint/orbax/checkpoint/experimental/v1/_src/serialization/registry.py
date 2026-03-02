@@ -74,6 +74,9 @@ class BaseLeafHandlerRegistry:
     self._handler_to_types: Dict[
         Type[types.LeafHandler[Any, Any]], Tuple[Type[Any], Type[Any]]
     ] = {}
+    self._recognized_handler_typestrs: Dict[
+        Type[types.LeafHandler[Any, Any]], Sequence[str]
+    ] = {}
 
   def _try_get(
       self, leaf_type: Type[types.Leaf]
@@ -150,6 +153,7 @@ class BaseLeafHandlerRegistry:
       abstract_type: Type[types.AbstractLeaf],
       handler_type: Type[types.LeafHandler[types.Leaf, types.AbstractLeaf]],
       override: bool = False,
+      recognized_handler_typestrs: Sequence[str] | None = None,
   ):
     """Adds a handler_type for a given leaf_type and abstract_type pair."""
     current_handler_type = self._try_get(leaf_type)
@@ -190,6 +194,10 @@ class BaseLeafHandlerRegistry:
     self._leaf_type_registry[leaf_type] = handler_type
     self._abstract_type_registry[abstract_type] = handler_type
     self._handler_to_types[handler_type] = (leaf_type, abstract_type)
+    if recognized_handler_typestrs is not None:
+      self._recognized_handler_typestrs[handler_type] = (
+          recognized_handler_typestrs
+      )
 
   def is_handleable(self, leaf_type: Type[Any]) -> bool:
     """Returns True if the type is handleable."""
@@ -198,6 +206,11 @@ class BaseLeafHandlerRegistry:
   def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
     """Returns True if the abstract type is handlable."""
     return self._try_get_abstract(abstract_type) is not None
+
+  def get_recognized_handler_typestrs(
+      self, handler_type: Type[types.LeafHandler[Any, Any]]
+  ) -> Sequence[str]:
+    return self._recognized_handler_typestrs.get(handler_type, [])
 
 
 class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):
