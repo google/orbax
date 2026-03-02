@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Initialization for multi-tier checkpointing."""
+
 import os
 import time
 from typing import List, Optional
@@ -20,8 +21,11 @@ from typing import List, Optional
 from absl import logging
 from etils import epath
 import jax
+from jax.experimental import colocated_python
+import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+
 
 _REPLICATOR_FILE = 'replicator.yaml'
 _TEMP_REPLICATOR_FILE_NAME = _REPLICATOR_FILE + '.tmp'
@@ -70,6 +74,108 @@ def _create_replicator_file(
   os.rename(temp_file, replicator_file)
 
 
+def _initialize_mtc_colocated(
+    local_checkpoint_directory: epath.Path,
+    backup_interval_minutes: int,
+    num_slices: int,
+    run_name: str,
+    data_parallelism: int,
+    timeout_seconds: int,
+):
+  """Initializes multi-tier checkpointing with Colocated Python.
+
+  Args:
+    local_checkpoint_directory: The local checkpoint directory.
+    backup_interval_minutes: The backup interval in minutes.
+    num_slices: The number of slices.
+    run_name: The run name.
+    data_parallelism: The data parallelism.
+    timeout_seconds: The timeout in seconds.
+  """
+  # 1. Obtain CPU devices for all remote hosts
+  cpu_devices = colocated_python.colocated_cpu_devices(jax.devices())
+
+  # Ensure one CPU device per process (worker node).
+  unique_cpu_devices = list(
+      {dev.process_index: dev for dev in cpu_devices}.values()
+  )
+  num_nodes = len(unique_cpu_devices)
+  nodes_per_slice = max(1, num_nodes // num_slices)
+
+  # 2. Pre-calculate the node_rank and peer_ranks for EVERY node
+  all_node_ranks = np.arange(num_nodes, dtype=np.int32)
+  all_peer_ranks = []
+  for nr in range(num_nodes):
+    my_in_pipeline_index = nr % nodes_per_slice
+    peers = [
+        i * nodes_per_slice + my_in_pipeline_index
+        for i in range(num_slices)
+        if (i * nodes_per_slice + my_in_pipeline_index) != nr
+    ]
+    all_peer_ranks.append(peers)
+
+  # Handle single-slice edge case where peers list is empty
+  if not all_peer_ranks[0]:
+    all_peer_ranks = np.zeros((num_nodes, 0), dtype=np.int32)
+  else:
+    all_peer_ranks = np.array(all_peer_ranks, dtype=np.int32)
+
+  # 3. Create a 1D Mesh over the remote hosts and shard the configuration arrays
+  cpu_mesh = jax.sharding.Mesh(np.array(unique_cpu_devices), ('d',))
+  sharding = jax.sharding.NamedSharding(
+      cpu_mesh, jax.sharding.PartitionSpec('d')
+  )
+
+  # JAX distributes these arrays across the workers natively
+  sharded_node_ranks = jax.device_put(all_node_ranks, sharding)
+  sharded_peer_ranks = jax.device_put(all_peer_ranks, sharding)
+
+  # 4. Define the SPMD closure that runs on each remote worker
+  def _setup(local_nr_arr, local_pr_arr):
+    loc_dir = epath.Path(local_checkpoint_directory)
+
+    # JAX sharding slices the arrays into chunks of shape (1,) and (1, P).
+    # We must index at [0] to extract the pure scalar and the flat list!
+    node_rank = int(np.asarray(local_nr_arr)[0])
+    peer_ranks = np.asarray(local_pr_arr)[0].tolist()
+
+    _wait_for_replicator_file_to_disappear(
+        loc_dir, timeout_seconds=timeout_seconds
+    )
+
+    _create_replicator_file(
+        loc_dir,
+        run_name=run_name,
+        num_nodes=num_nodes,
+        data_parallelism=data_parallelism,
+        node_rank=node_rank,
+        peer_ranks=peer_ranks,
+        backup_interval_minutes=backup_interval_minutes,
+    )
+
+    _wait_for_replicator_file_to_disappear(
+        loc_dir, timeout_seconds=timeout_seconds
+    )
+    _block_and_process_restore_dir(loc_dir, timeout_seconds=timeout_seconds)
+
+    # Return array to satisfy SPMD device matching
+    return local_nr_arr
+
+  # 5. Wrap and dispatch using native JAX SPMD!
+  wrapped_setup_fn = colocated_python.colocated_python(_setup)
+  wrapped_setup_fn = wrapped_setup_fn.specialize(out_specs_fn=lambda x, y: x)
+
+  # Triggers concurrent execution across all nodes without a thread pool
+  jax.block_until_ready(
+      wrapped_setup_fn(sharded_node_ranks, sharded_peer_ranks)
+  )
+
+  logging.info(
+      'Successfully initialized multi-tier checkpointing on all remote hosts '
+      'via Colocated Python.'
+  )
+
+
 def _initialize_jax_from_mtc(
     local_checkpoint_directory: epath.Path,
     jax_initialization_timeout_seconds: int = 900,
@@ -107,6 +213,7 @@ def initialize_multi_tier_checkpointing(
     data_parallelism: Optional[int] = None,
     jax_initialization_timeout_seconds: int = 900,
     use_mtc_process_ids: bool = True,
+    use_colocated_python: bool = False,
 ):
   """Initializes multi-tier checkpointing.
 
@@ -116,12 +223,34 @@ def initialize_multi_tier_checkpointing(
       minutes.
     num_slices: The number of slices.
     run_name: The name of the run.
-    data_parallelism: Number of identical pipelines in job, should be
-      equal to ICI data parallelism * DCN data parallelism. If not provided, it
-      will be inferred from the number of slices.
+    data_parallelism: Number of identical pipelines in job, should be equal to
+      ICI data parallelism * DCN data parallelism. If not provided, it will be
+      inferred from the number of slices.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
     use_mtc_process_ids: Use the MTC rank server to calculate process ids.
+    use_colocated_python: Whether to use Colocated Python for initialization.
   """
+  run_name = run_name if run_name else os.environ.get('JOBSET_NAME')
+  num_slices = num_slices or multislice.slice_count()
+  data_parallelism = data_parallelism or num_slices
+  if not run_name:
+    raise ValueError(
+        'Run name is not set and JOBSET_NAME is not set in the environment.'
+    )
+
+  if use_colocated_python:
+    logging.info('Initializing multi-tier checkpointing via Colocated Python.')
+    _initialize_mtc_colocated(
+        local_checkpoint_directory=local_checkpoint_directory,
+        backup_interval_minutes=backup_interval_minutes,
+        num_slices=num_slices,
+        run_name=run_name,
+        data_parallelism=data_parallelism,
+        timeout_seconds=jax_initialization_timeout_seconds,
+    )
+    return
+
+  # Standard Multi-Controller Path
   if use_mtc_process_ids:
     process_id = _initialize_jax_from_mtc(
         local_checkpoint_directory, jax_initialization_timeout_seconds
@@ -135,14 +264,9 @@ def initialize_multi_tier_checkpointing(
   multihost.initialize_runtime_to_distributed_ids()
   multihost.initialize_distributed_to_device_ids()
   _wait_for_replicator_file_to_disappear(local_checkpoint_directory)
-  num_slices = (
-      num_slices
-      or multislice.slice_count()
-  )
   num_nodes = jax.process_count()
   nodes_per_slice = num_nodes // num_slices
   node_rank = jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
-  data_parallelism = data_parallelism or num_slices
   my_process_index = jax.process_index()
   process_index_to_node_rank = (
       multihost.runtime_to_distributed_ids()
@@ -173,11 +297,7 @@ def initialize_multi_tier_checkpointing(
       peer_process_rank = process_index_to_node_rank[peer_process_index]
       peer_ranks.append(peer_process_rank)
   logging.info('Peers for NodeRank %s: %s', node_rank, peer_ranks)
-  run_name = run_name if run_name else os.environ.get('JOBSET_NAME')
-  if not run_name:
-    raise ValueError(
-        'Run name is not set and JOBSET_NAME is not set in the environment.'
-    )
+
   _create_replicator_file(
       local_checkpoint_directory,
       run_name=run_name,
