@@ -44,29 +44,51 @@ def get_context(default: Context | None = None) -> Context:
 class Context(epy.ContextManager):
   """Context for customized checkpointing.
 
-  Usage example::
-
-    with ocp.Context(...):
-      ocp.save_pytree(...)
+  This class manages the configuration options (e.g., async, multiprocessing,
+  array handling) used during Orbax checkpoint operations.
 
   Creating a new :py:class:`.Context` within an existing :py:class:`.Context`
-  sets all parameters from scratch; it does not inherit properties from the
-  parent :py:class:`.Context`. To achieve this, use::
+  sets all parameters from scratch by default. To inherit properties from a
+  parent :py:class:`.Context`, you must explicitly pass the parent context as
+  the first argument. The new context will inherit the parent's properties,
+  except for any options explicitly provided as keyword arguments to the child
+  context.
 
-    with Context(**some_properties) as outer_ctx:
-      with Context(outer_ctx, **other) as inner_ctx:
-        ...
+  WARNING: The context is thread-local and is not shared across threads. The
+  entire context block must be executed within the same thread. If you dispatch
+  a checkpointing operation to a worker thread (e.g., via `ThreadPoolExecutor`),
+  that thread will not inherit the context and will fall back to default
+  settings.
 
-  The `inner_ctx` will have the same properties as `outer_ctx`, except for any
-  properties modified in the `dataclasses.replace` call.
+  Example:
+    Basic usage and explicit inheritance::
 
-  NOTE: The context is not shared across threads. In other words, the whole
-  context block must be executed in the same thread. The following example will
-  not work as expected::
+      import orbax.checkpoint as ocp
 
-    executor = ThreadPoolExecutor()
-    with ocp.Context(...):  # Thread #1 creates Context A.
-      executor.submit(ocp.save_pytree, ...)  # Thread #2 sees "default" Context.
+      # Basic usage
+      with ocp.Context(pytree_options=ocp.options.PyTreeOptions()):
+        ocp.save_pytree(directory, tree)
+
+      # Inheriting properties from an existing context
+      with ocp.Context(pytree_options=ocp.options.PyTreeOptions()) as outer_ctx:
+        # inner_ctx inherits pytree_options, but overrides/adds array_options
+        with ocp.Context(outer_ctx,
+            array_options=ocp.options.ArrayOptions()
+            ) as inner_ctx:
+          ocp.save_pytree(directory, tree)
+
+    Context is not shared across threads::
+
+      from concurrent.futures import ThreadPoolExecutor
+      import orbax.checkpoint as ocp
+
+      executor = ThreadPoolExecutor(max_workers=1)
+      with ocp.Context(
+          pytree_options=ocp.options.PyTreeOptions()
+      ):  # Thread #1 creates Context.
+        # The following save_pytree call is executed in Thread #2, which sees
+        # a "default" Context, NOT the one created above.
+        executor.submit(ocp.save_pytree, directory, tree)
 
 
   Attributes:
