@@ -24,6 +24,7 @@ import jax
 import orbax.checkpoint as ocp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
@@ -107,6 +108,23 @@ if utils.pygrain() is not None:
   @dataclasses.dataclass
   class LocalPyGrainRestore(utils.pygrain().PyGrainCheckpointRestore):
     item: Any
+
+
+def _prepare_state_restore_args(
+    state: args_lib.PyTreeRestore,
+) -> args_lib.PyTreeRestore:
+  """Ensures restore_args are populated and converted to ArrayRestoreArgs."""
+  if state.item is None:
+    return state
+
+  restore_args = jax.tree.map(
+      lambda x: type_handlers.ArrayRestoreArgs(sharding=x.sharding)
+      if isinstance(x, jax.ShapeDtypeStruct)
+      else checkpoint_utils.construct_restore_args(x),
+      state.item,
+  )
+
+  return args_lib.PyTreeRestore(item=state.item, restore_args=restore_args)
 
 
 @final
@@ -243,6 +261,9 @@ class LocalCheckpointManager:
   ) -> p2p_args_lib.Composite:
     """Restores the checkpoint, enforcing process identity check."""
     # No need to check for P2P restore directory
+    if args is None:
+      raise ValueError('args must be provided for local restore.')
+
     if directory is None:
       # 1. Fast Fail: Verify Process Identity
       stored_index = utils.detect_process_index(self._directory, step)
@@ -256,13 +277,16 @@ class LocalCheckpointManager:
         )
         raise ValueError(error_msg)
 
+    args_dict = dict(args.items())
+    new_state = _prepare_state_restore_args(args.state)
+    args_dict['state'] = new_state
+
     if utils.pygrain() is not None and args and constants.DATA_ITER_KEY in args:
       original_restore = args[constants.DATA_ITER_KEY]
-      args_dict = dict(args.items())
       args_dict[constants.DATA_ITER_KEY] = LocalPyGrainRestore(
           original_restore.item
       )
-      args = args_lib.Composite(**args_dict)
+    args = args_lib.Composite(**args_dict)
 
     # 2. Delegate to Orbax
     restored = self._manager.restore(
