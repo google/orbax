@@ -542,7 +542,7 @@ class SaveLoadTestBase:
 
       with self.subTest('load_checkpointables'):
         with self.assertRaisesRegex(
-            KeyError, 'Checkpointable "foo" was not found'
+            KeyError, 'Requested checkpointables:'
         ):
           ocp.load_checkpointables(
               self.directory, {'foo': handler_utils.AbstractFoo()}
@@ -653,7 +653,9 @@ class SaveLoadTestBase:
       loaded = ocp.load_checkpointables(self.directory)
       self.assertSameElements(['two'], loaded.keys())
 
-      with self.assertRaisesRegex(KeyError, 'not found in the checkpoint'):
+      with self.assertRaisesRegex(
+          KeyError, 'Requested checkpointables:'
+      ):
         ocp.load_checkpointables(self.directory, {'one': None})
 
 
