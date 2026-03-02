@@ -89,14 +89,13 @@ class OrbaxV0LayoutTest(
     metadata_path.rmtree()
     await layout.validate(self.orbax_path / '0')
 
-  async def test_validate_no_metadata_files_fails(self):
+  async def test_validate_no_metadata_files(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     metadata_path.rmtree()
     pytree_metadata_path = self.orbax_path / '0' / 'state' / '_METADATA'
     pytree_metadata_path.rmtree()
-    with self.assertRaises(InvalidLayoutError):
-      await layout.validate(self.orbax_path / '0')
+    await layout.validate(self.orbax_path / '0')
 
   async def test_load_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
@@ -105,7 +104,9 @@ class OrbaxV0LayoutTest(
     )
     restored_checkpointables = await restored_checkpointables_await
     test_utils.assert_tree_equal(
-        self, restored_checkpointables['state'], self.object_to_save
+        self,
+        self.object_to_save,
+        restored_checkpointables['state'],
     )
 
   async def test_metadata(self):
@@ -209,14 +210,23 @@ class V0ValidationTest(
     loaded = await (
         await layout.load_pytree(self.directory, 'state', self.pytree)
     )
-    test_utils.assert_tree_equal(self, self.pytree, loaded['state'])
+    test_utils.assert_tree_equal(self, self.pytree, loaded)
 
   async def test_load_pytree_no_checkpoint_metadata(self):
     await async_path.unlink(self.directory / '_CHECKPOINT_METADATA')
     layout = orbax_v0_layout.OrbaxV0Layout()
 
-    with self.assertRaises(FileNotFoundError):
-      await layout.load_pytree(self.directory, 'state', self.pytree)
+    loaded = await (
+        await layout.load_pytree(self.directory, 'state', self.pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+  async def test_load_pytree_no_checkpoint_metadata_or_target_pytree(self):
+    await async_path.unlink(self.directory / '_CHECKPOINT_METADATA')
+    layout = orbax_v0_layout.OrbaxV0Layout()
+
+    loaded = await (await layout.load_pytree(self.directory, 'state'))
+    test_utils.assert_tree_equal(self, self.pytree, loaded)
 
   async def test_load_pytree_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()

@@ -27,6 +27,7 @@ from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
@@ -40,6 +41,7 @@ class CheckpointVersion(enum.Enum):
 
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
+NoEntryError = registration.NoEntryError
 Path = path_types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InternalCheckpointMetadata = (
@@ -153,7 +155,7 @@ async def _create_orbax_identifier_file(
     )
 
 
-async def _read_checkpoint_metadata(
+async def read_checkpoint_metadata(
     directory: path_types.Path,
 ) -> InternalCheckpointMetadata:
   """Returns the step metadata for a given path."""
@@ -189,37 +191,21 @@ class OrbaxLayout(CheckpointLayout):
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
     """Returns the metadata describing the Orbax checkpoint."""
-    checkpoint_metadata = await _read_checkpoint_metadata(
-        path
-    )
-    handlers_for_load = await handler_resolution.get_handlers_for_load(
-        path, self._handler_registry, {}, checkpoint_metadata
-    )
-    existing_checkpointable_names = await _existing_checkpointable_names(path)
+    checkpoint_metadata = await read_checkpoint_metadata(path)
+    available_checkpointable_names = await _existing_checkpointable_names(path)
     abstract_checkpointables = {
-        name: None
-        for name in handlers_for_load.keys()
-        if name in existing_checkpointable_names
+        name: None for name in available_checkpointable_names
     }
-    if any(
-        name not in existing_checkpointable_names
-        for name in abstract_checkpointables.keys()
-    ):
-      raise KeyError(
-          "Inferred checkpointables from metadata:"
-          f" {abstract_checkpointables.keys()} for loading were not found in"
-          " the checkpoint. Available checkpointables:"
-          f" {existing_checkpointable_names}"
-      )
+    handlers_for_load = await handler_resolution.get_handlers_for_load(
+        self._handler_registry,
+        abstract_checkpointables,
+        checkpoint_metadata,
+    )
 
-    # Default to none for all existing checkpointable names, for
-    # subdirectories that we are unable to find a handler for and load.
-    item_metadata = {name: None for name in existing_checkpointable_names}
-    for checkpointable_name in abstract_checkpointables.keys():
-      handler = handlers_for_load[checkpointable_name]
-      item_metadata[checkpointable_name] = await handler.metadata(
-          path / checkpointable_name
-      )
+    item_metadata = await self._get_checkpointables_metadata(
+        path, abstract_checkpointables, handlers_for_load
+    )
+
     # Exclude `metrics` if present. This is relevant only for
     # `training.Checkpointer`, and is separately added to the
     # `training.CheckpointMetadata` object.
@@ -373,10 +359,19 @@ class OrbaxLayout(CheckpointLayout):
     Returns:
       An awaitable containing the loaded pytree.
     """
-    load_awaitable = await self.load_checkpointables(
-        path, {checkpointable_name: abstract_pytree}
+    checkpoint_metadata = await read_checkpoint_metadata(path)
+    handlers_for_load = await handler_resolution.get_handlers_for_load(
+        self._handler_registry,
+        {checkpointable_name: abstract_pytree},
+        checkpoint_metadata,
     )
-    return load_awaitable
+
+    handler_for_load = handlers_for_load[checkpointable_name]
+    result = await handler_for_load.load(
+        path / checkpointable_name,
+        abstract_pytree,
+    )
+    return result
 
   async def load_checkpointables(
       self,
@@ -393,36 +388,52 @@ class OrbaxLayout(CheckpointLayout):
       An awaitable containing the loaded checkpointables.
 
     Raises:
-      KeyError: If any of the specified checkpointable names are not found in
-      the checkpoint.
+      KeyError: If an empty checkpoint is attempted to be loaded or there are
+        no valid checkpointables to load from the user passed
+        `abstract_checkpointables`.
     """
-    abstract_checkpointables = abstract_checkpointables or {}
-    checkpoint_metadata = await _read_checkpoint_metadata(
-        path
-    )
+    available_checkpointables = await _existing_checkpointable_names(path)
+    if not abstract_checkpointables:
+      # Default to loading all checkpointables (subdirectories within current
+      # checkpoint directory)
+      abstract_checkpointables = {
+          name: None
+          for name in available_checkpointables
+          if name not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
+      }
+
+    if any(
+        name not in available_checkpointables
+        for name in abstract_checkpointables.keys()
+    ):
+      raise KeyError(
+          f" Requested checkpointables: {abstract_checkpointables.keys()} for"
+          " loading were not found in the checkpoint. Available"
+          f" checkpointables: {available_checkpointables}"
+      )
+
+    # Read checkpoint metadata and resolve handlers for loading.
+    checkpoint_metadata = await read_checkpoint_metadata(path)
+    # TODO(b/484400394): Find a better way to inform the user that they need
+    # to use load_pytree(..., checkpointable_name=None) when item_handlers is
+    # a str. An idea is to create a seperate validate_checkpointables method
+    # and we can read in checkpoint metadata at validation time for both
+    # validate_pytree and validate_checkpointables operations and warn the user
+    # know if they are trying to load a composite checkpoint by calling
+    # load_pytree(checkpointable_name=None) or trying to load a composite
+    # checkpoint as a pytree checkpoint respectively.
+    if isinstance(checkpoint_metadata.item_handlers, str):
+      logging.warning(
+          "Checkpoint looks like a legacy V0 checkpoint. This is only"
+          " supported for legacy V0 checkpoints. If you intended to load a"
+          " pytree checkpoint from the given path, then please consider using"
+          " `loading.load_pytree(..., checkpointable_name=None)` instead."
+      )
     handlers_for_load = await handler_resolution.get_handlers_for_load(
-        path,
         self._handler_registry,
         abstract_checkpointables,
         checkpoint_metadata,
     )
-    existing_checkpointable_names = await _existing_checkpointable_names(path)
-    if not abstract_checkpointables:
-      abstract_checkpointables = {
-          name: None
-          for name in handlers_for_load.keys()
-          if name not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
-          and name in existing_checkpointable_names
-      }
-    if any(
-        name not in existing_checkpointable_names
-        for name in abstract_checkpointables.keys()
-    ):
-      raise KeyError(
-          f"Requested checkpointables: {abstract_checkpointables.keys()} for"
-          " loading were not found in the checkpoint. Available"
-          f" checkpointables: {existing_checkpointable_names}"
-      )
 
     load_ops = []
     for (
@@ -439,19 +450,9 @@ class OrbaxLayout(CheckpointLayout):
     load_awaitables = await asyncio.gather(*load_ops)
 
     async def _run_background() -> dict[str, Any]:
-      loaded_checkpointables = []
-      # TODO(b/398249409) Cannot use asyncio.gather because asyncio.run
-      # is used in underlying implementation.
-      for a in load_awaitables:
-        loaded = await a
-        loaded_checkpointables.append(loaded)
-      return {
-          checkpointable_name: loaded
-          for checkpointable_name, loaded in zip(
-              abstract_checkpointables.keys(),
-              loaded_checkpointables,
-          )
-      }
+      return await self._process_load_awaitables(
+          abstract_checkpointables, load_awaitables, handlers_for_load
+      )
 
     return _run_background()
 
@@ -495,3 +496,80 @@ class OrbaxLayout(CheckpointLayout):
       )
 
     return _run_background()
+
+  async def _get_checkpointables_metadata(
+      self,
+      path: Path,
+      abstract_checkpointables: dict[str, Any],
+      handlers: dict[str, handler_types.CheckpointableHandler],
+  ) -> dict[str, Any | None]:
+    """Retrieves metadata for each checkpointable item.
+
+    For each checkpointable, the metadata is retrieved by calling the
+    `metadata` method on the handler for the checkpointable. If the handler is
+    None or if we encounter an error while loading the metadata, then the
+    metadata for the checkpointable is set to None.
+
+    Args:
+      path: The path to the checkpoint directory.
+      abstract_checkpointables: The abstract checkpointables to load.
+      handlers: The handlers for the checkpointables.
+
+    Returns:
+      A mapping from checkpointable name to metadata.
+    """
+    checkpointables_metadata = {}
+    for checkpointable_name in abstract_checkpointables.keys():
+      handler = handlers[checkpointable_name]
+      try:
+        checkpointable_metadata = await handler.metadata(
+            path / checkpointable_name
+        )
+      except BaseException as e:  # pylint:disable=broad-exception-caught
+        logging.warning(
+            "Failed to get metadata for checkpointable: %s due to incompatible"
+            " handler: %s for abstract checkpointable: %s. Defaulting return"
+            " value to None. \nError details: %s",
+            checkpointable_name,
+            handler,
+            abstract_checkpointables[checkpointable_name],
+            e,
+        )
+        checkpointable_metadata = None
+      checkpointables_metadata[checkpointable_name] = checkpointable_metadata
+    return checkpointables_metadata
+
+  async def _process_load_awaitables(
+      self,
+      checkpointables_to_load: dict[str, Any],
+      load_awaitables: list[Any],
+      handlers: dict[str, handler_types.CheckpointableHandler],
+  ) -> dict[str, Any]:
+    """Processes the awaitables after we initiate all load operations.
+
+    For each checkpointable, the load operation is processed by calling the
+    `load` method on the handler for the checkpointable.
+
+    Args:
+      checkpointables_to_load: The checkpointables to load.
+      load_awaitables: The awaitables for the load operations.
+      handlers: The handlers used to load the checkpointables.
+
+    Returns:
+      A mapping from checkpointable name to loaded checkpointable.
+    """
+    loaded_checkpointables = {}
+    # TODO(b/398249409) Cannot use asyncio.gather because asyncio.run
+    # is used in underlying implementation.
+    for name, a in zip(checkpointables_to_load.keys(), load_awaitables):
+      try:
+        loaded = await a
+        loaded_checkpointables[name] = loaded
+      except BaseException as e:  # pylint:disable=broad-exception-caught
+        raise registration.NoEntryError(
+            f"Failed to load checkpointable: {name} due to incompatible"
+            f" handler: {handlers[name]} found in registry:"
+            f" {self._handler_registry} for abstract checkpointable:"
+            f" {checkpointables_to_load[name]}.\nError details: {e}"
+        ) from e
+    return loaded_checkpointables
