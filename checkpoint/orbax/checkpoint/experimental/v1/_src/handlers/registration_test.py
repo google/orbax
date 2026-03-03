@@ -273,15 +273,23 @@ class RegistrationTest(parameterized.TestCase):
           handler_typestr='unused',
       )
 
-  def test_resolve_handler_for_load_checkpointable(self):
+  def test_resolve_handler_for_load_no_handler_typestr(self):
     local_registry = registration.local_registry()
     local_registry.add(handler_utils.FooHandler)
+    resolved = registration.resolve_handler_for_load(
+        local_registry,
+        handler_utils.AbstractFoo(),
+        name='dummy_unregistered_nameame',
+        handler_typestr=None,
+    )
+    self.assertIsInstance(resolved, handler_utils.FooHandler)
+
     with self.assertRaises(registration.NoEntryError):
       registration.resolve_handler_for_load(
           local_registry,
-          handler_utils.Foo(1, 'hi'),
-          name='foo',
-          handler_typestr='unused',
+          handler_utils.AbstractBar(),
+          name='unregistered_name',
+          handler_typestr=None,
       )
 
 
