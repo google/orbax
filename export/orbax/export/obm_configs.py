@@ -343,6 +343,8 @@ class ObmExportOptions:
       together for efficiency (a technique called online batching). See
       `BatchOptions` above for configuration details. If set to None, batching
       is disabled, and requests are processed individually. #
+    scratch_dir: Scratch directory to be used by OBM if needed.
   """
 
   batch_options: BatchOptions | None = None
+  scratch_dir: str | None = None
