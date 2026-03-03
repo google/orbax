@@ -34,8 +34,8 @@ from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_tes
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 Checkpointer = ocp.training.Checkpointer
-save_decision_policies = ocp.training.save_decision_policies
-preservation_policies = ocp.training.preservation_policies
+save_decision = ocp.training.save_decision
+preservation = ocp.training.preservation
 
 RootMetadata = ocp.training.RootMetadata
 CheckpointMetadata = ocp.training.CheckpointMetadata
@@ -177,20 +177,20 @@ class CheckpointerTestBase:
           checkpointer.pytree_metadata(1)
 
     @parameterized.parameters(
-        (save_decision_policies.ContinuousCheckpointingPolicy(), range(10)),
-        (save_decision_policies.FixedIntervalPolicy(1), range(10)),
-        (save_decision_policies.FixedIntervalPolicy(2), range(0, 10, 2)),
+        (save_decision.ContinuousCheckpointingPolicy(), range(10)),
+        (save_decision.FixedIntervalPolicy(1), range(10)),
+        (save_decision.FixedIntervalPolicy(2), range(0, 10, 2)),
         (
-            save_decision_policies.AnySavePolicy([
-                save_decision_policies.SpecificStepsPolicy((2, 3, 6)),
-                save_decision_policies.InitialSavePolicy(),
+            save_decision.AnySavePolicy([
+                save_decision.SpecificStepsPolicy((2, 3, 6)),
+                save_decision.InitialSavePolicy(),
             ]),
             [0, 2, 3, 6],
         ),
     )
     def test_steps(
         self,
-        policy: save_decision_policies.SaveDecisionPolicy,
+        policy: save_decision.SaveDecisionPolicy,
         expected_steps: Sequence[int],
     ):
       num_steps = 10
@@ -211,7 +211,7 @@ class CheckpointerTestBase:
     def test_force_save_ignores_save_decision_policy(self):
       checkpointer = Checkpointer(
           self.directory,
-          save_decision_policy=save_decision_policies.FixedIntervalPolicy(2),
+          save_decision_policy=save_decision.FixedIntervalPolicy(2),
       )
       self.enter_context(checkpointer)
 
@@ -522,14 +522,14 @@ class CheckpointerTestBase:
     def test_custom_save_decision_policy(self):
       save_delta = datetime.timedelta(seconds=0.03)
 
-      class ArbitrarySavePolicy(save_decision_policies.SaveDecisionPolicy):
+      class ArbitrarySavePolicy(save_decision.SaveDecisionPolicy):
 
         def should_save(
             self,
             step: CheckpointMetadata,
             previous_steps: Sequence[CheckpointMetadata],
             *,
-            context: save_decision_policies.DecisionContext,
+            context: save_decision.DecisionContext,
         ) -> bool:
           save_result = False
           is_primary_host = multihost.is_primary_host(
@@ -569,14 +569,14 @@ class CheckpointerTestBase:
 
     @parameterized.parameters(
         (None, range(10)),
-        (ocp.training.preservation_policies.PreserveAll(), range(10)),
-        (preservation_policies.LatestN(3), range(7, 10)),
-        (preservation_policies.EveryNSteps(4), [0, 4, 8]),
-        (preservation_policies.EveryNSeconds(40), range(0, 10, 2)),
+        (ocp.training.preservation.PreserveAll(), range(10)),
+        (preservation.LatestN(3), range(7, 10)),
+        (preservation.EveryNSteps(4), [0, 4, 8]),
+        (preservation.EveryNSeconds(40), range(0, 10, 2)),
         (
-            preservation_policies.AnyPreservationPolicy([
-                preservation_policies.LatestN(3),
-                preservation_policies.CustomSteps([1, 3, 9]),
+            preservation.AnyPreservationPolicy([
+                preservation.LatestN(3),
+                preservation.CustomSteps([1, 3, 9]),
             ]),
             [1, 3, 7, 8, 9],
         ),
@@ -619,27 +619,21 @@ class CheckpointerTestBase:
 
     @parameterized.parameters(
         (
-            preservation_policies.BestN(
-                get_metric_fn=lambda m: m['accuracy'], n=2
-            ),
+            preservation.BestN(get_metric_fn=lambda m: m['accuracy'], n=2),
             [0, 4],
         ),
         (
-            preservation_policies.BestN(
+            preservation.BestN(
                 get_metric_fn=lambda m: m['loss'], reverse=True, n=2
             ),
             [0, 1],
         ),
         (
-            preservation_policies.BestN(
-                get_metric_fn=lambda m: m['accuracy'], n=None
-            ),
+            preservation.BestN(get_metric_fn=lambda m: m['accuracy'], n=None),
             range(5),
         ),
         (
-            preservation_policies.BestN(
-                get_metric_fn=lambda m: m['accuracy'], n=0
-            ),
+            preservation.BestN(get_metric_fn=lambda m: m['accuracy'], n=0),
             [],
         ),
     )
