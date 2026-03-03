@@ -13,11 +13,11 @@ mesh_config:
 # Note: checkpoint_config field not specified.
 
 benchmarks:
-  - generator: "orbax.checkpoint._src.testing.benchmarks.v1_resharding_benchmark.V1ReshardingBenchmark"
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.resharding_benchmark.ReshardingBenchmark"
     options:
       # --- Generator Options ---
-      # These keys must match the attributes of the `V1ReshardingBenchmarkOptions` class
-      # associated with the `V1ReshardingBenchmark` generator.
+      # These keys must match the attributes of the `ReshardingBenchmarkOptions` class
+      # associated with the `ReshardingBenchmark` generator.
       async_enabled: true
       use_ocdbt: true
       use_zarr3: true

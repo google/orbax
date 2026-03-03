@@ -13,11 +13,11 @@ checkpoint_config:
   path: "gs://orbax-benchmarks/checkpoints/llama-3.1-405B-checkpoints/0/items"
 
 benchmarks:
-  - generator: "orbax.checkpoint._src.testing.benchmarks.v1_benchmark.V1Benchmark"
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.benchmark.Benchmark"
     options:
       # --- Generator Options ---
-      # These keys must match the attributes of the `V1BenchmarkOptions` class
-      # associated with the `V1Benchmark` generator.
+      # These keys must match the attributes of the `BenchmarkOptions` class
+      # associated with the `Benchmark` generator.
       async_enabled: true
       use_ocdbt: true
       use_zarr3: true

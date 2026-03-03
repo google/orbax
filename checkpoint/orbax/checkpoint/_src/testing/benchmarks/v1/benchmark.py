@@ -28,7 +28,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
-def get_metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
+def get_metrics_to_measure(options: BenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
   metrics = ["time", "rss", "io"]
   if options.metric_tracemalloc_enabled:
@@ -42,8 +42,8 @@ def get_metrics_to_measure(options: V1BenchmarkOptions) -> list[str]:
 # 1. Define the Options Dataclass for this specific benchmark
 # ==============================================================================
 @dataclasses.dataclass(frozen=True)
-class V1BenchmarkOptions(benchmarks_core.BenchmarkOptions):
-  """Configuration options for benchmarks targeting V1BenchmarkHandler.
+class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
+  """Configuration options for benchmarks targeting BenchmarkHandler.
 
   Each attribute can be a single value or a list of values to create
   a parameter sweep.
@@ -121,12 +121,12 @@ def clear_pytree(pytree: Any) -> Any:
 # ==============================================================================
 # 2. Implement the Benchmark Generator
 # ==============================================================================
-@benchmarks_core.benchmark_options(V1BenchmarkOptions)
-class V1Benchmark(benchmarks_core.BenchmarksGenerator):
-  """A concrete generator for `orbax.checkpoint.V1BenchmarkHandler`.
+@benchmarks_core.benchmark_options(BenchmarkOptions)
+class Benchmark(benchmarks_core.BenchmarksGenerator):
+  """A concrete generator for `orbax.checkpoint.BenchmarkHandler`.
 
   This class provides the specific test logic for benchmarking the
-  V1BenchmarkHandler with various configurations.
+  BenchmarkHandler with various configurations.
   """
 
   def test_fn(
@@ -149,7 +149,7 @@ class V1Benchmark(benchmarks_core.BenchmarksGenerator):
     abstract_pytree = jax.tree.map(ocp.arrays.to_shape_dtype_struct, pytree)
     save_path = context.path / "ckpt"
     options = context.options
-    assert isinstance(options, V1BenchmarkOptions)
+    assert isinstance(options, BenchmarkOptions)
 
     logging.info("Benchmark options: %s", pprint.pformat(options))
     metrics_to_measure = get_metrics_to_measure(options)
