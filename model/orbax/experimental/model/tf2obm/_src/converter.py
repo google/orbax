@@ -17,7 +17,6 @@
 from collections.abc import Mapping, Sequence
 import copy
 import os
-import tempfile
 from typing import Any, Dict, NamedTuple, Tuple
 
 from jax import tree_util as jax_tree_util
@@ -56,9 +55,11 @@ def _is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
 def convert_function(
     fn_name: str,
     fn: tf.types.experimental.ConcreteFunction,
+    *,
     converter_options: (
         converter_options_v2_pb2.ConverterOptionsV2 | None
     ) = None,
+    conversion_base_dir: str | None = None,
     trackable_resources: Any | None = None,
 ) -> obm.SerializableFunction:
   """Converts the TF concrete function to an OBM function.
@@ -73,6 +74,8 @@ def convert_function(
     converter_options: The converter options to use for the TF SavedModel. If
       set, the TF SavedModel will be converted using Inference Converter V2 in
       order to get the correct types for the input and output signatures.
+    conversion_base_dir: The base directory to save the converted TF SavedModel.
+      The converted model will be deleted afterwards.
     trackable_resources: Trackable resources used by the function.
 
   Returns:
@@ -83,8 +86,12 @@ def convert_function(
   output_names = _output_names(fn)
 
   if converter_options is not None:
+    if conversion_base_dir is None:
+      raise ValueError(
+          'conversion_base_dir must be provided when converter_options is set.'
+      )
     converterted_signature_def = _get_converted_function_signature_def(
-        fn_name, fn, trackable_resources, converter_options
+        conversion_base_dir, fn_name, fn, trackable_resources, converter_options
     )
     input_signature = _copy_types_from_signature_def(
         fn.structured_input_signature,
@@ -510,6 +517,7 @@ def _copy_types_from_signature_def(
 
 
 def _get_converted_function_signature_def(
+    conversion_base_dir: str,
     fn_name: str,
     fn: tf.types.experimental.ConcreteFunction,
     trackable_resources: Any,
@@ -518,6 +526,7 @@ def _get_converted_function_signature_def(
   """Saves the function, converts it, returns its SignatureDef.
 
   Args:
+    conversion_base_dir: The OBM model directory.
     fn_name: The name of the function in the SavedModel.
     fn: The concrete function to save.
     trackable_resources: The trackable resources to save.
@@ -534,16 +543,22 @@ def _get_converted_function_signature_def(
       False
   )
 
-  with tempfile.TemporaryDirectory() as temp_dir:
+  tmp_model_dir = os.path.join(conversion_base_dir, f'converted_{fn_name}')
+  tf.io.gfile.makedirs(tmp_model_dir)
+
+  try:
     save_tf_functions(
-        temp_dir,
+        tmp_model_dir,
         {fn_name: fn},
         trackable_resources=trackable_resources,
         converter_options=opts_copy,
     )
 
-    converted_model_path = os.path.join(temp_dir, OBM_TF_SAVED_MODEL_SUB_DIR)
+    converted_model_path = os.path.join(
+        tmp_model_dir, OBM_TF_SAVED_MODEL_SUB_DIR
+    )
     with open(os.path.join(converted_model_path, 'saved_model.pb'), 'rb') as f:
       saved_model_proto = saved_model_pb2.SavedModel.FromString(f.read())
-
-    return saved_model_proto.meta_graphs[0].signature_def[fn_name]
+      return saved_model_proto.meta_graphs[0].signature_def[fn_name]
+  finally:
+    tf.io.gfile.rmtree(tmp_model_dir)

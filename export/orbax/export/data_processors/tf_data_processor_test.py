@@ -169,52 +169,72 @@ class TfDataProcessorTest(googletest.TestCase):
         )
     )
 
-    processor.prepare(
-        available_tensor_specs=(tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
-                                tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
-                                tf.constant(2, dtype=tf.int32)),
-        bfloat16_options=converter_options,
-        tf_trackable_resources=[v],
-    )
-
-    self.assertEqual(
-        processor.input_signature,
-        (
-            (
-                obm.ShloTensorSpec(
-                    shape=(2, 3), dtype=obm.ShloDType.bf16, name='x'
-                ),
-                obm.ShloTensorSpec(
-                    shape=(2, 3), dtype=obm.ShloDType.bf16, name='y'
-                ),
-                obm.ShloTensorSpec(
-                    shape=(), dtype=obm.ShloDType.i32, name='z'
-                ),
+    with self.subTest('without_scratch_dir'):
+      with self.assertRaisesRegex(
+          ValueError, 'conversion_base_dir must be provided'
+      ):
+        processor.prepare(
+            available_tensor_specs=(
+                tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
+                tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
+                tf.constant(2, dtype=tf.int32),
             ),
-            {},
-        ),
-    )
-    self.assertEqual(
-        processor.output_signature,
-        obm.ShloTensorSpec(
-            shape=(2, 3), dtype=obm.ShloDType.bf16, name='output_0'
-        ),
-    )
+            bfloat16_options=converter_options,
+            tf_trackable_resources=[v],
+        )
 
-    # Verify that the variables have been converted to bfloat16 too.
-    model_dir = self.create_tempdir().full_path
-    tf2obm.save_tf_functions(
-        model_dir,
-        {'preprocessor': processor.concrete_function},
-        trackable_resources=[v],
-        converter_options=converter_options,
-    )
+    with self.subTest('with_scratch_dir'):
+      processor.prepare(
+          available_tensor_specs=(
+              tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
+              tf.TensorSpec(shape=(2, 3), dtype=tf.float32),
+              tf.constant(2, dtype=tf.int32),
+          ),
+          bfloat16_options=converter_options,
+          scratch_dir=self.create_tempdir().full_path,
+          tf_trackable_resources=[v],
+      )
 
-    saved_model = tf.saved_model.load(os.path.join(model_dir, 'tf_saved_model'))
-    restored_fn = saved_model.signatures['preprocessor']
+      self.assertEqual(
+          processor.input_signature,
+          (
+              (
+                  obm.ShloTensorSpec(
+                      shape=(2, 3), dtype=obm.ShloDType.bf16, name='x'
+                  ),
+                  obm.ShloTensorSpec(
+                      shape=(2, 3), dtype=obm.ShloDType.bf16, name='y'
+                  ),
+                  obm.ShloTensorSpec(
+                      shape=(), dtype=obm.ShloDType.i32, name='z'
+                  ),
+              ),
+              {},
+          ),
+      )
+      self.assertEqual(
+          processor.output_signature,
+          obm.ShloTensorSpec(
+              shape=(2, 3), dtype=obm.ShloDType.bf16, name='output_0'
+          ),
+      )
 
-    self.assertLen(restored_fn.variables, 1)
-    self.assertEqual(restored_fn.variables[0].dtype, tf.bfloat16)
+      # Verify that the variables have been converted to bfloat16 too.
+      model_dir = self.create_tempdir().full_path
+      tf2obm.save_tf_functions(
+          model_dir,
+          {'preprocessor': processor.concrete_function},
+          trackable_resources=[v],
+          converter_options=converter_options,
+      )
+
+      saved_model = tf.saved_model.load(
+          os.path.join(model_dir, 'tf_saved_model')
+      )
+      restored_fn = saved_model.signatures['preprocessor']
+
+      self.assertLen(restored_fn.variables, 1)
+      self.assertEqual(restored_fn.variables[0].dtype, tf.bfloat16)
 
   def test_bfloat16_convert_error(self):
     processor = tf_data_processor.TfDataProcessor(
@@ -232,6 +252,7 @@ class TfDataProcessorTest(googletest.TestCase):
                   scope=converter_options_v2_pb2.BFloat16OptimizationOptions.ALL,
               )
           ),
+          scratch_dir=self.create_tempdir().full_path,
       )
 
   def test_prepare_with_shlo_bf16_inputs(self):
