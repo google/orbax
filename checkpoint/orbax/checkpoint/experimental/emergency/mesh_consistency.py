@@ -65,21 +65,32 @@ def read_process_metadata(directory: epath.Path):
   return distributed_to_device_ids, device_ids
 
 
-async def save_process_metadata(
+def write_process_metadata(
     directory: epath.Path,
-    global_mesh: jax.sharding.Mesh,
+    device_ids: List[int],
     distributed_to_device_ids: List[List[int]],
 ):
-  """Saves process metadata to local storage. Runs on every process."""
+  """Synchronously writes process metadata to local storage."""
   metadata_folder = process_metadata_folder(directory)
+  metadata_folder.mkdir(parents=True, exist_ok=True)
   logging.info('Saving process index metadata at %s', metadata_folder)
 
   (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(
       json.dumps(distributed_to_device_ids)
   )
   (metadata_folder / _MESH_METADATA_FILE_NAME).write_text(
-      json.dumps([int(id) for id in global_mesh.device_ids.flatten()])
+      json.dumps(device_ids)
   )
+
+
+async def save_process_metadata(
+    directory: epath.Path,
+    global_mesh: jax.sharding.Mesh,
+    distributed_to_device_ids: List[List[int]],
+):
+  """Saves process metadata to local storage. Runs on every process."""
+  device_ids = [int(id) for id in global_mesh.device_ids.flatten()]
+  write_process_metadata(directory, device_ids, distributed_to_device_ids)
 
 
 def consistent_restore_mesh_from_metadata(

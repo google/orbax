@@ -279,14 +279,43 @@ class MultiTierCheckpointingInitializationTest(
             num_slices=1,
             run_name="",
         )
-      mock_jax_distributed_initialize.assert_called_once_with(
-          process_id=0,
-          coordinator_address="coordinator_address",
-          initialization_timeout=900,
+
+      mock_jax_distributed_initialize.assert_not_called()
+      mock_initialize_runtime_to_distributed_ids.assert_not_called()
+      mock_initialize_distributed_to_device_ids.assert_not_called()
+      self.assertEqual(mock_wait_for_replicator_file_to_disappear.call_count, 0)
+
+  @mock.patch.object(initialization, "_initialize_mtc_colocated", autospec=True)
+  @mock.patch.object(jax.distributed, "initialize", autospec=True)
+  def test_initialize_multi_tier_checkpointing_colocated_success(
+      self,
+      mock_jax_distributed_initialize,
+      mock_init_mtc_colocated,
+  ):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+      tmp_dir_path = epath.Path(tmp_dir)
+
+      initialization.initialize_multi_tier_checkpointing(
+          tmp_dir_path,
+          num_slices=1,
+          run_name="test-colocated-run",
+          data_parallelism=1,
+          use_colocated_python=True,
+          backup_interval_minutes=15,
       )
-      mock_initialize_runtime_to_distributed_ids.assert_called_once()
-      mock_initialize_distributed_to_device_ids.assert_called_once()
-      self.assertEqual(mock_wait_for_replicator_file_to_disappear.call_count, 1)
+
+      # Verify colocated Python path is taken
+      mock_init_mtc_colocated.assert_called_once_with(
+          local_checkpoint_directory=tmp_dir_path,
+          backup_interval_minutes=15,
+          num_slices=1,
+          run_name="test-colocated-run",
+          data_parallelism=1,
+          timeout_seconds=900,
+      )
+
+      # Verify standard multi-controller JAX init is bypassed
+      mock_jax_distributed_initialize.assert_not_called()
 
   @mock.patch.object(
       initialization, "_wait_for_replicator_file_to_disappear", autospec=True
