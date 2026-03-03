@@ -30,7 +30,7 @@ from absl import logging
 from clu import metric_writers
 from etils import epath
 import numpy as np
-from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.testing.benchmarks.core import multihost
 import psutil
 import tensorstore as ts
 
@@ -47,7 +47,7 @@ class BaseMetric:
     self._start_time = time.perf_counter()
     logging.info(
         "[process_id=%s] Starting metric: '%s'...",
-        multihost.process_index(),
+        multihost.get_process_index(),
         self.name,
     )
 
@@ -56,7 +56,7 @@ class BaseMetric:
     duration = time.perf_counter() - self._start_time
     logging.info(
         "[process_id=%s] Finished metric: '%s' (took %.4fs)",
-        multihost.process_index(),
+        multihost.get_process_index(),
         self.name,
         duration,
     )
@@ -168,7 +168,7 @@ class TracemallocMetric(BaseMetric):
 
     self._log_tracemalloc_snapshot_diff(
         self.name,
-        multihost.process_index(),
+        multihost.get_process_index(),
         self._start_snapshot,
         end_snapshot,
         top_n=15,
@@ -285,7 +285,7 @@ class TensorstoreMetric(BaseMetric):
     diff = self._diff_metrics(self._start_metrics, end_metrics)
     logging.info(
         "[process_id=%s] Finished metric: %s, num_diffs=%d",
-        multihost.process_index(),
+        multihost.get_process_index(),
         self.name,
         len(diff),
     )
@@ -423,12 +423,12 @@ class Metrics:
     """Logs a formatted report of all collected metrics."""
     report_lines = []
     report_lines.append(
-        f"---[process_id={multihost.process_index()}] {self.name} Metrics"
+        f"---[process_id={multihost.get_process_index()}] {self.name} Metrics"
         " Report ---"
     )
     if not self.results:
       report_lines.append(
-          f"[process_id={multihost.process_index()}] No metrics recorded."
+          f"[process_id={multihost.get_process_index()}] No metrics recorded."
       )
     else:
       for name, (value, unit) in sorted(self.results.items()):
@@ -565,7 +565,7 @@ class MetricsManager:
   def _get_writer(self, benchmark_name: str) -> Any:
     """Gets or creates a TensorBoard writer for the given benchmark."""
     if benchmark_name not in self._writers:
-      is_primary_host = multihost.process_index() == 0
+      is_primary_host = multihost.get_process_index() == 0
       self._writers[benchmark_name] = metric_writers.create_default_writer(
           self._tensorboard_dir,
           just_logging=not is_primary_host,

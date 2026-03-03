@@ -16,8 +16,8 @@ from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
-import jax
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
+from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
 class DirectorySetupTest(absltest.TestCase):
@@ -51,7 +51,7 @@ class DirectorySetupTest(absltest.TestCase):
     self.assertTrue(path.exists())
     self.assertFalse((path / 'some_file').exists())
 
-  @mock.patch.object(jax, 'process_index', return_value=1)
+  @mock.patch.object(multihost, 'get_process_index', return_value=1)
   def test_setup_test_directory_non_zero_process_index_does_not_exist(self, _):
     temp_dir = self.create_tempdir()
 

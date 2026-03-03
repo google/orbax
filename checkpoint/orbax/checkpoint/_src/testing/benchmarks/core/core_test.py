@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import dataclasses
+import os
 from typing import List
 from unittest import mock
 
@@ -23,12 +24,14 @@ from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import core
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+import torch.distributed as dist
 
 
 @dataclasses.dataclass(frozen=True)
@@ -472,8 +475,13 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(directory_setup, 'setup_test_directory')
   @mock.patch.object(checkpoint_generation, 'generate_checkpoint')
   @mock.patch.object(logging, 'info')
+  @mock.patch.object(
+      multihost,
+      'sync_global_processes',
+  )
   def test_run_generates_report_with_failures(
       self,
+      mock_sync_global_processes,
       mock_logging_info,
       mock_generate_checkpoint,
       mock_setup_test_directory,
@@ -499,6 +507,11 @@ class TestSuiteTest(parameterized.TestCase):
     suite = core.TestSuite(name='report_suite', benchmarks_generators=[gen])
     suite.run()
 
+    mock_sync_global_processes.assert_any_call('benchmark:run')
+    mock_sync_global_processes.assert_any_call('benchmark:setup_test_directory')
+    mock_sync_global_processes.assert_any_call('benchmark:setup_pytree')
+    mock_sync_global_processes.assert_any_call('test_suite:run_end')
+
     # 3 benchmarks generated: (1,a), (1,b), (2,b).
     # (1,a), (1,b) pass. (2,b) fails because (2,a) is invalid.
 
@@ -511,6 +524,24 @@ class TestSuiteTest(parameterized.TestCase):
     self.assertIn('Total runs (1 repeats): 3, Passed: 2, Failed: 1', report_log)
     self.assertIn('--- Failed Runs ---', report_log)
     self.assertIn("Error: ValueError('opt1=2, opt2=b failed')", report_log)
+
+  @mock.patch.object(core.Benchmark, 'run')
+  @mock.patch.object(dist, 'barrier')
+  def test_run_with_torch(self, mock_dist_barrier, mock_benchmark_run):
+    # Initialize torch.distributed for testing.
+    os.environ.setdefault('MASTER_ADDR', 'localhost')
+    os.environ.setdefault('MASTER_PORT', '12355')
+    dist.init_process_group(backend='gloo', rank=0, world_size=1)
+    gen = MyGenerator(
+        checkpoint_configs=[configs.CheckpointConfig(spec={})],
+        options=MyBenchmarkOptions(opt1=[1, 2]),
+    )
+    suite = core.TestSuite(name='my_suite', benchmarks_generators=[gen])
+
+    suite.run()
+    mock_dist_barrier.assert_any_call()
+
+    self.assertEqual(mock_benchmark_run.call_count, 1)
 
 
 if __name__ == '__main__':
