@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import concurrent.futures
 import pickle
 import threading
 import time
@@ -226,6 +227,42 @@ class DeferredWritableTemporaryPath(TemporaryPathBase):
       A PathAwaitingCreation that resolves to the writable path.
     """
     ...
+
+
+class DeferredPath(path_types.PathAwaitingCreation):
+  """A path that is created asynchronously and can be awaited.
+
+  Uses concurrent.futures.Future instead of asyncio.Task to avoid
+  event loop binding issues when create() runs in a different thread.
+  The Future is thread-safe and can be awaited from any event loop.
+  """
+
+  def __init__(self):
+    self._future_path: concurrent.futures.Future[epath.Path] = (
+        concurrent.futures.Future()
+    )
+
+  def set_path(self, path: epath.Path) -> None:
+    """Sets the path result. Called by create() when allocation completes."""
+    self._future_path.set_result(path)
+
+  def __truediv__(
+      self, other: path_types.PathLike
+  ) -> path_types.PathAwaitingCreation:
+    child = DeferredPath()
+    self._future_path.add_done_callback(
+        lambda f: child.set_path(f.result() / other)
+    )
+    return child
+
+  @property
+  def path(self) -> epath.Path:
+    if not self._future_path.done():
+      raise ValueError('Path has not been created yet. Call await_creation().')
+    return self._future_path.result()
+
+  async def await_creation(self) -> epath.Path:
+    return await asyncio.wrap_future(self._future_path)
 
 
 class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):

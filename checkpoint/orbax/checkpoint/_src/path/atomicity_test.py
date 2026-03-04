@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import concurrent.futures
 import stat
 import unittest
 from absl.testing import absltest
@@ -203,6 +205,33 @@ class ReadOnlyTemporaryPathTest(
     with self.assertRaises(NotImplementedError):
       await path.finalize(
       )
+
+
+class DeferredPathTest(absltest.TestCase):
+
+  def test_set_and_get_path(self):
+    dp = atomicity.DeferredPath()
+    test_path = epath.Path('/test/path')
+    dp.set_path(test_path)
+    self.assertEqual(dp.path, test_path)
+
+  def test_path_before_set_raises(self):
+    dp = atomicity.DeferredPath()
+    with self.assertRaises(ValueError):
+      _ = dp.path
+
+  def test_await_creation(self):
+    dp = atomicity.DeferredPath()
+    test_path = epath.Path('/test/path')
+    dp.set_path(test_path)
+    result = asyncio.run(dp.await_creation())
+    self.assertEqual(result, test_path)
+
+  def test_set_path_twice_raises(self):
+    dp = atomicity.DeferredPath()
+    dp.set_path(epath.Path('/first'))
+    with self.assertRaises(concurrent.futures.InvalidStateError):
+      dp.set_path(epath.Path('/second'))
 
 
 
