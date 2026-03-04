@@ -289,6 +289,41 @@ class Checkpointer(epy.ContextManager):
     a save is already in progress, the function will block until the previous
     save has finished.
 
+    Example usage:
+      1. Basic Usage:
+        Save a PyTree at a specific training step. The checkpointer
+        automatically manages the step-based directory structure inside your
+        root folder::
+
+            from orbax.checkpoint.experimental.v1 import training
+
+            # Initialize the checkpointer for a directory
+            ckptr = training.Checkpointer(directory)
+
+            # Save the tree at step 0.
+            saved = ckptr.save_pytree(step=0, pytree=tree)
+
+            # Clean up background threads gracefully when the training loop ends
+            ckptr.close()
+
+      2. Advanced Saving with Metrics and Metadata:
+        Attach JSON-serializable metrics (like loss/accuracy) and custom
+        metadata to a specific step for thorough experiment tracking::
+
+            from orbax.checkpoint.experimental.v1 import training
+
+            ckptr = training.Checkpointer(directory)
+
+            ckptr.save_pytree(
+                step=1,
+                pytree=tree,
+                metrics={'loss': 0.12, 'accuracy': 0.95},
+                custom_metadata={'description': 'Model after epoch 1'},
+            )
+
+            ckptr.close()
+
+
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
@@ -324,7 +359,73 @@ class Checkpointer(epy.ContextManager):
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> bool:
-    """Saves a set of checkpointables at the given step."""
+    """Saves a dictionary of checkpointable objects at the given step.
+
+    This method saves a dictionary of checkpointable objects, mapping string
+    names to values. See `the guide on Checkpointables <`
+    `https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointables.html>`_
+    for more details on checkpointables. Also see documentation for
+    :py:func:`.save_pytree`.
+
+    Example:
+      1. Basic Usage:
+         Save multiple named items (checkpointables) at a specific step. The
+         dictionary keys define the names of the saved components::
+
+            from orbax.checkpoint.experimental.v1 import training
+
+            # Initialize the checkpointer for a directory
+            ckptr = training.Checkpointer(directory)
+
+            # Save multiple items, such as model weights and optimizer state
+            items_to_save = {
+                'model': my_model_state,
+                'optimizer': my_opt_state,
+            }
+
+            saved = ckptr.save_checkpointables(
+                step=0,
+                checkpointables=items_to_save
+            )
+
+            # Clean up background threads gracefully when the training loop ends
+            ckptr.close()
+
+      2. Advanced Saving with Metrics and Metadata:
+         Attach JSON-serializable metrics and custom metadata to a specific step
+         for thorough experiment tracking::
+
+            from orbax.checkpoint.experimental.v1 import training
+
+            ckptr = training.Checkpointer(directory)
+            items_to_save = {'model': my_model_state}
+
+            ckptr.save_checkpointables(
+                step=1,
+                checkpointables=items_to_save,
+                metrics={'loss': 0.12, 'accuracy': 0.95},
+                custom_metadata={'description': 'Model after epoch 1'},
+            )
+
+            ckptr.close()
+
+    Args:
+      step: The step number to save.
+      checkpointables: A dictionary mapping string names to the corresponding
+        objects (checkpointables) that need to be saved.
+      force: If True, ignores all policy checks and always decides to save a
+        checkpoint.
+      overwrite: If True, deletes any existing checkpoint at the given step
+        before saving. Otherwise, raises an error if the checkpoint already
+        exists.
+      metrics: A dictionary of metrics to be saved with the checkpoint. Must be
+        JSON-serializable.
+      custom_metadata: A JSON dictionary representing user-specified custom
+        metadata relevant to the checkpoint at this specific step.
+
+    Returns:
+      bool: True if the checkpoint was successfully saved, False otherwise.
+    """
     return self.save_checkpointables_async(
         step,
         checkpointables,
