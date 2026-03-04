@@ -374,3 +374,69 @@ jobs:
             "description": "'$status'",
             "context": "github-actions/build"
             }'
+
+  run-xpk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: checkpoint
+    permissions:
+      id-token: write # Required for Workload Identity Federation
+      contents: read  # To checkout the repo
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install gcloud CLI
+        run: |
+          pip install --no-cache-dir -e .
+          pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+          pip uninstall -y orbax
+          pip install -U jax jaxlib
+          gcloud --version
+        # gcloud should be pre-installed on ubuntu-latest runners, but ensure it's available.
+        # Otherwise, you might need a step to install it:
+        # - uses: google-github-actions/setup-gcloud@v2
+        
+
+      - name: Install xpk
+        run: |
+          pip install xpk
+
+      - name: Run xpk Commands
+        run: |
+          
+          python3 orbax/checkpoint/_src/testing/benchmarks/xpk/launch_xpk.py \
+            --cluster_name=test-github \
+            --project=orbax-checkpoint \
+            --zone=us-central1-a \
+            --tpu_type=v5litepod-16 \
+            --num_slices=1 \
+            --docker_image=gcr.io/orbax-checkpoint/orbax-benchmarks:stable-v35 \
+            --config_file orbax/checkpoint/_src/testing/benchmarks/configs/emergency_checkpoint_manager_benchmark.yaml \
+            --output_directory gs://orbax-benchmarks/xpk/${{ github.run_id }}
+            --verbose
+
+        # Export necessary environment variables for xpk and gcloud
+          # echo "GKE_CLUSTER_NAME=${{ secrets.GKE_CLUSTER_NAME }}" >> $GITHUB_ENV
+          # echo "GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_ENV
+          # echo "GCP_ZONE=${{ secrets.GCP_ZONE }}" >> $GITHUB_ENV
+          # echo "YOUR_WORKLOAD_IMAGE=${{ secrets.YOUR_WORKLOAD_IMAGE }}" >> $GITHUB_ENV
+
+          # Example xpk command to create a workload
+          # Add more xpk commands as needed, potentially in a separate script
+          # python3 xpk_repo/xpk.py workload list --cluster=$GKE_CLUSTER_NAME --zone=$GCP_ZONE --project=$GCP_PROJECT_ID
+
+      - name: Capture Logs (Optional)
+        if: failure()
+        run: |
+          # Example: Capture logs if the xpk command fails
+          # This depends on how xpk logs and if you can access them.
+          echo "XPK command failed. Checking for logs..."
+          # Add commands to retrieve relevant logs from GKE or xpk

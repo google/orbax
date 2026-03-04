@@ -406,6 +406,8 @@ def check_preconditions() -> bool:
     Console.print_success(f'GCS Bucket accessible: gs://{bucket}')
   except subprocess.CalledProcessError as exc:
     Console.print_error(f'Cannot access GCS bucket: gs://{bucket}')
+    if exc.output:
+      Console.print_error(f'GCS check output: {exc.output.decode("utf-8")}')
     raise PreconditionError(f'Cannot access GCS bucket: gs://{bucket}') from exc
 
   # 3. Check Docker Image
