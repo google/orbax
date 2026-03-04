@@ -15,6 +15,7 @@
 import collections
 import logging
 import os
+from unittest import mock
 
 from absl.testing import parameterized
 import chex
@@ -179,6 +180,30 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
     self.assertLen(variables, 1)
     self.assertEqual(variables[0].name, 'arr:0')
     self.assertAllEqual(variables[0], global_input_data)
+
+  def test_dtensor_export_non_jax_array_error(self):
+    global_mesh = jax.sharding.Mesh(
+        np.array(jax.local_devices(backend='cpu')), 'x'
+    )
+    mesh_axes = jax.sharding.PartitionSpec('x')
+
+    arr = jnp.array([1, 2, 3])
+    with mock.patch.object(
+        tensorflow_module.dtensor_utils,
+        'get_current_mesh',
+        return_value=global_mesh,
+    ):
+      with self.assertRaisesRegex(
+          ValueError,
+          r'All parameters must be JAX arrays when DTensor export is enabled.*'
+          r"Found non-JAX array parameters at: \['some_non_array'\] \(type:"
+          r' ellipsis\)',
+      ):
+        TensorFlowModule(
+            params={'arr': arr, 'some_non_array': ...},
+            apply_fn=DEFAULT_APPLY_FN,
+            pspecs={'arr': mesh_axes, 'some_non_array': None},
+        )
 
   @parameterized.parameters(True, False)
   def test_call_tf_module_methods(self, jit_compile):

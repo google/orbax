@@ -37,6 +37,20 @@ obx_export_config = config.config
 maybe_reraise = reraise_utils.maybe_reraise
 
 
+def _get_non_jax_array_params_info(params: PyTree) -> list[str]:
+  """Returns info about params that are not jax.Arrays."""
+  flattened_params = jax.tree_util.tree_leaves_with_path(params)
+  non_jax_array_info = [
+      f'{jax.tree_util.keystr(path)} (type: {type(x).__name__})'
+      for path, x in flattened_params
+      if not isinstance(x, jax.Array)
+  ]
+  if len(non_jax_array_info) > 10:
+    omitted = len(non_jax_array_info) - 10
+    non_jax_array_info = non_jax_array_info[:10] + [f'... and {omitted} more']
+  return non_jax_array_info
+
+
 def _same_keys(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
   return set(a.keys()) == set(b.keys())
 
@@ -273,14 +287,12 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
             'DTensor export is enabled but `pspecs` is not specified in'
             ' JaxModule.'
         )
-      if not all(
-          isinstance(x, jax.Array) for x in jax.tree_util.tree_leaves(params)
-      ):
-        logging.warning(
-            'Some params are not jax.Array, DTensor export will not take'
-            ' effect.Falling back to traditional TF export.'
+      if non_jax_array_info := _get_non_jax_array_params_info(params):
+        raise ValueError(
+            'All parameters must be JAX arrays when DTensor export is enabled.'
+            ' Found non-JAX array parameters at:'
+            f' {", ".join(non_jax_array_info)}'
         )
-        mesh = None
 
     if mesh is None and pspecs is not None:
       raise ValueError(
