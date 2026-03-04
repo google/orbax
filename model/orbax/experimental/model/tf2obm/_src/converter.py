@@ -557,7 +557,9 @@ def _get_converted_function_signature_def(
     converted_model_path = os.path.join(
         tmp_model_dir, OBM_TF_SAVED_MODEL_SUB_DIR
     )
-    with open(os.path.join(converted_model_path, 'saved_model.pb'), 'rb') as f:
+    with tf.io.gfile.GFile(
+        os.path.join(converted_model_path, 'saved_model.pb'), 'rb'
+    ) as f:
       saved_model_proto = saved_model_pb2.SavedModel.FromString(f.read())
       return saved_model_proto.meta_graphs[0].signature_def[fn_name]
   finally:
