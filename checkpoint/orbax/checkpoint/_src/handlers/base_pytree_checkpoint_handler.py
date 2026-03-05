@@ -1036,6 +1036,12 @@ class BasePyTreeCheckpointHandler(
           serialized_item, value_metadata_tree
       )
     else:
+      # Deserialize value metadata tree to the same structure as item to allow
+      # for comparison with item that contains rich types.
+      if self._pytree_metadata_options.support_rich_types:
+        value_metadata_tree = tree_utils.deserialize_tree(
+            value_metadata_tree, item
+        )
       # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
       # dicts, lists, custom nodes) as leaves, as they do not contain any
       # actual data to be restored, but are needed to maintain the structure.
@@ -1062,12 +1068,11 @@ class BasePyTreeCheckpointHandler(
         restore_args, self._pytree_metadata_options
     )
 
-    value_metadata_tree_deserialized = tree_utils.deserialize_tree(
-        value_metadata_tree, item
-    )
-    restore_args_deserialized = tree_utils.deserialize_tree(restore_args, item)
-    value_metadata_tree = value_metadata_tree_deserialized
-    restore_args = restore_args_deserialized
+    if not self._pytree_metadata_options.support_rich_types:
+      value_metadata_tree = tree_utils.deserialize_tree(
+          value_metadata_tree, item
+      )
+    restore_args = tree_utils.deserialize_tree(restore_args, item)
 
     param_infos = self._get_param_infos(
         item=value_metadata_tree,
