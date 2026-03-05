@@ -15,6 +15,7 @@
 """Script to generate YAML file with test targets based on tags."""
 
 import ast
+import collections
 import os
 import sys
 
@@ -29,7 +30,11 @@ TEST_RULES = [
     'pytype_strict_contrib_test',
 ]
 EXCLUDED_PATHS = [
-    'orbax/checkpoint/experimental',
+    'orbax/checkpoint/experimental/model_surgery',
+    'orbax/checkpoint/experimental/v1',
+    'orbax/checkpoint/experimental/emergency/p2p',
+    'orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py',
+    'orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py',
     'orbax/checkpoint/google',
 ]
 
@@ -60,53 +65,17 @@ def get_str_val(node):
   return None
 
 
-def inherits_from_multiprocess_test(test_file_path):
-  """Checks if test file inherits from MultiProcessTest."""
-  try:
-    with open(test_file_path, 'r') as f:
-      content = f.read()
-  except FileNotFoundError:
-    return False
-  try:
-    tree = ast.parse(content, filename=test_file_path)
-  except SyntaxError:
-    return False
+def get_num_processes(args):
+  """Returns num_processes from args."""
+  for arg in args:
+    if arg.startswith('--num_processes='):
+      try:
+        return int(arg.split('=', 1)[1])
+      except ValueError:
+        return None
+  return None
 
-  imported_as_name = None  # if imported as `from ... import MultiProcessTest`
-  imported_as_module = []  # if imported as `from ... import multiprocess_test`
 
-  for node in tree.body:
-    if isinstance(node, ast.ImportFrom):
-      if node.module == 'orbax.checkpoint._src.testing.multiprocess_test':
-        for alias in node.names:
-          if alias.name == 'MultiProcessTest':
-            imported_as_name = alias.asname or alias.name
-      elif node.module == 'orbax.checkpoint._src.testing':
-        for alias in node.names:
-          if alias.name == 'multiprocess_test':
-            imported_as_module.append(alias.asname or alias.name)
-
-  if not imported_as_name and not imported_as_module:
-    return False
-
-  for node in tree.body:
-    if isinstance(node, ast.ClassDef):
-      for base in node.bases:
-        if (
-            imported_as_name
-            and isinstance(base, ast.Name)
-            and base.id == imported_as_name
-        ):
-          return True
-        if (
-            imported_as_module
-            and isinstance(base, ast.Attribute)
-            and isinstance(base.value, ast.Name)
-            and base.value.id in imported_as_module
-            and base.attr == 'MultiProcessTest'
-        ):
-          return True
-  return False
 
 
 def get_build_targets(build_file_path):
@@ -135,18 +104,18 @@ def get_build_targets(build_file_path):
 
     if rule_name in TEST_RULES:
       kwargs = get_kwargs(call)
-      if 'name' in kwargs and 'tags' in kwargs:
+      if 'name' in kwargs:
         name = get_str_val(kwargs['name'])
-        tags = get_list_val(kwargs['tags'])
+        tags = get_list_val(kwargs['tags']) if 'tags' in kwargs else []
         srcs = get_list_val(kwargs['srcs']) if 'srcs' in kwargs else []
-        if name and tags:
-          yield name, tags, srcs
+        args = get_list_val(kwargs['args']) if 'args' in kwargs else []
+        if name:
+          yield name, tags, srcs, args
 
 
 def run(root_dir, output_file):
   """Runs the script to generate tagged tests file."""
-  tests_by_tag = {tag: [] for tag in TAG_MAPPING.values()}
-  tests_by_tag['processes:1'] = []
+  tests_by_tag = collections.defaultdict(list)
 
   count = 0
   for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -166,35 +135,33 @@ def run(root_dir, output_file):
       count += 1
       build_file = os.path.join(dirpath, 'BUILD')
       package_path = dirpath.removeprefix('third_party/py/')
-      for name, tags, srcs in get_build_targets(build_file):
+      for name, tags, srcs, args in get_build_targets(build_file):
+        if not any(tag in TAG_MAPPING for tag in tags):
+          continue
         if srcs and any(
             os.path.join(dirpath, srcs[0]).startswith(p) for p in EXCLUDED_PATHS
         ):
           continue
-        is_multiprocess = False
-        if srcs:
-          is_multiprocess = inherits_from_multiprocess_test(
-              os.path.join(dirpath, srcs[0])
-          )
         target_path = f'{package_path}:{name}'
-        if not is_multiprocess:
-          tests_by_tag['processes:1'].append(target_path)
+        num_processes = get_num_processes(args)
+        if num_processes and num_processes > 1:
+          tag = f'processes:{num_processes}'
+          tests_by_tag[tag].append(target_path)
         else:
-          for tag in tags:
-            if tag in TAG_MAPPING:
-              tests_by_tag[TAG_MAPPING[tag]].append(target_path)
+          tests_by_tag['processes:1'].append(target_path)
 
   print(f'Processed {count} BUILD files.')
 
+  result_dict = {}
   for tag in tests_by_tag:
-    tests_by_tag[tag] = sorted(list(set(tests_by_tag[tag])))
+    result_dict[tag] = sorted(list(set(tests_by_tag[tag])))
 
   header = """# DO NOT EDIT!
 """
   os.makedirs(os.path.dirname(output_file), exist_ok=True)
   with open(output_file, 'w') as f:
     f.write(header)
-    yaml.dump(tests_by_tag, f, default_flow_style=False)
+    yaml.dump(result_dict, f, default_flow_style=False)
   print(f'Output written to {output_file}')
 
 
