@@ -56,7 +56,7 @@ ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
 # Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu 
+RUN pip install --no-cache-dir gcsfs portpicker clu tensorboard
 
 RUN if [ "$DEVICE" = "gpu" ]; then \
     pip install --no-cache-dir tensorflow; \

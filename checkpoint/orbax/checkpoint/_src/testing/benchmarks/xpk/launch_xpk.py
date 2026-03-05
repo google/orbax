@@ -618,7 +618,7 @@ def create_cluster() -> None:
       )
     bucket = _OUTPUT_DIRECTORY.value.split('/')[2]
     cmd.append('--enable-mtc')
-    cmd.append('--mtc-ramdisk-size=32G')
+    cmd.append('--mtc-ramdisk-size=1000Gi')
     cmd.append(f'--mtc-gcs-bucket={bucket}')
     cmd.append(
         '--custom-cluster-arguments=--workload-pool=orbax-checkpoint.svc.id.goog'
