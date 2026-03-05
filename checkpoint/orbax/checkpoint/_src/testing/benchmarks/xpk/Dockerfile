@@ -48,7 +48,7 @@ ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
 # Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow
+RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow tensorboard
 
 # Install requirements from repo root if it exists
 RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
