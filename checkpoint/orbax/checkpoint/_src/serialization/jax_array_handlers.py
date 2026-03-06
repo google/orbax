@@ -516,7 +516,10 @@ def _serialize_arrays(
           ' scheduled asynchronously.'
       )
 
+    all_infos = infos
     async def _serialize():
+      for info in all_infos:
+        await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
         _serialize_batch(infos, args, arrays)
