@@ -328,6 +328,121 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           persist_xla_flags=False,
       )
 
+  def test_generate_xla_compile_options_env_overrides(self):
+    compile_options_map = compile_options_util.generate_xla_compile_options(
+        native_serialization_platforms=['cuda'],
+        xla_flags_per_platform={
+            'cuda': [
+                '--xla_gpu_enable_latency_hiding_scheduler=true',
+                '--xla_gpu_autotune_level=0',
+            ]
+        },
+        persist_xla_flags=True,
+    )
+    self.assertIn('cuda', compile_options_map.map)
+    compile_options = compile_options_map.map['cuda']
+
+    overrides = compile_options.env_option_overrides
+    self.assertIn('xla_gpu_enable_latency_hiding_scheduler', overrides)
+    self.assertTrue(
+        overrides['xla_gpu_enable_latency_hiding_scheduler'].bool_field
+    )
+
+    self.assertIn('xla_gpu_autotune_level', overrides)
+    self.assertEqual(overrides['xla_gpu_autotune_level'].int_field, 0)
+
+  def test_generate_xla_compile_options_gpu_flags_experimental_rejection(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        r'XLA GPU compilation flag --xla_gpu_experimental_flag=true is not'
+        r' supported. Please check field description at'
+        r' CompilationConfig::xla_gpu_flags',
+    ):
+      compile_options_util.generate_xla_compile_options(
+          native_serialization_platforms=['cuda'],
+          xla_flags_per_platform={'cuda': ['--xla_gpu_experimental_flag=true']},
+          persist_xla_flags=True,
+      )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='bool_true',
+          flag='--xla_gpu_enable_latency_hiding_scheduler=true',
+          expected_key='xla_gpu_enable_latency_hiding_scheduler',
+          expected_field='bool_field',
+          expected_value=True,
+      ),
+      dict(
+          testcase_name='bool_false',
+          flag='--xla_gpu_enable_latency_hiding_scheduler=false',
+          expected_key='xla_gpu_enable_latency_hiding_scheduler',
+          expected_field='bool_field',
+          expected_value=False,
+      ),
+      dict(
+          testcase_name='bool_uppercase_true',
+          flag='--xla_gpu_enable_latency_hiding_scheduler=TRUE',
+          expected_key='xla_gpu_enable_latency_hiding_scheduler',
+          expected_field='bool_field',
+          expected_value=True,
+      ),
+      dict(
+          testcase_name='int_positive',
+          flag='--xla_gpu_autotune_level=4',
+          expected_key='xla_gpu_autotune_level',
+          expected_field='int_field',
+          expected_value=4,
+      ),
+      dict(
+          testcase_name='int_negative',
+          flag='--xla_gpu_nccl_termination_timeout_seconds=-1',
+          expected_key='xla_gpu_nccl_termination_timeout_seconds',
+          expected_field='int_field',
+          expected_value=-1,
+      ),
+      dict(
+          testcase_name='float_positive',
+          flag='--xla_gpu_auto_spmd_partitioning_memory_budget_ratio=1.5',
+          expected_key='xla_gpu_auto_spmd_partitioning_memory_budget_ratio',
+          expected_field='double_field',
+          expected_value=1.5,
+      ),
+      dict(
+          testcase_name='float_negative',
+          flag='--xla_gpu_auto_spmd_partitioning_memory_budget_ratio=-0.5',
+          expected_key='xla_gpu_auto_spmd_partitioning_memory_budget_ratio',
+          expected_field='double_field',
+          expected_value=-0.5,
+      ),
+      dict(
+          testcase_name='string_value',
+          flag='--xla_gpu_cuda_data_dir=/usr/local/cuda',
+          expected_key='xla_gpu_cuda_data_dir',
+          expected_field='string_field',
+          expected_value='/usr/local/cuda',
+      ),
+  )
+  @mock.patch.object(
+      compile_options_util.xla_gpu_flag_validation, 'validate_xla_gpu_flag'
+  )
+  def test_generate_xla_compile_options_gpu_flags_type_inference(
+      self, mock_validate, flag, expected_key, expected_field, expected_value
+  ):
+    del mock_validate  # Unused, just patching for bypass
+    compile_options_map = compile_options_util.generate_xla_compile_options(
+        native_serialization_platforms=['cuda'],
+        xla_flags_per_platform={'cuda': [flag]},
+        persist_xla_flags=True,
+    )
+    self.assertIsNotNone(compile_options_map.map)
+    build_options_cuda = compile_options_map.map['cuda']
+    self.assertIn(expected_key, build_options_cuda.env_option_overrides)
+    override_proto = build_options_cuda.env_option_overrides[expected_key]
+    with self.subTest('test_oneof_field'):
+      self.assertEqual(override_proto.WhichOneof('value'), expected_field)
+    with self.subTest('test_value'):
+      self.assertEqual(getattr(override_proto, expected_field), expected_value)
+
   @parameterized.named_parameters(
       dict(
           testcase_name='1d_mesh',
