@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import asyncio
+import contextlib
+import io
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -132,6 +135,24 @@ class AsyncPathTest(parameterized.TestCase):
           read_chunk(2, 7),
       )
       self.assertEqual(results, ['01234', '56789', '2345678'])
+
+    asyncio.run(_test())
+
+  def test_open_returns_context_manager_handled(self):
+    test_file = self.test_dir / 'test.txt'
+    test_file.write_text('hello world')
+
+    @contextlib.contextmanager
+    def open_mock(mode):
+      del mode
+      yield io.BytesIO(b'hello world')
+
+    async def _test():
+      with mock.patch.object(
+          test_file, 'open', return_value=open_mock('rb')
+      ):
+        async with async_path.open_file(test_file, 'rb') as f:
+          self.assertEqual(await f.read(), b'hello world')
 
     asyncio.run(_test())
 
