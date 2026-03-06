@@ -484,8 +484,22 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     ckpt_args = checkpointer.construct_checkpoint_args(
         self._handler, True, *args, **kwargs
     )
+    if isinstance(
+        self._handler,
+        async_checkpoint_handler.DeferredPathAsyncCheckpointHandler,
+    ):
+      # Use get_awaitable_path for deferred path implementations.
+      if not isinstance(tmpdir, atomicity.DeferredWritableTemporaryPath):
+        raise ValueError(
+            f'Handler {type(self._handler).__name__} requires a TemporaryPath'
+            ' that is a DeferredWritableTemporaryPath, but got'
+            f' {type(tmpdir).__name__}.'
+        )
+      directory_arg = tmpdir.get_awaitable_path()
+    else:
+      directory_arg = tmpdir.get()
     commit_ops.extend(
-        await self._handler.async_save(tmpdir.get(), args=ckpt_args) or []
+        await self._handler.async_save(directory_arg, args=ckpt_args) or []
     )
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
