@@ -27,6 +27,7 @@ from orbax.experimental.model.core.protos import manifest_pb2
 from .google.protobuf import any_pb2
 from .platforms.xla.service.jellyfish import tpu_compilation_environment_pb2 as tpu_comp_env_pb2
 from .platforms.xla.service.jellyfish.python import tpu_compilation_environment as tpu_comp_env
+from .third_party.neptune.model._src.core import xla_gpu_flag_validation
 from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.compiler.xla import xla_pb2  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.compiler.xla.pjrt.proto import compile_options_pb2  # pylint: disable=g-direct-tensorflow-import
@@ -165,6 +166,10 @@ def generate_xla_compile_options(
   tpu_platform_name = manifest_pb2.Platform.Name(
       manifest_pb2.Platform.TPU
   ).lower()
+  cuda_platform_name = manifest_pb2.Platform.Name(
+      manifest_pb2.Platform.CUDA
+  ).lower()
+
   compile_options_map = manifest_pb2.CompileOptionsProtoMap()
   if native_serialization_platforms is None:
     # If no native serialization platforms are specified, we will set the
@@ -195,22 +200,95 @@ def generate_xla_compile_options(
         )
 
   for platform in platforms:
-    if platform.lower() == tpu_platform_name:
-      if xla_flags_per_platform:
-        xla_flags_overrides = xla_flags_per_platform.get(platform, None)
+    if xla_flags_per_platform:
+      xla_flags_overrides = xla_flags_per_platform.get(platform, None)
+      if xla_flags_overrides:
         _validate_xla_flags_setting(xla_flags_overrides, persist_xla_flags)
-      else:
-        xla_flags_overrides = None
-      compile_environment = _generate_tpu_compilation_env(xla_flags_overrides)
     else:
+      xla_flags_overrides = None
+
+    platform_lower = platform.lower()
+    if platform_lower == tpu_platform_name:
+      compile_environment = _generate_tpu_compilation_env(xla_flags_overrides)
+    elif platform_lower == cuda_platform_name:
+      # GPU Trick: Empty proto to bypass 'None' check and enable jax_mesh
+      # serialization.
+      compile_environment = xla_pb2.CompilationEnvironmentsProto()
+    else:
+      # CPU Path: Leave as None to preserve legacy portable execution behavior.
       compile_environment = None
-    compile_options_map.map[platform.lower()].CopyFrom(
-        _generate_compilation_options(compile_environment, jax_mesh)
+
+    compile_options = _generate_compilation_options(
+        compile_environment, jax_mesh
     )
+
+    # Inject env_option_overrides natively for GPU using a dedicated helper.
+    if platform_lower == cuda_platform_name and xla_flags_overrides:
+      _apply_gpu_compilation_env_options(compile_options, xla_flags_overrides)
+
+    compile_options_map.map[platform_lower].CopyFrom(compile_options)
+
   if not persist_xla_flags:
     for compile_options in compile_options_map.map.values():
       compile_options.executable_build_options.comp_envs.Clear()
   return compile_options_map
+
+
+def _apply_gpu_compilation_env_options(
+    compile_options: compile_options_pb2.CompileOptionsProto,
+    xla_flags_overrides: Sequence[str],
+) -> None:
+  """Applies XLA flag overrides generically for GPU platforms.
+
+  Args:
+    compile_options: The compilation options proto to be modified.
+    xla_flags_overrides: A sequence of XLA flags to apply as option overrides.
+  """
+  overrides_map = _parse_env_option_overrides(xla_flags_overrides)
+  for k, v in overrides_map.items():
+    compile_options.env_option_overrides[k].CopyFrom(v)
+
+
+def _parse_env_option_overrides(
+    xla_flags: Sequence[str],
+) -> dict[str, compile_options_pb2.OptionOverrideProto]:
+  """Parses a list of XLA flags into a dictionary of OptionOverrideProto."""
+  overrides = {}
+  for flag in xla_flags:
+    if not flag.startswith('--'):
+      raise ValueError(f"Flag {flag} must start with '--'")
+
+    try:
+      # Use the C++ ValidateXlaGPUFlag logic to ensure consistent policy
+      # enforcement across Python and C++ layers.
+      # The C++ function expects the flag with the '--' prefix.
+      xla_gpu_flag_validation.validate_xla_gpu_flag(flag, strict=True)
+    except Exception as e:
+      # pybind11_abseil appends the status code name to the exception string.
+      # Remove it to match exactly what users would see from the C++ binaries.
+      err_msg = str(e)
+      if err_msg.endswith(' [INVALID_ARGUMENT]'):
+        err_msg = err_msg.removesuffix(' [INVALID_ARGUMENT]')
+      raise ValueError(err_msg) from e
+
+    key, value = flag[2:].split('=', 1)
+    override_proto = compile_options_pb2.OptionOverrideProto()
+
+    # Infer type (True/False/Int/Float/String)
+    if value.lower() == 'true':
+      override_proto.bool_field = True
+    elif value.lower() == 'false':
+      override_proto.bool_field = False
+    elif value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+      override_proto.int_field = int(value)
+    else:
+      try:
+        override_proto.double_field = float(value)
+      except ValueError:
+        override_proto.string_field = value
+
+    overrides[key] = override_proto
+  return overrides
 
 
 def _validate_xla_flags_setting(
