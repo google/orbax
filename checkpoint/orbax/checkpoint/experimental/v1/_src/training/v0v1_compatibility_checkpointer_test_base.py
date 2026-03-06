@@ -219,3 +219,43 @@ class V0v1CompatibilityCheckpointerTestBase(
 
   def test_step_already_exists(self):
     self.skipTest('b/422287659')
+
+  @parameterized.product(
+      reinitialize_checkpointer=(True, False),
+  )
+  def test_checkpointables_metadata(self, reinitialize_checkpointer):
+    # Checkpoint is saved with v0 CheckpointManager, so we expect None instead
+    # of AbstractBaz due to the v0 handler typestr being unrecognized by v1's
+    # handler registry.
+    checkpointer = Checkpointer(self.directory)
+    self.save_checkpointables(
+        checkpointer,
+        0,
+        {'pytree': self.pytree, 'baz': handler_utils.Baz(123, 'hi')},
+        metrics={'loss': 0.5},
+        custom_metadata={'baz': 'qux'},
+    )
+    if reinitialize_checkpointer:
+      checkpointer.close()
+      checkpointer = Checkpointer(self.directory)
+      self.enter_context(checkpointer)
+
+    checkpoint_metadata = checkpointer.checkpointables_metadata(0)
+
+    self.assertIsInstance(checkpoint_metadata, ocp.training.CheckpointMetadata)
+    self.assertDictEqual(checkpoint_metadata.custom_metadata, {'baz': 'qux'})
+    self.assertDictEqual(checkpoint_metadata.metrics, {'loss': 0.5})
+    self.assertIsNotNone(checkpoint_metadata.init_timestamp_nsecs)
+    self.assertIsNotNone(checkpoint_metadata.commit_timestamp_nsecs)
+    self.assertIsInstance(checkpoint_metadata.metadata, dict)
+    self.assertSameElements(
+        checkpoint_metadata.metadata.keys(), ['pytree', 'baz']
+    )
+    self.assertSameElements(
+        checkpoint_metadata.metadata['pytree'].keys(),
+        ['jax_array', 'numpy_array'],
+    )
+    # Cannot resolve metadata for outdated checkpointables' handler typestr
+    # without providing a non-none abstract checkpointable, so we expect None
+    # instead of AbstractBaz.
+    self.assertIsNone(checkpoint_metadata.metadata['baz'])
