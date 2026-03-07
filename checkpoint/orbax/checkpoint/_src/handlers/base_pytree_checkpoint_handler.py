@@ -1055,6 +1055,24 @@ class BasePyTreeCheckpointHandler(
             ' intentional, pass `partial_restore=True` to only restore'
             ' parameters found in `item`.'
         )
+
+    # If a user specifies None leaves in target tree, we need to validate that
+    # restore_args also has None leaves in the same positions.
+    if item is not None and restore_args is not None:
+      def _validate_arg(item_node, arg_node):
+        if item_node is None and arg_node is not None:
+          raise ValueError(
+              'Mismatch detected: restore_args contains a valid argument'
+              f' {arg_node} where leaf is None.'
+          )
+
+      jax.tree.map(
+          _validate_arg,
+          item,
+          restore_args,
+          is_leaf=tree_utils.is_empty_or_leaf,
+      )
+
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
