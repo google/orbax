@@ -26,6 +26,10 @@ if no args are provided.
 
 - Fixed `get_device_memory` issue on TPU 7x devices where the device kind string
 was consistently reported without a space, causing a ValueError.
+- Fixed hanging in `AsyncCheckpointer` if timeout occurs during save. Remaining
+time is now calculated and applied to commit operations and synchronization
+barriers, ensuring that all async operations time out instead of hanging if
+preceding operations consume most of the timeout budget
 
 ## [0.1.7] - 2022-03-29
 
