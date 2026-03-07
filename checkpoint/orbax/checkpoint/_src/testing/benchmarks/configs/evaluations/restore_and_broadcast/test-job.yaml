@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gke-test-job
+  namespace: default
+  labels:
+    # This label tells Kueue to intercept and manage this job
+    kueue.x-k8s.io/queue-name: multislice-queue
+spec:
+  template:
+    spec:
+      containers:
+      - name: test-container
+        image: ubuntu
+        command: ["/bin/sh", "-c", "echo 'Hello from GKE and Kueue!'; sleep 30"]
+        resources:
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+      restartPolicy: Never

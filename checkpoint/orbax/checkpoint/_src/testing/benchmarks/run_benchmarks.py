@@ -59,11 +59,92 @@ _ENABLE_HLO_DUMP = flags.DEFINE_bool(
 
 
 
+def _maybe_register_megascale_collectives():
+  """Registers megascale CPU collectives if configured.
+
+  In , jax_google.py overrides the CPU backend factory to support
+  megascale collectives. In the OSS Docker image, that override is stripped
+  by copybara. This function replicates that logic for OSS environments.
+
+  All jax._src imports are done dynamically to avoid  visibility
+  issues (these modules are private to JAX's build).
+  """
+  try:
+    from jax._src import config as jax_config  # pylint: disable=g-import-not-at-top
+  except ImportError:
+    logging.warning('Could not import jax._src.config, skipping megascale.')
+    return
+
+  collectives_impl = jax_config.cpu_collectives_implementation.value
+  logging.info(
+      'jax_cpu_collectives_implementation=%s (megascale registration check)',
+      collectives_impl,
+  )
+  if collectives_impl != 'megascale':
+    return
+
+  try:
+    import megascale_cpu_collectives  # pylint: disable=g-import-not-at-top  # pytype: disable=import-error
+
+    logging.info('megascale_cpu_collectives imported successfully.')
+  except ImportError as e:
+    logging.warning(
+        'jax_cpu_collectives_implementation is set to megascale, but'
+        ' megascale_cpu_collectives could not be imported: %s. Megascale'
+        ' collectives will not be available.',
+        e,
+    )
+    return
+
+  from jax._src import distributed  # pylint: disable=g-import-not-at-top
+  from jax._src import xla_bridge  # pylint: disable=g-import-not-at-top
+
+  logging.info('Registering megascale CPU collectives backend.')
+
+  coordinator_address = os.environ.get('JAX_COORDINATOR_ADDRESS', '')
+  coordinator_port = os.environ.get('JAX_COORDINATOR_PORT', '1234')
+  if coordinator_address and ':' not in coordinator_address:
+    coordinator_address = f'{coordinator_address}:{coordinator_port}'
+
+  def _megascale_cpu_backend_factory():
+    collectives = megascale_cpu_collectives.make_megascale_collectives(
+        coordinator_address=coordinator_address,
+        node_id=distributed.global_state.process_id,
+        num_nodes=distributed.global_state.num_processes,
+    )
+    return xla_bridge.make_cpu_client(collectives=collectives)
+
+  xla_bridge.register_backend_factory(
+      'cpu', _megascale_cpu_backend_factory, priority=0, fail_quietly=False
+  )
+
+
 def _init_jax_distributed():
   """Initializes JAX distributed system if not managed by XManager."""
 
   try:
-    jax.distributed.initialize()
+    jax_platforms = os.environ.get('JAX_PLATFORMS')
+    jax_coordinator_address = os.environ.get('JAX_COORDINATOR_ADDRESS')
+    jax_process_id = os.environ.get('JAX_PROCESS_ID')
+    jax_num_processes = os.environ.get('JAX_NUM_PROCESSES')
+    jax_coordinator_port = os.environ.get('JAX_COORDINATOR_PORT')
+    logging.info('JAX_PLATFORMS: %s', jax_platforms)
+    logging.info(
+        'JAX_COORDINATOR_ADDRESS: %s',
+        jax_coordinator_address,
+    )
+    logging.info('JAX_PROCESS_ID: %s', jax_process_id)
+    logging.info('JAX_NUM_PROCESSES: %s', jax_num_processes)
+    logging.info('JAX_COORDINATOR_PORT: %s', jax_coordinator_port)
+    if jax_num_processes is not None:
+      jax_num_processes = int(jax_num_processes)
+    if jax_process_id is not None:
+      jax_process_id = int(jax_process_id)
+    jax.distributed.initialize(
+        coordinator_address=jax_coordinator_address,
+        num_processes=jax_num_processes,
+        process_id=jax_process_id,
+    )
     logging.info('JAX distributed system initialized.')
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.warning(
@@ -71,13 +152,33 @@ def _init_jax_distributed():
         'This is expected if running in a single-process environment. '
         'Continuing as single-process.',
         e,
-        exc_info=False,
+        exc_info=True,
     )
 
+  logging.info('Default JAX backend: %s', jax.default_backend())
+  logging.info('Available devices: %s', jax.devices())
   logging.info('JAX process index: %d', jax.process_index())
   logging.info('JAX process count: %d', jax.process_count())
   logging.info('JAX device count: %d', jax.device_count())
   logging.info('JAX local device count: %d', jax.local_device_count())
+
+  try:
+    from jax._src import config as jax_config  # pylint: disable=g-import-not-at-top
+    from jax._src import xla_bridge  # pylint: disable=g-import-not-at-top
+
+    collectives_impl = jax_config.cpu_collectives_implementation.value
+    logging.info('jax_cpu_collectives_implementation: %s', collectives_impl)
+    logging.info('Registered backends: %s', list(xla_bridge.backends().keys()))
+    if collectives_impl == 'megascale':
+      logging.info('Megascale collectives are ENABLED.')
+    else:
+      logging.info(
+          'Megascale collectives are NOT enabled'
+          ' (jax_cpu_collectives_implementation=%s).',
+          collectives_impl,
+      )
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.warning('Failed to verify megascale status: %s', e)
 
 
 def _configure_hlo_dump(output_directory: str):
@@ -160,6 +261,7 @@ def main(argv: List[str]) -> None:
 
   logging.info('run_benchmarks.py started.')
 
+  _maybe_register_megascale_collectives()
   _init_jax_distributed()
 
   if _ENABLE_HLO_DUMP.value:

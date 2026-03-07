@@ -1,0 +1,59 @@
+---
+# 1. Headless Service: Required for distributed pods to discover each other
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${JOB_NAME}
+  namespace: default
+spec:
+  clusterIP: None
+  selector:
+    job-name: ${JOB_NAME}
+---
+# 2. Indexed Job: Manages the distributed workload and queues via Kueue
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${JOB_NAME}
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: multislice-queue
+spec:
+  completions: ${TOTAL_PODS}
+  parallelism: ${TOTAL_PODS}
+  completionMode: Indexed
+  template:
+    metadata:
+      labels:
+        job-name: ${JOB_NAME}
+    spec:
+      subdomain: ${JOB_NAME}
+      restartPolicy: Never
+      containers:
+      - name: benchmark
+        image: ${IMAGE}
+        
+        # ---> IMPORTANT: UPDATE THIS COMMAND <---
+        command:
+        - "python3"
+        - "/path/to/your/benchmark_script.py" 
+        - "--config_file=${FULL_CONFIG_PATH}"
+        - "--output_directory=${OUTPUT_DIR}"
+        
+        # 3. Distributed Setup: Injecting JAX environment variables natively
+        env:
+        - name: JAX_COORDINATOR_ADDRESS
+          value: "${JOB_NAME}-0.${JOB_NAME}.default.svc.cluster.local"
+        - name: JAX_COORDINATOR_PORT
+          value: "1234"
+        - name: JAX_PROCESS_COUNT
+          value: "${TOTAL_PODS}"
+        - name: JAX_PROCESS_INDEX
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+        
+        # 4. Resource constraint tailored to your cluster
+        resources:
+          requests:
+            cpu: "1"

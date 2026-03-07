@@ -101,7 +101,7 @@ class ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
           checkpoint_generation.get_abstract_state_from_sharding_config(
               reference_sharding_path,
               metadata.metadata,
-              devices=context.mesh.devices,
+              devices=jax.devices(),
           )
       )
 
