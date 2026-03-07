@@ -693,7 +693,10 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
 
     flat_aggregate = tree_utils.to_flat_dict(
         jax.tree_util.tree_map(
-            _process_aggregated_value, metadata, restore_args
+            lambda x, y: None if x is None else _process_aggregated_value(x, y),
+            metadata,
+            restore_args,
+            is_leaf=lambda x: x is None,
         ),
     )
 
@@ -932,7 +935,12 @@ class PyTreeCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     # If metadata file was missing in the checkpoint, we need to decide
     # restore_type based on RestoreArgs.
     structure = jax.tree.map(
-        _maybe_set_default_restore_types, structure, checkpoint_restore_args
+        lambda x, y: None
+        if x is None
+        else _maybe_set_default_restore_types(x, y),
+        structure,
+        checkpoint_restore_args,
+        is_leaf=lambda x: x is None,
     )
 
     restored_item = asyncio_utils.run_sync(
