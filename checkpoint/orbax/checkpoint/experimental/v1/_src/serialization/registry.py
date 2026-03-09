@@ -14,7 +14,8 @@
 
 """Leaf Handler Registry."""
 
-from typing import Any, Dict, Sequence, Tuple, Type
+import dataclasses
+from typing import Any, Sequence, Type
 
 from absl import logging
 import jax
@@ -59,31 +60,51 @@ STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
 }
 
 
+@dataclasses.dataclass
+class _Registration:
+  leaf_type: Type[Any]
+  abstract_type: Type[Any]
+  handler_type: Type[types.LeafHandler[Any, Any]]
+  secondary_typestrs: Sequence[str] | None
+
+
 class BaseLeafHandlerRegistry:
   """Base Leaf Handler Registry that implements the LeafHandlerRegistry Protocol."""
 
   def __init__(self):
-    self._leaf_type_registry: Dict[
-        Type[Any], Type[types.LeafHandler[Any, Any]]
-    ] = {}
-    self._abstract_type_registry: Dict[
-        Type[Any], Type[types.LeafHandler[Any, Any]]
-    ] = {}
+    # Flat history for exact pairing and get_all().
+    self._entries: list[_Registration] = []
 
-    # for easy look up for replacement
-    self._handler_to_types: Dict[
-        Type[types.LeafHandler[Any, Any]], Tuple[Type[Any], Type[Any]]
-    ] = {}
+    # Sorted [Generic -> Specific] pairs of: (leaf_type, handler_type)
+    self._leaf_type_registry: list[
+        tuple[Type[Any], Type[types.LeafHandler[Any, Any]]]
+    ] = []
+
+    # Sorted [Generic -> Specific] pairs of: (abstract_type, handler_type)
+    self._abstract_type_registry: list[
+        tuple[Type[Any], Type[types.LeafHandler[Any, Any]]]
+    ] = []
+
+  def _is_abstract_subprotocol(
+      self, type_a: Type[Any], type_b: Type[Any]
+  ) -> bool:
+    """Checks if 'type_a' is a subclass or sub-protocol of 'type_b'."""
+    try:
+      if typing_extensions.is_protocol(type_b):   # pytype: disable=not-supported-yet
+        return protocol_utils.is_subclass_protocol(
+            cls=type_a, protocol=type_b
+        )
+      return issubclass(type_a, type_b)
+    except TypeError:
+      return False
 
   def _try_get(
       self, leaf_type: Type[types.Leaf]
   ) -> Type[types.LeafHandler[types.Leaf, Any]] | None:
-    """Returns the handler registered for a given type, if available."""
-    for registered_ty, handler_type in self._leaf_type_registry.items():
-      if issubclass(leaf_type, registered_ty):
+    """Returns the handler last registered for a given type, if available."""
+    for registered_leaf_ty, handler_type in reversed(self._leaf_type_registry):
+      if issubclass(leaf_type, registered_leaf_ty):
         return handler_type
-
-    # no handler found
     return None
 
   def get(
@@ -94,27 +115,18 @@ class BaseLeafHandlerRegistry:
           f'Unknown Leaf type: "{leaf_type}". Must register it with'
           ' LeafHandlerRegistry.'
       )
-
     return handler_type
 
   def _try_get_abstract(
       self,
       abstract_type: Type[types.AbstractLeaf],
   ) -> Type[types.LeafHandler[Any, types.AbstractLeaf]] | None:
-    """Returns the handler registered for a given abstract type, if available."""
-    for (
-        registered_abstract_ty,
-        handler_type,
-    ) in self._abstract_type_registry.items():
-      if typing_extensions.is_protocol(registered_abstract_ty):  # pytype: disable=not-supported-yet
-        if protocol_utils.is_subclass_protocol(
-            cls=abstract_type, protocol=registered_abstract_ty
-        ):
-          return handler_type
-      elif issubclass(abstract_type, registered_abstract_ty):
+    """Returns the handler last registered for a given abstract type, if available."""
+    for registered_abstract_ty, handler_type in reversed(
+        self._abstract_type_registry
+    ):
+      if self._is_abstract_subprotocol(abstract_type, registered_abstract_ty):
         return handler_type
-
-    # no handler found
     return None
 
   def get_abstract(
@@ -135,14 +147,24 @@ class BaseLeafHandlerRegistry:
     """Returns all registered handlers."""
     return [
         (
-            leaf_type,
-            abstract_type,
-            handler_type,
+            entry.leaf_type,
+            entry.abstract_type,
+            entry.handler_type,
         )
-        for (leaf_type, handler_type), abstract_type in zip(
-            self._leaf_type_registry.items(), self._abstract_type_registry
-        )
+        for entry in self._entries
     ]
+
+  def get_leaf_type_handler_pairs(
+      self,
+  ) -> Sequence[tuple[Type[Any], Type[types.LeafHandler[Any, Any]]]]:
+    """Returns the leaf type registry."""
+    return self._leaf_type_registry
+
+  def get_abstract_type_handler_pairs(
+      self,
+  ) -> Sequence[tuple[Type[Any], Type[types.LeafHandler[Any, Any]]]]:
+    """Returns the abstract type registry."""
+    return self._abstract_type_registry
 
   def add(
       self,
@@ -150,46 +172,105 @@ class BaseLeafHandlerRegistry:
       abstract_type: Type[types.AbstractLeaf],
       handler_type: Type[types.LeafHandler[types.Leaf, types.AbstractLeaf]],
       override: bool = False,
+      secondary_typestrs: Sequence[str] | None = None,
   ):
-    """Adds a handler_type for a given leaf_type and abstract_type pair."""
-    current_handler_type = self._try_get(leaf_type)
-    current_abstract_handle_type = self._try_get_abstract(abstract_type)
+    """Registers a `handler_type` for a given `leaf_type` and `abstract_type` pair.
 
-    if not override and (current_handler_type or current_abstract_handle_type):
-      raise ValueError(
-          f'Leaf_type[{leaf_type}] or abstract_type[{abstract_type}] has'
-          f' already registered, current_handler: {current_handler_type}, '
-          f'current_abstract_handle_type: {current_abstract_handle_type}'
-      )
+    The registry automatically maintains a [Generic -> Specific] hierarchy for 
+    both leaf and abstract types to ensure correct resolution. 
 
-    logging.vlog(
-        1,
-        'add: leaf_type[%s], abstract_type[%s], handler_type[%s],'
-        ' current_handler[%s], current_abstract_handle_type[%s]',
-        leaf_type,
-        abstract_type,
-        handler_type,
-        current_handler_type,
-        current_abstract_handle_type,
+    A conflict occurs if the exact `leaf_type` is already registered, or if the 
+    `abstract_type` is already mapped to a different handler. Set
+    `override=True` to automatically remove conflicting entries and force the
+    new registration.
+
+    Args:
+      leaf_type: The concrete type to register the handler for.
+      abstract_type: The abstract type to register the handler for.
+      handler_type: The handler class to register.
+      override: If True, bypasses conflict errors and replaces existing
+        conflicting entries.
+      secondary_typestrs: Optional alternate identifiers for the handler.
+
+    Raises:
+      ValueError: If a duplicate `leaf_type` or conflicting `abstract_type`
+        mapping exists and `override` is False.
+    """
+    if not override:
+      for e in self._entries:
+        if e.leaf_type == leaf_type:
+          raise ValueError(
+              f'leaf_type [{leaf_type}] is already handled by '
+              f'{e.handler_type}. Use override=True to replace its entry. '
+              f'Registry: {self._entries}'
+          )
+        if e.abstract_type == abstract_type and e.handler_type != handler_type:
+          raise ValueError(
+              f'abstract_type[{abstract_type}] is already handled by '
+              f'{e.handler_type}. Use override=True to replace all '
+              f'conflicting entries. Registry: {self._entries}'
+          )
+
+    # Handle overrides cleanly across all tracking lists
+    if override:
+      new_entries = []
+      to_remove_leaves = []
+      to_remove_abstracts = []
+
+      for e in self._entries:
+        is_conflict = (e.leaf_type == leaf_type) or (
+            e.abstract_type == abstract_type and e.handler_type != handler_type
+        )
+        if is_conflict:
+          # Track the tuples we need to delete out of the sorted registries
+          to_remove_leaves.append((e.leaf_type, e.handler_type))
+          to_remove_abstracts.append((e.abstract_type, e.handler_type))
+          logging.vlog(
+              1,
+              'clearing conflicting entry: leaf_type[%s], abstract_type[%s],'
+              ' handler_type[%s] during override.',
+              e.leaf_type, e.abstract_type, e.handler_type,
+          )
+        else:
+          new_entries.append(e)
+
+      self._entries = new_entries
+      # Remove all conflicting entries from the sorted registries.
+      for item in to_remove_leaves:
+        if item in self._leaf_type_registry:
+          self._leaf_type_registry.remove(item)
+      for item in to_remove_abstracts:
+        if item in self._abstract_type_registry:
+          self._abstract_type_registry.remove(item)
+
+    new_reg = _Registration(
+        leaf_type, abstract_type, handler_type, secondary_typestrs
     )
+    self._entries.append(new_reg)
 
-    if current_handler_type and (
-        current_abstract_handle_type
-        and current_handler_type != current_abstract_handle_type
-    ):
-      raise ValueError(
-          f'Abstract_type[{abstract_type}] has already registered with a'
-          ' different type.'
-      )
-    elif current_handler_type and not current_abstract_handle_type:
-      # need to remove the previous abstract type
-      _, old_abstract_ty = self._handler_to_types.pop(current_handler_type)
-      self._abstract_type_registry.pop(old_abstract_ty)
+    # Insert into leaf registry (Tuple: leaf_type, handler_type)
+    leaf_insert_idx = len(self._leaf_type_registry)
+    for i, (reg_leaf_ty, _) in enumerate(self._leaf_type_registry):
+      try:
+        if issubclass(reg_leaf_ty, leaf_type) and reg_leaf_ty != leaf_type:
+          leaf_insert_idx = i
+          break
+      except TypeError:
+        pass
+    self._leaf_type_registry.insert(leaf_insert_idx, (leaf_type, handler_type))
 
-    # new type and abstract type pair
-    self._leaf_type_registry[leaf_type] = handler_type
-    self._abstract_type_registry[abstract_type] = handler_type
-    self._handler_to_types[handler_type] = (leaf_type, abstract_type)
+    # Insert into abstract registry (Tuple: abstract_type, handler_type)
+    abstract_insert_idx = len(self._abstract_type_registry)
+    for i, (reg_abstract_ty, _) in enumerate(self._abstract_type_registry):
+      if (
+          self._is_abstract_subprotocol(reg_abstract_ty, abstract_type)
+          and reg_abstract_ty != abstract_type
+      ):
+        abstract_insert_idx = i
+        break
+    self._abstract_type_registry.insert(
+        abstract_insert_idx, (abstract_type, handler_type)
+    )
 
   def is_handleable(self, leaf_type: Type[Any]) -> bool:
     """Returns True if the type is handleable."""
@@ -198,6 +279,14 @@ class BaseLeafHandlerRegistry:
   def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
     """Returns True if the abstract type is handlable."""
     return self._try_get_abstract(abstract_type) is not None
+
+  def get_secondary_typestrs(
+      self, handler_type: Type[types.LeafHandler[Any, Any]]
+  ) -> Sequence[str]:
+    for entry in self._entries:
+      if entry.handler_type == handler_type:
+        return entry.secondary_typestrs or []
+    return []
 
 
 class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):

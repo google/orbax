@@ -452,7 +452,13 @@ def get_v0_type_handler_registry(
 
   # register standardard v1 leaf handlers to the v0 type handler registry.
   handlers = []
-  for leaf_type, _, leaf_handler_type in leaf_handler_registry.get_all():
+  # We must reverse the order of the leaf handlers to ensure that the last
+  # registered handler is the first one used as V1 registry is ordered by
+  # priority of generic to specific, while V0 type handler registry is ordered
+  # by the reverse.
+  for leaf_type, leaf_handler_type in reversed(
+      leaf_handler_registry.get_leaf_type_handler_pairs()
+  ):
     try:
       leaf_handler = leaf_handler_type(context=context)  # pytype: disable=wrong-keyword-args
     except TypeError as e:
