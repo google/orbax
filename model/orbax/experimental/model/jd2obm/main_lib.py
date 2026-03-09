@@ -24,8 +24,9 @@ from orbax.experimental.model.jd2obm import jd_asset_map_pb2
 from orbax.experimental.model.jd2obm import module
 
 
-# TODO(b/479875543): Update proto type to be voxel agnostic.
-JD_PROCESSOR_MIME_TYPE = 'application/protobuf; type=voxel.PlanProto'
+JD_PROCESSOR_MIME_TYPE = (
+    'application/protobuf; type=jax_data.composite.CompositeProcessorConfig'
+)
 JD_PROCESSOR_VERSION = '0.0.1'
 DEFAULT_JD_MODULE_FOLDER = 'jd_module'
 JD_ASSETS_FOLDER = 'assets'
