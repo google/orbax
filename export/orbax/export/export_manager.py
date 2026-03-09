@@ -31,7 +31,36 @@ maybe_reraise = reraise_utils.maybe_reraise
 
 
 class ExportManager:
-  """Exports a JAXModule with pre- and post-processors."""
+  """Exports a JAXModule with pre- and post-processors.
+
+  This manager acts as a unified interface for exporting JAX modules. It
+  handles the underlying serialization logic, dynamically routing to either
+  Orbax-native export (`ObmExport`) or TensorFlow SavedModel export
+  (`TensorFlowExport`) based on the configuration of the provided module.
+
+  Example:
+    Configure and export a JAX module using a specific serving configuration::
+
+      import tensorflow as tf
+      from orbax.export import ExportManager
+      from orbax.export import serving_config
+
+      # Assume `my_jax_module` is a fully initialized jax_module.JaxModule
+      # Define how the model should handle incoming requests
+      my_config = serving_config.ServingConfig(
+          signature_key="serving_default",
+          input_signature=[tf.TensorSpec(shape=(None, 32), dtype=tf.float32)],
+      )
+
+      # Initialize the manager
+      export_mgr = ExportManager(
+          module=my_jax_module,
+          serving_configs=[my_config]
+      )
+
+      # Save the model to a directory
+      export_mgr.save("/path/to/my/saved_model")
+  """
 
   def __init__(
       self,
@@ -41,7 +70,8 @@ class ExportManager:
     """ExportManager constructor.
 
     Args:
-      module: the `JaxModule` to be exported.
+      module: The `JaxModule` to be exported. Can be None in specific delayed
+        initialization or native Orbax load scenarios.
       serving_configs: a sequence of which each element is a `ServingConfig`
         cooresponding to a serving signature of the exported SavedModel.
     """
@@ -61,7 +91,12 @@ class ExportManager:
 
   @property
   def tf_module(self) -> tf.Module:
-    """Returns the tf.module maintained by the export manager."""
+    """Returns the tf.module maintained by the export manager.
+
+    Raises:
+      TypeError: If the export version is `ExportModelType.ORBAX_MODEL` or if
+        the module is not provided (as Orbax models do not use tf.Module).
+    """
     if (
         not self._jax_module
         or self._jax_module.export_version
@@ -102,5 +137,14 @@ class ExportManager:
     )
 
   def load(self, model_path: str, **kwargs: Any):
+    """Loads the exported model from disk.
+
+    Args:
+      model_path: The directory from which to load the model.
+      **kwargs: Additional keyword arguments passed to the underlying loader.
+
+    Returns:
+      The loaded model instance.
+    """
     loaded = self._serialization_functions.load(model_path, **kwargs)
     return loaded
