@@ -58,7 +58,7 @@ fi
 
 # Set default base image if not provided
 if [[ -z "$BASE_IMAGE" ]]; then
-  BASE_IMAGE="python:3.11-slim"
+  BASE_IMAGE="python:3.13-slim"
 fi
 
 SCRIPT_DIR="$(dirname "$(realpath "$0")")"
@@ -75,6 +75,7 @@ if [[ ! -f "$DOCKERFILE_PATH" ]]; then
     exit 1
   fi
 fi
+
 
 # --- Tag generation ---
 declare -a build_tags=()
@@ -118,6 +119,15 @@ for t in "${tags[@]}"; do
   build_tag_args+=(-t "${IMAGE_REPO}:${t}")
 done
 
+# Create a temporary directory to act as the clean build context
+BUILD_CONTEXT=$(mktemp -d)
+# Ensure the temporary directory is cleaned up when the script exits (success or fail)
+trap 'rm -rf "$BUILD_CONTEXT"' EXIT
+# Copy the Dockerfile and the internal Megascale dependency
+cp "${DOCKERFILE_PATH}" "$BUILD_CONTEXT/Dockerfile"
+cp "${MEGASCALE_DEP_PATH}" "$BUILD_CONTEXT/"
+cd "$BUILD_CONTEXT"
+
 # Build with local Docker
 echo "Building with previously installed Docker..."
 declare -a build_args=()
@@ -133,7 +143,7 @@ build_args+=(
 )
 build_args+=("${build_tag_args[@]}")
 build_args+=(
-  "-f" "${DOCKERFILE_PATH}"
+  "-f" "Dockerfile"
   "."
 )
 docker build "${build_args[@]}"
