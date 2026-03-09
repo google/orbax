@@ -181,9 +181,9 @@ class LocalPath(_BasePath):
     """Creates the file at this path."""
     self.path.touch(exist_ok=exist_ok)
 
-  def rename(self, new_path: epath.PathLike) -> None:
+  def rename(self, new_path: epath.PathLike) -> LocalPath:
     """Renames this file or directory to the given path."""
-    self.path.rename(new_path)
+    return LocalPath(self.path.rename(new_path))
 
   def write_bytes(self, data: bytes) -> int:
     """Writes content as bytes."""
