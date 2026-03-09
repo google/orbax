@@ -88,6 +88,7 @@ _TPU_TYPE = flags.DEFINE_string(
 _NUM_SLICES = flags.DEFINE_integer('num_slices', 1, 'Number of slices.')
 _PROJECT = flags.DEFINE_string('project', 'orbax-checkpoint', 'GCP Project ID.')
 _ZONE = flags.DEFINE_string('zone', 'europe-west4-a', 'GCP Zone.')
+_REGION = flags.DEFINE_string('region', 'europe-west4', 'GCP Region.')
 _WORKLOAD_NAME = flags.DEFINE_string(
     'workload_name', None, 'Name of the workload. Defaults to generated name.'
 )
@@ -274,6 +275,11 @@ _TEST_RESTART_WORKFLOW = flags.DEFINE_boolean(
     False,
     'If True, run workload creation and execution twice to test restart.',
 )
+_SKIP_VALIDATION = flags.DEFINE_boolean(
+    'skip_validation',
+    False,
+    'If True, skip validation of the benchmark results.',
+)
 
 # --- Pathways Flags ---
 # Pathways uses a "Sidecar" architecture on XPK:
@@ -459,7 +465,7 @@ def check_preconditions() -> bool:
     Console.print_warning('Could not list clusters to verify existence.')
     return False
   else:
-    if _CLUSTER_NAME.value in clusters:
+    if clusters and _CLUSTER_NAME.value in clusters.split():
       Console.print_success(f'Cluster found: {_CLUSTER_NAME.value}')
       return True
 
@@ -477,6 +483,24 @@ def check_preconditions() -> bool:
         f'Cluster {_CLUSTER_NAME.value} not found. Use --create_cluster to'
         ' create it automatically.'
     )
+
+
+def get_credentials() -> None:
+  """Gets credentials for the project."""
+  try:
+    cmd = [
+        'gcloud',
+        'container',
+        'clusters',
+        'get-credentials',
+        _CLUSTER_NAME.value,
+        '--region',
+        _REGION.value
+    ]
+    run_command(cmd, suppress_output=not _VERBOSE.value)
+  except subprocess.CalledProcessError as e:
+    print(f'Failed to get cluster credentials: {e}')
+    return False
 
 
 def create_cluster() -> None:
@@ -646,6 +670,8 @@ def construct_xpk_command(
     base_cmd.append('--enable-ops-agent')
   if _RAMDISK_DIRECTORY.value is not None:
     base_cmd.append('--mtc-enabled')
+  if _SKIP_VALIDATION.value:
+    base_cmd.append('--skip-validation')
 
   if _ENABLE_PATHWAYS.value:
     if not _PATHWAYS_SERVER_IMAGE.value:
@@ -804,6 +830,7 @@ def main(argv: Sequence[str]) -> None:
   if _RAMDISK_DIRECTORY.value is not None:
     # Delete CSI driver before running any workloads, to delete any previous
     # checkpoint files.
+    get_credentials()
     update_bucket_csi_driver(mount_csi_driver=False)
     # Mount CSI driver for the workload.
     update_bucket_csi_driver(mount_csi_driver=True)
