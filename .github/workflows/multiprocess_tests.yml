@@ -46,7 +46,7 @@ jobs:
           pip install "jax[k8s,cuda12]>=${{ matrix.jax-version }}" "jaxlib>=${{ matrix.jax-version }}"
         fi
         pip install gcsfs
-        pip install portpicker
+        pip install portpicker tensorboard
     - name: Run correctness integration tests
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}

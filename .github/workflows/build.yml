@@ -53,6 +53,7 @@ jobs:
         pip install --no-cache-dir -e .
         pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
+        pip install tensorboard
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
@@ -274,7 +275,7 @@ jobs:
           pip install "jax[k8s,cuda12]>=${{ matrix.jax-version }}" "jaxlib>=${{ matrix.jax-version }}"
         fi
         pip install gcsfs
-        pip install portpicker
+        pip install portpicker tensorboard
     - name: Run Correctness Integration Tests
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
@@ -344,7 +345,7 @@ jobs:
         pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
         pip install gcsfs
-        pip install portpicker pytest chex pyyaml
+        pip install portpicker pytest chex pyyaml tensorboard
         if [ "${{ matrix.jax-version }}" = "newest" ]; then
           pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
