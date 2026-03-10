@@ -1,7 +1,7 @@
 # The name for the entire test suite run.
 # Assumes v5p-128 (64 chips)
 suite_name: "Llama 3.1 405B"
-num_repeats: 5
+num_repeats: 20
 
 
 mesh_config:
