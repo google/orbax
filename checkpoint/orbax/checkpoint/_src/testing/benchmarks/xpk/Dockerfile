@@ -11,12 +11,14 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     dnsutils \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Checkout Orbax (Optimized Shallow Fetch)
 ARG PR_NUMBER
 ARG BRANCH=main
 ARG REPO_URL=https://github.com/google/orbax.git
+ARG GITHUB_RUNNER=false
 
 # Logic:
 # 1. Init empty repo
@@ -24,21 +26,27 @@ ARG REPO_URL=https://github.com/google/orbax.git
 # 3. Shallow fetch ONLY the target (PR or Branch)
 # 4. Checkout
 # 5. DELETE .git history to save space
-RUN mkdir orbax_repo && cd orbax_repo && \
-    git init && \
-    git remote add origin $REPO_URL && \
-    if [ -n "$PR_NUMBER" ]; then \
-      echo "Fetching PR #${PR_NUMBER} (Shallow)..." && \
-      git fetch --depth 1 origin pull/$PR_NUMBER/head:pr_branch && \
-      git checkout pr_branch; \
-    else \
-      echo "Fetching branch: ${BRANCH} (Shallow)..." && \
-      git fetch --depth 1 origin $BRANCH && \
-      git checkout FETCH_HEAD; \
-    fi && \
-    rm -rf .git
-
 WORKDIR /app/orbax_repo
+COPY ./checkpoin[t] ./checkpoint
+
+RUN if [ "$GITHUB_RUNNER" = "true" ]; then \
+      echo "GITHUB_RUNNER is true, copying from ./checkpoint..."; \
+    else \
+      echo "GITHUB_RUNNER is false, fetching from git..." && \
+      git init && \
+      git remote add origin $REPO_URL && \
+      if [ -n "$PR_NUMBER" ]; then \
+        echo "Fetching PR #${PR_NUMBER} (Shallow)..." && \
+        git fetch --depth 1 origin pull/$PR_NUMBER/head:pr_branch && \
+        git checkout pr_branch; \
+      else \
+        echo "Fetching branch: ${BRANCH} (Shallow)..." && \
+        git fetch --depth 1 origin $BRANCH && \
+        git checkout FETCH_HEAD; \
+      fi && \
+      rm -rf .git; \
+    fi
+
 
 # 3. Setup Python Environment & Dependencies
 # Uninstall pre-installed orbax if present in base image to avoid conflicts
@@ -82,7 +90,7 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
 # 4. Install Orbax from Source
 WORKDIR /app/orbax_repo/checkpoint
 RUN pip install --no-cache-dir .
-RUN pip install --no-cache-dir pathwaysutils
+RUN pip install pathwaysutils tensorboard
 
 # 5. Environment Setup
 # Set PYTHONPATH so 'import orbax' works from the correctly mapped directory

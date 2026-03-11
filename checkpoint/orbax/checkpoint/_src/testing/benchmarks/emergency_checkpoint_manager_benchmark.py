@@ -196,7 +196,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
 
     with metrics.measure("create_directories"):
       if jax.process_index() == 0:
-        persistent_directory.mkdir(parents=True)
+        persistent_directory.mkdir(parents=True, exist_ok=True)
       local_directory.mkdir(parents=True, exist_ok=True)
       multihost.sync_global_processes("create directories")
 
