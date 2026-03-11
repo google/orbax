@@ -414,7 +414,11 @@ class CheckpointerTestBase:
           checkpoint_metadata.metadata['pytree'].keys(),
           ['jax_array', 'numpy_array'],
       )
-      self.assertIsInstance(checkpoint_metadata.metadata['baz'], AbstractBaz)
+      # Saved with v1 save_checkpointables, so v1 handler registry can resolve
+      # Baz metadata using stored handler typestr.
+      self.assertIsInstance(
+          checkpoint_metadata.metadata['baz'], handler_utils.AbstractBaz
+      )
 
     def test_custom_checkpointables(self):
       """Test custom checkpointables are saved and loaded.
