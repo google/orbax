@@ -33,8 +33,12 @@ def _run_event_loop(loop: asyncio.AbstractEventLoop) -> None:
 def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
   """Runs a coroutine and returns the result."""
   try:
-    asyncio.get_running_loop()  # no event loop: ~0.001s, otherwise: ~0.182s
+    # no event loop: ~0.001s, otherwise: ~0.182s
+    loop = asyncio.get_running_loop()
   except RuntimeError:
+    loop = None
+
+  if loop is None:
     # No event loop is running, so we can safely use asyncio.run.
     return asyncio.run(coro)
   else:
