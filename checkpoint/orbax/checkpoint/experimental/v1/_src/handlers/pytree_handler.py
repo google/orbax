@@ -217,7 +217,47 @@ async def _async_futures(commit_futures: Sequence[future.Future]):
 
 @typing.final
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
-  """An implementation of :py:class:`.CheckpointableHandler` for PyTrees."""
+  """An implementation of :py:class:`.CheckpointableHandler` for PyTrees.
+
+  PyTreeHandler manages the decomposition of JAX PyTree structures into leaf-
+  level parameters for persistence. It utilizes an asynchronous two-tier
+  execution model to allow for background I/O, ensuring that heavy array
+  serialization does not block the main training process.
+
+  **Note: Users are encouraged NEVER to instantiate or use this handler
+  directly.** Always use the top-level APIs like `ocp.save_checkpointables` and
+  `ocp.load_checkpointables`. Orbax uses this handler by default for standard
+  JAX PyTrees (like nested dictionaries of arrays).
+
+  To configure a specific serialization context for a PyTree and aggressively
+  force Orbax to use the customized PyTreeHandler, the recommended approach
+  is to use `ocp.Context` with `CheckpointablesOptions`. This allows you to
+  bind the handler to a specific dictionary key within the Context scope.
+
+  See :py:class:`~orbax.checkpoint.options.CheckpointablesOptions` for more
+  details on handler registration.
+
+  Usage Example:
+    Save a state dictionary configuration::
+
+      import orbax.checkpoint as ocp
+
+      state_pytree = {'weights': [1.0, 2.0], 'bias': 0.0}
+
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              model_state=ocp.handlers.PyTreeHandler()
+          )
+      )
+      with ocp.Context(checkpointables_options=checkpointables_options):
+          ocp.save_checkpointables(path, dict(model_state=state_pytree))
+
+  Attributes:
+    context (Optional[Context]): Optional V1 Context providing configuration
+      for serialization, array options, and multiprocessing coordination.
+    array_metadata_validator (Validator): A validator object used to verify
+      consistency of array metadata during restoration.
+  """
 
   def __init__(
       self,
