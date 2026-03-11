@@ -34,7 +34,50 @@ _DEFAULT_FILENAME = "proto.pbtxt"
 class ProtoHandler(
     handler_types.CheckpointableHandler[message.Message, Type[message.Message]]
 ):
-  """Serializes/deserializes protocol buffers."""
+  """Implementation of :py:class:`.CheckpointableHandler` for protocol buffers.
+
+  ProtoHandler manages the serialization and deserialization of Protocol Buffer
+  messages in text format. It utilizes an asynchronous two-tier execution model
+  to offload I/O operations, ensuring background writing does not block the main
+  process. In distributed environments, it provides multihost coordination to
+  ensure that only the primary host performs the write operation.
+
+  **Note: Users are encouraged NEVER to instantiate or use this handler
+  directly.** Always use the top-level APIs like `ocp.save_checkpointables` and
+  `ocp.load_checkpointables`. Orbax uses this handler by default for standard
+  protocol buffer messages.
+
+  To save a custom Protocol Buffer message and aggressively force Orbax to use
+  the ProtoHandler (e.g., to specify a custom filename), the recommended
+  approach is to use `ocp.Context` with `CheckpointablesOptions`. This allows
+  you to bind the handler to a specific dictionary key within the Context scope.
+
+  See :py:class:`~orbax.checkpoint.options.CheckpointablesOptions` for more
+  details on handler registration.
+
+  Example Usage:
+    Save a protobuf message configuration::
+
+      import orbax.checkpoint as ocp
+
+      # Assuming MyProtoMessage is your compiled protobuf class
+      my_proto_msg = MyProtoMessage(config_field="value")
+
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              proto_config=ocp.handlers.ProtoHandler(
+                  filename="model_config.pbtxt"
+              )
+          )
+      )
+      with ocp.Context(checkpointables_options=checkpointables_options):
+          ocp.save_checkpointables(path, dict(proto_config=my_proto_msg))
+
+  Attributes:
+    filename (str): An optional filename used for saving and loading the
+      protobuf data. If not provided, it defaults to a standard internal
+      default filename.
+  """
 
   def __init__(
       self,
