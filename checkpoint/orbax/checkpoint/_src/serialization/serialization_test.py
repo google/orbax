@@ -164,6 +164,7 @@ class CheckpointTest(parameterized.TestCase):
     jax_events = []
     jax.monitoring.clear_event_listeners()
     def monitoring_listener(event, **kwargs):
+      kwargs.pop('tags', None)
       jax_events.append((event, kwargs))
     jax.monitoring.register_event_listener(monitoring_listener)
     return jax_events
