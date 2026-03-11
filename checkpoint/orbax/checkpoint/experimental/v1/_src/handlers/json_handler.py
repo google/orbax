@@ -42,7 +42,51 @@ def _get_supported_filenames(filename: str | None = None) -> list[str]:
 
 @typing.final
 class JsonHandler(CheckpointableHandler[JsonType, None]):
-  """An implementation of :py:class:`.CheckpointableHandler` for Json."""
+  """An implementation of :py:class:`.CheckpointableHandler` for Json.
+
+  JsonHandler enables the persistence of standard Python structures (dicts,
+  lists, and primitives) that are JSON-serializable. It utilizes an asynchronous
+  two-tier execution model to offload I/O operations, ensuring background
+  writing does not block the main process. It also provides multihost
+  coordination to ensure that only the primary host performs the write
+  operation.
+
+  **Note: Users are encouraged NEVER to instantiate or use this handler
+  directly.** Always use the top-level APIs like `ocp.save_checkpointables` and
+  `ocp.load_checkpointables`. Orbax uses this handler by default for standard
+  JSON-serializable objects.
+
+  To save a custom JSON-serializable object (like a specific dictionary
+  containing metadata) and aggressively force Orbax to use the JsonHandler,
+  the recommended approach is to use `ocp.Context` with
+  `CheckpointablesOptions`, which only applies to save/load operations
+  strictly within the Context scope.
+
+  See :py:class:`~orbax.checkpoint.options.CheckpointablesOptions` for more
+  details on handler registration.
+
+  Example Usage:
+    Save a dictionary configuration::
+
+      import orbax.checkpoint as ocp
+
+      config = {'learning_rate': 0.01, 'batch_size': 32}
+
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              experiment_config=ocp.handlers.JsonHandler(
+                  filename='experiment_config.json'
+              )
+          )
+      )
+      with ocp.Context(checkpointables_options=checkpointables_options):
+          ocp.save_checkpointables(path, dict(experiment_config=config))
+
+  Attributes:
+    filename: An optional specific filename to use for saving and loading the
+      JSON data. If not provided, the handler will fall back to a default set
+      of supported JSON filenames.
+  """
 
   def __init__(self, filename: str | None = None):
     self._supported_filenames = _get_supported_filenames(filename)
