@@ -52,7 +52,27 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
   """An exportable module for JAX functions and parameters.
 
   Holds tf.Variables converted from JAX parameters, as well as TF functions
-  converted from JAX functions and bound with the tf.Variables.
+  converted from JAX functions and bound with the tf.Variables. It can be
+  exported to TF SavedModel or Orbax Model format.
+
+  Example:
+    wraps a JAX function and parameters into a JaxModule::
+
+      import jax
+      import jax.numpy as jnp
+      from orbax.export import JaxModule
+
+      # Define parameters and a model application function
+      params = {'weights': jnp.ones((3, 3))}
+
+      def my_apply_fn(params, inputs):
+        return jnp.dot(inputs, params['weights'])
+
+      # Create the exportable module (Defaults to TF_SAVEDMODEL format)
+      jax_module = JaxModule(
+          params=params,
+          apply_fn=my_apply_fn
+      )
   """
 
   def __init__(
