@@ -47,7 +47,34 @@ def _is_flat_sequence(x):
 
 
 class ValidationManager:
-  """Validate the JaxModule and its output tf saved model."""
+  """Validate the JaxModule and its output tf saved model.
+
+  This manager orchestrates the validation process by feeding identical inputs
+  into both the original JAX mathematical functions (the baseline) and the
+  exported TensorFlow SavedModel (the candidate). It then generates a report
+  comparing their outputs to ensure numerical and structural parity.
+
+  Example:
+    Validate an exported model against its original JAX implementation::
+
+      import tensorflow as tf
+      from orbax.export.validate.validation_manager import ValidationManager
+
+      # Assume `my_jax_module` is your JaxModule and `my_config` is your
+      ServingConfig
+      test_inputs = [{'input_tensor': tf.ones((1, 32))}]
+
+      # Initialize the manager with the module and configurations
+      validator = ValidationManager(
+          module=my_jax_module,
+          serving_configs=[my_config],
+          model_inputs=test_inputs
+      )
+
+      # Assume `loaded_tf_model` is the result of tf.saved_model.load(...)
+      # Run the validation to compare JAX vs TF outputs
+      reports = validator.validate(loaded_tf_model)
+  """
 
   def __init__(
       self,
@@ -58,7 +85,7 @@ class ValidationManager:
       serving_configs: Sequence[ServingConfig],
       model_inputs: Union[Sequence[Any], Mapping[str, Sequence[Any]]],
   ):
-    """Create the ValidationManager ojbect.
+    """Create the ValidationManager object.
 
     Args:
       module: the JaxModule object.
@@ -144,7 +171,19 @@ class ValidationManager:
       with_xprof: bool = False,
       report_option: Optional[ValidationReportOption] = None,
   ) -> Mapping[str, ValidationReport]:
-    """Validates the baseline and candidate function map."""
+    """Validates the baseline and candidate function map.
+
+    Args:
+      loaded_model: The loaded TensorFlow SavedModel to validate against. For
+        CPU, this is usually `tf.saved_model.load(path, ['serve'])`.
+      with_xprof: Whether to enable XLA profiling during the validation run.
+      report_option: Optional `ValidationReportOption` to configure the
+        generated report's formatting and strictness.
+
+    Returns:
+      A mapping of signature keys to `ValidationReport` objects containing the
+      results of the comparison.
+    """
     candidate_fns = self._create_candidate_fns(loaded_model)
     baseline_fns = self._create_baseline_fns()
     input_map = self._create_input_map()
@@ -178,6 +217,9 @@ class ValidationManager:
     Args:
       inputs: model inputs. If batch_mode == True, inputs should be a list.
       batch_mode: it decide `inputs` is a list of the input or a single input.
+
+    Raises:
+      ValueError: If `batch_mode` is True and `inputs` is not a sequence.
     """
     if batch_mode:
       if not isinstance(inputs, Sequence):
@@ -202,7 +244,16 @@ class ValidationManager:
       baseline_result: ValidationSingleJobResult,
       candidate_result: ValidationSingleJobResult,
   ) -> None:
-    """check model output format."""
+    """check model output format.
+
+    Args:
+      baseline_result: The `ValidationSingleJobResult` from the JAX model.
+      candidate_result: The `ValidationSingleJobResult` from the TF model.
+
+    Raises:
+      ValueError: If the outputs are not flat dictionaries, or if the baseline
+        and candidate models produce a different number of output elements.
+    """
     baseline_outputs = baseline_result.outputs
     candidate_outputs = candidate_result.outputs
 
