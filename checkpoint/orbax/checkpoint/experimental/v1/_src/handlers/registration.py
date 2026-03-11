@@ -78,9 +78,65 @@ def add_all(
 
 
 class CheckpointableHandlerRegistry(Protocol):
-  """A registry defining a mapping from name to :py:class:`~.v1.handlers.CheckpointableHandler`.
+  """A registry for :py:class:`~.v1.handlers.CheckpointableHandler` instances.
 
-  See module docstring for usage details.
+  This protocol defines the core interface for adding, retrieving, and checking
+  for the existence of handlers that manage the saving and loading of specific
+  checkpointable types within the Orbax framework.
+
+  As a `Protocol`, it serves as a structural type definition. Any class that
+  implements these four methods (`add`, `get`, `has`, and `get_all_entries`)
+  with the correct signatures is considered a valid registry by static type
+  checkers, without needing to explicitly inherit from this class.
+
+  Example:
+    Implementing a custom registry that fulfills this protocol. Note that
+    explicit inheritance is not required for type checkers to recognize it::
+
+      from typing import Type, Sequence, Tuple, Optional
+      from orbax.checkpoint.v1 import handlers
+
+      class MyCustomRegistry:
+        def __init__(self) -> None:
+          self._entries: list[
+              Tuple[Type[handlers.CheckpointableHandler], Optional[str]]
+          ] = []
+
+        def add(
+            self,
+            handler_type: Type[handlers.CheckpointableHandler],
+            checkpointable: Optional[str] = None,
+        ) -> 'MyCustomRegistry':
+          self._entries.append((handler_type, checkpointable))
+          return self
+
+        def get(
+            self, checkpointable: str
+        ) -> Type[handlers.CheckpointableHandler]:
+          for h_type, name in self._entries:
+            if name == checkpointable:
+              return h_type
+          raise KeyError(f'Not found: {checkpointable}')
+
+        def has(self, checkpointable: str) -> bool:
+          return any(name == checkpointable for _, name in self._entries)
+
+        def get_all_entries(
+            self,
+        ) -> Sequence[
+            Tuple[Type[handlers.CheckpointableHandler], Optional[str]]
+        ]:
+          return self._entries
+
+  Methods:
+    add(handler_type, checkpointable=None): Adds an entry to the registry.
+      Returns the registry instance to allow method chaining.
+    get(checkpointable): Gets the type of a `CheckpointableHandler` from the
+      registry by its associated checkpointable name.
+    has(checkpointable): Checks if an entry exists in the registry for the given
+      checkpointable name. Returns True if it exists, False otherwise.
+    get_all_entries(): Returns a sequence of all registered entries as
+      (handler_type, name) tuples.
   """
 
   def add(
@@ -268,7 +324,26 @@ _GLOBAL_REGISTRY = _DefaultCheckpointableHandlerRegistry()
 
 
 def global_registry() -> CheckpointableHandlerRegistry:
-  """Returns the global registry."""
+  """Returns the global registry.
+
+  The global registry serves as the default, singleton storage for all
+  handlers registered throughout the application's lifecycle via
+  `register_handler`.
+
+  Example:
+    Retrieve the global registry to inspect available handlers::
+
+      from orbax.checkpoint.v1 import handlers
+
+      # Fetch the singleton global registry
+      registry = handlers.global_registry()
+
+      # Check if a specific handler name is registered globally
+      is_registered = registry.has("my_custom_model_handler")
+
+  Returns:
+    CheckpointableHandlerRegistry: The global singleton registry instance.
+  """
   return _GLOBAL_REGISTRY
 
 
@@ -278,6 +353,27 @@ def local_registry(
     include_global_registry: bool = True,
 ) -> CheckpointableHandlerRegistry:
   """Creates a local registry.
+
+  This function builds a new registry by optionally combining the existing
+  global registry with a provided custom registry. It is highly useful for
+  overriding handlers for a specific checkpointer operation without mutating
+  the global state.
+
+  Example:
+    Create a registry with custom handlers, potentially including global ones::
+
+      from orbax.checkpoint.v1 import handlers
+
+      class MyHandler(handlers.CheckpointableHandler):
+        pass
+
+      # Create a registry and add a handler. By default, it includes
+      # globally-registered handlers.
+      my_registry = handlers.local_registry()
+      my_registry.add(MyHandler)
+
+      # To start with an empty registry, use:
+      # my_registry = handlers.local_registry(include_global_registry=False)
 
   Args:
     other_registry: An optional registry of handlers to include in the returned
@@ -306,22 +402,26 @@ def register_handler(
 ) -> CheckpointableHandlerType:
   """Registers a :py:class:`~.v1.handlers.CheckpointableHandler` globally.
 
-  The order in which handlers are registered matters. If multiple handlers
-  could potentially be used to save or load, the one added most recently will be
-  used.
+  The order in which handlers are registered strictly matters. If multiple
+  handlers could potentially be used to save or load an object (i.e., are
+  capable of handling the checkpointable according to `is_handleable`/
+  `is_abstract_handleable` for `save`/`load`, respectively), the framework
+  resolves them in Last-In, First-Out (LIFO) order. This means the handler
+  added most recently will be selected.
 
-  Usage::
+  Example:
+    Registering a custom handler using a direct function call.
+    Note the import path from the v1 namespace::
 
-    @ocp.handlers.register_handler
-    class FooHandler(ocp.handlers.CheckpointableHandler[Foo, AbstractFoo]):
-      ...
+      from orbax.checkpoint.v1 import handlers
 
-    ### OR ###
+      class BarHandler(handlers.CheckpointableHandler):
+        pass
 
-    ocp.handlers.register_handler(FooHandler)
+      handlers.register_handler(BarHandler)
 
   Args:
-    cls: The handler class.
+    cls: The handler class to register globally.
 
   Returns:
     The handler class.
