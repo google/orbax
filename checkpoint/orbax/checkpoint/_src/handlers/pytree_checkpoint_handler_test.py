@@ -352,6 +352,39 @@ class PyTreeCheckpointHandlerTest(
       self.assertTrue(p.exists())
       self.assertTrue((p / '.zarray').exists())
 
+  def test_shape_mismatch(self):
+    with self.ocdbt_checkpoint_handler(True) as checkpoint_handler:
+      mesh_axes = jax.sharding.PartitionSpec(
+          'x',
+      )
+      mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+      pytree = {
+          'a': test_utils.create_sharded_array(
+              np.arange(16),
+              mesh,
+              mesh_axes,
+          )
+      }
+      checkpoint_handler.save(self.directory, args=PyTreeSaveArgs(pytree))
+
+      target_pytree = {
+          'a': test_utils.create_sharded_array(np.arange(8), mesh, mesh_axes)
+      }
+      restore_args = jax.tree.map(
+          lambda leaf: ArrayRestoreArgs(
+              mesh=mesh, mesh_axes=mesh_axes, strict=True
+          ),
+          target_pytree,
+      )
+      with self.assertRaisesRegex(ValueError, 'not compatible with'):
+        checkpoint_handler.restore(
+            self.directory,
+            args=PyTreeRestoreArgs(
+                item=target_pytree,
+                restore_args=restore_args,
+            ),
+        )
+
   @parameterized.product(use_ocdbt=(True, False))
   def test_save_sharding(self, use_ocdbt: bool):
     if utils.is_pathways_backend():

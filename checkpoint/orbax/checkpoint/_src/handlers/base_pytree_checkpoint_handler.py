@@ -263,6 +263,28 @@ def batched_serialization_requests(
   return list(grouped.values())
 
 
+def _update_array_restore_args(
+    v: Any, leaf_args: ArrayRestoreArgs
+) -> ArrayRestoreArgs:
+  """Updates ArrayRestoreArgs with global shape and dtype."""
+  if isinstance(v, type):
+    return leaf_args
+  is_array = getattr(v, 'shape', False) and getattr(v, 'dtype', False)
+  is_prng_key = jax.dtypes.issubdtype(
+      getattr(v, 'dtype', None), jax.dtypes.prng_key
+  )
+  if is_array and not is_prng_key:
+    updates = {}
+    if leaf_args.strict:
+      if leaf_args.global_shape is None and leaf_args.shape is None:
+        updates['global_shape'] = getattr(v, 'shape', None)
+      if getattr(leaf_args, 'dtype', None) is None:
+        updates['dtype'] = getattr(v, 'dtype', None)
+    if updates:
+      return dataclasses.replace(leaf_args, **updates)
+  return leaf_args
+
+
 def _fill_missing_save_or_restore_args(
     item: PyTree, args: Optional[PyTree], *, mode: str
 ) -> PyTree:
@@ -284,18 +306,17 @@ def _fill_missing_save_or_restore_args(
 
   # Because of empty states, the user-provided args may not contain
   # all necessary arguments. These should be filled in with default args.
-  def _maybe_set_default_save_args(_, leaf_args):
-    if isinstance(leaf_args, (SaveArgs, RestoreArgs)):
-      return leaf_args
-    elif mode == 'save':
-      return SaveArgs()
-    elif mode == 'restore':
-      return RestoreArgs()
-    else:
-      raise ValueError(f'Unknown mode: {mode}.')
+  def _maybe_set_default_save_restore_args(v, leaf_args):
+    if mode == 'save':
+      return leaf_args if isinstance(leaf_args, SaveArgs) else SaveArgs()
+    if mode == 'restore':
+      if isinstance(leaf_args, ArrayRestoreArgs):
+        return _update_array_restore_args(v, leaf_args)
+      return leaf_args if isinstance(leaf_args, RestoreArgs) else RestoreArgs()
+    raise ValueError(f'Unknown mode: {mode}.')
 
   return jax.tree_util.tree_map(
-      _maybe_set_default_save_args,
+      _maybe_set_default_save_restore_args,
       item,
       item if args is None else args,
       is_leaf=utils.is_empty_or_leaf,

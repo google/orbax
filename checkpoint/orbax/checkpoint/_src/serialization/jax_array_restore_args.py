@@ -52,11 +52,10 @@ class ArrayRestoreArgs(types.RestoreArgs):
     global_shape is shorter than that of the saved array, excess elements will
     be dropped from the end of the array.
   shape: Interchangeable with global_shape.
-  strict:
-    True by default. If True, enforces that the target global shape and the
-    origin global shape (as recorded by the saved array) are the same. If False,
-    the returned array will be silently truncated or padded to fit the target
-    global shape as necessary.
+  strict: True by default. If True, enforces that the target global shape and
+    the origin global shape (as recorded by the saved array) are the same. If
+    False, the returned array will be silently truncated or padded to fit the
+    target global shape as necessary.
   """
 
   restore_type: Any | None = jax.Array

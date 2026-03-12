@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Deleted `CompositeHandler` and refactored its functionality directly into
   `OrbaxLayout` internal handler resolution logic.
 
+### Fixed
+
+- Enforce the array shape and type check during Array restoration when
+  `ArrayRestoreArgs.strict` is set but shape/dtype is not provided.
+
 ## [0.11.33] - 2026-02-17
 
 ### Added
