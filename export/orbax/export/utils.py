@@ -43,10 +43,43 @@ _FILE_TYPE = 'jax_exported'
 class TensorSpecWithDefault:
   """Extends tf.TensorSpec to hold a default value.
 
+  This class associates a specific default value with a TensorFlow tensor
+  specification. It automatically converts the provided default value into a
+  `tf.Tensor` and validates that it strictly matches the shape and dtype of
+  the provided `tensor_spec`.
+
   Constraints due to Python function calling conventions:
     - For a python function parameter, all corresponding tensor values in the
       signature must have a TensorSpecWithDefault or none of them should.
     - Parameters with default values should be ordered before non-default ones.
+
+  Example:
+    Create a TensorSpec with a default fallback value::
+
+      import tensorflow as tf
+      from orbax.export.utils import TensorSpecWithDefault
+
+      # Define a spec for a 1D tensor
+      spec = tf.TensorSpec(shape=(2,), dtype=tf.float32, name="input_a")
+
+      # Create the extended spec with a default list
+      # The list is automatically converted to a tf.Tensor upon initialization
+      default_spec = TensorSpecWithDefault(
+          tensor_spec=spec,
+          default_val=[1.0, 2.0]
+      )
+
+  Attributes:
+    tensor_spec: The underlying `tf.TensorSpec` defining the expected shape and
+      dtype.
+    default_val: The default value to use. Upon initialization, this is
+      automatically converted to a `tf.Tensor` using the dtype from
+      `tensor_spec`.
+    is_primary: Whether this tensor is a primary input tensor. A primary input
+      tensor is a tensor whose batch size is already or will be tiled to match
+      the batch size of all other primary input tensors. A non-primary input
+      tensor must have a batch size of 1, or the same as the primary batch size.
+      Used primarily by `orbax.export.utils.make_auto_batching_function`.
   """
 
   tensor_spec: tf.TensorSpec
@@ -127,6 +160,34 @@ def with_default_args(
     input_signature: Sequence[PyTree],
 ) -> tf.types.experimental.PolymorphicFunction:
   """Creates a TF function with default args specified in `input_signature`.
+
+  This utility wraps a standard Python or TensorFlow function and rewrites its
+  Python signature to include default values extracted from the provided
+  `input_signature`.
+
+  Example:
+    Create a TensorFlow function where the second argument has a default value::
+
+      import tensorflow as tf
+      from orbax.export.utils import TensorSpecWithDefault, with_default_args
+
+      def add_tensors(x, y):
+        return x + y
+
+      # Define the signature: `x` is required, `y` has a default value
+      signature = [
+          tf.TensorSpec(shape=(2,), dtype=tf.float32, name='x'),
+          TensorSpecWithDefault(
+              tensor_spec=tf.TensorSpec(shape=(2,), dtype=tf.float32, name='y'),
+              default_val=[1.0, 1.0]
+          )
+      ]
+
+      # Create the new tf.function with defaults applied
+      fn_with_defaults = with_default_args(add_tensors, signature)
+
+      # The function can now be executed with only the required 'x' argument
+      result = fn_with_defaults(tf.constant([2.0, 2.0]))
 
   Args:
     tf_fn: the TF function.
