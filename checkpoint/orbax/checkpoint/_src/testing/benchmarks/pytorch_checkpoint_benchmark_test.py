@@ -69,6 +69,9 @@ class PyTorchCheckpointBenchmarkTest(parameterized.TestCase):
     self.mock_cuda_empty_cache = self.enter_context(
         mock.patch.object(torch.cuda, 'empty_cache')
     )
+    self.mock_cuda_synchronize = self.enter_context(
+        mock.patch.object(torch.cuda, 'synchronize')
+    )
     self.mock_dist_barrier = self.enter_context(
         mock.patch.object(torch.distributed, 'barrier')
     )

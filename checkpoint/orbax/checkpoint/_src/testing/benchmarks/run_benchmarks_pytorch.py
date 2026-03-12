@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark launcher for torch.distributed.checkpoint (DCP) using XManager."""
+"""Benchmark launcher for torch.distributed.checkpoint (DCP)."""
 
 from collections.abc import Sequence
 import os
@@ -23,10 +23,7 @@ from absl import logging
 from etils import epath
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
 import torch.distributed as dist
-from torch.google import distributed as gdist
 
-from .learning.deepmind.xmanager2.client import xmanager_api
-from .pyglib.contrib.g3_multiprocessing import g3_multiprocessing
 
 
 # Core Flags
@@ -47,14 +44,20 @@ _OUTPUT_DIRECTORY = flags.DEFINE_string(
 
 
 def _init_torch_distributed() -> None:
-  """Initializes Torch distributed system if not managed by XManager."""
+  """Initializes Torch distributed system."""
   if not dist.is_initialized():
-    if 'TEST_TMPDIR' not in os.environ:
-      logging.info('torch.distributed not initialized, setting env vars...')
+
+    # External OSS Initialization (Vanilla PyTorch)
+    logging.info(
+        'torch.distributed not initialized, attempting vanilla init...')
+    if 'TEST_TMPDIR' not in os.environ and 'MASTER_ADDR' not in os.environ:
+      # Single-process fallback (e.g., local testing)
+      logging.info('Setting local fallback env vars...')
       os.environ.setdefault('MASTER_ADDR', 'localhost')
       os.environ.setdefault('MASTER_PORT', '12355')
       dist.init_process_group(backend='nccl', rank=0, world_size=1)
     else:
+      # Torchrun / Distributed launch
       try:
         dist.init_process_group(backend='cpu:gloo,cuda:nccl')
         logging.info(
@@ -74,12 +77,15 @@ def _run_benchmarks(config_file: str, output_directory: str) -> None:
   """Runs the benchmarks."""
   logging.info('Running benchmarks from config: %s', config_file)
   logging.info('Output directory: %s', output_directory)
-  try:
-    epath.Path(output_directory).mkdir(parents=True, exist_ok=True)
-    logging.info('Output directory created: %s', output_directory)
-  except OSError as e:
-    logging.exception('Failed to create output directory: %s', e)
-    raise
+
+  if dist.get_rank() == 0:
+    try:
+      epath.Path(output_directory).mkdir(parents=True, exist_ok=True)
+      logging.info('Output directory created: %s', output_directory)
+    except OSError as e:
+      logging.exception('Failed to create output directory: %s', e)
+      raise
+  dist.barrier()
 
   try:
     test_suite = config_parsing.create_test_suite_from_config(
@@ -118,7 +124,4 @@ def main(argv: Sequence[str]) -> None:
 
 
 if __name__ == '__main__':
-  if 'GPU' not in os.environ:
-    app.run(main)
-  else:
-    g3_multiprocessing.handle_main(gdist.torchrun(main))
+  app.run(main)
