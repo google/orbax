@@ -545,7 +545,7 @@ def resolve_handler_for_save(
       registry, is_handleable_fn, checkpointable, name
   )
 
-  # Prefer the first handler in the absence of any other information.
+  # Prefer the last handler in the absence of any other information.
   return possible_handlers[-1]
 
 
@@ -615,5 +615,13 @@ def resolve_handler_for_load(
           handler_typestr,
       )
 
-  # Prefer the last handler in the absence of any other information.
-  return possible_handlers[-1]
+  if abstract_checkpointable:
+    # Prefer the last handler in the absence of any other information.
+    return possible_handlers[-1]
+
+  raise NoEntryError(
+      f'No entry for checkpointable={name} in the registry, using'
+      f' handler_typestr={handler_typestr} and'
+      f' abstract_checkpointable={abstract_checkpointable}. Registry contents:'
+      f' {registry.get_all_entries()}'
+  )

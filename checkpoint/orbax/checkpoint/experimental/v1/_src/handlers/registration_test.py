@@ -197,18 +197,31 @@ class RegistrationTest(parameterized.TestCase):
 
   def test_resolve_handler_for_load_resolution_order(self):
 
-    class HandlerOne(handler_utils.DictHandler):
-      pass
+    class HandlerOne(handler_utils.BazHandler):
+      def is_abstract_handleable(
+          self, abstract_checkpointable: handler_utils.AbstractBaz
+      ) -> bool:
+        return isinstance(abstract_checkpointable, handler_utils.AbstractBaz)
 
-    class HandlerTwo(handler_utils.DictHandler):
-      pass
+    class HandlerTwo(handler_utils.BazHandler):
+      def is_abstract_handleable(
+          self, abstract_checkpointable: handler_utils.AbstractBaz
+      ) -> bool:
+        return isinstance(abstract_checkpointable, handler_utils.AbstractBaz)
 
     handlers_to_register = [HandlerOne, HandlerTwo]
 
     with self.subTest('globally_registered'):
+      with self.assertRaises(registration.NoEntryError):
+        registration.resolve_handler_for_load(
+            registration.local_registry(),
+            None,
+            name='checkpointable_name',
+            handler_typestr='unknown_class',
+        )
       resolved_handler = registration.resolve_handler_for_load(
           registration.local_registry(),
-          None,
+          handler_utils.AbstractBaz(),
           name='checkpointable_name',
           handler_typestr='unknown_class',
       )
@@ -219,9 +232,16 @@ class RegistrationTest(parameterized.TestCase):
       )
       for handler in handlers_to_register:
         local_registry.add(handler)
+      with self.assertRaises(registration.NoEntryError):
+        registration.resolve_handler_for_load(
+            local_registry,
+            None,
+            name='checkpointable_name',
+            handler_typestr='unknown_class',
+        )
       resolved_handler = registration.resolve_handler_for_load(
           local_registry,
-          None,
+          handler_utils.AbstractBaz(),
           name='checkpointable_name',
           handler_typestr='unknown_class',
       )
@@ -243,9 +263,16 @@ class RegistrationTest(parameterized.TestCase):
       )
       for handler in reversed(handlers_to_register):
         local_registry.add(handler)
+      with self.assertRaises(registration.NoEntryError):
+        registration.resolve_handler_for_load(
+            local_registry,
+            None,
+            name='checkpointable_name',
+            handler_typestr='unknown_class',
+        )
       resolved_handler = registration.resolve_handler_for_load(
           local_registry,
-          None,
+          handler_utils.AbstractBaz(),
           name='checkpointable_name',
           handler_typestr='unknown_class',
       )
@@ -279,7 +306,7 @@ class RegistrationTest(parameterized.TestCase):
     resolved = registration.resolve_handler_for_load(
         local_registry,
         handler_utils.AbstractFoo(),
-        name='dummy_unregistered_nameame',
+        name='unregistered_name',
         handler_typestr=None,
     )
     self.assertIsInstance(resolved, handler_utils.FooHandler)
@@ -288,6 +315,16 @@ class RegistrationTest(parameterized.TestCase):
       registration.resolve_handler_for_load(
           local_registry,
           handler_utils.AbstractBar(),
+          name='unregistered_name',
+          handler_typestr=None,
+      )
+
+  def test_resolve_handler_for_load_no_checkpointable_no_metadata(self):
+    local_registry = registration.local_registry()
+    with self.assertRaises(registration.NoEntryError):
+      registration.resolve_handler_for_load(
+          local_registry,
+          None,
           name='unregistered_name',
           handler_typestr=None,
       )
