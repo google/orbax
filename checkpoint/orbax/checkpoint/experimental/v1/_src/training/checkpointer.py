@@ -31,6 +31,7 @@ from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_typ
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
+from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.training import errors
 from orbax.checkpoint.experimental.v1._src.training import preservation_policies
@@ -489,6 +490,7 @@ class Checkpointer(epy.ContextManager):
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
     """Saves a set of checkpointables asynchronously at the given step."""
+    validation.validate_abstract_checkpointables(checkpointables)
     if overwrite:
       logging.info(
           'Specified `overwrite`: deleting existing checkpoint %d if it'

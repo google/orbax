@@ -25,6 +25,7 @@ Path = types.Path
 ### Constants shared by all layouts. ###
 
 PYTREE_CHECKPOINTABLE_KEY = "pytree"
+EMPTY_CHECKPOINTABLE_KEY = ""
 
 METRICS_CHECKPOINTABLE_KEY = "metrics"
 
