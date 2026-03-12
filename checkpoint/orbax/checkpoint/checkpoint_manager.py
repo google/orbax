@@ -1968,9 +1968,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _get_old_steps_to_remove(self) -> List[int]:
     """Returns checkpoints that should be deleted."""
-    # This isn't a duration but there isn't a general counter that we can use so
-    # we abuse a duration metric to count the number of steps examined.
-    jax.monitoring.record_event_duration_secs(
+    jax.monitoring.record_scalar(
         '/jax/checkpoint/write/old_steps_examined_count',
         self._checkpoints.size(),
     )

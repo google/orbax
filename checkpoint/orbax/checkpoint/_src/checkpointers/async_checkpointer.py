@@ -95,9 +95,7 @@ def _background_wait_for_commit_futures(
       len(commit_futures),
       commit_duration_secs,
   )
-  # Log the number of async writes that are in flight. Abuses a duration
-  # metric as a counter since jax.monitoring only has events and durations.
-  jax.monitoring.record_event_duration_secs(
+  jax.monitoring.record_scalar(
       '/jax/checkpoint/write/async/commit_future_count',
       len(commit_futures),
   )
