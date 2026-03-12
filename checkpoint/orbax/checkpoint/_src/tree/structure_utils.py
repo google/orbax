@@ -514,6 +514,21 @@ def merge_trees(
     values overwrite None values.
   - If `overwrite` is False, a ValueError is raised for mismatched types.
 
+  Example:
+    Merge two PyTrees without overlapping leaf paths::
+
+      tree1 = {"a": 1, "b": {"c": 2}}
+      tree2 = {"d": 3, "b": {"e": 4}}
+
+      merged_tree = merge(tree1, tree2)
+      # Result: {"a": 1, "b": {"c": 2, "e": 4}, "d": 3}
+
+    Merge PyTrees with overlapping leaf paths using `overwrite=True`::
+
+      tree3 = {"a": 100}
+      overwritten_tree = merge(tree1, tree3, overwrite=True)
+      # Result: {"a": 100, "b": {"c": 2}}
+
   Args:
     *trees: The trees to merge.
     overwrite: If True, later values from `trees` will overwrite earlier values
