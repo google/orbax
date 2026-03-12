@@ -36,4 +36,5 @@ from orbax.checkpoint._src.tree.utils import (
 from orbax.checkpoint._src.tree.structure_utils import (
     tree_difference,
     tree_trim,
+    merge_trees,
 )

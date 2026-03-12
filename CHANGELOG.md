@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Local type handler registries.
+- Expose `merge_trees` publicly: this function can be use to merge trees into a
+single tree using a comprehensive recursive strategy
 
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
