@@ -60,7 +60,31 @@ STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
 
 
 class BaseLeafHandlerRegistry:
-  """Base Leaf Handler Registry that implements the LeafHandlerRegistry Protocol."""
+  """Base Leaf Handler Registry implements the LeafHandlerRegistry Protocol.
+
+  This registry maps concrete PyTree leaf types and abstract leaf types to
+  their corresponding :py:class:`~.v1.types.LeafHandler` implementations.
+  It providesdynamic handler resolution, meaning if a specific leaf type is not
+  directly registered, the registry will attempt to resolve a handler registered
+  to one of its base classes or protocols.
+
+  Example:
+    Registering and retrieving a custom handler for a leaf type::
+
+      registry = BaseLeafHandlerRegistry()
+      registry.add(
+          leaf_type=np.ndarray,
+          abstract_type=core.AbstractArray,
+          handler_type=ArrayHandler
+      )
+
+      # Retrieves ArrayHandler directly
+      handler = registry.get(np.ndarray)
+
+      # Also resolves to ArrayHandler due to `issubclass` matching
+      class CustomArray(np.ndarray): pass
+      sub_handler = registry.get(CustomArray)
+  """
 
   def __init__(self):
     self._leaf_type_registry: Dict[
@@ -132,7 +156,12 @@ class BaseLeafHandlerRegistry:
   def get_all(
       self,
   ) -> Sequence[types.LeafHandlerRegistryItem]:
-    """Returns all registered handlers."""
+    """Returns all registered handlers.
+
+    Returns:
+      A sequence of tuples, where each tuple contains the registered concrete
+      leaf type, the abstract leaf type, and the corresponding handler type.
+    """
     return [
         (
             leaf_type,
@@ -151,7 +180,20 @@ class BaseLeafHandlerRegistry:
       handler_type: Type[types.LeafHandler[types.Leaf, types.AbstractLeaf]],
       override: bool = False,
   ):
-    """Adds a handler_type for a given leaf_type and abstract_type pair."""
+    """Adds a handler_type for a given leaf_type and abstract_type pair.
+
+    Args:
+      leaf_type: The concrete PyTree leaf type to register.
+      abstract_type: The abstract representation of the leaf type.
+      handler_type: The `LeafHandler` class responsible for this leaf type.
+      override: If True, overwrites existing registrations for the given
+        leaf or abstract types. Defaults to False.
+
+    Raises:
+      ValueError: If the `leaf_type` or `abstract_type` is already registered
+        and `override` is False. Also raised if the `abstract_type` is already
+        registered with a fundamentally different handler type.
+    """
     current_handler_type = self._try_get(leaf_type)
     current_abstract_handle_type = self._try_get_abstract(abstract_type)
 
@@ -192,11 +234,31 @@ class BaseLeafHandlerRegistry:
     self._handler_to_types[handler_type] = (leaf_type, abstract_type)
 
   def is_handleable(self, leaf_type: Type[Any]) -> bool:
-    """Returns True if the type is handleable."""
+    """Returns True if the type is handleable.
+
+    This checks if the provided concrete leaf type, or any of its base classes,
+    has a specifically registered handler in the registry.
+
+    Args:
+      leaf_type: The concrete PyTree leaf type to check.
+
+    Returns:
+      True if a valid handler exists for the type, False otherwise.
+    """
     return self._try_get(leaf_type) is not None
 
   def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
-    """Returns True if the abstract type is handlable."""
+    """Returns True if the abstract type is handlable.
+
+    This checks if the provided abstract leaf type, or any of its matching base
+    classes or protocols, has a registered handler in the registry.
+
+    Args:
+      abstract_type: The abstract PyTree leaf type to check.
+
+    Returns:
+      True if a valid handler exists for the abstract type, False otherwise.
+    """
     return self._try_get_abstract(abstract_type) is not None
 
 
@@ -206,6 +268,18 @@ class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):
   This registry is designed as the default implementation of
   LeafHandlerRegistry.  It also registers the handlers for all the standard
   types including jax.Array, np.ndarray, int, float, bytes, and np.number.
+
+  Example:
+    Instantiate the registry and immediately use it for standard types::
+
+      from orbax.checkpoint.v1.serialization import
+      StandardLeafHandlerRegistry
+      import numpy as np
+
+      registry = StandardLeafHandlerRegistry()
+
+      # True, because numpy arrays are registered by default
+      is_supported = registry.is_handleable(np.ndarray)
   """
 
   def __init__(self):
