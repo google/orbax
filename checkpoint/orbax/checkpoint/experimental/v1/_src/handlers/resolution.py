@@ -67,30 +67,20 @@ def _resolve_single_handler_for_load(
     registration.NoEntryError: If no handler is resolved and 'pytree' name is
     not registered.
   """
-  # 1. Resolve the handler using handler_typestr and
-  # abstract_checkpointable type if either is specified.
-  if abstract_checkpointable or metadata_handler_typestr:
-    try:
-      return registration.resolve_handler_for_load(
-          handler_registry,
-          abstract_checkpointable,
-          name=checkpointable_name,
-          handler_typestr=metadata_handler_typestr,
-      )
-    except registration.NoEntryError as e:
-      logging.warning(
-          "Failed to resolve handler for checkpointable: '%s'. Attempting to"
-          " load using pytree handler, otherwise defaulting to a None"
-          " return value. Error: %s",
-          checkpointable_name,
-          e,
-      )
-  else:
-    logging.info(
-        "No metadata present in checkpoint and no abstract checkpointable"
-        " provided for checkpointable: '%s'. Attempting to load using"
-        " pytree handler, otherwise defaulting to a None return value.",
+  # 1. Resolve the checkpointable's handler using handler discovery.
+  try:
+    return registration.resolve_handler_for_load(
+        handler_registry,
+        abstract_checkpointable,
+        name=checkpointable_name,
+        handler_typestr=metadata_handler_typestr,
+    )
+  except registration.NoEntryError as e:
+    logging.warning(
+        "Failed to resolve handler for checkpointable: '%s'. Attempting to"
+        " load using pytree handler. Error: %s",
         checkpointable_name,
+        e,
     )
 
   # 2. If no handler is resolved yet, try to resolve using the default
@@ -101,8 +91,8 @@ def _resolve_single_handler_for_load(
   if not pytree_handler:
     raise registration.NoEntryError(
         f"Could not resolve a handler for '{checkpointable_name}' and no"
-        f"'pytree' handler found in {handler_registry}).\n"
-        "Please inspect the checkpoint contents via"
+        f" 'pytree' handler found in {handler_registry})."
+        " Please inspect the checkpoint contents via"
         " `loading.checkpointables_metadata`. You may need to provide an"
         " abstract_checkpointable or register a missing handler for this name"
         " or for 'pytree' name which is used as a fallback."

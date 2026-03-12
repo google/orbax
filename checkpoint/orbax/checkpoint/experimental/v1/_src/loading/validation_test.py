@@ -15,19 +15,34 @@
 from unittest import mock
 
 from absl.testing import absltest
-from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import validation
 
 
 class ValidationTest(absltest.TestCase):
+  def test_validate_pytree_checkpointable_name(self):
+    validation.validate_pytree_checkpointable_name(None)
+    validation.validate_pytree_checkpointable_name('pytree')
+    validation.validate_pytree_checkpointable_name('a')
+
+    with self.assertRaisesRegex(ValueError, 'Empty string is not supported'):
+      validation.validate_pytree_checkpointable_name('')
+
+    with mock.patch.object(
+        validation, 'RESERVED_CHECKPOINTABLE_KEYS', {'reserved'}
+    ):
+      with self.assertRaisesRegex(ValueError, 'reserved'):
+        validation.validate_pytree_checkpointable_name('reserved')
 
   def test_validate_abstract_checkpointables(self):
     validation.validate_abstract_checkpointables(None)
     validation.validate_abstract_checkpointables({})
     validation.validate_abstract_checkpointables({'a': 1})
 
+    with self.assertRaisesRegex(ValueError, 'Empty string is not supported'):
+      validation.validate_abstract_checkpointables({'': 1})
+
     with mock.patch.object(
-        checkpoint_layout, 'RESERVED_CHECKPOINTABLE_KEYS', {'reserved'}
+        validation, 'RESERVED_CHECKPOINTABLE_KEYS', {'reserved'}
     ):
       with self.assertRaisesRegex(ValueError, 'reserved'):
         validation.validate_abstract_checkpointables({'reserved': 1})

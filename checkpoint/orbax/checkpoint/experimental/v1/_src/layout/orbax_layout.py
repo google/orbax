@@ -326,7 +326,6 @@ class OrbaxLayout(CheckpointLayout):
     except BaseException as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V1 Orbax checkpoint."
-          f" due to error encountered during validation: {e}"
       ) from e
 
   async def validate_pytree(
@@ -337,8 +336,7 @@ class OrbaxLayout(CheckpointLayout):
       await self._validate_pytree(path, checkpointable_name)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a V1 Orbax PyTree"
-          f" checkpoint. Encountered error during validation: {e}"
+          f"Failed to interpret path {path} as a V1 Orbax PyTree."
       ) from e
 
   async def load_pytree(
@@ -568,8 +566,8 @@ class OrbaxLayout(CheckpointLayout):
       except BaseException as e:  # pylint:disable=broad-exception-caught
         raise registration.NoEntryError(
             f"Failed to load checkpointable: {name} due to incompatible"
-            f" handler: {handlers[name]} found in registry:"
+            f" handler: {type(handlers[name])} found in registry:"
             f" {self._handler_registry} for abstract checkpointable:"
-            f" {checkpointables_to_load[name]}.\nError details: {e}"
+            f" {checkpointables_to_load[name]}."
         ) from e
     return loaded_checkpointables

@@ -18,16 +18,19 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import Any, Awaitable, Generic, Type, TypeVar
+from typing import Any, Awaitable, Generic, Sequence, Type, TypeVar
 
 import aiofiles
 from etils import epath
+import jax
 from orbax.checkpoint import checkpoint_args as v0_args
 from orbax.checkpoint import handlers as v0_handlers
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import path_utils as path_test_utils
 
@@ -363,3 +366,49 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
 
   def is_abstract_handleable(self, abstract_checkpointable: None) -> bool:
     return abstract_checkpointable is None
+
+
+@dataclasses.dataclass
+class LazyArray:
+  """A custom array type wrapping a jax.Array for testing."""
+  array: jax.Array
+
+
+class AbstractLazyArray(types.AbstractShardedArray):
+  pass
+
+
+class LazyArrayHandler(
+    types.LeafHandler[LazyArray, types.AbstractShardedArray]
+):
+  """A custom LeafHandler that uses composition of ArrayLeafHandler."""
+
+  def __init__(self, context=None):
+    self._array_handler = array_leaf_handler.ArrayLeafHandler(context=context)
+
+  async def serialize(
+      self,
+      params: Sequence[types.SerializationParam[LazyArray]],
+      serialization_context: types.SerializationContext,
+  ) -> Awaitable[None]:
+    array_params = [
+        types.SerializationParam(p.keypath, p.value.array) for p in params
+    ]
+    return await self._array_handler.serialize(
+        array_params, serialization_context
+    )
+
+  async def deserialize(
+      self,
+      params: Sequence[types.DeserializationParam[types.AbstractShardedArray]],
+      deserialization_context: types.DeserializationContext,
+  ) -> Awaitable[Sequence[LazyArray]]:
+    arrays_awaitable = await self._array_handler.deserialize(
+        params, deserialization_context
+    )
+
+    async def _wrap_results() -> Sequence[LazyArray]:
+      resolved_arrays = await arrays_awaitable
+      return tuple(LazyArray(arr) for arr in resolved_arrays)
+
+    return _wrap_results()
