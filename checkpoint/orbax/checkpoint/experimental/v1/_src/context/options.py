@@ -39,12 +39,29 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 class AsyncOptions:
   """Options used to configure async behavior.
 
-  timeout_secs:
-    The timeout in seconds for the async save operation.
-  post_finalization_callback:
-    A function that is called after the async save operation is complete.
-  create_directories_asynchronously:
-    If True, creates directories asynchronously in the background.
+  This dataclass defines the configuration parameters for asynchronous 
+  checkpoint saving operations within the Orbax framework.
+
+  Example:
+    Initialize async configuration with a custom timeout and callback::
+
+      from orbax.checkpoint.v1.options import AsyncOptions
+
+      def my_callback():
+          print("Async save successfully finalized.")
+
+      options = AsyncOptions(
+          timeout_secs=300,
+          post_finalization_callback=my_callback,
+          create_directories_asynchronously=False
+      )
+
+  Attributes:
+    timeout_secs: The timeout in seconds for the async save operation.
+    post_finalization_callback: A function that is called after the async save
+      operation is complete.
+    create_directories_asynchronously: If True, creates directories
+      asynchronously in the background.
   """
 
   timeout_secs: int = 600  # 10 minutes.
@@ -63,21 +80,40 @@ class AsyncOptions:
 class MultiprocessingOptions:
   """Options used to configure multiprocessing behavior.
 
-  primary_host:
-    The host id of the primary host.  Default to 0.  If it's set to None, then
-    all hosts will be considered as primary.  It's useful in the case that all
-    hosts are only working with local storage.
-  active_processes:
-    A set of process indices (corresponding to :py:func:`.process_index`) over
-    which :py:class:`~.v1.training.Checkpointer` is expected to be called.
-    This makes it possible to have a :py:class:`~.v1.training.Checkpointer`
-    instance that runs over a subset of processes, rather than all processes as
-    it is normally expected to do. If specified, `primary_host` must belong to
-    `active_processes`.
-  barrier_sync_key_prefix:
-    A string to be prepended to the barrier sync key used to synchronize
-    processes. This is useful to avoid collisions with other barrier syncs if
-    another :py:class:`~.v1.training.Checkpointer` is being used concurrently.
+  NOTE: These options are generally dangerous to mess with unless you know what
+  you're doing.
+
+  This dataclass defines the configuration parameters for multiprocessing
+  checkpoint saving operations within the Orbax framework.
+
+  Example:
+    Configure a multi-host setup where process 1 is designated as the primary
+    host, only a subset of processes are active, and a custom barrier key is
+    used to prevent collisions with other concurrent checkpointers::
+
+      from orbax.checkpoint.v1.options import
+      MultiprocessingOptions
+
+      options = MultiprocessingOptions(
+          primary_host=1,
+          active_processes={1, 2, 3},
+          barrier_sync_key_prefix="model_a_sync_"
+
+  Attributes:
+    primary_host: The host id of the primary host.  Default to 0.  If it's set
+      to None, then all hosts will be considered as primary.  It's useful in the
+      case that all hosts are only working with local storage.
+    active_processes:
+      A set of process indices (corresponding to :py:func:`.process_index`) over
+      which :py:class:`~.v1.training.Checkpointer` is expected to be called.
+      This makes it possible to have a :py:class:`~.v1.training.Checkpointer`
+      instance that runs over a subset of processes, rather than all processes
+      as it is normally expected to do. If specified, `primary_host` must belong
+      to `active_processes`.
+    barrier_sync_key_prefix: A string to be prepended to the barrier sync key
+      used to synchronize processes. This is useful to avoid collisions with
+      other barrier syncs if another :py:class:`~.v1.training.Checkpointer` is
+      being used concurrently.
   """
 
   primary_host: int | None = 0
@@ -97,18 +133,31 @@ class MultiprocessingOptions:
 class FileOptions:
   """Options used to configure checkpoint directories and files.
 
+  This dataclass defines the configuration parameters for creating and managing
+  checkpoint directories and files on disk.
+
+  Example:
+    Configure checkpoint files to use strict directory permissions (e.g.,
+    read/write/execute for owner, read/execute for group)::
+
+      from orbax.checkpoint.v1.options import FileOptions
+
+      options = FileOptions(
+          path_permission_mode=0o750
+      )
+
   Attributes:
     path_permission_mode:
       Path permission mode for step directories, user metadata files. e.g.
       0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
-      path is supported. default=None.
+      path is supported.
     temporary_path_class:
       A class that is used to create and finalize temporary paths, and to ensure
       atomicity.
     path_class:
-      The implementation of :py:class:`~.v1.path.Path` to use.  Defaults to 
-      `etils.epath.Path`, but may be overridden to some other subclass of 
+      The implementation of :py:class:`~.v1.path.Path` to use.  Defaults to
+      `etils.epath.Path`, but may be overridden to some other subclass of
       :py:class:`~.v1.path.Path`.
   """
 
@@ -129,6 +178,32 @@ class FileOptions:
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class PyTreeOptions:
   """Options used to configure PyTree saving and loading.
+
+  This dataclass defines the configuration parameters for creating and managing
+  PyTree saving and loading on disk.
+
+  # TODO: Include an example of registering a custom LeafHandler.
+
+  Example:
+    To save certain leaves in float16, while others in float32, we can use
+    `create_array_storage_options_fn` like so::
+
+      import jax
+      import jax.numpy as jnp
+      from orbax.checkpoint.v1 import options as ocp_options
+
+      def create_opts_fn(keypath, value):
+        if 'small' in jax.tree_util.keystr(keypath):
+          return ocp_options.ArrayOptions.Saving.StorageOptions(
+              dtype=jnp.float16
+          )
+        return ocp_options.ArrayOptions.Saving.StorageOptions(dtype=jnp.float32)
+
+      pytree_options = ocp_options.PyTreeOptions(
+          saving=ocp_options.PyTreeOptions.Saving(
+              create_array_storage_options_fn=create_opts_fn
+          )
+      )
 
   Attributes:
     saving: Options for saving PyTrees.
