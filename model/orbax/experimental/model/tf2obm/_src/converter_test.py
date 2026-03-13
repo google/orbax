@@ -328,12 +328,13 @@ class TfConcreteFunctionsToObmTest(
     pre_processor_name_in_tf = "my_pre_processor_in_tf"
     post_processor_name_in_tf = "my_post_processor_in_tf"
 
-    pre_processor = converter.convert_function(
+    pre_processor = converter.prepare_function(
         pre_processor_name_in_tf, tf_pre_processor
-    )
-    post_processor = converter.convert_function(
+    ).obm_fn
+    post_processor = converter.prepare_function(
         post_processor_name_in_tf, tf_post_processor
-    )
+    ).obm_fn
+
     supplementals = {}
     supplementals.update(
         converter.save_tf_functions(
@@ -471,6 +472,82 @@ class TfConcreteFunctionsToObmTest(
         ),
         [tf_post_processor(post_processor_input)],
     )
+
+  def test_save_polymorphic_function_with_default_args(self):
+    var = tf.Variable(100.0)
+    vocab = tf.lookup.StaticHashTable(
+        tf.lookup.KeyValueTensorInitializer(
+            keys=["v"],
+            values=[200.0],
+        ),
+        default_value=10000.0,
+    )
+
+    @tf.function(
+        input_signature=[
+            tf.TensorSpec((2, 3, 4), tf.float32),
+            tf.TensorSpec((2, 3, 4), tf.float32),
+        ]
+    )
+    def tf_fn(
+        x,
+        y=tf.ones(shape=(2, 3, 4), dtype=tf.float32),
+        z=(tf.constant(67.0), tf.constant(41.0)),
+    ):
+      return {
+          "result": (
+              2 * x + y + var + vocab.lookup(tf.constant("v")) + z[0] + z[1]
+          )
+      }
+
+    save_dir_path = os.path.join(self.create_tempdir())
+
+    tf_module = tf.Module()
+    tf_module.tf_fn = tf_fn
+    tf_module.var = var
+    tf_module.vocab = vocab
+
+    prepared_fn = converter.prepare_function(
+        "tf_fn",
+        tf_fn,
+        trackable_resources=tf_module,
+    )
+
+    converter.save_tf_functions(
+        save_dir_path,
+        {"tf_fn": prepared_fn},
+        trackable_resources=tf_module,
+    )
+
+    loaded_tf_module = tf.saved_model.load(
+        os.path.join(save_dir_path, converter.OBM_TF_SAVED_MODEL_SUB_DIR)
+    )
+    saved_tf_fn = loaded_tf_module.signatures["tf_fn"]
+
+    tf_input = (
+        tf.ones(shape=(2, 3, 4), dtype=tf.float32),
+        tf.ones(shape=(2, 3, 4), dtype=tf.float32),
+        (
+            tf.constant(67.0),
+            tf.constant(41.0),
+        ),
+    )
+    expected_output = tf_fn(tf_input[0])
+
+    # Calling saved_tf_fn directly requires providing all arguments, including
+    # the ones that have default values. They also must use the names that are
+    # used internally by TensorFlow, which are not necessarily the same as the
+    # names used in the original function (e.g. have been flattened).
+    saved_fn_output_explicit_values = saved_tf_fn(
+        x=tf_input[0], y=tf_input[1], z=tf_input[2][0], z_1=tf_input[2][1]
+    )
+
+    # Calling loaded_tf_module.tf_fn allows us to use the default values for
+    # the arguments, looked up from the saved model.
+    saved_fn_output_default_values = loaded_tf_module.tf_fn(x=tf_input[0])
+
+    self.assertAllClose(expected_output, saved_fn_output_explicit_values)
+    self.assertAllClose(expected_output, saved_fn_output_default_values)
 
 
 if __name__ == "__main__":

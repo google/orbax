@@ -12,17 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Converts TF concrete functions to OBM functions (allowing TF resources)."""
+"""Converts TF functions to OBM functions (allowing TF resources)."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 import copy
+import dataclasses
+import inspect
 import os
-from typing import Any, Dict, NamedTuple, Tuple
+from typing import Any, NamedTuple, cast
 
 from jax import tree_util as jax_tree_util
+import jaxtyping
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm import tf_concrete_function_handle_pb2
 from orbax.experimental.model.tf2obm._src import utils
+from orbax.experimental.model.tf2obm._src import x64_helpers
 import tensorflow as tf
 
 from .learning.brain.contrib.tpu_modeling.inference_converter_v2 import converter_options_v2_pb2
@@ -41,9 +45,28 @@ SAVED_MODEL_MIME_TYPE = 'application/x.tensorflow-saved-model'
 SAVED_MODEL_VERSION = '1.0'
 
 _OUTPUT_NAME_PREFIX = 'output'
+_PB_EXT_NAME = 'pb'
 
 
-def _is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
+@dataclasses.dataclass(frozen=True)
+class PreparedFunction:
+  """TF function prepared for OBM export.
+
+  Attributes:
+    concrete_fn: The concrete TF function (to be saved in the TF SavedModel).
+    obm_fn: The OBM function generated from (and referring to) `concrete_fn`.
+    defaults: The default values for `concrete_fn`. TF concrete functions do not
+      keep track of the default values of the TF polymorhic functions they are
+      concretized from, hence we need to store them separately.
+  """
+
+  concrete_fn: tf.types.experimental.ConcreteFunction
+  obm_fn: obm.SerializableFunction
+  defaults: dict[str, Any] | None = None
+
+
+def _is_args_kwargs(tree: utils.TfSignature) -> bool:
+  """Checks if a TF signature tree is in the '(args, kwargs)' pattern."""
   return (
       isinstance(tree, Sequence)
       and len(tree) == 2
@@ -52,16 +75,101 @@ def _is_args_kwargs_pattern(tree: utils.TfSignature) -> bool:
   )
 
 
-def convert_function(
+def _to_args_kwargs(
+    tf_signature: utils.TfSignature,
+) -> tuple[Sequence[Any], dict[str, Any]]:
+  """Converts TF signature to the '(args, kwargs)' pattern."""
+  if _is_args_kwargs(tf_signature):
+    return tf_signature[0], tf_signature[1]
+
+  if isinstance(tf_signature, Sequence):
+    return tf_signature, {}
+
+  return (tf_signature,), {}
+
+
+def _to_tf_dtype(t) -> Any:
+  if t == obm.ShloDType.bf16:
+    return tf.bfloat16
+  if t == obm.ShloDType.str:
+    return tf.string
+  if isinstance(t, obm.ShloDType):
+    t = obm.shlo_dtype_to_np_dtype(t)
+  return t
+
+
+def _to_tf_spec(x) -> tf.TensorSpec:
+  if isinstance(x, tf.TensorSpec):
+    return x
+  name = None
+  if hasattr(x, 'name'):
+    name = x.name
+  return tf.TensorSpec(x.shape, _to_tf_dtype(x.dtype), name=name)
+
+
+def _get_defaults(
+    fn: tf.types.experimental.PolymorphicFunction,
+) -> dict[str, Any] | None:
+  """Returns the default values for the given function."""
+  source_fn = fn.python_function if hasattr(fn, 'python_function') else fn
+  original_sig = inspect.signature(source_fn)
+
+  defaults = {
+      k: v.default
+      for k, v in original_sig.parameters.items()
+      if v.default is not inspect.Parameter.empty
+  }
+  return defaults
+
+
+def _get_concrete_function(
+    fn: Callable[..., Any],
+    input_signature: jaxtyping.PyTree | None = None,
+) -> tuple[tf.types.experimental.ConcreteFunction, dict[str, Any] | None]:
+  """Returns the concrete function and defaults for the given function."""
+
+  if isinstance(fn, tf.types.experimental.ConcreteFunction):
+    return fn, None
+
+  if isinstance(fn, tf.types.experimental.PolymorphicFunction):
+    tf_callable = cast(tf.types.experimental.PolymorphicFunction, fn)
+    if tf_callable.input_signature is not None:
+      input_signature = tf_callable.input_signature
+  else:
+    tf_callable = tf.function(fn)
+
+  if input_signature is None:
+    raise ValueError('Input signature is missing')
+
+  defaults = _get_defaults(tf_callable)
+
+  tf_input_signature = jax_tree_util.tree_map(_to_tf_spec, input_signature)
+  args, kwargs = _to_args_kwargs(tf_input_signature)
+
+  if (
+      len(tf_callable.function_spec.fullargspec.args) == 1
+      and len(args) > 1
+      and not kwargs
+  ):
+    # If the function expects a single positional argument
+    # we will pass the args as a single argument.
+    return tf_callable.get_concrete_function(args), defaults
+
+  return tf_callable.get_concrete_function(*args, **kwargs), defaults
+
+
+def prepare_function(
     fn_name: str,
-    fn: tf.types.experimental.ConcreteFunction,
+    fn: Callable[..., Any],
     *,
+    input_signature: jaxtyping.PyTree | None = None,
+    suppress_x64_outputs: bool = False,
     converter_options: (
         converter_options_v2_pb2.ConverterOptionsV2 | None
     ) = None,
     conversion_base_dir: str | None = None,
     trackable_resources: Any | None = None,
-) -> obm.SerializableFunction:
+) -> PreparedFunction:
   """Converts the TF concrete function to an OBM function.
 
   The resulting OBM function is effectively a reference to a function
@@ -70,7 +178,10 @@ def convert_function(
   Args:
     fn_name: The name to be used in the OBM manifest to refer to the TF
       function.
-    fn: The TF concrete function.
+    fn: The function to prepare.
+    input_signature: The input signature to use for the TF function. If None,
+      the input signature will be inferred from the function.
+    suppress_x64_outputs: If True, casts 64-bit outputs to 32-bit.
     converter_options: The converter options to use for the TF SavedModel. If
       set, the TF SavedModel will be converted using Inference Converter V2 in
       order to get the correct types for the input and output signatures.
@@ -80,32 +191,49 @@ def convert_function(
 
   Returns:
     The OBM function referring to the original TF function in the TF SavedModel.
-  """
 
-  input_names, _, _ = _flat_input_signature(fn)
-  output_names = _output_names(fn)
+  Raises:
+    ValueError: If `conversion_base_dir` is not provided when
+    `converter_options` is set.
+  """
+  initial_concrete_fn, defaults = _get_concrete_function(fn, input_signature)
+
+  if suppress_x64_outputs and x64_helpers.has_x64_outputs(initial_concrete_fn):
+    concrete_fn, _ = _get_concrete_function(
+        x64_helpers.suppress_x64_outputs(fn),
+        initial_concrete_fn.structured_input_signature,
+    )
+  else:
+    concrete_fn = initial_concrete_fn
+
+  input_names, _, _ = _flat_input_signature(concrete_fn)
+  output_names = _output_names(concrete_fn)
 
   if converter_options is not None:
     if conversion_base_dir is None:
       raise ValueError(
           'conversion_base_dir must be provided when converter_options is set.'
       )
-    converterted_signature_def = _get_converted_function_signature_def(
-        conversion_base_dir, fn_name, fn, trackable_resources, converter_options
+    converted_signature_def = _get_converted_function_signature_def(
+        conversion_base_dir,
+        fn_name,
+        concrete_fn,
+        trackable_resources,
+        converter_options,
     )
-    input_signature = _copy_types_from_signature_def(
-        fn.structured_input_signature,
-        converterted_signature_def.inputs,
+    final_input_signature = _copy_types_from_signature_def(
+        concrete_fn.structured_input_signature,
+        converted_signature_def.inputs,
         input_names,
     )
-    output_signature = _copy_types_from_signature_def(
-        get_output_signature(fn),
-        converterted_signature_def.outputs,
+    final_output_signature = _copy_types_from_signature_def(
+        get_output_signature(concrete_fn),
+        converted_signature_def.outputs,
         output_names,
     )
   else:
-    input_signature = fn.structured_input_signature
-    output_signature = get_output_signature(fn)
+    final_input_signature = concrete_fn.structured_input_signature
+    final_output_signature = get_output_signature(concrete_fn)
 
   unstructured_data = obm.manifest_pb2.UnstructuredData(
       inlined_bytes=tf_concrete_function_handle_pb2.TfConcreteFunctionHandle(
@@ -117,13 +245,19 @@ def convert_function(
       version=TF_CONCRETE_FUNCTION_HANDLE_VERSION,
   )
 
-  return obm.SerializableFunction(
-      body=obm.UnstructuredDataWithExtName(
-          proto=unstructured_data,
-          ext_name='pb',
+  return PreparedFunction(
+      obm_fn=obm.SerializableFunction(
+          body=obm.UnstructuredDataWithExtName(
+              proto=unstructured_data,
+              ext_name=_PB_EXT_NAME,
+          ),
+          input_signature=utils.tf_signature_to_obm_spec(final_input_signature),
+          output_signature=utils.tf_signature_to_obm_spec(
+              final_output_signature
+          ),
       ),
-      input_signature=utils.tf_signature_to_obm_spec(input_signature),
-      output_signature=utils.tf_signature_to_obm_spec(output_signature),
+      concrete_fn=concrete_fn,
+      defaults=defaults,
   )
 
 
@@ -147,7 +281,7 @@ def tf_saved_model_as_obm_supplemental(subdir: str) -> obm.UnstructuredData:
   )
 
 
-_StrDict = Dict[str, Any]
+_StrDict = dict[str, Any]
 
 
 def _make_dict_only_signature(
@@ -223,33 +357,6 @@ def _dict_to_tree(
   return jax_tree_util.tree_unflatten(tree_def, flat)
 
 
-def _to_args_kwargs_pattern(
-    tree: utils.TfSignature,
-) -> Tuple[Sequence[Any], Dict[str, Any]]:
-  """Converts a TF signature tree to the '(args, kwargs)' pattern.
-
-  Args:
-    tree: a TF signature tree.
-
-  Returns:
-    A tuple `(args, kwargs)`, where `args` is a sequence of positional
-    arguments, and `kwargs` is a dict of keyword arguments.
-
-  Raises:
-    ValueError: if the tree cannot be converted to the '(args, kwargs)' pattern.
-  """
-  if _is_args_kwargs_pattern(tree):
-    return tree[0], tree[1]
-  elif isinstance(tree, Sequence):
-    return tree, {}
-  elif isinstance(tree, dict):
-    return (), tree
-  else:
-    raise ValueError(
-        f"Can`t convert this tree to the '(args, kwargs)' pattern: {tree}"
-    )
-
-
 # The flattened form of a signature: a named tuple of (names, leaves, treedef).
 class SignatureFlat(NamedTuple):
   """The flattened form of a signature.
@@ -286,6 +393,31 @@ def _flat_input_signature(
   return SignatureFlat(input_names[: len(leaves)], leaves, tree_def)
 
 
+def _unwrap_tf_trackables(
+    tf_trackable: Any,
+) -> Any:
+  """Unwraps TF trackables from the given PyTree.
+
+  TF trackable objects use _DictWrapper, _ListWrapper, et al to wrap
+  their underlying data types. We need to unwrap these wrappers to get the
+  actual data types so that we can correctly infer the output names.
+
+  Args:
+    tf_trackable: PyTree, potentially with TF trackables.
+
+  Returns:
+    The given PyTree with all TF trackables unwrapped.
+  """
+  if isinstance(tf_trackable, Mapping):
+    return {k: _unwrap_tf_trackables(v) for k, v in tf_trackable.items()}
+  elif isinstance(tf_trackable, Sequence) and not isinstance(
+      tf_trackable, (str, bytes)
+  ):
+    return [_unwrap_tf_trackables(v) for v in tf_trackable]
+  else:
+    return tf_trackable
+
+
 def _output_name_for_key(key: Any) -> str:
   if isinstance(key, jax_tree_util.SequenceKey):
     return f'{_OUTPUT_NAME_PREFIX}_{key.idx}'
@@ -314,7 +446,8 @@ def _output_names(
     fn: tf.types.experimental.ConcreteFunction,
 ) -> Sequence[str]:
   """Returns the flattened output signature of the given function."""
-  leaves_with_path = jax_tree_util.tree_leaves_with_path(fn.structured_outputs)
+  unwrapped_outputs = _unwrap_tf_trackables(fn.structured_outputs)
+  leaves_with_path = jax_tree_util.tree_leaves_with_path(unwrapped_outputs)
   if not leaves_with_path:
     return []
   paths, _ = zip(*leaves_with_path)
@@ -367,7 +500,7 @@ def to_keyword_only_fn(
       autograph=False,
   )
   def new_f(**input_dict):
-    args, kwargs = _to_args_kwargs_pattern(
+    args, kwargs = _to_args_kwargs(
         _dict_to_tree(
             input_dict,
             input_names,
@@ -386,9 +519,47 @@ def to_keyword_only_fn(
   )
 
 
+def _add_defaults_to_signatures(
+    saved_model_dir: str,
+    fns: (
+        Mapping[str, tf.types.experimental.ConcreteFunction | PreparedFunction]
+        | None
+    ),
+) -> None:
+  """Adds defaults to the signatures of the functions in TF SavedModel."""
+  if not fns:
+    return
+
+  saved_model_pb_path = os.path.join(saved_model_dir, 'saved_model.pb')
+  model_proto = saved_model_pb2.SavedModel()
+  with tf.io.gfile.GFile(saved_model_pb_path, 'rb') as f:
+    model_proto.ParseFromString(f.read())
+
+  for name, fn in fns.items():
+    if not isinstance(fn, PreparedFunction):
+      continue
+    if not fn.defaults:
+      continue
+    # We need to look up the argument names as they are saved in the
+    # signature def, which uses the flattened structure of the input
+    # signature with modified names.
+    flattened_defaults = jax_tree_util.tree_leaves(fn.defaults)
+    input_names, _, _ = _flat_input_signature(fn.concrete_fn)
+    tf_default_names = input_names[-len(flattened_defaults) :]
+    sig_def = model_proto.meta_graphs[0].signature_def[name]
+
+    for arg_name, default in zip(tf_default_names, flattened_defaults):
+      sig_def.defaults[arg_name].CopyFrom(tf.make_tensor_proto(default))
+
+  with tf.io.gfile.GFile(saved_model_pb_path, 'wb') as f:
+    f.write(model_proto.SerializeToString())
+
+
 def save_tf_functions(
     model_dir: str,
-    fns: Mapping[str, tf.types.experimental.ConcreteFunction],
+    fns: Mapping[
+        str, tf.types.experimental.ConcreteFunction | PreparedFunction
+    ],
     *,
     trackable_resources: Any = None,
     converter_options: (
@@ -420,6 +591,14 @@ def save_tf_functions(
   Returns:
     The single-entry dictionary with the resulting TF supplemental.
   """
+  concrete_fns: MutableMapping[str, tf.types.experimental.ConcreteFunction] = {}
+
+  for name, fn in fns.items():
+    if isinstance(fn, PreparedFunction):
+      concrete_fns[name] = fn.concrete_fn
+    else:
+      concrete_fns[name] = fn
+
   # We are using saved_model.save(signatures=...)
   # (i.e. serving_signatures) to save concrete functions, but
   # serving_signatures only supports functions with keyword-only
@@ -427,7 +606,7 @@ def save_tf_functions(
   # tensors), so we need to wrap our concrete function into such a
   # conforming form, and save the information gap separately (in
   # convert_function).
-  wrapped_fns = {k: to_keyword_only_fn(v) for k, v in fns.items()}
+  wrapped_fns = {k: to_keyword_only_fn(v) for k, v in concrete_fns.items()}
 
   tf_module = tf.Module()
   if isinstance(trackable_resources, tf.Module):
@@ -462,6 +641,8 @@ def save_tf_functions(
     tf.io.gfile.rmtree(pre_conversion_path)
   else:
     tf.saved_model.save(tf_module, target_path, signatures=wrapped_fns)
+
+  _add_defaults_to_signatures(target_path, fns)
 
   return {
       TF_SAVED_MODEL_SUPPLEMENTAL_NAME: obm.GlobalSupplemental(

@@ -14,15 +14,11 @@
 
 """The data processor module for tensroflow-based pre/post-processors."""
 
-from collections.abc import Callable, Mapping, Sequence, Set
-import functools
-from typing import Any, Tuple, cast
+from collections.abc import Callable, Mapping, Set
+from typing import Any
 
-from absl import logging
-import jax
 import jaxtyping
 from orbax.export.data_processors import data_processor_base
-import tensorflow as tf
 
 
 class TfDataProcessor(data_processor_base.DataProcessor):

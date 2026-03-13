@@ -14,7 +14,7 @@
 
 """Export class that implements the save and load abstract class defined in Export Base for use with the Orbax Model export format."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 import copy
 import dataclasses
 import itertools

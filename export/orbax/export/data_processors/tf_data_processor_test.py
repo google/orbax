@@ -22,13 +22,13 @@ from .util.task.python import error as google_error
 
 class TfDataProcessorTest(googletest.TestCase):
 
-  def test_concrete_function_raises_error_without_calling_prepare(self):
+  def test_prepared_function_raises_error_without_calling_prepare(self):
     processor = tf_data_processor.TfDataProcessor(lambda x: x)
     with self.assertRaisesWithLiteralMatch(
         RuntimeError,
         '`prepare()` must be called before accessing this property.',
     ):
-      _ = processor.concrete_function
+      _ = processor.prepared_function
 
   def test_obm_function_raises_error_without_calling_prepare(self):
     processor = tf_data_processor.TfDataProcessor(lambda x: x)
@@ -77,7 +77,7 @@ class TfDataProcessorTest(googletest.TestCase):
         ),
     )
 
-    self.assertIsNotNone(processor.concrete_function)
+    self.assertIsNotNone(processor.prepared_function)
     self.assertIsNotNone(processor.obm_function)
 
     self.assertEqual(
@@ -223,7 +223,7 @@ class TfDataProcessorTest(googletest.TestCase):
       model_dir = self.create_tempdir().full_path
       tf2obm.save_tf_functions(
           model_dir,
-          {'preprocessor': processor.concrete_function},
+          {'preprocessor': processor.prepared_function},
           trackable_resources=[v],
           converter_options=converter_options,
       )
@@ -261,7 +261,9 @@ class TfDataProcessorTest(googletest.TestCase):
         (obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16),),
     )
     self.assertEqual(
-        processor.concrete_function.structured_input_signature[0][0].dtype,
+        processor.prepared_function.concrete_fn.structured_input_signature[0][
+            0
+        ].dtype,
         tf.bfloat16,
     )
     self.assertEqual(
@@ -282,7 +284,7 @@ class TfDataProcessorTest(googletest.TestCase):
         ),
     )
 
-    self.assertIsNotNone(processor.concrete_function)
+    self.assertIsNotNone(processor.prepared_function)
     self.assertIsNotNone(processor.obm_function)
     self.assertEqual(
         processor.input_signature[0][0],
