@@ -94,12 +94,22 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
         mock.patch.object(cp, 'colocated_cpu_devices', autospec=True)
     )
 
+    self.mock_specialize = mock.MagicMock()
+
     def cp_decorator(f):
-      def wrapper(*args, **kwargs):
+
+      def unspecialized_wrapper(*_args, **_kwargs):
+        raise RuntimeError(
+            'Unspecialized wrapper called. Make sure to call the result of'
+            ' .specialize()'
+        )
+
+      def specialized_wrapper(*args, **kwargs):
         return f(*args, **kwargs)
 
-      wrapper.specialize = mock.MagicMock(return_value=wrapper)
-      return wrapper
+      self.mock_specialize.return_value = specialized_wrapper
+      unspecialized_wrapper.specialize = self.mock_specialize
+      return unspecialized_wrapper
 
     self.mock_cp_colocated_python.side_effect = cp_decorator
 
@@ -241,6 +251,9 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
     fn.assert_called_once_with(self.arr, a=1)
     self.mock_cp_colocated_python.assert_called_once()
+    self.mock_specialize.assert_called_once()
+    self.assertIn('out_specs_fn', self.mock_specialize.call_args.kwargs)
+
     self.assertEqual(self.mock_device_put.call_count, 2)
     self.assertEqual(result.shape, ())
     self.assertEqual(result.dtype, jnp.bool)
@@ -260,6 +273,9 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
     fn.assert_called_once_with(self.arr, 1)
     self.mock_cp_colocated_python.assert_called_once()
+    self.mock_specialize.assert_called_once()
+    self.assertIn('out_specs_fn', self.mock_specialize.call_args.kwargs)
+
     self.assertEqual(self.mock_device_put.call_count, 2)
     self.assertIs(result, self.arr)
 
@@ -267,8 +283,12 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
     fn = mock.MagicMock()
     dispatcher = dispatchers.ColocatedPythonDispatcher()
     dispatcher.dispatch(fn)
+
     fn.assert_called_once_with()
     self.mock_cp_colocated_python.assert_called_once()
+    self.mock_specialize.assert_called_once()
+    self.assertIn('out_specs_fn', self.mock_specialize.call_args.kwargs)
+
     self.assertEqual(self.mock_device_put.call_count, 3)
 
 
