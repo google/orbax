@@ -14,6 +14,7 @@
 
 """AsyncCheckpointer."""
 
+import datetime
 import sys
 import threading
 import time
@@ -69,7 +70,8 @@ def _background_wait_for_commit_futures(
     on_commit_callback: Callable[[], None],
     *,
     barrier_sync_key_prefix: str,
-    sync_fn: Callable[[str], None],
+    sync_fn: Callable[[str, int], None],
+    timeout_secs: int,
     primary_host: int | None,
 ):
   """A function to be run in a background thread that waits for futures."""
@@ -77,15 +79,18 @@ def _background_wait_for_commit_futures(
   current_thread_id = threading.current_thread().name
   process_count = jax.process_count()
   logging.info(
-      '[process=%s][thread=%s] Background save thread started.',
+      '[process=%s][thread=%s] Background save thread started. Deadline for'
+      ' this save operation is %s',
       current_process,
       current_thread_id,
+      datetime.datetime.now() + datetime.timedelta(seconds=timeout_secs),
   )
   thread_start_time = time.time()
 
   # Wait for commit operations to complete.
-  for commit_future in commit_futures:
-    commit_future.result()
+  future.ChainedFuture(commit_futures, cb=lambda: None).result(
+      timeout=timeout_secs
+  )
   commit_duration_secs = time.time() - thread_start_time
   logging.info(
       '[process=%s][thread=%s] %d Handler Commit operations completed. Time'
@@ -109,30 +114,48 @@ def _background_wait_for_commit_futures(
     # All processes will wait at the barrier. When all processes are at the
     # barrier, the barrier will be satisfied. If not, then it will timeout.
     try:
+      time_remaining_secs = future.get_remaining_time(
+          thread_start_time, timeout_secs
+      )
       sync_fn(
           multihost.unique_barrier_key(
               'async_write_complete',
               prefix=barrier_sync_key_prefix,
               suffix=f'{directory.name}',
-          )
+          ),
+          int(time_remaining_secs * 1000),
       )
     except jax.errors.JaxRuntimeError as e:
       if sys.version_info >= (3, 11):
         if 'DEADLINE_EXCEEDED' in str(e):
           _add_deadline_exceeded_notes(e)
-      raise
+      raise TimeoutError(
+          'Timed out while waiting for async_write_complete barrier.'
+      ) from e
 
   if utils.is_primary_host(primary_host):
     on_commit_callback()
   if process_count > 1:
     # Block until process 0 completes on_commit_callback.
-    sync_fn(
-        multihost.unique_barrier_key(
-            'async_commit_complete',
-            prefix=barrier_sync_key_prefix,
-            suffix=f'{directory.name}',
-        )
-    )
+    try:
+      time_remaining_secs = future.get_remaining_time(
+          thread_start_time, timeout_secs
+      )
+      sync_fn(
+          multihost.unique_barrier_key(
+              'async_commit_complete',
+              prefix=barrier_sync_key_prefix,
+              suffix=f'{directory.name}',
+          ),
+          int(time_remaining_secs * 1000),
+      )
+    except jax.errors.JaxRuntimeError as e:
+      if sys.version_info >= (3, 11):
+        if 'DEADLINE_EXCEEDED' in str(e):
+          _add_deadline_exceeded_notes(e)
+      raise TimeoutError(
+          'Timed out while waiting for async_commit_complete barrier.'
+      ) from e
 
   thread_duration_secs = time.time() - thread_start_time
   jax.monitoring.record_event_duration_secs(
@@ -163,11 +186,10 @@ class _AsyncManager:
       self,
       *,
       barrier_sync_fn: multihost.BarrierSyncFn,
-      timeout_secs: int | None = None,
+      timeout_secs: int,
       primary_host: Optional[int] = 0,
       barrier_sync_key_prefix: Optional[str] = None,
   ):
-    timeout_secs = timeout_secs or multihost.coordination_timeout()
     if timeout_secs <= 0:
       raise ValueError(
           f'Timeout must be positive, but got {timeout_secs} seconds.'
@@ -188,9 +210,8 @@ class _AsyncManager:
     self._thread = None
     self._exception = None
 
-    timeout_in_ms = self._timeout_secs * 1000
-    self._sync_fn: Callable[[str], None] = lambda key: barrier_sync_fn(
-        key=key, timeout_ms=timeout_in_ms
+    self._sync_fn: Callable[[str, int], None] = (
+        lambda key, timeout_ms: barrier_sync_fn(key=key, timeout_ms=timeout_ms)
     )
 
   def __del__(self):
@@ -216,6 +237,7 @@ class _AsyncManager:
           on_commit_callback,
           barrier_sync_key_prefix=self._barrier_sync_key_prefix,
           sync_fn=self._sync_fn,
+          timeout_secs=self._timeout_secs,
           primary_host=self._primary_host,
       )
     except Exception as e:  # pylint: disable=broad-exception-caught

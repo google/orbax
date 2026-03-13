@@ -404,7 +404,7 @@ class CheckpointManagerTest(
           typing.cast(
               AsyncCheckpointer, manager._checkpointer
           )._async_manager._timeout_secs,
-          600,
+          1200,
       )
 
     with CheckpointManager(

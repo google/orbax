@@ -170,14 +170,14 @@ class Future(Protocol):
   future, but merely wait for an ongoing operation to complete.
   """
 
-  def result(self, timeout: Optional[int] = None) -> Any:
+  def result(self, timeout: Optional[float] = None) -> Any:
     """Waits for the future to complete its operation."""
     ...
 
 
 class NoopFuture:
 
-  def result(self, timeout: Optional[int] = None) -> Any:
+  def result(self, timeout: Optional[float] = None) -> Any:
     del timeout
     return None
 
@@ -189,21 +189,18 @@ class ChainedFuture:
     self._futures = futures
     self._cb = cb
 
-  def result(self, timeout: Optional[int] = None) -> Any:
+  def result(self, timeout: Optional[float] = None) -> Any:
     """Waits for all futures to complete."""
     n = len(self._futures)
     start = time.time()
-    time_remaining = timeout
     for k, f in enumerate(self._futures):
-      f.result(timeout=time_remaining)
-      if time_remaining is not None:
-        time_elapsed = time.time() - start
-        time_remaining -= time_elapsed
-        if time_remaining <= 0:
-          raise TimeoutError(
-              'ChainedFuture completed {:d}/{:d} futures but timed out after'
-              ' {:.2f} seconds.'.format(k, n, time_elapsed)
-          )
+      try:
+        f.result(timeout=get_remaining_time(start, timeout))
+      except TimeoutError as e:
+        raise TimeoutError(
+            f'ChainedFuture completed {k}/{n} futures but timed out after'
+            f' {time.time() - start:.2f} seconds.'
+        ) from e
     time_elapsed = time.time() - start
     logging.vlog(
         1,
@@ -213,6 +210,18 @@ class ChainedFuture:
         time_elapsed,
     )
     self._cb()
+
+
+def get_remaining_time(
+    start_time: float, timeout_secs: Optional[float]
+) -> Optional[float]:
+  """Returns remaining time in secs, or None if timeout_secs is None."""
+  if timeout_secs is None:
+    return None
+  elapsed = time.time() - start_time
+  if elapsed >= timeout_secs:
+    raise TimeoutError(f'Timed out after {elapsed} seconds.')
+  return timeout_secs - elapsed
 
 
 def wait_for_signals(

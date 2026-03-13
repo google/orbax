@@ -28,7 +28,9 @@ class AsyncOptions:
   See :py:class:`.AsyncCheckpointer` for details.
   """
 
-  timeout_secs: int = 600  # 10 minutes. Same as default in `AsyncCheckpointer`.
+  timeout_secs: int = (
+      1200  # 20 minutes. Same as default in `AsyncCheckpointer`.
+  )
   barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None
   post_finalization_callback: Optional[Callable[[], None]] = None
   create_directories_asynchronously: bool = True

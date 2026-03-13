@@ -23,11 +23,18 @@ will return `StepMetadata`, and will otherwise return `RootMetadata`.
 handlers using `StepMetadata.item_handlers` and the global `HandlerTypeRegistry`
 if no args are provided.
 - `CompositeCheckpointHandler.metadata()` now returns `StepMetadata`.
+- Double the default timeout from 600 to 1200 (20 minutes) in `AsyncOptions`;
+`timeout_secs` now becomes a mandatory parameter with default value of 1200
+(20 minutes) in `AsyncCheckpointer`.
 
 ### Fixed
 
 - Fixed `get_device_memory` issue on TPU 7x devices where the device kind string
 was consistently reported without a space, causing a ValueError.
+- Fixed hanging in `AsyncCheckpointer` if timeout occurs during save. Remaining
+time is now calculated and applied to commit operations and synchronization
+barriers, ensuring that all async operations time out instead of hanging if
+preceding operations consume most of the timeout budget.
 
 ## [0.1.7] - 2022-03-29
 
