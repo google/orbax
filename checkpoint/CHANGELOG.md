@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Enforce the array shape and type check during Array restoration when
   `ArrayRestoreArgs.strict` is set but shape/dtype is not provided.
+- On platforms where `uvloop` is not supported, fallback to `nest_asyncio`.
 
 ## [0.11.33] - 2026-02-17
 

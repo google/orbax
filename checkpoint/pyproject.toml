@@ -35,7 +35,8 @@ dependencies = [
     'humanize',
     'simplejson >= 3.16.0',
     'psutil',
-    'uvloop',
+    'uvloop; platform_system != "Windows"',
+    'nest_asyncio; platform_system == "Windows"',
 ]
 
 dynamic = ['version']

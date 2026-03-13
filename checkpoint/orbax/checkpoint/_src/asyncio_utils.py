@@ -18,8 +18,15 @@ import asyncio
 import threading
 from typing import Any, Coroutine, TypeVar
 
-import uvloop
+try:
+  import uvloop  # pylint: disable=g-import-not-at-top
+except ImportError:
+  uvloop = None
 
+try:
+  import nest_asyncio  # pylint: disable=g-import-not-at-top # pytype: disable=import-error
+except ImportError:
+  nest_asyncio = None
 
 _T = TypeVar('_T')
 
@@ -43,13 +50,22 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     return asyncio.run(coro)
   else:
     # An event loop is already running.
-    event_loop = uvloop.new_event_loop()
-    thread = threading.Thread(
-        target=_run_event_loop, args=(event_loop,), daemon=True
-    )
-    thread.start()
-    try:
-      return asyncio.run_coroutine_threadsafe(coro, event_loop).result()
-    finally:
-      event_loop.call_soon_threadsafe(event_loop.stop)
-      thread.join()
+    if uvloop is None:
+      if nest_asyncio is None:
+        raise RuntimeError(
+            'nest_asyncio is not installed. Please install it to use run_sync'
+            ' with an existing event loop.'
+        )
+      nest_asyncio.apply()
+      return asyncio.run(coro)
+    else:
+      event_loop = uvloop.new_event_loop()
+      thread = threading.Thread(
+          target=_run_event_loop, args=(event_loop,), daemon=True
+      )
+      thread.start()
+      try:
+        return asyncio.run_coroutine_threadsafe(coro, event_loop).result()
+      finally:
+        event_loop.call_soon_threadsafe(event_loop.stop)
+        thread.join()
