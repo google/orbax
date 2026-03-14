@@ -35,6 +35,8 @@ was consistently reported without a space, causing a ValueError.
 time is now calculated and applied to commit operations and synchronization
 barriers, ensuring that all async operations time out instead of hanging if
 preceding operations consume most of the timeout budget.
+- Fixed hanging in `ocp.save_pytree_async` if timeout occurs during save.
+The details of the fix is similar to the fix of `AsyncCheckpointer` above.
 
 ## [0.1.7] - 2022-03-29
 
