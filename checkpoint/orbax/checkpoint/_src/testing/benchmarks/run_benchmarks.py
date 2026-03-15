@@ -63,7 +63,29 @@ def _init_jax_distributed():
   """Initializes JAX distributed system if not managed by XManager."""
 
   try:
-    jax.distributed.initialize()
+    coordinator_address = os.environ.get('JAX_COORDINATOR_ADDRESS')
+    num_processes = os.environ.get('JAX_NUM_PROCESSES')
+    process_id = os.environ.get('JAX_PROCESS_ID')
+
+    if (
+        coordinator_address
+        and num_processes is not None
+        and process_id is not None
+    ):
+      logging.info(
+          'Initializing JAX explicitly with address=%s, num_processes=%s,'
+          ' process_id=%s',
+          coordinator_address,
+          num_processes,
+          process_id,
+      )
+      jax.distributed.initialize(
+          coordinator_address=coordinator_address,
+          num_processes=int(num_processes),
+          process_id=int(process_id),
+      )
+    else:
+      jax.distributed.initialize()
     logging.info('JAX distributed system initialized.')
   except Exception as e:  # pylint: disable=broad-exception-caught
     logging.warning(
