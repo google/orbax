@@ -455,9 +455,9 @@ class CheckpointablesOptions:
   ) -> CheckpointablesOptions:
     registry = registration.local_registry(include_global_registry=True)
     for handler in handlers:
-      registry.add(handler, None)
+      registry.add(handler, checkpointable_name=None)
     for name, handler in named_handlers.items():
-      registry.add(handler, name)
+      registry.add(handler, checkpointable_name=name)
     return cls(registry=registry)
 
 
