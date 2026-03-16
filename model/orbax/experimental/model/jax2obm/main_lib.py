@@ -65,19 +65,23 @@ def jax_exported_to_shlo_fn(
     An Orbax Model `ShloFunction`.
   """
 
-  in_shardings_hlo = tuple([
-      sharding.hlo_sharding_to_op_sharding(sd)
-      for sd in exported.in_shardings_hlo
+  in_shardings = tuple([
+      sharding.jax_named_sharding_to_op_sharding(named_sharding, aval.ndim)
+      for named_sharding, aval in zip(
+          exported._in_named_shardings, exported.in_avals
+      )
   ])
-  out_shardings_hlo = tuple([
-      sharding.hlo_sharding_to_op_sharding(sd)
-      for sd in exported.out_shardings_hlo
+  out_shardings = tuple([
+      sharding.jax_named_sharding_to_op_sharding(named_sharding, aval.ndim)
+      for named_sharding, aval in zip(
+          exported._out_named_shardings, exported.out_avals
+      )
   ])
   # TODO: b/476448823 - properly get the name for the input signature.
   shlo_in_sig, jax_in_sig_refinements = (
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.in_avals,
-          in_shardings_hlo,
+          in_shardings,
           model_inputs_layout,
           exported.in_tree,
       )
@@ -95,7 +99,7 @@ def jax_exported_to_shlo_fn(
   shlo_out_sig, jax_out_sig_refinements = (
       jax_specific_info._to_shlo_spec_tree_and_refinement_tuple(
           exported.out_avals,
-          out_shardings_hlo,
+          out_shardings,
           None,
           exported.out_tree,
           name_leaves=True,

@@ -13,27 +13,34 @@
 # limitations under the License.
 
 """Sharding related utils."""
-from typing import Any
 
+import jax
 from jax.extend import sharding as jex_sharding
 from orbax.experimental.model import core as obm
 
-def hlo_sharding_to_op_sharding(
-    hlo_sharding: Any | None,
+
+def jax_named_sharding_to_op_sharding(
+    named_sharding: jax.NamedSharding | None,
+    num_dimensions: int,
 ) -> obm.OpSharding | None:
-  """Converts `HloSharding` to proto `OpSharding`.
+  """Converts `NamedSharding` to proto `OpSharding`.
 
   `to_proto` is defined
   [here](
 
   Args:
-    hlo_sharding: an `HloSharding`.
+    named_sharding: A JAX `NamedSharding`.
+    num_dimensions: The number of dimensions in the sharding mesh.
 
   Returns:
-    An `OpSharding` proto.
+    An OBM `OpSharding` proto.
   """
-  if hlo_sharding is None:
+  if named_sharding is None:
     return None
+
+  hlo_sharding = named_sharding._to_xla_hlo_sharding(  # pytype: disable=protected-access
+      num_dimensions
+  )
   output = obm.OpSharding()
   # Note: `to_proto(self) -> xla_extension.OpSharding` so we need to serialize
   # and then parse.

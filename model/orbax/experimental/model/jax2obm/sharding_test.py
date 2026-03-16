@@ -22,10 +22,10 @@ from orbax.experimental.model.jax2obm import sharding
 class ShardingTest(absltest.TestCase):
   """Tests for sharding."""
 
-  def test_hlo_sharding_to_op_sharding_with_none(self):
-    self.assertIsNone(sharding.hlo_sharding_to_op_sharding(None))
+  def test_jax_named_sharding_to_op_sharding_with_none(self):
+    self.assertIsNone(sharding.jax_named_sharding_to_op_sharding(None, 2))
 
-  def test_hlo_sharding_to_op_sharding(self):
+  def test_jax_named_sharding_to_op_sharding(self):
     if jax.device_count() < 8:
       raise ValueError('Test requires 8 devices.')
     mesh = jax.sharding.Mesh(
@@ -33,14 +33,20 @@ class ShardingTest(absltest.TestCase):
     )
     spec = jax.sharding.PartitionSpec('x', 'y')
     named_sharding = jax.sharding.NamedSharding(mesh, spec)
-    hlo_sharding = named_sharding._to_xla_hlo_sharding(2)
-
-    op_sharding = sharding.hlo_sharding_to_op_sharding(hlo_sharding)
+    op_sharding = sharding.jax_named_sharding_to_op_sharding(named_sharding, 2)
 
     self.assertIsInstance(op_sharding, obm.OpSharding)
+
+    expected_op_sharding = obm.OpSharding(
+        type=obm.OpSharding.Type.OTHER,
+        tile_assignment_dimensions=[2, 4],
+        iota_reshape_dims=[8],
+        iota_transpose_perm=[0],
+    )
+
     self.assertEqual(
-        op_sharding.SerializeToString(),
-        hlo_sharding.to_proto().SerializeToString(),
+        op_sharding,
+        expected_op_sharding,
     )
 
 
