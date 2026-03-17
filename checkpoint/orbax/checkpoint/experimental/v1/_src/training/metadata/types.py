@@ -33,15 +33,56 @@ class CheckpointMetadata(
   """Represents metadata for a single checkpoint (corresponding to a step).
 
   Like its parent, the class has a `metadata` attribute that is a generic type.
+  The `.metadata` attribute contains checkpointable-specific metadata.
+  If a PyTree was saved, it will contain :py:class:`~.v1.PyTreeMetadata`,
+  otherwise if `Checkpointable`s were saved, it will be a dictionary mapping
+  names to metadata.
+
+  The Orbax checkpointing API provides two symmetric levels of interaction:
+  1. **Higher level** (sequence-of-steps API): Accessed via
+     :py:class:`~.v1.training.Checkpointer`.
+  2. **Lower level** (individual path API): Accessed via free functions.
+
+  `CheckpointMetadata` objects are returned by both API levels using the same
+  core methods (:py:func:`~.v1.pytree_metadata` and
+  :py:func:`~.v1.checkpointables_metadata`), reflecting this inherent symmetry.
 
   See superclass documentation for more information, and for a list of base
   attributes. This class defines several additional attributes that are relevant
   to checkpoints in a sequence, but not necessarily to a singular checkpoint in
   isolation.
 
-  Additional attributes:
-    step: The step number of the checkpoint.
-    metrics: User-provided metrics for the step (e.g. loss, accuracy, etc.)
+  Example Usage::
+
+    from orbax.checkpoint import v1 as ocp
+
+    # Higher level (sequence-of-steps API)
+    with ocp.training.Checkpointer('/path/to/my/checkpoints') as ckptr:
+      ckpt_meta = ckptr.pytree_metadata(100)
+
+    # Lower level (individual path API)
+    ckpt_meta = ocp.pytree_metadata('/path/to/my/checkpoints/100')
+
+    # Inspect checkpoint-level properties
+    print(f'Init time (ns): {ckpt_meta.init_timestamp_nsecs}')
+    print(f'Commit time (ns): {ckpt_meta.commit_timestamp_nsecs}')
+    print(f'Custom metadata: {ckpt_meta.custom_metadata}')
+
+    # The `.metadata` field contains checkpointable-specific metadata,
+    # which will be `PyTreeMetadata` or dict[str, CheckpointableMetadata]
+    # depending on what was saved.
+    print(f'Checkpointable metadata: {ckpt_meta.metadata}')
+
+  See also :py:class:`RootMetadata`.
+
+  Attributes:
+    init_timestamp_nsecs: The timestamp (in nanoseconds) when the checkpoint
+      save operation began.
+    commit_timestamp_nsecs: The timestamp (in nanoseconds) when the checkpoint
+      was successfully finalized and committed to disk.
+    custom_metadata: An optional dictionary containing user-provided metrics or
+      configuration data saved alongside the checkpoint.
+    metadata: The inner, checkpointable-specific metadata object(s).
   """
 
   def __init__(
@@ -90,6 +131,27 @@ class CheckpointMetadata(
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class RootMetadata:
   """Metadata of a sequence of checkpoint at root level (contains all steps).
+
+  This class represents the top-level metadata for an entire checkpointing
+  directory, distinct from step-specific metadata. It associates the physical
+  storage location of the sequence with arbitrary, user-defined information
+  that applies to all steps (e.g., experiment configuration).
+
+  Example Usage:
+    `RootMetadata` objects are returned by
+    :py:meth:`~.v1.training.Checkpointer.root_metadata`.
+
+    It can be used to inspect checkpoint-wide information, such as experiment
+    configuration::
+
+      import orbax.checkpoint.v1 as ocp
+      ckptr = ocp.training.Checkpointer('/path/to/my/checkpoints')
+      root_meta = ckptr.root_metadata()
+
+      print(f'Directory: {root_meta.directory}')
+      print(f'Custom metadata: {root_meta.custom_metadata}')
+
+    See also :py:class:`CheckpointMetadata`.
 
   Attributes:
     directory: The directory of the checkpoint sequence.
