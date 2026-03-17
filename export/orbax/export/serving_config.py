@@ -31,13 +31,59 @@ class ServingConfig:
 
   A ServingConfig is to be bound with a JaxModule to form an end-to-end serving
   signature.
+
+  Example:
+    Create a serving configuration with pre- and post-processors::
+
+      import tensorflow as tf
+      from orbax.export import tf_data_processor
+      from orbax.export.serving_config import ServingConfig
+
+      @tf.function(input_signature=[tf.TensorSpec(
+          shape=(None, 32), dtype=tf.float32
+      )])
+      def preprocessor(inputs):
+        return {'normalized': inputs / 255.0}
+
+      def postprocessor(outputs):
+        return {'probabilities': tf.nn.softmax(outputs)}
+
+      config = ServingConfig(
+          signature_key='serving_default',
+          preprocessors=[tf_data_processor.TfDataProcessor(preprocessor)],
+          postprocessors=[tf_data_processor.TfDataProcessor(postprocessor)]
+      )
+
+  Attributes:
+    signature_key: The key of the serving signature or a sequence of keys
+      mapping to the same serving signature.
+    input_signature: The input signature for `tf_preprocessor` (or the JaxModule
+      method if there is no preprocessor). If not specified, this will be
+      inferred from `tf_preprocessor.input_signature`.
+    tf_preprocessor: Optional pre-processing function written in TF.
+    tf_postprocessor: Optional post-processing function written in TF.
+    preprocessors: Optional sequence of `DataProcessor`s to be applied before
+      the main model function. Mutually exclusive with `tf_preprocessor`.
+    postprocessors: Optional sequence of `DataProcessor`s to be applied after
+      the main model function. Mutually exclusive with `tf_postprocessor`.
+    data_processors: Optional sequence of `DataProcessor`s. Mutually exclusive
+      with other processors. Ordered based on input/output keys via topological
+      sort.
+    extra_trackable_resources: A nested structure of trackable resources used in
+      TF processors.
+    method_key: The key of the JAX method of the `JaxModule` to be bound.
+    obm_export_options: Options passed to the Orbax Model export.
+    preprocess_output_passthrough_enabled: When True, allows a portion of the
+      preprocessor's outputs to be directly passed to the tf_postprocessor,
+      bypassing the JAX function. Requires the preprocessor to return a tuple of
+      two elements: (jax_inputs, postprocessor_inputs_extra).
   """
 
   # The key of the serving signature or a sequence of keys mapping to the same
   # serving signature.
   signature_key: Union[str, Sequence[str]]
   # The input signature for `tf_preprocessor` (or the JaxModule method if there
-  # is no `tf_preprocessor`). If not specified, this will be infered from
+  # is no `tf_preprocessor`). If not specified, this will be inferred from
   # `tf_preprocessor`, in which case `tf_preprocessor` must be a tf.function
   # with `input_signature` annotation. See
   # https://www.tensorflow.org/api_docs/python/tf/function#input_signatures.
@@ -194,7 +240,7 @@ class ServingConfig:
     """Finds the right inference fn to be bound with the ServingConfig.
 
     Args:
-      infer_step_fns: the method_key/infer_step dict. Ususally the user can pass
+      infer_step_fns: the method_key/infer_step dict. Usually the user can pass
         `JaxModule.methods` here.
 
     Returns:
