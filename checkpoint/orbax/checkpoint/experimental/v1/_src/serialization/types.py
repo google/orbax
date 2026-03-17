@@ -267,7 +267,20 @@ class DeserializationContext:
 
 
 class LeafHandler(Protocol[Leaf, AbstractLeaf]):
-  """Interface for reading and writing a PyTree leaf."""
+  """Interface for reading and writing a PyTree leaf.
+
+  This protocol defines the essential asynchronous operations for saving
+  (`serialize`), loading (`deserialize`), and inspecting (`metadata`) individual
+  leaf nodes within a PyTree. It is essentially a blueprint that allows for
+  implementing support for serialization of custom leaf objects.
+
+  Example:
+    This class is not intended to be used independently. It must be subclassed
+    to implement custom LeafHandlers (class) for specific leaf types.
+
+    See: `Custom Leaf Handler <
+    https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/customization.html#custom-leaf-handler>`_
+  """
 
   async def serialize(
       self,
