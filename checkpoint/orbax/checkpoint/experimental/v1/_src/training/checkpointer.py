@@ -524,11 +524,53 @@ class Checkpointer(epy.ContextManager):
   ) -> tree_types.PyTreeOf[tree_types.LeafType]:
     """Loads a PyTree checkpoint at the given step.
 
-    This function behaves similarly to :py:func:`.load_pytree` (see
-    documentation).
+    This function behaves similarly to
+    :py:func:`~orbax.checkpoint.v1._src.loading.loading.load_pytree`.
+
+    **Note:** Loading a PyTree without providing an `abstract_pytree` is
+    provided purely for convenience. For serious or production use cases, it is
+    STRONGLY recommended to always provide an `abstract_pytree` to ensure the
+    restored PyTree strictly matches the expected shapes, dtypes, and sharding.
+
+    Example:
+      1. Basic Loading:
+         Load a PyTree without providing an abstract structure. By passing
+         `step=None` (or omitting it), it automatically loads the latest step::
+
+           from orbax.checkpoint.v1 import training
+
+           # Initialize the checkpointer for the directory
+           ckptr = training.Checkpointer(directory)
+
+           # Load the saved PyTree from latest step
+           restored_tree = ckptr.load_pytree(step=None)
+
+      2. Loading with an Abstract PyTree:
+         Provide an abstract structure (such as target shapes and dtypes)
+         to ensure the restored PyTree is safely and correctly formatted::
+
+           import jax
+           import jax.numpy as jnp
+           from orbax.checkpoint.v1 import training
+
+           ckptr = training.Checkpointer(directory)
+
+           # Define the expected structure (shapes and dtypes) to restore into
+           target_structure = {
+               'weights': jax.ShapeDtypeStruct((128, 128), dtype=jnp.float32),
+               'bias': jax.ShapeDtypeStruct((128,), dtype=jnp.float32)
+           }
+
+           # Restore exactly matching the target structure
+           restored_tree = ckptr.load_pytree(
+               step=1,
+               abstract_pytree=target_structure
+           )
 
     Args:
-      step: The step number or :py:class:`.CheckpointMetadata` to load.
+      step: The step number or :py:class:`.CheckpointMetadata` to load. If None,
+        the checkpointer will attempt to resolve and load the latest existing
+        checkpoint.
       abstract_pytree: The abstract PyTree to load.
 
     Returns:
@@ -543,7 +585,111 @@ class Checkpointer(epy.ContextManager):
       step: int | CheckpointMetadata | None = None,
       abstract_checkpointables: dict[str, Any] | None = None,
   ) -> dict[str, Any]:
-    """Loads a set of checkpointables at the given step."""
+    """Loads a set of checkpointables at the given step.
+
+    This function behaves similarly to
+    :py:func:`~orbax.checkpoint.v1._src.loading.loading.load_checkpointables`.
+
+    This function retrieves multiple named items (such as model weights or
+    optimizer states) from a specific checkpoint directory. If no step is
+    provided, it automatically resolves to and loads the most recently saved
+    checkpoint.
+
+    **Note:** Loading without providing an `abstract_checkpointables`
+    dictionary is provided purely for convenience. For serious or production
+    use cases, it is STRONGLY recommended to always provide
+    `abstract_checkpointables` to ensure the restored items strictly match
+    the exact nested structures, shapes, and data types expected.
+
+    Example:
+      1. Basic Loading:
+         Load multiple named items (such as a model and optimizer) from a
+         specific step. If step is omitted, it resolves to the latest
+         available checkpoint::
+
+           from orbax.checkpoint.v1 import training
+
+           # Initialize the checkpointer for the directory
+           ckptr = training.Checkpointer(directory)
+
+           # Load all checkpointables saved at the latest step
+           restored_items = ckptr.load_checkpointables(step=None)
+
+           # Access the individual components by their original string keys
+           my_model = restored_items["model"]
+           my_opt = restored_items["optimizer"]
+
+      2. Loading with Abstract Checkpointables (Recommended):
+         Provide a dictionary of abstract structures to ensure the restored
+         items strictly match your expected shapes and data types::
+
+           import jax
+           import jax.numpy as jnp
+           from orbax.checkpoint.v1 import training
+
+           ckptr = training.Checkpointer(directory)
+
+           # Define the expected structure for each named item using JAX arrays
+           target_items = {
+               "model": {
+                   'weights': jax.ShapeDtypeStruct((128, 128), jnp.float32),
+                   'bias': jax.ShapeDtypeStruct((128,), jnp.float32)
+               },
+               "optimizer": {
+                   'momentum': jax.ShapeDtypeStruct((128, 128), jnp.float32)
+               }
+           }
+
+           # Restore exactly matching the target structures
+           restored_items = ckptr.load_checkpointables(
+               step=1,
+               abstract_checkpointables=target_items
+           )
+
+      3. Partial Loading:
+         If you only need to load a subset of checkpointables (e.g., loading
+         model weights but omitting optimizer state), you can provide an
+         `abstract_checkpointables` dictionary containing only the keys for the
+         items you wish to restore::
+
+           import jax
+           import jax.numpy as jnp
+           from orbax.checkpoint.v1 import training
+
+           ckptr = training.Checkpointer(directory)
+
+           # Define abstract structure for ONLY the items to load
+           target_items = {
+               "model": {
+                   'weights': jax.ShapeDtypeStruct((128, 128), jnp.float32),
+                   'bias': jax.ShapeDtypeStruct((128,), jnp.float32)
+               },
+           }
+
+           # Load only "model", omitting "optimizer"
+           restored_items = ckptr.load_checkpointables(
+               step=1,
+               abstract_checkpointables=target_items
+           )
+           my_model = restored_items["model"]
+           # my_opt = restored_items["optimizer"]
+
+    Args:
+      step: The step number or :py:class:`.CheckpointMetadata` to load. If None,
+        the checkpointer will attempt to resolve and load the latest existing
+        checkpoint.
+      abstract_checkpointables: A dictionary mapping string names to their
+        corresponding abstract structures (e.g., target PyTrees). This guides
+        the loading process to ensure shape and type compliance. If provided, it
+        can be used to load only a subset of checkpointables by providing only a
+        subset of keys.
+
+    Returns:
+      dict[str, Any]: A dictionary containing the loaded checkpointable objects,
+        keyed by string names. If `abstract_checkpointables` was specified,
+        returns only the keys specified in that dict, otherwise returns all
+        keys saved with `save_checkpointables`.
+    """
     step = self._resolve_existing_checkpoint(step).step
     return  loading.load_checkpointables(
         self.directory / self._step_name_format.build_name(step),
