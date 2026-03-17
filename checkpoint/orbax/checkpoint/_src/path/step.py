@@ -36,6 +36,7 @@ from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import storage_backend as storage_backend_lib  # pylint: disable=unused-import
 from orbax.checkpoint._src.path import temporary_paths
 
 # Allowed checkpoint step naming using any non empty `step_prefix`.
@@ -190,7 +191,9 @@ def build_step_path(
     base_path: epath.PathLike, name_format: NameFormat[Metadata], step: int
 ) -> epath.Path:
   """Returns `step` path under `base_path` for step `name_format`."""
-  return epath.Path(base_path) / name_format.build_name(step)
+  backend = storage_backend_lib.resolve_storage_backend(str(base_path))
+  label = name_format.build_name(step)
+  return epath.Path(base_path) / backend.name_to_path_component(label)
 
 
 def build_step_metadatas(
@@ -354,11 +357,12 @@ class _StandardNameFormat(NameFormat[Metadata]):
       return None
 
     if step is not None:
-      # step already known, just check exists.
       if step_path.exists():
         return Metadata(step=step, path=step_path)
 
-    # Regex: [prefix]*(step)
+    name = step_path.name
+    backend = storage_backend_lib.resolve_storage_backend(str(step_path.parent))
+    name = backend.path_component_to_name(name)
     if self.step_format_fixed_length and self.step_format_fixed_length > 0:
       zero_present = rf'0\d{{{self.step_format_fixed_length-1}}}'
       zero_not_present = rf'[1-9]\d{{{self.step_format_fixed_length-1}}}\d*'
@@ -367,7 +371,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
       zero_padded_step_group = r'(0|[1-9]\d*)'
     name_regex = f'^{step_prefix_with_underscore(self.step_prefix)}{zero_padded_step_group}$'
 
-    match = re.search(name_regex, step_path.name)
+    match = re.search(name_regex, name)
     if match is None:
       return None
     (step_,) = match.groups()
@@ -403,9 +407,15 @@ class _StandardNameFormat(NameFormat[Metadata]):
               os.path.join(path_prefix, self.step_prefix or '')
           )
       ]
-    else:
-      prefix = step_prefix_with_underscore(self.step_prefix)
-      return [x for x in base_path.iterdir() if x.name.startswith(prefix)]
+    backend = storage_backend_lib.resolve_storage_backend(str(base_path))
+    assets = backend.list_checkpoints(str(base_path))
+    logical_prefix = step_prefix_with_underscore(self.step_prefix)
+    result = []
+    for a in assets:
+      name = a.version if a.version is not None else epath.Path(a.path).name
+      if name.startswith(logical_prefix):
+        result.append(base_path / backend.name_to_path_component(name))
+    return result
 
   def _get_step_paths_and_total_steps(
       self, base_path: epath.PathLike, is_primary_host: bool
@@ -505,7 +515,7 @@ class _StandardNameFormat(NameFormat[Metadata]):
     )
     base_path = epath.Path(base_path)
     paths_to_step_dict: dict[epath.Path, int] = {
-        base_path / self.build_name(step): step
+        build_step_path(base_path, self, step): step
         for step in padded_step_list
         if step >= 0
     }
