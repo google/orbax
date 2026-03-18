@@ -31,6 +31,5 @@ class UtilsTest(absltest.TestCase):
     self.assertEqual(utils.detect_process_index(self.directory, 1), 42)
     self.assertIsNone(utils.detect_process_index(self.directory, 2))
 
-
 if __name__ == '__main__':
   absltest.main()

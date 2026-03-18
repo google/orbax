@@ -26,6 +26,9 @@ class LocalCheckpointOptions:
   save_interval_steps:
     The interval at which checkpoints should be saved to local storage.
     Ensures checkpoints will only be saved every m steps. Defaults to 10.
+  save_interval_offset_steps:
+    If provided, saving will happen at steps `k * save_interval_steps +
+    save_interval_offset_steps` for `k` in `0, 1, 2, ...`. By default 0.
   max_to_keep:
     Specifies the maximum number of local checkpoints to
     keep aside from the one currently being written. Older checkpoints are
@@ -34,6 +37,7 @@ class LocalCheckpointOptions:
   """
 
   save_interval_steps: int = 10
+  save_interval_offset_steps: int = 0
   max_to_keep: Optional[int] = None
 
   def __post_init__(self):
@@ -48,6 +52,9 @@ class PersistentCheckpointOptions:
   save_interval_steps:
     The interval at which checkpoints should be saved to persistent storage.
     Ensures checkpoints will only be saved every n steps. Defaults to 1000.
+  save_interval_offset_steps:
+    If provided, saving will happen at steps `k * save_interval_steps +
+    save_interval_offset_steps` for `k` in `0, 1, 2, ...`. By default 0.
   max_to_keep:
     If provided, specifies the maximum number of persistent checkpoints to
     keep. Older checkpoints are removed. By default, does not remove any old
@@ -57,6 +64,7 @@ class PersistentCheckpointOptions:
   """
 
   save_interval_steps: int = 1000
+  save_interval_offset_steps: int = 0
   max_to_keep: Optional[int] = None
 
 

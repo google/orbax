@@ -453,6 +453,56 @@ class CheckpointManagerTest(absltest.TestCase):
     self.persistent_manager_instance.latest_step.assert_called_once()
     manager.close()
 
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_should_save_local_only(self, _):
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+    )
+    self.local_manager_instance.should_save.return_value = True
+    self.assertTrue(manager.should_save(10))
+    self.local_manager_instance.should_save.assert_called_with(10)
+
+    self.local_manager_instance.should_save.return_value = False
+    self.assertFalse(manager.should_save(11))
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_should_save_with_persistent(self, _):
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.mock_sync_global_data.return_value = []
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    # Both false
+    self.local_manager_instance.should_save.return_value = False
+    self.persistent_manager_instance.should_save.return_value = False
+    self.assertFalse(manager.should_save(2))
+
+    # Local true, persistent false
+    self.local_manager_instance.should_save.return_value = True
+    self.persistent_manager_instance.should_save.return_value = False
+    self.assertTrue(manager.should_save(10))
+
+    # Local false, persistent true
+    self.local_manager_instance.should_save.return_value = False
+    self.persistent_manager_instance.should_save.return_value = True
+    self.assertTrue(manager.should_save(51))
+
+    # Both true
+    self.local_manager_instance.should_save.return_value = True
+    self.persistent_manager_instance.should_save.return_value = True
+    self.assertTrue(manager.should_save(50))
+
+    manager.close()
+
 
 if __name__ == '__main__':
   absltest.main()

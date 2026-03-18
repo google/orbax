@@ -21,6 +21,7 @@ from etils import epath
 
 from orbax.checkpoint.experimental.emergency.p2p import constants
 
+
 # pytype:disable=import-error
 # pylint:disable=g-import-not-at-top
 try:
@@ -55,3 +56,6 @@ def detect_process_index(directory: epath.Path, step: int) -> int | None:
     logging.warning('Could not detect process index for step %d: %s', step, e)
 
   return None
+
+
+

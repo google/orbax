@@ -92,7 +92,11 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
         shape_tuple=devices.shape,
         size=devices.size,
     )
-    self.options = options_lib.CheckpointManagerOptions()
+    self.options = options_lib.CheckpointManagerOptions(
+        persistent=options_lib.PersistentCheckpointOptions(
+            save_interval_steps=1
+        )
+    )
 
   def _patch_process_index(
       self, in_primary_slice=True, process_index=0, replica_id=0

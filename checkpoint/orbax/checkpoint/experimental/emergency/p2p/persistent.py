@@ -30,6 +30,7 @@ from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
+from orbax.checkpoint.experimental.emergency.p2p import policies
 from orbax.checkpoint.experimental.emergency.p2p import utils
 
 _PRIMARY_REPLICA_ID = 0
@@ -109,7 +110,10 @@ class PersistentCheckpointManager:
         create=False,
         multiprocessing_options=mp_options,
         step_name_format=options.step_name_format,
-        save_interval_steps=options.persistent.save_interval_steps,
+        save_decision_policy=policies.OffsetFixedIntervalPolicy(
+            interval=options.persistent.save_interval_steps,
+            offset=options.persistent.save_interval_offset_steps,
+        ),
         max_to_keep=options.persistent.max_to_keep,
         enable_async_checkpointing=True,
     )
@@ -142,6 +146,9 @@ class PersistentCheckpointManager:
 
   def latest_step(self) -> int | None:
     return self._manager.latest_step()
+
+  def should_save(self, step: int) -> bool:
+    return self._manager.should_save(step)
 
   def save(
       self,

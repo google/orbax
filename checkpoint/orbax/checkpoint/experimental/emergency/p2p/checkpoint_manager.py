@@ -235,9 +235,8 @@ class CheckpointManager(
     self._process_index = multihost.process_index()
     self._abstract_state = abstract_state
 
-    # 1. Parse and Validate Options
+    # 1. Parse Options
     self._options = options or options_lib.CheckpointManagerOptions()
-    self._validate_options(persistent_directory is not None)
 
     self._replica_axis_index = self._options.replica_axis_index
     self._replica_id = multislice.process_replica_id(
@@ -278,24 +277,6 @@ class CheckpointManager(
     if self._persistent_manager:
       return self._persistent_manager.directory
     return self._local_manager.directory
-
-  def _validate_options(self, has_persistent: bool):
-    if not has_persistent:
-      return
-
-    l_interval = self._options.local.save_interval_steps
-    p_interval = self._options.persistent.save_interval_steps
-
-    if l_interval > p_interval:
-      raise ValueError(
-          f'Local save interval ({l_interval}) must be more frequent'
-          f' than persistent interval ({p_interval}).'
-      )
-    if p_interval % l_interval != 0:
-      raise ValueError(
-          f'Persistent interval ({p_interval}) must be a multiple of'
-          f' local interval ({l_interval}).'
-      )
 
   # --- Abstract Manager Implementation ---
 
@@ -349,7 +330,10 @@ class CheckpointManager(
 
   @override
   def should_save(self, step: int) -> bool:
-    return self._local_manager.should_save(step)
+    should = self._local_manager.should_save(step)
+    if self._persistent_manager is not None:
+      should = should or self._persistent_manager.should_save(step)
+    return should
 
   @override
   def delete(self, step: int):

@@ -28,11 +28,11 @@ from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
-from orbax.checkpoint.checkpoint_managers import save_decision_policy as save_decision_policy_lib
 from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
+from orbax.checkpoint.experimental.emergency.p2p import policies
 from orbax.checkpoint.experimental.emergency.p2p import utils
 
 
@@ -160,8 +160,9 @@ class LocalCheckpointManager:
         step_name_format=options.step_name_format,
         # Specify save_decision_policy to skip InitialSavePolicy, which
         # results in inconsistent save policy across processes with local.
-        save_decision_policy=save_decision_policy_lib.FixedIntervalPolicy(
-            options.local.save_interval_steps
+        save_decision_policy=policies.OffsetFixedIntervalPolicy(
+            interval=options.local.save_interval_steps,
+            offset=options.local.save_interval_offset_steps,
         ),
         max_to_keep=options.local.max_to_keep,
         multiprocessing_options=mp_options,
