@@ -19,6 +19,8 @@ from collections.abc import Sequence
 import dataclasses
 import hashlib
 import itertools
+import os
+import subprocess
 import sys
 from typing import Any, Callable
 
@@ -98,6 +100,8 @@ class TestResult:
   error: Exception | None = (
       None  # The error raised during the test run, if any.
   )
+  path: epath.Path | None = None
+  local_path: epath.Path | None = None
 
   def is_successful(self) -> bool:
     """Returns whether the test run was successful."""
@@ -203,6 +207,8 @@ class Benchmark(abc.ABC):
     )
     try:
       result = self.test_fn(context)
+      result.path = path
+      result.local_path = local_path
     except Exception as e:  # pylint: disable=broad-exception-caught
       # We catch all exceptions to ensure that any error during the test
       # execution is recorded in the TestResult.
@@ -220,7 +226,12 @@ class Benchmark(abc.ABC):
           e,
           exc_info=True,
       )
-      result = TestResult(metrics=metric_lib.Metrics(), error=e)
+      result = TestResult(
+          metrics=metric_lib.Metrics(),
+          error=e,
+          path=path,
+          local_path=local_path,
+      )
     result.metrics.name = name
 
     result.metrics.report()
@@ -401,6 +412,7 @@ class TestSuite:
       skip_incompatible_mesh_configs: bool = True,
       num_repeats: int = 1,
       local_directory: str | None = None,
+      remove_repeated_dir: bool = False,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
@@ -408,6 +420,7 @@ class TestSuite:
     self._num_repeats = num_repeats
     self._output_dir = output_dir
     self._local_directory = local_directory
+    self._remove_repeated_dir = remove_repeated_dir
     tensorboard_dir = None
     if output_dir:
       tensorboard_dir = epath.Path(output_dir) / "tensorboard"
@@ -415,6 +428,19 @@ class TestSuite:
     self._suite_metrics = metric_lib.MetricsManager(
         name=name, num_repeats=num_repeats, tensorboard_dir=tensorboard_dir
     )
+
+  def _remove_repeat_directory(self, path: epath.Path | None):
+    """Removes the repeat directory for a specific repeat."""
+    if path is None:
+      return
+    if multihost.get_process_index() != 0:
+      return
+
+    if path.exists():
+      logging.info("Removing repeat directory: %s", path)
+      path_str = str(path)
+      path.rmtree()
+
 
   def run(self) -> Sequence[TestResult]:
     """Runs all benchmarks in the suite sequentially."""
@@ -459,6 +485,10 @@ class TestSuite:
               checkpoint_config=benchmark.checkpoint_config,
               error=result.error,
           )
+          if self._remove_repeated_dir:
+            multihost.sync_global_processes("test_suite:repeat_cleanup")
+            self._remove_repeat_directory(result.path)
+            self._remove_repeat_directory(result.local_path)
 
     if not all_results:
       logging.warning("No benchmarks were run for this suite.")
