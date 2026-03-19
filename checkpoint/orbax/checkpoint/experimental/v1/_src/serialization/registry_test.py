@@ -134,6 +134,21 @@ class RegistryTest(absltest.TestCase):
       else:
         self.fail(f"Unexpected item: {item}")
 
+  def test_secondary_typestrs(self):
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(
+        int,
+        int,
+        DummyIntHandlerInt,
+        secondary_typestrs=["alias1", "alias2"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(DummyIntHandlerInt), ["alias1", "alias2"]
+    )
+
+    reg.add(jax.Array, types.AbstractShardedArray, DummyJaxHandler)
+    self.assertEqual(reg.get_secondary_typestrs(DummyJaxHandler), [])
+
 
 if __name__ == "__main__":
   absltest.main()

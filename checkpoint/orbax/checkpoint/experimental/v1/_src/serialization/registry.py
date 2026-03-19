@@ -98,6 +98,9 @@ class BaseLeafHandlerRegistry:
     self._handler_to_types: Dict[
         Type[types.LeafHandler[Any, Any]], Tuple[Type[Any], Type[Any]]
     ] = {}
+    self._secondary_typestrs: Dict[
+        Type[types.LeafHandler[Any, Any]], Sequence[str]
+    ] = {}
 
   def _try_get(
       self, leaf_type: Type[types.Leaf]
@@ -179,6 +182,7 @@ class BaseLeafHandlerRegistry:
       abstract_type: Type[types.AbstractLeaf],
       handler_type: Type[types.LeafHandler[types.Leaf, types.AbstractLeaf]],
       override: bool = False,
+      secondary_typestrs: Sequence[str] | None = None,
   ):
     """Adds a handler_type for a given leaf_type and abstract_type pair.
 
@@ -188,6 +192,8 @@ class BaseLeafHandlerRegistry:
       handler_type: The `LeafHandler` class responsible for this leaf type.
       override: If True, overwrites existing registrations for the given
         leaf or abstract types. Defaults to False.
+      secondary_typestrs: A sequence of alternate handler typestrs that serve as
+        secondary identifiers for the handler.
 
     Raises:
       ValueError: If the `leaf_type` or `abstract_type` is already registered
@@ -232,6 +238,12 @@ class BaseLeafHandlerRegistry:
     self._leaf_type_registry[leaf_type] = handler_type
     self._abstract_type_registry[abstract_type] = handler_type
     self._handler_to_types[handler_type] = (leaf_type, abstract_type)
+    # Allows for multiple handlers to be associated with the same leaf_type and
+    # abstract_type pair, typically for backward compatibility.
+    if secondary_typestrs is not None:
+      self._secondary_typestrs[handler_type] = (
+          secondary_typestrs
+      )
 
   def is_handleable(self, leaf_type: Type[Any]) -> bool:
     """Returns True if the type is handleable.
@@ -260,6 +272,11 @@ class BaseLeafHandlerRegistry:
       True if a valid handler exists for the abstract type, False otherwise.
     """
     return self._try_get_abstract(abstract_type) is not None
+
+  def get_secondary_typestrs(
+      self, handler_type: Type[types.LeafHandler[Any, Any]]
+  ) -> Sequence[str]:
+    return self._secondary_typestrs.get(handler_type, [])
 
 
 class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):

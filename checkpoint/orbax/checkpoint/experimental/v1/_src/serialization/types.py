@@ -419,6 +419,7 @@ class LeafHandlerRegistry(Protocol):
       abstract_type: Type[AbstractLeaf],
       handler_type: Type[LeafHandler[Leaf, AbstractLeaf]],
       override: bool = False,
+      secondary_typestrs: Sequence[str] | None = None,
   ):
     """Registers the handler_type for a leaf_type and abstract_type pair.
 
@@ -427,12 +428,17 @@ class LeafHandlerRegistry(Protocol):
     `override` is True. If the abstract_type has already associated with another
     leaf_type, an error will be raised if `override` is False.
 
+    `secondary_typestrs` can be used to register a handler for multiple
+    typestrs. This is useful for associating a handler with aliases or legacy
+    typestrs.
 
     Args:
       leaf_type: The type to register the handler for.
       abstract_type: The abstract type to register the handler for.
       handler_type: The handler to register.
       override: Whether to override the handler if it already exists.
+      secondary_typestrs: A sequence of alternate handler typestrs that serve as
+        secondary identifiers for the handler.
     """
     ...
 
@@ -442,4 +448,10 @@ class LeafHandlerRegistry(Protocol):
 
   def is_abstract_handleable(self, abstract_type: Type[Any]) -> bool:
     """Returns True if the abstract_type is handlable by any registered handler."""
+    ...
+
+  def get_secondary_typestrs(
+      self, handler_type: Type[LeafHandler[Any, Any]],
+  ) -> Sequence[str]:
+    """Returns all secondary typestrs associated with the given handler type."""
     ...
