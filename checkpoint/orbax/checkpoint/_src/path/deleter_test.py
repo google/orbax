@@ -38,7 +38,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
       todelete_subdir=(None, 'some_delete_dir'),
   )
   def test_checkpoint_deleter_delete(
-      self, threaded, todelete_subdir, enable_hns: bool = False
+      self, threaded, todelete_subdir
   ):
     """Test regular CheckpointDeleter."""
     deleter = deleter_lib.create_checkpoint_deleter(
@@ -47,7 +47,6 @@ class CheckpointDeleterTest(parameterized.TestCase):
         primary_host=None,
         todelete_subdir=todelete_subdir,
         todelete_full_path=None,
-        enable_hns=enable_hns,
         enable_background_delete=threaded,
     )
 
@@ -81,7 +80,6 @@ class GcsRenameTest(unittest.TestCase):
         primary_host=None,
         todelete_subdir=None,
         todelete_full_path='trash_bin',
-        enable_hns=False,
     )
     # When epath.Path() is called inside the code, it returns this mock parent
     mock_dest_parent = mock.MagicMock()

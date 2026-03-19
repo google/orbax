@@ -35,6 +35,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
@@ -249,7 +250,12 @@ class Checkpointer(
       if force:
         if multihost.is_primary_host(self._primary_host):
           logging.info('Specified `force`: removing existing directory.')
-          directory.rmtree()  # Post-sync handled by create_tmp_directory.
+          # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
+          # StorageBackend.
+          if gcs_utils.is_gcs_path(directory):
+            gcs_utils.rmtree(directory)
+          else:
+            directory.rmtree()  # Post-sync handled by create_tmp_directory.
       else:
         raise ValueError(f'Destination {directory} already exists.')
     ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)

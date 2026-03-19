@@ -15,7 +15,6 @@
 """Checkpoint deleter."""
 
 import datetime
-import os
 import pathlib
 import queue
 import threading
@@ -71,7 +70,6 @@ class StandardCheckpointDeleter:
       primary_host: Optional[int] = 0,
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
-      enable_hns: bool = False,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
   ):
     """StandardCheckpointDeleter constructor.
@@ -82,7 +80,6 @@ class StandardCheckpointDeleter:
       primary_host: refer to CheckpointManager.primary_host
       todelete_subdir: refer to CheckpointManagerOptions.todelete_subdir
       todelete_full_path: refer to CheckpointManagerOptions.todelete_full_path
-      enable_hns: refer to CheckpointManagerOptions.enable_hns
       duration_metric: the name of the total delete duration metric
     """
     self._primary_host = primary_host
@@ -90,64 +87,20 @@ class StandardCheckpointDeleter:
     self._todelete_subdir = todelete_subdir
     self._todelete_full_path = todelete_full_path
     self._name_format = name_format
-    self._enable_hns = enable_hns
     self._duration_metric = duration_metric
-
-  def _rm_empty_folders(self, path: epath.Path) -> None:
-    """For a hierarchical namespace bucket, delete empty folders recursively."""
-    # pylint: disable=g-import-not-at-top
-    from google.cloud import storage_control_v2  # pytype: disable=import-error
-
-    bucket, prefix = gcs_utils.parse_gcs_path(path)
-
-    client = storage_control_v2.StorageControlClient()
-    project_path = client.common_project_path('_')
-    bucket_path = f'{project_path}/buckets/{bucket}'
-    folders = set(
-        # Format: "projects/{project}/buckets/{bucket}/folders/{folder}"
-        folder.name
-        for folder in client.list_folders(
-            request=storage_control_v2.ListFoldersRequest(
-                parent=bucket_path, prefix=prefix.strip('/') + '/'
-            )
-        )
-    )
-
-    while folders:
-      parents = set(os.path.dirname(x.rstrip('/')) + '/' for x in folders)
-      leaves = folders - parents
-      requests = [
-          storage_control_v2.DeleteFolderRequest(name=f) for f in leaves
-      ]
-      for req in requests:
-        client.delete_folder(request=req)
-      folders = folders - leaves
-      logging.vlog(
-          1,
-          'Deleted %s folders, %s remaining. [%s][%s]',
-          len(leaves),
-          len(folders),
-          bucket,
-          prefix,
-      )
 
   def _rmtree(self, path: epath.Path):
     """Recursively deletes a path.
 
-    For a hierarchical namespace bucket, `path.rmtree()` only removes objects,
-    leaving all the empty parent folders intact. Here we manually delete the
-    empty folders recursively.
-
     Args:
       path: the path to delete.
     """
-    # Step 1: Delete all files within the tree.
-    path.rmtree()
-
-    # Step 2: For HNS, clean up the remaining empty directory structure.
-    if self._enable_hns:
-      if gcs_utils.is_hierarchical_namespace_enabled(path):
-        self._rm_empty_folders(path)
+    # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
+    # StorageBackend.
+    if gcs_utils.is_gcs_path(path):
+      gcs_utils.rmtree(path)
+    else:
+      path.rmtree()
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if options are set.
@@ -291,7 +244,6 @@ class ThreadedCheckpointDeleter:
       primary_host: Optional[int] = 0,
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
-      enable_hns: bool = False,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -300,7 +252,6 @@ class ThreadedCheckpointDeleter:
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
         name_format=name_format,
-        enable_hns=enable_hns,
         duration_metric=_THREADED_DELETE_DURATION,
     )
     self._delete_queue = queue.Queue()
@@ -347,7 +298,6 @@ def create_checkpoint_deleter(
     primary_host: Optional[int] = 0,
     todelete_subdir: Optional[str] = None,
     todelete_full_path: Optional[str] = None,
-    enable_hns: bool = False,
     enable_background_delete: bool = False,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
@@ -359,7 +309,6 @@ def create_checkpoint_deleter(
         primary_host=primary_host,
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
-        enable_hns=enable_hns,
     )
   else:
     return StandardCheckpointDeleter(
@@ -368,5 +317,4 @@ def create_checkpoint_deleter(
         primary_host=primary_host,
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
-        enable_hns=enable_hns,
     )
