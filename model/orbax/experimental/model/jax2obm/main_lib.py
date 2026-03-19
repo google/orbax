@@ -68,13 +68,13 @@ def jax_exported_to_shlo_fn(
   in_shardings = tuple([
       sharding.jax_named_sharding_to_op_sharding(named_sharding, aval.ndim)
       for named_sharding, aval in zip(
-          exported._in_named_shardings, exported.in_avals
+          exported.in_shardings_jax(mesh=None), exported.in_avals
       )
   ])
   out_shardings = tuple([
       sharding.jax_named_sharding_to_op_sharding(named_sharding, aval.ndim)
       for named_sharding, aval in zip(
-          exported._out_named_shardings, exported.out_avals
+          exported.out_shardings_jax(mesh=None), exported.out_avals
       )
   ])
   # TODO: b/476448823 - properly get the name for the input signature.
