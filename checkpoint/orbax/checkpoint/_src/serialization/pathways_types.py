@@ -28,17 +28,20 @@ class CheckpointingImpl(enum.Enum):
 
   NO_DISPATCHER = enum.auto()
   COLOCATED_PYTHON = enum.auto()
+  PERSISTENCE = enum.auto()
 
   @classmethod
   def from_options(
       cls,
       *,
       use_colocated_python: bool = False,
+      use_persistence_array_handler: bool = False,
   ) -> CheckpointingImpl:
     """Obtains a CheckpointingImpl from the given options.
 
     More than one option can be set to True. Resolves in order of priority:
       1. Colocated Python
+      3. Persistence Array Handler
       4. No Dispatcher
 
     "No Dispatcher" means that a non-Pathways implementation will be used. This
@@ -47,14 +50,16 @@ class CheckpointingImpl(enum.Enum):
     bottleneck.
 
     Args:
-      use_colocated_python: Whether to use colocated Python. # BEGIN
-      use_remote_python: Whether to use remote Python.
+      use_colocated_python: Whether to use colocated Python.
       use_persistence_array_handler: Whether to use the persistence array
+        handler.
 
     Returns:
       The CheckpointingImpl to use.
     """
     if use_colocated_python:
       return cls.COLOCATED_PYTHON
+    elif use_persistence_array_handler:
+      return cls.PERSISTENCE
     else:
       return cls.NO_DISPATCHER
