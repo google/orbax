@@ -1,5 +1,5 @@
 # Base image argument (defaulting to slim python image)
-ARG BASE_IMAGE=python:3.11-slim
+ARG BASE_IMAGE=python:3.13-slim
 FROM $BASE_IMAGE
 
 WORKDIR /app
@@ -56,7 +56,15 @@ ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
 # Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow
+RUN pip install --no-cache-dir gcsfs portpicker clu 
+
+RUN if [ "$DEVICE" = "gpu" ]; then \
+    pip install --no-cache-dir tensorflow; \
+  elif [ "$DEVICE" = "tpu" ]; then \
+    pip install --no-cache-dir tensorflow -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
+  else \
+      pip install --no-cache-dir tensorflow-cpu; \
+  fi
 
 # Install requirements from repo root if it exists
 RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
@@ -68,13 +76,15 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
       elif [ "$DEVICE" = "tpu" ]; then \
         pip install --no-cache-dir -U "jax[k8s,tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
       else \
-         pip install --no-cache-dir -U "jax[k8s]" jaxlib; \
+         pip install --no-cache-dir -U "jax[k8s,cpu]" jaxlib; \
       fi \
     elif [ "$JAX_VERSION" = "nightly" ]; then \
       if [ "$DEVICE" = "gpu" ]; then \
         pip install --no-cache-dir -U --pre "jax[k8s,cuda12]" jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
       elif [ "$DEVICE" = "tpu" ]; then \
         pip install --no-cache-dir -U --pre "jax[k8s,tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
+      else \
+        pip install --no-cache-dir -U --pre "jax[k8s,cpu]" jaxlib --extra-index-url https://us-python.pkg.dev/ml-oss-artifacts-published/jax-public-nightly-artifacts-registry/simple/; \
       fi \
     else \
       # Specific version
@@ -83,7 +93,7 @@ RUN if [ "$JAX_VERSION" = "newest" ]; then \
       elif [ "$DEVICE" = "tpu" ]; then \
          pip install --no-cache-dir "jax[k8s,tpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html; \
       else \
-         pip install --no-cache-dir "jax[k8s]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}"; \
+         pip install --no-cache-dir "jax[k8s,cpu]==${JAX_VERSION}" "jaxlib==${JAX_VERSION}"; \
       fi \
     fi
 
