@@ -16,11 +16,8 @@
 
 from collections.abc import Mapping, Sequence
 import logging
-from typing import Any
 
-from absl import flags
 from google.protobuf import descriptor
-from google.protobuf import text_format
 import jax
 from orbax.experimental.model.core.protos import manifest_pb2
 
@@ -57,8 +54,7 @@ def _generate_tpu_compilation_env(
 
   Raises:
     ValueError: If a flag in `xla_flags_overrides` is malformed (e.g., does
-      not start with '--') or if a flag is deprecated.
-    ValueError: If a flag in `xla_flags_overrides` is deprecated.
+      not start with '--'), if a flag is deprecated, or a flag cannot be parsed.
   """
   # Get default TPU compilation environment.
   tpu_compilation_env_str = tpu_comp_env.create_default_tpu_comp_env()
@@ -75,8 +71,15 @@ def _generate_tpu_compilation_env(
             ' format of --flag_name=flag_value.'
         )
       flag_name, flag_value = flag[2:].split('=', 1)
+      field_descriptor = get_field_for_flag(flag_name)
+      if field_descriptor.GetOptions().deprecated:
+        raise ValueError(
+            '[DEPRECATED_XLA_TPU_FLAG_USE] TpuCompilationEnvironment has'
+            f' deprecated fields in use: {flag_name}'
+        )
       parsed_flags[flag_name] = flag_value
-    _merge_flags_into_compile_options(parsed_flags, env)
+    env_override = parse_tpu_flags(parsed_flags)
+    env.MergeFrom(env_override)
 
   # Pack the TPU compilation environment into a compilation env proto.
   any_proto = any_pb2.Any()
@@ -246,92 +249,24 @@ def get_field_for_flag(flag_name: str) -> descriptor.FieldDescriptor:
   return _XLA_FLAG_TO_FIELD_MAP[flag_name]
 
 
-def parse_flag_from_string(flag_name: str, value: str) -> Any:
-  """Parses a string value for a given flag and normalizes it for a proto field.
-
-  This is a Python implementation of the C++ function
-  TpuCompEnvReflection::ParseFlagFromString.
+def parse_tpu_flags(
+    flags: Mapping[str, str],
+) -> tpu_comp_env_pb2.TpuCompilationEnvironment:
+  """Parses a dictionary of flags into a TpuCompilationEnvironment proto.
 
   Args:
-    flag_name: The name of the flag.
-    value: The string value of the flag.
+    flags: A mapping of XLA flag names to their string values (as seen on
+      the command line).
 
   Returns:
-    The parsed and normalized value suitable for setting the corresponding field
-    in `TpuCompilationEnvironment`. This can be a primitive type (int, bool,
-    str), float, an enum's integer value, or a proto message instance.
+    A TpuCompilationEnvironment proto with the given flags set.
+    All other fields are unset.
 
   Raises:
-    ValueError: If the flag is not found, or if a proto message value cannot
-      be parsed.
+    ValueError: If the field is not found or its value cannot be parsed.
   """
   try:
-    flag_holder = flags.FLAGS[flag_name]
-  except KeyError as exc:
-    raise ValueError(f'Flag not found: {flag_name}') from exc
-
-  parsed_value = flag_holder.parser.parse(value)
-  field = get_field_for_flag(flag_name)
-
-  if field.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
-    message_instance = field.message_type._concrete_class()
-    try:
-      text_format.Parse(value, message_instance)
-      return message_instance
-    except text_format.ParseError as e:
-      raise ValueError(
-          f'Error parsing proto value for flag {flag_name}: {value}'
-      ) from e
-  if field.type == descriptor.FieldDescriptor.TYPE_ENUM:
-    if isinstance(parsed_value, str):
-      try:
-        return field.enum_type.values_by_name[parsed_value].number
-      except KeyError as exc:
-        valid_options = list(field.enum_type.values_by_name.keys())
-        raise ValueError(
-            f"Invalid value '{parsed_value}' for flag {flag_name}. "
-            f"The value must be one of: {', '.join(valid_options)}"
-        ) from exc
-      return field.enum_type.values_by_name[parsed_value].number
-    # If it's already an int, assume it's the correct value.
-    return parsed_value
-  if field.type in (
-      descriptor.FieldDescriptor.TYPE_FLOAT,
-      descriptor.FieldDescriptor.TYPE_DOUBLE,
-  ):
-    return float(parsed_value)
-  return parsed_value
-
-
-def _merge_flags_into_compile_options(
-    xla_flags: Mapping[str, str],
-    env: tpu_comp_env_pb2.TpuCompilationEnvironment,
-):
-  """Merges flags into a TpuCompilationEnvironment proto.
-
-  Args:
-    xla_flags: A mapping of XLA flag names to their string values. These flags
-      will be parsed and merged into the `env` proto.
-    env: The TpuCompilationEnvironment proto to merge the flags into. This proto
-      will be modified in place.
-
-  Raises:
-    ValueError: If a flag is deprecated.
-  """
-  env_override = tpu_comp_env_pb2.TpuCompilationEnvironment()
-  for flag_name, value in xla_flags.items():
-    field_descriptor = get_field_for_flag(flag_name)
-    if field_descriptor.GetOptions().deprecated:
-      raise ValueError(
-          '[DEPRECATED_XLA_TPU_FLAG_USE] TpuCompilationEnvironment has'
-          f' deprecated fields in use: {flag_name}'
-      )
-
-    parsed_value = parse_flag_from_string(flag_name, value)
-    if field_descriptor.type == descriptor.FieldDescriptor.TYPE_MESSAGE:
-      # For message types, we need to copy the parsed message.
-      getattr(env_override, field_descriptor.name).CopyFrom(parsed_value)
-    else:
-      # For scalar types, we can set the attribute directly.
-      setattr(env_override, field_descriptor.name, parsed_value)
-  env.MergeFrom(env_override)
+    env_bytes = tpu_comp_env.parse_tpu_flags(flags)
+  except RuntimeError as exc:
+    raise ValueError(f'Error parsing TPU flags: {exc}') from exc
+  return tpu_comp_env_pb2.TpuCompilationEnvironment.FromString(env_bytes)

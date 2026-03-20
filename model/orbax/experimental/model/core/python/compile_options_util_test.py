@@ -100,21 +100,23 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       (
           'enum',
           'xla_memory_scheduler',
-          'DFS',
+          'dfs',
           tpu_comp_env_pb2.MemorySchedulerProto.DFS,
       ),
   )
-  def test_parse_flag_from_string(
+  def test_parse_tpu_flags_success(
       self, flag_name: str, string_value: str, expected: Any
   ):
-    result = compile_options_util.parse_flag_from_string(
-        flag_name, string_value
-    )
-    self.assertEqual(result, expected)
+    env = compile_options_util.parse_tpu_flags({flag_name: string_value})
+    result = getattr(env, flag_name)
+    if isinstance(expected, float):
+      self.assertAlmostEqual(result, expected, places=6)
+    else:
+      self.assertEqual(result, expected)
 
-  def test_parse_flag_from_string_nonexistent_flag(self):
-    with self.assertRaisesRegex(ValueError, 'Flag not found: nonexistent_flag'):
-      compile_options_util.parse_flag_from_string('nonexistent_flag', 'value')
+  def test_parse_tpu_flags_invalid_flag(self):
+    with self.assertRaisesRegex(ValueError, r'.*\binvalid_flag_name\b.*'):
+      compile_options_util.parse_tpu_flags({'invalid_flag_name': 'true'})
 
   def test_merge_flags_into_compile_options(self):
     xla_flags = XLA_FLAGS_DICT
@@ -127,7 +129,7 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     env.xla_tpu_wait_n_cycles_before_program_termination = 1234
 
     # Merge the flags into the environment.
-    compile_options_util._merge_flags_into_compile_options(xla_flags, env)
+    env.MergeFrom(compile_options_util.parse_tpu_flags(xla_flags))
     self.assertEqual(
         env.xla_jf_rematerialization_percent_shared_memory_limit, 99
     )
@@ -146,17 +148,6 @@ class CompileOptionsUtilTest(parameterized.TestCase):
 
     # Value that should not be overridden.
     self.assertEqual(env.xla_tpu_wait_n_cycles_before_program_termination, 1234)
-
-  def test_merge_flags_into_compile_options_deprecated_flag(self):
-    xla_flags = {'xla_tpu_enable_experimental_fusion_cost_model': 'true'}
-    env = tpu_comp_env_pb2.TpuCompilationEnvironment()
-    with self.assertRaisesRegex(
-        ValueError,
-        r'\[DEPRECATED_XLA_TPU_FLAG_USE\] TpuCompilationEnvironment has'
-        r' deprecated fields in use:'
-        r' xla_tpu_enable_experimental_fusion_cost_model',
-    ):
-      compile_options_util._merge_flags_into_compile_options(xla_flags, env)
 
   @parameterized.named_parameters(
       dict(
@@ -203,6 +194,19 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           xla_flags_overrides=[
               '--xla_tpu_memory_bound_loop_optimizer_options=enabled:false',
               'xla_enable_profiler: false',
+          ]
+      )
+
+  def test_generate_tpu_compilation_env_deprecated_flag(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        r'\[DEPRECATED_XLA_TPU_FLAG_USE\] TpuCompilationEnvironment has'
+        r' deprecated fields in use:'
+        r' xla_tpu_enable_experimental_fusion_cost_model',
+    ):
+      compile_options_util._generate_tpu_compilation_env(
+          xla_flags_overrides=[
+              '--xla_tpu_enable_experimental_fusion_cost_model=true',
           ]
       )
 
