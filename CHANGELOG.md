@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local type handler registries.
 - Expose `merge_trees` publicly: this function can be use to merge trees into a
 single tree using a comprehensive recursive strategy
+- #v1 Add `DeletionOptions` to configure V1 Checkpointer's checkpoint deletion
+behavior.
 
 ### Changed
 - The PyPi `orbax` package is deprecated in favor of domain-specific namespace
