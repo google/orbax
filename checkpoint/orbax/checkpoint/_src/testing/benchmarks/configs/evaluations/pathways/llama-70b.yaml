@@ -10,7 +10,7 @@ mesh_config:
 
 # The checkpoint configuration, shared across all generated benchmarks.
 checkpoint_config:
-  path: "gs://orbax-benchmarks/checkpoints/llama-3.1-70B-checkpoints/0/items"
+  path: "gs://orbax-benchmarks/checkpoints/llama-70b_generate_1-16-1"
   sharding_config_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-32-data-1-fsdp-16-tensor-1/abstract_state.json"
 
 benchmarks:
