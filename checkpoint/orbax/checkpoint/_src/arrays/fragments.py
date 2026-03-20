@@ -540,6 +540,23 @@ class NpFragments(_ConcreteFragments[NpFragment]):
   """A collection of fragments whose values are of type `np.ndarray`."""
   FRAGMENT_T = NpFragment
 
+  @classmethod
+  def empty_like(
+      cls: type[FSconcrete], fragments: AbstractFragments
+  ) -> FSconcrete:
+    fragment_t = cls.FRAGMENT_T
+    np_api = fragment_t.NP_API
+    return cls(
+        shape=fragments.shape,
+        dtype=fragments.dtype,
+        fragments=[
+            fragment_t(
+                index=f.index, value=np_api.empty(f.shape, fragments.dtype)
+            )
+            for f in fragments.fragments
+        ],
+    )
+
 
 @dataclasses.dataclass(frozen=True, init=False)
 class JaxFragments(_ConcreteFragments[JaxFragment]):

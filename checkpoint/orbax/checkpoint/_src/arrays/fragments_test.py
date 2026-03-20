@@ -993,6 +993,33 @@ class FragmentsClassMethodsTest(parameterized.TestCase):
         fragment_t(index=np.s_[0:2:1, 2:3:1], value=value[0:2:1, 2:3:1]),
     ])
 
+  def test_np_fragments_empty_like(self):
+    shape = (2, 3)
+    dtype = np.dtype(np.float32)
+    template = AbstractFragments(
+        shape=shape,
+        dtype=dtype,
+        fragments=[
+            AbstractFragment(index=np.s_[0:2:1, 0:1:1]),
+            AbstractFragment(index=np.s_[0:2:1, 2:3:1]),
+        ],
+    )
+    fs = NpFragments.empty_like(template)
+
+    for f in fs.fragments:
+      f.value.fill(0)
+
+    self.assertEqual(fs.shape, template.shape)
+    self.assertEqual(fs.dtype, template.dtype)
+    self.assertEqual(fs.fragments, [
+        NpFragment(
+            index=np.s_[0:2:1, 0:1:1], value=np.zeros((2, 1), dtype=dtype)
+        ),
+        NpFragment(
+            index=np.s_[0:2:1, 2:3:1], value=np.zeros((2, 1), dtype=dtype)
+        ),
+    ])
+
 
 @parameterized.named_parameters(
     ('abstract_fragments', AbstractFragments),
