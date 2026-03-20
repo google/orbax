@@ -11,6 +11,7 @@ mesh_config:
 # The checkpoint configuration, shared across all generated benchmarks.
 checkpoint_config:
   path: "gs://orbax-benchmarks/checkpoints/llama-3.1-405B-checkpoints/0/items"
+  sharding_config_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-405b-v5p-128-data-1-fsdp-64-tensor-1/abstract_state.json"
 
 benchmarks:
   - generator: "orbax.checkpoint._src.testing.benchmarks.v1.benchmark.Benchmark"

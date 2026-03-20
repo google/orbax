@@ -23,8 +23,9 @@ from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 
 class FakeDevice:
 
-  def __init__(self, device_id):
+  def __init__(self, device_id, process_index=0):
     self.id = device_id
+    self.process_index = process_index
 
   def __str__(self):
     return f"FakeDevice(id={self.id})"
@@ -47,6 +48,11 @@ class DeviceMeshTest(absltest.TestCase):
     )
     self.mock_process_count = self.enter_context(
         mock.patch.object(jax, "process_count", autospec=True)
+    )
+    # Force a non-CPU backend so tests exercise the hybrid-mesh path rather
+    # than the CPU shortcut that bypasses all validation logic.
+    self.mock_default_backend = self.enter_context(
+        mock.patch.object(jax, "default_backend", return_value="tpu")
     )
 
   def test_create_mesh_success(self):

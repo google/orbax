@@ -26,6 +26,7 @@ deferred until `is_pathways_backend()` returns True.
 Pathways dependencies should not be added to this file.
 """
 
+from absl import logging
 from orbax.checkpoint._src.serialization import jax_array_handlers
 from orbax.checkpoint._src.serialization import pathways_handler_registry
 from orbax.checkpoint._src.serialization import pathways_types
@@ -57,11 +58,15 @@ def resolve_pathways_checkpointing_impl(
   except ImportError as e:
     raise ImportError(_PATHWAYS_IMPORT_ERROR_MSG) from e
   checkpointing_impl = context.pathways_options.checkpointing_impl
-  return checkpointing_impl or pathways_types.CheckpointingImpl.from_options(
+  resolved_checkpointing_impl = checkpointing_impl or pathways_types.CheckpointingImpl.from_options(
       use_colocated_python=False,  # Not enabled unless explicitly requested.
       use_remote_python=rp.available(),
       use_persistence_array_handler=True,  # Only used as a fallback.
   )
+  logging.info(
+      'Resolved Pathways implementation: %s', resolved_checkpointing_impl
+  )
+  return resolved_checkpointing_impl
 
 
 def get_array_handler(

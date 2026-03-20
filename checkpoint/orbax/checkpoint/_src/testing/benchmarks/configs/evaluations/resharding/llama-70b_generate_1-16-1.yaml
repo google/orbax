@@ -1,14 +1,15 @@
 # The name for the entire test suite run.
 # Assumes v5p-32 (16 chips)
 suite_name: "Llama 3.1 70B"
-num_repeats: 20
+num_repeats: 1
 
 
 mesh_config:
   mesh_axes: ["data", "fsdp", "tensor"]
+  # Should match reference_sharding_path.
   ici_parallelism: {"data": 1, "fsdp": 16, "tensor": 1}
 
-# The checkpoint configuration, shared across all generated benchmarks.
+# Note: checkpoint_config field not specified.
 checkpoint_config:
   path: "gs://orbax-benchmarks/checkpoints/llama-3.1-70B-checkpoints/0/items"
   sharding_config_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-32-data-1-fsdp-16-tensor-1/abstract_state.json"
