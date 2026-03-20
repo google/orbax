@@ -35,6 +35,7 @@ from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -46,7 +47,7 @@ register_with_handler = checkpoint_args.register_with_handler
 
 
 class StandardCheckpointHandler(
-    async_checkpoint_handler.AsyncCheckpointHandler
+    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
 ):
   """A CheckpointHandler implementation for any PyTree structure.
 
@@ -148,7 +149,7 @@ class StandardCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path,
+      directory: epath.Path | path_types.PathAwaitingCreation,
       item: Optional[PyTree] = None,
       save_args: Optional[PyTree] = None,
       args: Optional[StandardSaveArgs] = None,
