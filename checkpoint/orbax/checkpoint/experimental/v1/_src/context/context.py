@@ -115,6 +115,7 @@ class Context(epy.ContextManager):
       checkpointables_options: options_lib.CheckpointablesOptions | None = None,
       pathways_options: options_lib.PathwaysOptions | None = None,
       checkpoint_layout: options_lib.CheckpointLayout | None = None,
+      deletion_options: options_lib.DeletionOptions | None = None,
   ):
     self._pytree_options = pytree_options or (
         context.pytree_options if context else options_lib.PyTreeOptions()
@@ -145,6 +146,9 @@ class Context(epy.ContextManager):
         context.checkpoint_layout
         if context
         else options_lib.CheckpointLayout.ORBAX
+    )
+    self._deletion_options = deletion_options or (
+        context.deletion_options if context else options_lib.DeletionOptions()
     )
 
   @property
@@ -178,6 +182,10 @@ class Context(epy.ContextManager):
   @property
   def checkpoint_layout(self) -> options_lib.CheckpointLayout:
     return self._checkpoint_layout
+
+  @property
+  def deletion_options(self) -> options_lib.DeletionOptions:
+    return self._deletion_options
 
   def operation_id(self) -> str:
     return synchronization.OperationIdGenerator.get_current_operation_id()

@@ -472,6 +472,35 @@ class PathwaysOptions:
   checkpointing_impl: pathways_types.CheckpointingImpl | None = None
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DeletionOptions:
+  """Options used to configure checkpoint deletion behavior.
+
+  Attributes:
+    todelete_subdir: If set, checkpoints to be deleted will be only renamed into
+      a subdirectory with the provided string. Otherwise, they will be directly
+      deleted from the file system. Useful if checkpoint deletion is time
+      consuming. By default, delete the checkpoint assets. Ignored if file
+      system is Google Cloud Storage (directory is prefixed with gs://).
+    todelete_full_path: Specifies a path relative to the bucket root for
+      "soft-deleting" checkpoints on Google Cloud Storage (GCS). Instead of
+      being permanently removed, checkpoints are moved to this new location
+      within the same bucket. For instance, if a checkpoint is in
+      gs://my-bucket/experiments/run1/, providing the value trash/ will move a
+      deleted step to gs://my-bucket/trash/<step_id>. Useful when direct
+      deletion is time consuming. It gathers all deleted items in a centralized
+      path for future cleanup.
+    enable_background_delete: If True, old checkpoint deletions will be done in
+      a background thread, otherwise, it will be done at the end of each save.
+      When it's enabled, make sure to call Checkpointer.close() or use
+      context to make sure all old steps are deleted before exit.
+  """
+
+  todelete_subdir: str | None = None
+  todelete_full_path: str | None = None
+  enable_background_delete: bool = False
+
+
 class CheckpointLayout(enum.Enum):
   """The layout of the checkpoint.
 
