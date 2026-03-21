@@ -2432,6 +2432,7 @@ class CheckpointManagerTest(
             step_statistics['checkpoint_manager_duration_secs']
         )
 
+
   def test_configure_atomicity(self):
     """Test case."""
     with CheckpointManager(
