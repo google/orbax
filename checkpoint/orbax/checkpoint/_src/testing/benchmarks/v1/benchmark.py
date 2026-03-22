@@ -167,7 +167,8 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
           ocp.save_pytree(save_path, pytree)
         with metrics.measure("save_background", metrics_to_measure):
           pass
-      context.pytree = clear_pytree(context.pytree)
+      if not context.reuse_checkpoint:
+        context.pytree = clear_pytree(context.pytree)
       if options.enable_trace:
         jax.profiler.stop_trace()
 

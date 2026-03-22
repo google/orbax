@@ -63,14 +63,16 @@ flags.register_validator(
 _OUTPUT_DIRECTORY = flags.DEFINE_string(
     'output_directory',
     None,
-    'GCS bucket/path for artifacts and config upload.',
+    'GCS bucket/path or Lustre path for artifacts and config upload.',
     required=True,
 )
-flags.register_validator(
-    'output_directory',
-    lambda value: value.startswith('gs://'),
-    message='--output_directory must start with gs://',
+_CONFIG_DIRECTORY = flags.DEFINE_string(
+    'config_directory',
+    None,
+    'Remote directory for configuration file upload. Defaults to'
+    ' --output_directory.',
 )
+
 
 # ==============================================================================
 # 2. Basic Flags (Commonly Used)
@@ -293,6 +295,29 @@ _PATHWAYS_PROXY_IMAGE = flags.DEFINE_string(
     'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/proxy_server:latest',
     'Pathways proxy image (bridges user code to server).',
 )
+
+_SKIP_XPK_VALIDATION = flags.DEFINE_boolean(
+    'skip_xpk_validation',
+    False,
+    'If True, skip XPK validation.',
+)
+
+
+def _validate_output_directory(flags_dict):
+  out_dir = flags_dict['output_directory']
+  storage = flags_dict['storage']
+  if storage:
+    return True
+  return out_dir.startswith('gs://')
+
+
+flags.register_multi_flags_validator(
+    ['output_directory', 'storage'],
+    _validate_output_directory,
+    message=(
+        '--output_directory must start with gs:// unless --storage is provided.'
+    ),
+)
 # LINT.ThenChange(README.md:launch_xpk_flags_table)
 
 
@@ -354,19 +379,29 @@ def run_command(
           .decode('utf-8')
           .strip()
       )
+    elif suppress_output:
+      # If suppressed, capture it so we can show it on failure.
+      subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, check=True)
+      return None
     else:
-      subprocess.check_call(
-          cmd,
-          stdout=subprocess.DEVNULL if suppress_output else None,
-          stderr=subprocess.DEVNULL if suppress_output else None,
-          cwd=cwd,
-      )
+      subprocess.check_call(cmd, cwd=cwd)
       return None
   except subprocess.CalledProcessError as e:
-    if not suppress_output:
-      logging.exception('Command failed')
-      if capture_output and e.output:
-        logging.error('Output: %s', e.output.decode('utf-8'))
+    Console.print_error(
+        f'Command failed with exit code {e.returncode}: {cmd_str}'
+    )
+    # Output captured stdout/stderr if available
+    output = getattr(e, 'output', None) or getattr(e, 'stdout', None)
+    if output:
+      if isinstance(output, bytes):
+        output = output.decode('utf-8')
+      print(f'\n--- Command Output ---\n{output}\n----------------------\n')
+
+    stderr = getattr(e, 'stderr', None)
+    if stderr:
+      if isinstance(stderr, bytes):
+        stderr = stderr.decode('utf-8')
+      print(f'\n--- Command Stderr ---\n{stderr}\n----------------------\n')
     raise
 
 
@@ -386,7 +421,7 @@ def check_preconditions() -> bool:
   Console.print_step(1, 6, 'Running Pre-flight Checks')
 
   # 1. Check Dependencies
-  dependencies = ('xpk', 'gcloud')
+  dependencies = (_XPK_PATH.value, 'gcloud')
   for dep in dependencies:
     try:
       run_command(['which', dep], capture_output=True, suppress_output=True)
@@ -396,17 +431,24 @@ def check_preconditions() -> bool:
       raise PreconditionError(f'{dep} not found.') from exc
 
   # 2. Check GCS Access
-  bucket = _OUTPUT_DIRECTORY.value.split('/')[2]
-  try:
-    run_command(
-        ['gcloud', 'storage', 'buckets', 'describe', f'gs://{bucket}'],
-        capture_output=True,
-        suppress_output=True,
+  if _OUTPUT_DIRECTORY.value.startswith('gs://'):
+    bucket = _OUTPUT_DIRECTORY.value.split('/')[2]
+    try:
+      run_command(
+          ['gcloud', 'storage', 'buckets', 'describe', f'gs://{bucket}'],
+          capture_output=True,
+          suppress_output=True,
+      )
+      Console.print_success(f'GCS Bucket accessible: gs://{bucket}')
+    except subprocess.CalledProcessError as exc:
+      Console.print_error(f'Cannot access GCS bucket: gs://{bucket}')
+      raise PreconditionError(
+          f'Cannot access GCS bucket: gs://{bucket}'
+      ) from exc
+  else:
+    Console.print_info(
+        f'Skipping GCS access check for non-GCS path: {_OUTPUT_DIRECTORY.value}'
     )
-    Console.print_success(f'GCS Bucket accessible: gs://{bucket}')
-  except subprocess.CalledProcessError as exc:
-    Console.print_error(f'Cannot access GCS bucket: gs://{bucket}')
-    raise PreconditionError(f'Cannot access GCS bucket: gs://{bucket}') from exc
 
   # 3. Check Docker Image
   images_to_check = [_DOCKER_IMAGE.value]
@@ -531,6 +573,9 @@ def create_cluster() -> None:
   if _TENSORBOARD_NAME.value is not None:
     cmd.append(f'--tensorboard-name={_TENSORBOARD_NAME.value}')
 
+  if _STORAGE.value and 'lustre' in _STORAGE.value:
+    cmd.append('--enable-lustre-csi-driver')
+
   # MTC Args
   # We are using MTC to enable ramdisk functionality via GCSFuse, which is
   # required for some benchmarks. We do not use multi-tier checkpointing
@@ -539,6 +584,11 @@ def create_cluster() -> None:
   # authentication during cluster creation. An alternative approach to enable
   # ramdisk without MTC might be possible and could be explored later.
   if _RAMDISK_DIRECTORY.value:
+    if not _OUTPUT_DIRECTORY.value.startswith('gs://'):
+      raise ValueError(
+          '--ramdisk_directory requires --output_directory to be a gs:// path'
+          ' for MTC.'
+      )
     bucket = _OUTPUT_DIRECTORY.value.split('/')[2]
     cmd.append('--enable-mtc')
     cmd.append('--mtc-ramdisk-size=32G')
@@ -588,8 +638,7 @@ def construct_workload_command(
   python_cmd = ' '.join(python_args)
   if enable_pathways:
     python_cmd = (
-        'python3 -c "import pathwaysutils;'
-        ' pathwaysutils.initialize()" && '
+        'python3 -c "import pathwaysutils; pathwaysutils.initialize()" && '
         + python_cmd
     )
 
@@ -607,10 +656,16 @@ def construct_xpk_command(
       f'--cluster={_CLUSTER_NAME.value}',
       f'--project={_PROJECT.value}',
       f'--zone={_ZONE.value}',
+  ]
+
+  if _SKIP_XPK_VALIDATION.value:
+    base_cmd.insert(3, '--skip-validation')
+
+  base_cmd.extend([
       f'--workload={workload_name}',
       f'--num-slices={_NUM_SLICES.value}',
       f'--priority={_PRIORITY.value}',
-  ]
+  ])
 
   if _STORAGE.value is not None:
     base_cmd.append(f'--storage={_STORAGE.value}')
@@ -660,7 +715,7 @@ def construct_xpk_command(
     image_args = [
         f'--server-image={_PATHWAYS_SERVER_IMAGE.value}',
         f'--proxy-server-image={_PATHWAYS_PROXY_IMAGE.value}',
-        f'--docker-image={_DOCKER_IMAGE.value}'
+        f'--docker-image={_DOCKER_IMAGE.value}',
     ]
 
   else:
@@ -673,9 +728,11 @@ def construct_xpk_command(
   if _RAMDISK_DIRECTORY.value is not None:
     optional_args.append(f'--ramdisk-directory={_RAMDISK_DIRECTORY.value}')
 
-  return list(itertools.chain(
-      base_cmd, image_args, optional_args, ['--command', workload_command]
-  ))
+  return list(
+      itertools.chain(
+          base_cmd, image_args, optional_args, ['--command', workload_command]
+      )
+  )
 
 
 def print_summary(
@@ -688,7 +745,13 @@ def print_summary(
     output_directory: str,
 ):
   """Prints a clean summary of the launched workload."""
-  gcs_bucket = output_directory.replace('gs://', '')
+  if output_directory.startswith('gs://'):
+    gcs_bucket = output_directory.replace('gs://', '')
+    artifacts_info = (
+        f' https://console.cloud.google.com/storage/browser/{gcs_bucket}/{run_id}?project={project}'
+    )
+  else:
+    artifacts_info = f' {output_directory}/{run_id} (Lustre)'
 
   summary = [
       '',
@@ -702,10 +765,7 @@ def print_summary(
           f'  📄 {Console.BOLD}Logs:{Console.RESET}      '
           f' https://console.cloud.google.com/logs/query;query=resource.labels.pod_name:"{workload_name}"%0Aresource.labels.container_name:"jax-tpu"?project={project}'
       ),
-      (
-          f'  📦 {Console.BOLD}Artifacts:{Console.RESET} '
-          f' https://console.cloud.google.com/storage/browser/{gcs_bucket}/{run_id}?project={project}'
-      ),
+      f'  📦 {Console.BOLD}Artifacts:{Console.RESET} {artifacts_info}',
       (
           f'  🔍 {Console.BOLD}Status:{Console.RESET}     xpk workload list'
           f' --cluster={cluster} --workload={workload_name} --project={project}'
@@ -717,16 +777,28 @@ def print_summary(
   print('\n'.join(summary))
 
 
-def upload_config_to_gcs(local_path: str, gcs_root: str, run_id: str) -> str:
-  """Uploads the local config file to GCS and returns the GCS path."""
+def upload_config(local_path: str, remote_root: str, run_id: str) -> str:
+  """Uploads the local config file to remote and returns the path."""
   filename = os.path.basename(local_path)
-  gcs_path = os.path.join(gcs_root, run_id, filename)
+  remote_path = os.path.join(remote_root, run_id, filename)
 
-  Console.print_info(f'Uploading config to {gcs_path}')
-  run_command(
-      ['gcloud', 'storage', 'cp', local_path, gcs_path], suppress_output=True
-  )
-  return gcs_path
+  if remote_path.startswith('gs://'):
+    Console.print_info(f'Uploading config to {remote_path}')
+    run_command(
+        ['gcloud', 'storage', 'cp', local_path, remote_path],
+        suppress_output=True,
+    )
+  elif _STORAGE.value and remote_path.startswith('/lustre'):
+    Console.print_warning(
+        f'Skipping local upload for Lustre path: {remote_path}. '
+        'Ensure the config is available at this path inside the pod.'
+    )
+  else:
+    Console.print_info(f'Uploading config to {remote_path}')
+    # Handle local paths (assuming mounted if not gs://)
+    os.makedirs(os.path.dirname(remote_path), exist_ok=True)
+    run_command(['cp', local_path, remote_path], suppress_output=True)
+  return remote_path
 
 
 def update_bucket_csi_driver(mount_csi_driver: bool):
@@ -736,6 +808,12 @@ def update_bucket_csi_driver(mount_csi_driver: bool):
     mount_csi_driver: If True, applies the CSI driver configuration. If False,
       deletes the CSI driver configuration.
   """
+  if not _OUTPUT_DIRECTORY.value.startswith('gs://'):
+    Console.print_info(
+        'Skipping Bucket CSI driver update for non-GCS output directory.'
+    )
+    return
+
   script_dir = os.path.dirname(os.path.realpath(__file__))
   cpc_yaml_path = os.path.join(script_dir, 'cpc.yaml')
   bucket = _OUTPUT_DIRECTORY.value.split('/')[2]
@@ -744,8 +822,10 @@ def update_bucket_csi_driver(mount_csi_driver: bool):
         [
             'bash',
             '-c',
-            f'BUCKET_NAME={bucket} envsubst < {cpc_yaml_path} | kubectl apply'
-            ' -f -',
+            (
+                f'BUCKET_NAME={bucket} envsubst < {cpc_yaml_path} | kubectl'
+                ' apply -f -'
+            ),
         ],
         suppress_output=not _VERBOSE.value,
     )
@@ -832,17 +912,16 @@ def main(argv: Sequence[str]) -> None:
       # Max base_name = 40 - 22 = 18 chars. We use 15 to be safe.
       if len(base_name) > 5:
         base_name = base_name[:5]
-      workload_name_base = (
-          f'orbax-{base_name}-{timestamp}'.replace('_', '-').lower()
-      )
+      workload_name_base = f'orbax-{base_name}-{timestamp}'.replace(
+          '_', '-'
+      ).lower()
 
   Console.print_info(f'Run ID:   {run_id}')
 
   # 4. Upload Config
   Console.print_step(3, 6, 'Uploading Configuration')
-  remote_config_path = upload_config_to_gcs(
-      _CONFIG_FILE.value, _OUTPUT_DIRECTORY.value, run_id
-  )
+  config_root = _CONFIG_DIRECTORY.value or _OUTPUT_DIRECTORY.value
+  remote_config_path = upload_config(_CONFIG_FILE.value, config_root, run_id)
   Console.print_success('Config uploaded.')
 
   # 5. Construct Commands
@@ -936,9 +1015,7 @@ def main(argv: Sequence[str]) -> None:
         Console.print_error('Skipping cluster deletion due to interruption.')
       sys.exit(1)
     else:
-      Console.print_success(
-          f'Workload {workload_name} completed successfully.'
-      )
+      Console.print_success(f'Workload {workload_name} completed successfully.')
 
   if _RAMDISK_DIRECTORY.value is not None:
     # Unmount CSI driver after running workloads, to delete

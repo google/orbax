@@ -25,6 +25,7 @@ mesh_config: Optional[Dict[str, Any]]  # See configs.MeshConfig
 benchmarks: List[Dict[str, Any]]
   - generator: str  # Import path to core.BenchmarksGenerator subclass.
     options: Dict[str, Any]  # Kwargs for generator's options dataclass.
+reuse_checkpoint: Optional[bool]  # Whether to reuse loaded checkpoints.
 
 Example:
 
@@ -127,6 +128,7 @@ def create_test_suite_from_config(
 
   suite_name = config['suite_name']
   num_repeats = config.get('num_repeats', 1)
+  reuse_checkpoint = config.get('reuse_checkpoint', False)
   if 'checkpoint_configs' in config:
     checkpoint_configs = [
         config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
@@ -200,4 +202,5 @@ def create_test_suite_from_config(
       num_repeats=num_repeats,
       output_dir=output_dir,
       local_directory=local_directory,
+      reuse_checkpoint=reuse_checkpoint,
   )

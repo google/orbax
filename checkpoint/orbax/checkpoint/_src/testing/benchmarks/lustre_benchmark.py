@@ -136,7 +136,8 @@ class LustreBenchmark(benchmarks_core.BenchmarksGenerator):
     abstract_pytree = jax.tree.map(
         ocp.arrays.to_shape_dtype_struct, context.pytree
     )
-    context.pytree = self._clear_pytree(context.pytree)
+    if not context.reuse_checkpoint:
+      context.pytree = self._clear_pytree(context.pytree)
 
     # Only exercise restore on the previous step.
     if step > 0:

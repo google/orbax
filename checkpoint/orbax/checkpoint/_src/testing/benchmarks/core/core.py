@@ -80,6 +80,7 @@ class TestContext:
     repeat_index: The index of the repeat run, if this test is run multiple
       times.
     local_path: The local path to store the checkpoint data.
+    reuse_checkpoint: Whether to reuse the checkpoint data.
   """
 
   pytree: Any | None
@@ -88,6 +89,7 @@ class TestContext:
   mesh: jax.sharding.Mesh | None = None
   repeat_index: int | None = None
   local_path: epath.Path | None = None
+  reuse_checkpoint: bool = False
 
 
 @dataclasses.dataclass
@@ -141,8 +143,23 @@ class Benchmark(abc.ABC):
     test_context_str += f"PyTree Summary:\n{pytree_summary}\n"
     return test_context_str
 
-  def run(self, repeat_index: int | None = None) -> TestResult:
-    """Executes the benchmark test case."""
+  def run(
+      self,
+      repeat_index: int | None = None,
+      pytree: Any | None = None,
+      reuse_checkpoint: bool = False,
+  ) -> tuple[TestResult, Any | None]:
+    """Executes the benchmark test case.
+
+    Args:
+      repeat_index: The index of the repeat run.
+      pytree: Optional, a pre-loaded or pre-generated pytree to use for the
+        test. If provided, the loading/generation step will be skipped.
+      reuse_checkpoint: Whether to reuse the checkpoint data.
+
+    Returns:
+      A tuple containing the TestResult and the pytree used for the test.
+    """
     name = self.name
     if repeat_index is not None:
       name += f"_repeat_{repeat_index}"
@@ -165,14 +182,21 @@ class Benchmark(abc.ABC):
     ):
       multihost.sync_global_processes("benchmark:setup_test_directory")
 
-    if self.checkpoint_config.path is not None:
-      pytree = checkpoint_generation.load_checkpoint(self.checkpoint_config)
-    elif self.checkpoint_config.spec is not None:
-      pytree = checkpoint_generation.generate_checkpoint(
-          self.checkpoint_config, mesh=self.mesh
+    if pytree is not None:
+      logging.info(
+          "[process_id=%s] Using provided (cached) pytree for test: %s",
+          multihost.get_process_index(),
+          name,
       )
     else:
-      pytree = None
+      if self.checkpoint_config.path is not None:
+        pytree = checkpoint_generation.load_checkpoint(self.checkpoint_config)
+      elif self.checkpoint_config.spec is not None:
+        pytree = checkpoint_generation.generate_checkpoint(
+            self.checkpoint_config, mesh=self.mesh
+        )
+      else:
+        pytree = None
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_pytree"
@@ -186,6 +210,7 @@ class Benchmark(abc.ABC):
         mesh=self.mesh,
         repeat_index=repeat_index,
         local_path=self.local_directory,
+        reuse_checkpoint=reuse_checkpoint,
     )
 
     test_context_summary = self._build_test_context_summary(context)
@@ -227,7 +252,7 @@ class Benchmark(abc.ABC):
         name,
     )
 
-    return result
+    return result, pytree
 
 
 class BenchmarksGenerator(abc.ABC):
@@ -396,6 +421,7 @@ class TestSuite:
       skip_incompatible_mesh_configs: bool = True,
       num_repeats: int = 1,
       local_directory: str | None = None,
+      reuse_checkpoint: bool = False,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
@@ -403,6 +429,9 @@ class TestSuite:
     self._num_repeats = num_repeats
     self._output_dir = output_dir
     self._local_directory = local_directory
+    self._reuse_checkpoint = reuse_checkpoint
+    self._cached_checkpoint_path = None
+    self._cached_pytree = None
     tensorboard_dir = None
     if output_dir:
       tensorboard_dir = epath.Path(output_dir) / "tensorboard"
@@ -437,6 +466,16 @@ class TestSuite:
         continue
 
       for benchmark in generated_benchmarks:
+        current_path = benchmark.checkpoint_config.path
+        # Clear cache if reuse is disabled or path changed/is None (generation)
+        if (
+            not self._reuse_checkpoint
+            or current_path is None
+            or current_path != self._cached_checkpoint_path
+        ):
+          self._cached_checkpoint_path = None
+          self._cached_pytree = None
+
         for i in range(self._num_repeats):
           repeat_index = i if self._num_repeats > 1 else None
           logging.info(
@@ -445,7 +484,15 @@ class TestSuite:
               i + 1,
               self._num_repeats,
           )
-          result = benchmark.run(repeat_index=repeat_index)
+          result, loaded_pytree = benchmark.run(
+              repeat_index=repeat_index,
+              pytree=self._cached_pytree,
+              reuse_checkpoint=self._reuse_checkpoint,
+          )
+          if self._reuse_checkpoint and current_path is not None:
+            self._cached_pytree = loaded_pytree
+            self._cached_checkpoint_path = current_path
+
           all_results.append(result)
           self._suite_metrics.add_result(
               benchmark.name,
@@ -459,5 +506,7 @@ class TestSuite:
       logging.warning("No benchmarks were run for this suite.")
 
     self._suite_metrics.generate_report()
+    self._cached_pytree = None  # Ensure memory is freed
+    self._cached_checkpoint_path = None
     multihost.sync_global_processes("test_suite:run_end")
     return all_results

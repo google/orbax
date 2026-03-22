@@ -208,6 +208,24 @@ benchmarks:
     test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
     self.assertEqual(test_suite._num_repeats, 5)
 
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_valid_creation_with_reuse_checkpoint(self, mock_import, mock_load):
+    yaml_content = """
+suite_name: Reuse Test Suite
+reuse_checkpoint: true
+benchmarks:
+  -
+    generator: MockGenerator
+    options:
+      param1: 10
+"""
+    mock_load.return_value = yaml.safe_load(yaml_content)
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+    self.assertTrue(test_suite._reuse_checkpoint)
+
   def _get_yaml_with_mesh_config(self):
     return """
 suite_name: Full Test Suite
