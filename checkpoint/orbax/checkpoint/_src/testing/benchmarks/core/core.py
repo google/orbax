@@ -159,6 +159,11 @@ class Benchmark(abc.ABC):
     path = directory_setup.setup_test_directory(
         self.name, self.output_dir, repeat_index
     )
+    local_path = None
+    if self.local_directory is not None:
+      local_path = epath.Path(self.local_directory) / name
+      if repeat_index is not None:
+        local_path = local_path / f"repeat_{repeat_index}"
 
     with benchmark_metrics.measure(
         "sync_global_processes:benchmark:setup_test_directory"
@@ -185,7 +190,7 @@ class Benchmark(abc.ABC):
         options=self.options,
         mesh=self.mesh,
         repeat_index=repeat_index,
-        local_path=self.local_directory,
+        local_path=local_path,
     )
 
     test_context_summary = self._build_test_context_summary(context)
