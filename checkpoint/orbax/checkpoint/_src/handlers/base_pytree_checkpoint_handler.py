@@ -49,6 +49,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import types as path_types
+from orbax.checkpoint._src.serialization import auto_concurrency
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -347,11 +348,12 @@ class BasePyTreeCheckpointHandler(
       *,
       save_concurrent_bytes: Optional[int] = None,
       restore_concurrent_bytes: Optional[int] = None,
-      save_device_host_concurrent_bytes: Optional[int] = None,
+      save_device_host_concurrent_bytes: Optional[Union[int, str]] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      async_options: Optional[options_lib.AsyncOptions] = None,
       type_handler_registry: TypeHandlerRegistry = type_handler_registry_lib.GLOBAL_TYPE_HANDLER_REGISTRY,
       enable_post_merge_validation: bool = True,
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
@@ -377,11 +379,14 @@ class BasePyTreeCheckpointHandler(
       save_device_host_concurrent_bytes: max concurrent bytes allowed to be
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
-        before a new array can start being transferred.
+        before a new array can start being transferred. If set to 'auto', the
+        limit will be determined dynamically based on the host memory limit and
+        the target ratio.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       use_compression: If True, use zstd compression.
       multiprocessing_options: See orbax.checkpoint.options.
+      async_options: See orbax.checkpoint.options.
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
       enable_post_merge_validation: If True, enables validation of the
@@ -408,6 +413,38 @@ class BasePyTreeCheckpointHandler(
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
+    self._auto_limit_bytes = None
+    if self._save_device_host_concurrent_bytes == 'auto':
+      self._last_peak_rss_gib = 0.0
+      host_limit_gib = None
+      controller_kwargs = {}
+
+      if async_options is not None:
+        if async_options.auto_concurrency_host_limit_gib is not None:
+          host_limit_gib = async_options.auto_concurrency_host_limit_gib
+        if async_options.auto_concurrency_target_ratio is not None:
+          controller_kwargs['target_ratio'] = (
+              async_options.auto_concurrency_target_ratio
+          )
+        if async_options.auto_concurrency_kp is not None:
+          controller_kwargs['kp'] = async_options.auto_concurrency_kp
+        if async_options.auto_concurrency_ki is not None:
+          controller_kwargs['ki'] = async_options.auto_concurrency_ki
+        if async_options.auto_concurrency_kd is not None:
+          controller_kwargs['kd'] = async_options.auto_concurrency_kd
+        if async_options.auto_concurrency_kb is not None:
+          controller_kwargs['kb'] = async_options.auto_concurrency_kb
+
+
+      if host_limit_gib is None:
+        raise ValueError(
+            'Could not determine host memory limit. Please specify'
+            ' auto_concurrency_host_limit_gib in AsyncOptions.'
+        )
+
+      self._memory_controller = auto_concurrency.MaxConcurrentMemoryController(
+          host_limit_gib=host_limit_gib, **controller_kwargs
+      )
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._use_compression = use_compression
@@ -656,9 +693,36 @@ class BasePyTreeCheckpointHandler(
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = limits.get_byte_limiter(self._save_concurrent_bytes)
-    device_host_byte_limiter = limits.get_byte_limiter(
-        self._save_device_host_concurrent_bytes
-    )
+
+    if self._save_device_host_concurrent_bytes == 'auto':
+      auto_concurrency.start_memory_profiler()
+      if self._auto_limit_bytes is None:
+        self._auto_limit_bytes = int(
+            self._memory_controller.max_memory_limit * 0.80 * (1024**3)
+        )
+      else:
+        new_limit_gib = self._memory_controller.get_next_memory_limit(
+            self._auto_limit_bytes / (1024**3),
+            self._last_peak_rss_gib,
+            auto_concurrency.get_previous_blocking_time_sec(),
+            auto_concurrency.get_expected_surge_gb(),
+        )
+        self._auto_limit_bytes = int(new_limit_gib * (1024**3))
+      jax.monitoring.record_scalar(
+          '/jax/orbax/write/auto_d2h_concurrent_gb',
+          self._auto_limit_bytes / (1024**3),
+      )
+      logging.info(
+          '[process=%d] Set auto save_device_host_concurrent_gb limit to:'
+          ' %s GiB',
+          multihost.process_index(),
+          self._auto_limit_bytes / (1024**3),
+      )
+      device_host_byte_limiter = limits.get_byte_limiter(self._auto_limit_bytes)
+    else:
+      device_host_byte_limiter = limits.get_byte_limiter(
+          self._save_device_host_concurrent_bytes
+      )
     param_infos = self._get_param_infos(
         item,
         directory,
@@ -752,6 +816,13 @@ class BasePyTreeCheckpointHandler(
         start_time,
         '/jax/orbax/write/blocking_gbytes_per_sec',
     )
+
+    def _finalize_profiler():
+      if self._save_device_host_concurrent_bytes == 'auto':
+        self._last_peak_rss_gib = (
+            auto_concurrency.stop_and_get_peak_memory_profiler_gib()
+        )
+
     chained_futures = [
         future.ChainedFuture(
             save_futures,
@@ -764,6 +835,13 @@ class BasePyTreeCheckpointHandler(
             ),
         )
     ]
+    if self._save_device_host_concurrent_bytes == 'auto':
+      chained_futures.append(
+          future.ChainedFuture(
+              save_futures,
+              _finalize_profiler,
+          )
+      )
     async_save_end_time = time.time()
     logging.info(
         '[process=%s][thread=%s] Initiated Pytree async_save. Time taken:'

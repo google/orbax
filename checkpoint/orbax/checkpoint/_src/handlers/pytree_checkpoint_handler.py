@@ -460,8 +460,10 @@ def _get_impl_save_args(
 
 
 def _concurrent_bytes(
-    concurrent_gb: int | None, *, use_default_if_none: bool = True
-) -> int | None:
+    concurrent_gb: Union[int, str, None], *, use_default_if_none: bool = True
+) -> Union[int, str, None]:
+  if concurrent_gb == 'auto':
+    return 'auto'
   if concurrent_gb is None:
     if use_default_if_none:
       return DEFAULT_CONCURRENT_GB * 10**9
@@ -500,11 +502,12 @@ class PyTreeCheckpointHandler(
       *,
       save_concurrent_gb: Optional[int] = None,
       restore_concurrent_gb: Optional[int] = None,
-      save_device_host_concurrent_gb: Optional[int] = None,
+      save_device_host_concurrent_gb: Optional[Union[int, str]] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       use_compression: bool = True,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      async_options: Optional[options_lib.AsyncOptions] = None,
       type_handler_registry: TypeHandlerRegistry = (
           handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
       ),
@@ -550,6 +553,7 @@ class PyTreeCheckpointHandler(
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
       use_compression: If True and zarr2 is used, use zstd compression.
       multiprocessing_options: See orbax.checkpoint.options
+      async_options: See orbax.checkpoint.options
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
       handler_impl: Allows overriding the internal implementation.
@@ -601,7 +605,8 @@ class PyTreeCheckpointHandler(
         use_zarr3=use_zarr3,
         use_compression=use_compression,
         multiprocessing_options=multiprocessing_options,
-        type_handler_registry=self._type_handler_registry,
+        async_options=async_options,
+        type_handler_registry=type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
