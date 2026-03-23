@@ -164,6 +164,61 @@ class SaveLoadTestBase:
       )
       test_utils.assert_tree_equal(self, self.pytree, restored)
 
+    @parameterized.named_parameters(
+        dict(
+            testcase_name='host_long_finalize',
+            stage_to_delay='host_finalize',
+            sleep_secs={0: 10, 1: 0},
+            expected_msg_primary=(
+                r'Timed out while waiting for finalize to complete'
+            ),
+            expected_msg_non_primary=(
+                r'Timeout waiting at barrier .*_finalize_complete'
+            ),
+        ),
+    )
+    def test_async_save_overall_timeout(
+        self,
+        stage_to_delay,
+        sleep_secs,
+        expected_msg_primary,
+        expected_msg_non_primary,
+    ):
+      timeout_secs = 3
+
+      original_finalize = ocp.handlers.PyTreeHandler._finalize
+
+      async def mock_finalize(self_handler, directory):
+        if 'finalize' in stage_to_delay:
+          await asyncio.sleep(sleep_secs.get(multihost.process_index(), 0))
+        return await original_finalize(self_handler, directory)
+
+      self.enter_context(
+          mock.patch.object(
+              ocp.handlers.PyTreeHandler,
+              '_finalize',
+              new=mock_finalize,
+          )
+      )
+
+      context = ocp.Context(
+          async_options=ocp.options.AsyncOptions(timeout_secs=timeout_secs)
+      )
+      self.enter_context(context)
+
+      start = time.time()
+      response = ocp.save_pytree_async(self.directory / 'timeout', self.pytree)
+
+      is_primary = multihost.is_primary_host(0)
+      msg = expected_msg_primary if is_primary else expected_msg_non_primary
+      with self.assertRaisesRegex(TimeoutError, msg):
+        response.result()
+
+      check_elapsed_time = False if is_primary else True
+      if check_elapsed_time:
+        elapsed = time.time() - start
+        self.assertAlmostEqual(elapsed, timeout_secs, delta=1.5)
+
     @parameterized.parameters(
         (tuple([]),),
         (dict(),),
