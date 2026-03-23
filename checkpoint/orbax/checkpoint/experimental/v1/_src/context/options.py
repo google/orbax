@@ -258,6 +258,28 @@ class PyTreeOptions:
 class ArrayOptions:
   """Options used to configure array saving and loading.
 
+  This dataclass defines the high-level configuration parameters for array
+  checkpointing operations within the Orbax framework. Because it is defined
+  as a frozen, keyword-only dataclass, instances are strictly immutable once
+  created, and all parameters must be explicitly specified by their keyword
+  names during initialization.
+
+  Example:
+    Configure array options with specific saving formats and loading behaviors::
+
+      from orbax.checkpoint.v1.options import ArrayOptions
+
+      options = ArrayOptions(
+          saving=ArrayOptions.Saving(
+              use_zarr3=True,
+              use_compression=False,
+              concurrent_bytes=1024 * 1024 * 100  # 100 MB
+          ),
+          loading=ArrayOptions.Loading(
+              enable_padding_and_truncation=True
+          )
+      )
+
   Attributes:
     saving: Options for saving arrays.
     loading: Options for loading arrays.
