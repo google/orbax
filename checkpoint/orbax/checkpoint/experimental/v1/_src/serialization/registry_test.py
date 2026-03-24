@@ -377,6 +377,38 @@ class RegistryTest(parameterized.TestCase):
     reg.add(int, int, DummyIntHandlerInt)
     self.assertLen(reg._entries, 1)
 
+  def test_secondary_typestr_override(self):
+    reg = registry.BaseLeafHandlerRegistry()
+    reg.add(
+        int,
+        int,
+        DummyIntHandlerInt,
+        secondary_typestrs=["original"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(DummyIntHandlerInt), ["original"]
+    )
+    # This should not trigger an update because override=False.
+    reg.add(
+        int,
+        int,
+        DummyIntHandlerInt,
+        secondary_typestrs=["updated"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(DummyIntHandlerInt), ["original"]
+    )
+    reg.add(
+        int,
+        int,
+        DummyIntHandlerInt,
+        secondary_typestrs=["updated"],
+        override=True,
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(DummyIntHandlerInt), ["updated"]
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

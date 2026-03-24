@@ -244,6 +244,14 @@ class BaseLeafHandlerRegistry:
           and e.abstract_type == abstract_type
           and e.handler_type == handler_type
       ):
+        if override and e.secondary_typestrs != secondary_typestrs:
+          logging.info(
+              'Updating secondary_typestrs for existing registration: %s -> %s',
+              e.secondary_typestrs,
+              secondary_typestrs,
+          )
+          e.secondary_typestrs = secondary_typestrs
+          return
         logging.info(
             'Registration already exists for leaf_type[%s], '
             'abstract_type[%s], handler_type[%s]. Skipping.',
