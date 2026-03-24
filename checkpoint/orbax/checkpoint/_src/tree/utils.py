@@ -307,6 +307,8 @@ def from_flat_dict(
     flat_dict: PyTree,
     target: Optional[PyTree] = None,
     sep: Optional[str] = None,
+    *,
+    inplace: bool = False,
 ) -> PyTree:
   """Reconstructs the original tree object from a flattened dictionary.
 
@@ -318,13 +320,18 @@ def from_flat_dict(
       exactly. Note, if not provided, the keys in `flat_dict` need to match
       `sep`.
     sep: separator used for nested keys in `flat_dict`.
+    inplace: If True, removes items from flat_dict as they are added to the
+      result.
 
   Returns:
     A dict matching the structure of `tree` with the values of `flat_dict`.
   """
+  if inplace and not isinstance(flat_dict, dict):
+    raise ValueError('Inplace operations require flat_dict to be a dict.')
   if target is None:
     result = {}
-    for k, v in flat_dict.items():
+    for k in list(flat_dict):
+      v = flat_dict.pop(k) if inplace else flat_dict[k]
       subtree = result
       if sep is None:
         assert isinstance(k, tuple)
@@ -344,8 +351,12 @@ def from_flat_dict(
     flat_structure = to_flat_dict(target, sep=sep)
     # Ensure that the ordering of `flat_dict` keys matches that of `target`.
     # Necessary for later unflattening.
-    flat_dict = {k: flat_dict[k] for k in flat_structure.keys()}
-    return jax.tree.unflatten(jax.tree.structure(target), flat_dict.values())
+    ordered_keys = flat_structure.keys()
+    if inplace:
+      values = [flat_dict.pop(k) for k in ordered_keys]
+    else:
+      values = [flat_dict[k] for k in ordered_keys]
+    return jax.tree.unflatten(jax.tree.structure(target), values)
 
 
 def str_keypath(keypath: Tuple[Any, ...]) -> Tuple[str, ...]:
