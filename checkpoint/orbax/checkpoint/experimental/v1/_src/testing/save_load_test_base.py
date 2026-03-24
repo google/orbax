@@ -42,6 +42,9 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
+from orbax.checkpoint.experimental.v1._src.serialization import registry as serialization_registry
+from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
@@ -328,6 +331,66 @@ class SaveLoadTestBase:
             ocp.load_pytree(
                 self.directory / subdir, [np.array([], dtype=np.int64)]
             ),
+        )
+
+    def test_custom_array_type(self):
+      # Set up local context with custom registry.
+      custom_registry = serialization_registry.StandardLeafHandlerRegistry()
+      custom_registry.add(
+          handler_utils.LazyArray,
+          handler_utils.AbstractLazyArray,
+          handler_utils.LazyArrayHandler,
+      )
+
+      custom_context = ocp.Context(
+          pytree_options=ocp.options.PyTreeOptions(
+              leaf_handler_registry=custom_registry
+          )
+      )
+
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+      lazy_arr = handler_utils.LazyArray(
+          create_sharded_array(np.arange(16), sharding)
+      )
+      pytree = {'a': lazy_arr}
+
+      with custom_context:
+        ocp.save_pytree(self.directory, pytree)
+
+      # Attempt to load without context (using global default registry), which
+      # should fail
+      with self.assertRaisesRegex(ValueError, 'TypeHandler lookup failed'):
+        ocp.load_pytree(self.directory)
+
+      # Load with the custom registry context
+      with custom_context:
+        loaded = ocp.load_pytree(self.directory)
+        self.assertEqual(loaded['a'].array.shape, lazy_arr.array.shape)
+        np.testing.assert_array_equal(loaded['a'].array, lazy_arr.array)
+
+      # Load custom array directly as jax.Array by mapping secondary_typestr
+      custom_registry2 = serialization_registry.StandardLeafHandlerRegistry()
+      # Override the default jax.Array handler with LazyArray typestr,
+      # ensuring that the serialized jax.array annotated with original LazyArray
+      # typestr is loaded as a jax.Array.
+      custom_registry2.add(
+          jax.Array,
+          types.AbstractShardedArray,
+          array_leaf_handler.ArrayLeafHandler,
+          secondary_typestrs=[str(handler_utils.LazyArray)],
+          override=True,
+      )
+      custom_context2 = ocp.Context(
+          pytree_options=ocp.options.PyTreeOptions(
+              leaf_handler_registry=custom_registry2
+          )
+      )
+      with custom_context2:
+        loaded_as_jax_array = ocp.load_pytree(self.directory)
+        self.assertIsInstance(loaded_as_jax_array['a'], jax.Array)
+        np.testing.assert_array_equal(
+            loaded_as_jax_array['a'], lazy_arr.array
         )
 
     def test_empty_array(self):

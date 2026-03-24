@@ -30,35 +30,47 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 import typing_extensions
 
 
-# The standard type and abstract type to handler mapping.
+# The standard type, abstract type, and optional typestrs to handler mapping.
 # The type to abstract type pairs are well defined standard and users should
 # rarely need to override the pair.
-STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER = {
+STANDARD_TYPE_AND_ABSTRACT_TYPE_AND_TYPESTR_TO_HANDLER = [
     (
         jax.Array,
         types.AbstractShardedArray,
-    ): array_leaf_handler.ArrayLeafHandler,
+        ['jax.Array'],
+        array_leaf_handler.ArrayLeafHandler,
+    ),
     (
         np.ndarray,
         types.AbstractArray,
-    ): numpy_leaf_handler.NumpyLeafHandler,
+        ['np.ndarray'],
+        numpy_leaf_handler.NumpyLeafHandler,
+    ),
     (
         int,
         int,
-    ): scalar_leaf_handler.ScalarLeafHandler,
+        ['scalar'],
+        scalar_leaf_handler.ScalarLeafHandler,
+    ),
     (
         float,
         float,
-    ): scalar_leaf_handler.ScalarLeafHandler,
+        ['scalar'],
+        scalar_leaf_handler.ScalarLeafHandler,
+    ),
     (
         bytes,
         bytes,
-    ): scalar_leaf_handler.ScalarLeafHandler,
+        ['scalar'],
+        scalar_leaf_handler.ScalarLeafHandler,
+    ),
     (
         str,
         str,
-    ): string_leaf_handler.StringLeafHandler,
-}
+        ['string'],
+        string_leaf_handler.StringLeafHandler,
+    ),
+]
 
 
 @dataclasses.dataclass
@@ -406,5 +418,7 @@ class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):
     for (
         ty,
         abstract_ty,
-    ), handler_class in STANDARD_TYPE_AND_ABSTRACT_TYPE_TO_HANDLER.items():
-      self.add(ty, abstract_ty, handler_class)
+        typestrs,
+        handler_class,
+    ) in STANDARD_TYPE_AND_ABSTRACT_TYPE_AND_TYPESTR_TO_HANDLER:
+      self.add(ty, abstract_ty, handler_class, secondary_typestrs=typestrs)

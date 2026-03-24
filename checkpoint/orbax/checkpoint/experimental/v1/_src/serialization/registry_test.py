@@ -409,6 +409,33 @@ class RegistryTest(parameterized.TestCase):
         reg.get_secondary_typestrs(DummyIntHandlerInt), ["updated"]
     )
 
+  def test_standard_registrations(self):
+    reg = registry.StandardLeafHandlerRegistry()
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.array_leaf_handler.ArrayLeafHandler
+        ),
+        ["jax.Array"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.numpy_leaf_handler.NumpyLeafHandler
+        ),
+        ["np.ndarray"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.scalar_leaf_handler.ScalarLeafHandler
+        ),
+        ["scalar"],
+    )
+    self.assertEqual(
+        reg.get_secondary_typestrs(
+            registry.string_leaf_handler.StringLeafHandler
+        ),
+        ["string"],
+    )
+
 
 if __name__ == "__main__":
   absltest.main()
