@@ -295,7 +295,7 @@ class Checkpointer(epy.ContextManager):
         automatically manages the step-based directory structure inside your
         root folder::
 
-            from orbax.checkpoint.experimental.v1 import training
+            from orbax.checkpoint.v1 import training
 
             # Initialize the checkpointer for a directory
             ckptr = training.Checkpointer(directory)
@@ -310,7 +310,7 @@ class Checkpointer(epy.ContextManager):
         Attach JSON-serializable metrics (like loss/accuracy) and custom
         metadata to a specific step for thorough experiment tracking::
 
-            from orbax.checkpoint.experimental.v1 import training
+            from orbax.checkpoint.v1 import training
 
             ckptr = training.Checkpointer(directory)
 
@@ -372,7 +372,7 @@ class Checkpointer(epy.ContextManager):
          Save multiple named items (checkpointables) at a specific step. The
          dictionary keys define the names of the saved components::
 
-            from orbax.checkpoint.experimental.v1 import training
+            from orbax.checkpoint.v1 import training
 
             # Initialize the checkpointer for a directory
             ckptr = training.Checkpointer(directory)
@@ -395,7 +395,7 @@ class Checkpointer(epy.ContextManager):
          Attach JSON-serializable metrics and custom metadata to a specific step
          for thorough experiment tracking::
 
-            from orbax.checkpoint.experimental.v1 import training
+            from orbax.checkpoint.v1 import training
 
             ckptr = training.Checkpointer(directory)
             items_to_save = {'model': my_model_state}
@@ -445,28 +445,31 @@ class Checkpointer(epy.ContextManager):
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
-    """Saves a checkpoint asynchronously, if dictated by :py:class:`.SaveDecisionPolicy`.
+    """Saves a checkpoint asynchronously.
 
-    See documentation for :py:func:`.save_pytree` for full details. This
-    function is essentially the same, except that it executes mostly in the
-    background, and blocks for as little time as possible (primarily to
-    transfer weights from device to host).
+    This function is the asynchronous equivalent of
+    :py:func:`~orbax.checkpoint.v1.save_pytree`. It accepts the exact same
+    arguments; please refer to that method for detailed descriptions.
+
+    This method executes mostly in the background, blocking the main thread for
+    as little time as possible.
+
+    Example:
+      ::
+
+        async_response = ckptr.save_pytree_async(step=0, pytree=tree)
+        saved = async_response.result()
 
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
-      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
-        always decides to save a checkpoint.
-      overwrite: If True, deletes any existing checkpoint at the given step
-        before saving. Otherwise, raises an error if the checkpoint already
-        exists.
-      metrics: A PyTree of metrics to be saved with the checkpoint.
-      custom_metadata: A JSON dictionary representing user-specified custom
-        metadata. This should be information that is relevant to the checkpoint
-        at the given step, rather than to the entire sequence of checkpoints.
+      force: See `save_pytree`.
+      overwrite: See `save_pytree`.
+      metrics: See `save_pytree`.
+      custom_metadata: See `save_pytree`.
 
     Returns:
-      An AsyncResponse, which can be awaited via `result()`, which returns a
+      An `AsyncResponse`, which can be awaited via `result()`, which returns a
       bool indicating whether a checkpoint was saved or not.
     """
     return self.save_checkpointables_async(
@@ -488,7 +491,38 @@ class Checkpointer(epy.ContextManager):
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ) -> async_types.AsyncResponse[bool]:
-    """Saves a set of checkpointables asynchronously at the given step."""
+    """Saves checkpointable objects asynchronously.
+
+    This function is the asynchronous equivalent of
+    :py:func:`~orbax.checkpoint.v1.save_checkpointables`. Please refer to that
+    method for detailed instructions and argument descriptions.
+
+    Example:
+      Save checkpointable objects asynchronously::
+
+        async_response = ckptr.save_checkpointables_async(
+            step=0,
+            checkpointables=items_to_save
+        )
+        saved = async_response.result()
+
+    Args:
+      step: The step number to save.
+      checkpointables: A dictionary mapping string names to objects to save.
+      force: See `save_checkpointables`.
+      overwrite: See `save_checkpointables`.
+      metrics: See `save_checkpointables`.
+      custom_metadata: See `save_checkpointables`.
+
+    Returns:
+      An object representing the background operation. Call `.result()` on it
+      to block and return a boolean indicating whether the checkpoint was
+      successfully saved.
+
+    Raises:
+      StepAlreadyExistsError: If `overwrite` is False and a checkpoint at the
+        target `step` already exists.
+    """
     if overwrite:
       logging.info(
           'Specified `overwrite`: deleting existing checkpoint %d if it'
