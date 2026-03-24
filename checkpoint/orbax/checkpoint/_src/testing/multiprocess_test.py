@@ -172,10 +172,17 @@ def _main(argv):
       # We must set a CLOUD_TPU_TASK_ID, otherwise the TPU runtime expects to
       # be able to look up the Borg task number from the Borglet info.
       env["CLOUD_TPU_TASK_ID"] = str(i)
+      chip_i = i
+      if num_tpu_chips == 4 and tpu_chips_per_process == 1:
+        # Prevent mismatch between jax_task_id and TPU Host ID.
+        # DeepSea slice builder's 2,2,1 layout maps chip 1 to host 2
+        # and chip 2 to host 1.
+        chip_mapping = {0: 0, 1: 2, 2: 1, 3: 3}
+        chip_i = chip_mapping[i]
       chips = list(
           range(
-              i * tpu_chips_per_process,
-              (i + 1) * tpu_chips_per_process,
+              chip_i * tpu_chips_per_process,
+              (chip_i + 1) * tpu_chips_per_process,
           )
       )
       excluded_chips = [d for d in range(num_tpu_chips) if d not in chips]
