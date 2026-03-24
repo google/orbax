@@ -268,6 +268,8 @@ def to_flat_dict(
     sep: Optional[str] = None,
     keep_empty_nodes: bool = False,
     is_leaf: Optional[Callable[[Any], bool]] = None,
+    *,
+    inplace: bool = False,
 ) -> PyTree:
   """Converts a tree into a flattened dictionary.
 
@@ -289,11 +291,62 @@ def to_flat_dict(
     keep_empty_nodes: If True, empty nodes are not filtered out.
     is_leaf: If provided, a function that returns True if a value is a leaf.
       Overrides `keep_empty_nodes` if that is also provided.
+    inplace: If True, recursively clears lists and dicts from the input tree to
+      free memory as quickly as possible.
 
   Returns:
     A flattened dictionary and the tree structure.
   """
   is_leaf = is_leaf or (is_empty_or_leaf if keep_empty_nodes else None)
+
+  if inplace:
+    flat_dict = {}
+
+    def _dfs(node, current_path):
+      if is_leaf is not None and is_leaf(node):
+        flat_dict[current_path] = node
+        return
+
+      try:
+        keys_and_children, _ = tree_flatten_with_path_one_level(node)
+      except ValueError:
+        # node cannot be further flattened, so it is a leaf.
+        flat_dict[current_path] = node
+        return
+
+      if len(keys_and_children) == 1 and not keys_and_children[0][0]:
+        flat_dict[current_path] = node
+        return
+
+      if not keys_and_children:
+        if keep_empty_nodes:
+          flat_dict[current_path] = node
+        return
+
+      keys_and_children = list(keys_and_children)
+      for i in range(len(keys_and_children)):
+        py_key, val = keys_and_children[i]
+        # Inplace modification of keys_and_children.
+        keys_and_children[i] = None
+
+        step = str(get_key_name(py_key[0]))
+        # Clear the key from the node.
+        if isinstance(node, dict):
+          node.pop(get_key_name(py_key[0]), None)
+        elif isinstance(node, list):
+          node[get_key_name(py_key[0])] = None
+
+        # Update the current path.
+        if sep is not None:
+          next_path = f'{current_path}{sep}{step}' if current_path else step
+        else:
+          next_path = current_path + (step,) if current_path else (step,)
+
+        _dfs(val, next_path)
+
+    _dfs(tree, '' if sep is not None else ())
+    return flat_dict
+
   flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(
       tree, is_leaf=is_leaf
   )
@@ -424,10 +477,12 @@ def look_up_pytree_key(pytree: PyTreeOf[T], key: PyTreeKey) -> PyTreeOf[T]:
 
 def _pytree_key_as_tree_key(key: PyTreeKey) -> TreeKey:
   match key:
-    case (jtu.SequenceKey(idx=k)
-          | jtu.DictKey(key=k)
-          | jtu.FlattenedIndexKey(key=k)
-          | jtu.GetAttrKey(name=k)):
+    case (
+        jtu.SequenceKey(idx=k)
+        | jtu.DictKey(key=k)
+        | jtu.FlattenedIndexKey(key=k)
+        | jtu.GetAttrKey(name=k)
+    ):
       return k  # pytype: disable=bad-return-type
   raise KeyError(f'Cannot convert unexpected PyTreeKey to TreeKey: {key!r}')
 
