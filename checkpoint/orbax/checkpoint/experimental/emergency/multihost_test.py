@@ -20,12 +20,13 @@ import logging
 import math
 import sys
 
-from absl.testing import absltest
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.emergency import multihost as emergency_multihost
+
+from absl.testing import absltest
 
 
 def create_global_mesh(mesh_shape, axis_names, devices=None):
@@ -47,7 +48,7 @@ def find_start_index_where(array, predicate):
 
 
 # Declare as global variable so that it can be overridden.
-class MultihostTest(absltest.TestCase):
+class MultihostTest(googletest.TestCase):
   pass
 
 
@@ -207,7 +208,7 @@ get_test_class(multiprocess_test.MultiProcessTest)
 if __name__ == "__main__":
   # Use Megascale test driver if megascale flags are set.
   if any(True for _ in filter(lambda x: x.startswith("--megascale"), sys.argv)):
-    get_test_class(absltest.TestCase)
-    absltest.main()
+    get_test_class(googletest.TestCase)
+    googletest.main()
   else:
     multiprocess_test.main()
