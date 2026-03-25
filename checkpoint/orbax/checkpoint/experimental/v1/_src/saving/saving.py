@@ -26,6 +26,7 @@ import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pyl
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import execution
+from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -70,12 +71,13 @@ def save_pytree(
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  save_checkpointables(
+  execution.save_checkpointables_impl(
       path,
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
-  )
+      async_origin=False,
+  ).result()
 
 
 def save_checkpointables(
@@ -131,6 +133,7 @@ def save_checkpointables(
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
+  validation.validate_abstract_checkpointables(checkpointables)
   execution.save_checkpointables_impl(
       path,
       checkpointables,
@@ -200,11 +203,12 @@ def save_pytree_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
-  return save_checkpointables_async(
+  return execution.save_checkpointables_impl(
       path,
       {PYTREE_CHECKPOINTABLE_KEY: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
+      async_origin=True,
   )
 
 
@@ -275,6 +279,7 @@ def save_checkpointables_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
+  validation.validate_abstract_checkpointables(checkpointables)
   return execution.save_checkpointables_impl(
       path,
       checkpointables,
@@ -303,13 +308,6 @@ def get_v0_checkpointer_and_args(
   Returns:
     A tuple containing the V0 Checkpointer and Args.
   """
-  if (
-      provided_reserved_keys := checkpointables.keys()
-      & checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
-  ):
-    raise ValueError(
-        f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
-    )
   checkpointables = execution.add_internal_checkpointables(
       checkpointables, context=context, metrics=metrics
   )

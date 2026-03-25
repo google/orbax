@@ -39,6 +39,7 @@ from orbax.checkpoint.experimental.v1._src.metadata import serialization as meta
 from orbax.checkpoint.experimental.v1._src.path import async_utils as path_async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import path_utils as saving_path_utils
+from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
@@ -371,6 +372,7 @@ def save_checkpointables_impl(
     partial_save: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
+  validation.validate_abstract_checkpointables(checkpointables)
   start_time = time.time()
   event_tracking.record_save_start(path, async_origin=async_origin)
   # Ensure the operation ID is incremented as soon as possible. This must be

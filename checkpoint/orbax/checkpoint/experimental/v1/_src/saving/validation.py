@@ -12,37 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Validation functions involved in loading."""
+"""Validation functions involved in saving."""
 
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
 RESERVED_CHECKPOINTABLE_KEYS = checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
-
-
-def validate_pytree_checkpointable_name(
-    checkpointable_name: str | None,
-):
-  """Validates the checkpointable name.
-
-  Args:
-    checkpointable_name: The name of the checkpointable.
-
-  Raises:
-    ValueError: If the checkpointable name is reserved.
-  """
-  if checkpointable_name is None:
-    return
-  if checkpointable_name == EMPTY_CHECKPOINTABLE_KEY:
-    raise ValueError(
-        'Empty string is not supported as a checkpointable name in'
-        ' `load_pytree`. Checkpointable name must be a valid non-empty string'
-        ' name or None if loading a legacy V0 direct pytree checkpoint.'
-    )
-  if checkpointable_name in RESERVED_CHECKPOINTABLE_KEYS:
-    raise ValueError(
-        f'Provided reserved checkpointable key: {checkpointable_name}.'
-    )
 
 
 def validate_abstract_checkpointables(abstract_checkpointables):
@@ -59,7 +34,7 @@ def validate_abstract_checkpointables(abstract_checkpointables):
   if EMPTY_CHECKPOINTABLE_KEY in abstract_checkpointables:
     raise ValueError(
         'Empty string is not supported as a checkpointable name in'
-        ' `load_checkpointables`. Each checkpointable name must be a valid'
+        ' `save_checkpointables`. Each checkpointable name must be a valid'
         ' non-empty string name.'
     )
   if (
