@@ -231,7 +231,7 @@ def get_barrier_sync_fn(
     block until either 1) all processes have reached the barrier or
     2) the timeout is exceeded.
   """
-  if jax.process_count() == 1:
+  if should_skip_process_sync(processes):
     return lambda **kwargs: None
 
   client = get_jax_distributed_client()

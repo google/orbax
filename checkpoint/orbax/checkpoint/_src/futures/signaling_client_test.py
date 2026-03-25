@@ -285,9 +285,15 @@ class TestGetSignalingClient(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
+    signaling_client.set_force_threadsafe_signaling_client(False)
     signaling_client.get_signaling_client.cache_clear()
 
   def tearDown(self):
+    signaling_client.set_force_threadsafe_signaling_client(False)
+    while getattr(
+        signaling_client, "_THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT", 0
+    ):
+      signaling_client.release_threadsafe_signaling_client_override()
     super().tearDown()
     signaling_client.get_signaling_client.cache_clear()
 
@@ -343,6 +349,57 @@ class TestGetSignalingClient(absltest.TestCase):
       signaling_client.get_signaling_client()
     mock_is_init.assert_called_once()
     mock_process_count.assert_called_once()
+
+  @mock.patch.object(
+      multihost, "is_jax_distributed_client_initialized", return_value=False
+  )
+  @mock.patch.object(multihost, "process_count", return_value=2)
+  def test_force_override_allows_threadsafe_client_in_multiprocess(
+      self, mock_is_init, mock_process_count
+  ):
+    signaling_client.set_force_threadsafe_signaling_client(True)
+
+    client = signaling_client.get_signaling_client()
+
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+    mock_is_init.assert_called_once()
+    mock_process_count.assert_called_once()
+
+  @mock.patch.object(
+      multihost, "is_jax_distributed_client_initialized", return_value=False
+  )
+  @mock.patch.object(multihost, "process_count", return_value=2)
+  def test_acquire_release_override_is_reference_counted(
+      self, mock_is_init, mock_process_count
+  ):
+    signaling_client.acquire_threadsafe_signaling_client_override()
+    signaling_client.acquire_threadsafe_signaling_client_override()
+    self.addCleanup(
+        lambda: setattr(
+            signaling_client, "_THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT", 0
+        )
+    )
+
+    client = signaling_client.get_signaling_client()
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+
+    signaling_client.release_threadsafe_signaling_client_override()
+    signaling_client.get_signaling_client.cache_clear()
+    client = signaling_client.get_signaling_client()
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+
+    signaling_client.release_threadsafe_signaling_client_override()
+    signaling_client.get_signaling_client.cache_clear()
+    with self.assertRaisesRegex(RuntimeError, "process count: 2"):
+      signaling_client.get_signaling_client()
+    mock_is_init.assert_called()
+    mock_process_count.assert_called()
 
 
 if __name__ == "__main__":

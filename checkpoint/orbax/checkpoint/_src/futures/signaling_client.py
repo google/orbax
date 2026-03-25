@@ -17,11 +17,43 @@
 import functools
 import threading
 import time
-from typing import Sequence
+from typing import Optional, Sequence
 from absl import logging
 import jax
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
+
+
+_FORCE_THREADSAFE_SIGNALING_CLIENT = False
+_THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT = 0
+_OVERRIDE_LOCK = threading.RLock()
+
+
+def set_force_threadsafe_signaling_client(force: bool) -> None:
+  """Overrides signaling-client selection for the current process."""
+  global _FORCE_THREADSAFE_SIGNALING_CLIENT
+  with _OVERRIDE_LOCK:
+    _FORCE_THREADSAFE_SIGNALING_CLIENT = force
+    get_signaling_client.cache_clear()
+
+
+def acquire_threadsafe_signaling_client_override() -> None:
+  """Enables the threadsafe signaling override for the current process."""
+  global _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT
+  with _OVERRIDE_LOCK:
+    _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT += 1
+    set_force_threadsafe_signaling_client(True)
+
+
+def release_threadsafe_signaling_client_override() -> None:
+  """Releases one threadsafe signaling override reference for this process."""
+  global _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT
+  with _OVERRIDE_LOCK:
+    _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT = max(
+        0, _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT - 1
+    )
+    if _THREADSAFE_SIGNALING_OVERRIDE_REFCOUNT == 0:
+      set_force_threadsafe_signaling_client(False)
 
 
 class SignalingClient(Protocol):
@@ -50,7 +82,7 @@ class SignalingClient(Protocol):
     """
     ...
 
-  def key_value_try_get(self, key: str) -> str | None:
+  def key_value_try_get(self, key: str) -> Optional[str]:
     """Tries to get the value for a given key in the client without blocking.
 
     Args:
@@ -82,7 +114,7 @@ class SignalingClient(Protocol):
       key: str,
       *,
       timeout_secs: int,
-      process_ids: Sequence[int] | None = None,
+      process_ids: Optional[Sequence[int]] = None,
   ):
     """Waits at a barrier identified by key.
 
@@ -136,7 +168,7 @@ class JaxDistributedSignalingClient(SignalingClient):
     """
     return str(self._client.blocking_key_value_get(key, timeout_secs * 1000))
 
-  def key_value_try_get(self, key: str) -> str | None:
+  def key_value_try_get(self, key: str) -> Optional[str]:
     """Tries to get the value for a given key in the client without blocking.
 
     Args:
@@ -187,7 +219,7 @@ class JaxDistributedSignalingClient(SignalingClient):
       key: str,
       *,
       timeout_secs: int,
-      process_ids: Sequence[int] | None = None,
+      process_ids: Optional[Sequence[int]] = None,
   ):
     """Waits at a barrier identified by key.
 
@@ -284,7 +316,7 @@ class ThreadSafeKeyValueSignalingClient(SignalingClient):
 
       return self._data[key]
 
-  def key_value_try_get(self, key: str) -> str | None:
+  def key_value_try_get(self, key: str) -> Optional[str]:
     """Tries to get the value for a key without blocking.
 
     Args:
@@ -342,7 +374,7 @@ class ThreadSafeKeyValueSignalingClient(SignalingClient):
       key: str,
       *,
       timeout_secs: int,
-      process_ids: Sequence[int] | None = None,
+      process_ids: Optional[Sequence[int]] = None,
   ):
     """Waits at a barrier identified by key.
 
@@ -363,12 +395,24 @@ def get_signaling_client() -> SignalingClient:
   if multihost.is_jax_distributed_client_initialized():
     logging.info("Using JaxDistributedSignalingClient")
     return JaxDistributedSignalingClient()
-  else:
-    process_count = multihost.process_count()
-    if process_count > 1:
-      raise RuntimeError(
-          "ThreadSafeKeyValueSignalingClient should only be used in a single"
-          f" controller setup, process count: {process_count}."
-      )
+
+  process_count = multihost.process_count()
+  if process_count == 1:
     logging.info("Using ThreadSafeKeyValueSignalingClient")
     return ThreadSafeKeyValueSignalingClient()
+
+  # Pathways sidecars run with process_count > 1 but do not initialize the JAX
+  # distributed client. Allow the in-process client only when that sidecar path
+  # explicitly opts in via `set_force_threadsafe_signaling_client(True)`.
+  if _FORCE_THREADSAFE_SIGNALING_CLIENT:
+    logging.warning(
+        "Using ThreadSafeKeyValueSignalingClient with process_count=%s because"
+        " force override is enabled and JAX distributed client is unavailable.",
+        process_count,
+    )
+    return ThreadSafeKeyValueSignalingClient()
+
+  raise RuntimeError(
+      "ThreadSafeKeyValueSignalingClient should only be used in a single"
+      f" controller setup, process count: {process_count}."
+  )
