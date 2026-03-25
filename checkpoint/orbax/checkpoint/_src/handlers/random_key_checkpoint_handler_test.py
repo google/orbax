@@ -14,20 +14,15 @@
 
 """Tests for RandomKeyCheckpointHandler."""
 
-import threading
-from unittest import mock
-
 from absl.testing import absltest
 from etils import epath
 import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import random_key_checkpoint_handler
-from orbax.checkpoint._src.path import atomicity
 
 # Parse absl flags test_srcdir and test_tmpdir.
 jax.config.parse_flags_with_absl()
@@ -210,49 +205,6 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
     )
     self.assert_tuple_equal(np_legacy_key, restored['numpy_legacy_key'])
     self.assert_dict_equal(np_nonlegacy_key, restored['numpy_nonlegacy_key'])
-
-  def test_async_save_with_deferred_path(self):
-    typed_key = jax.random.key(42)
-    handler = JaxRandomKeyCheckpointHandler('typed_key')
-    deferred_path = atomicity.DeferredPath()
-    save_dir = self.directory / 'deferred_path_ckpt'
-    await_creation_called = False
-    original_await = atomicity.DeferredPath.await_creation
-    set_path_lock = threading.Lock()
-
-    async def mock_await_creation(dp_self):
-      nonlocal await_creation_called
-      with set_path_lock:
-        if not dp_self._future_path.done():
-          save_dir.mkdir(parents=True, exist_ok=True)
-          dp_self.set_path(save_dir)
-      await_creation_called = True
-      return await original_await(dp_self)
-
-    with mock.patch.object(
-        atomicity.DeferredPath,
-        'await_creation',
-        mock_await_creation,
-    ):
-
-      async def run():
-        futures = await handler.async_save(
-            deferred_path, args=args_lib.JaxRandomKeySave(item=typed_key)
-        )
-        if futures:
-          for f in futures:
-            f.result()
-
-      asyncio_utils.run_sync(run())
-
-    self.assertTrue(await_creation_called)
-    handler.finalize(save_dir)
-
-    restore_handler = JaxRandomKeyCheckpointHandler('typed_key')
-    restored = restore_handler.restore(
-        directory=save_dir, args=args_lib.JaxRandomKeyRestore()
-    )
-    self.assertTrue(jax.numpy.array_equal(typed_key, restored))
 
 
 if __name__ == '__main__':

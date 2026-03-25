@@ -30,15 +30,12 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
-from orbax.checkpoint._src.path import types as path_types
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 register_with_handler = checkpoint_args.register_with_handler
 
 
-class JsonCheckpointHandler(
-    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
-):
+class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
   """Saves nested dictionary using json."""
 
   def __init__(
@@ -57,18 +54,14 @@ class JsonCheckpointHandler(
     self._filename = filename or 'metadata'
     self._primary_host = multiprocessing_options.primary_host
 
-  async def _save_fn(
-      self, x, directory: epath.Path | path_types.PathAwaitingCreation
-  ):
-    if isinstance(directory, path_types.PathAwaitingCreation):
-      directory = await directory.await_creation()
+  async def _save_fn(self, x, directory):
     if utils.is_primary_host(self._primary_host):
       path = directory / self._filename
       path.write_text(json.dumps(x))
 
   async def async_save(
       self,
-      directory: epath.Path | path_types.PathAwaitingCreation,
+      directory: epath.Path,
       item: Optional[Mapping[str, Any]] = None,
       args: Optional[JsonSaveArgs] = None,
   ) -> Optional[List[future.Future]]:

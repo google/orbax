@@ -31,7 +31,6 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
-from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import type_handlers
 
 NumpyRandomKeyType = Union[tuple, dict]
@@ -51,7 +50,7 @@ register_with_handler = checkpoint_args.register_with_handler
 
 
 class BaseRandomKeyCheckpointHandler(
-    async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
+    async_checkpoint_handler.AsyncCheckpointHandler
 ):
   """Base handle saving and restoring individual Jax random key in both typed and untyped format."""
 
@@ -111,7 +110,7 @@ class BaseRandomKeyCheckpointHandler(
 
   async def async_save(
       self,
-      directory: epath.Path | path_types.PathAwaitingCreation,
+      directory: epath.Path,
       args: CheckpointArgs,
   ) -> Optional[List[future.Future]]:
     """Saves a random key asynchronously.
@@ -123,8 +122,6 @@ class BaseRandomKeyCheckpointHandler(
     Returns:
       A list of commit futures which can be run to complete the save.
     """
-    if isinstance(directory, path_types.PathAwaitingCreation):
-      directory = await directory.await_creation()
     item_arg, metadata_arg = self.checkpoint_save_args(args)
     return await self._handler.async_save(
         directory,
