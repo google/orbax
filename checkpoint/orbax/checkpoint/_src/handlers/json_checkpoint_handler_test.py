@@ -14,8 +14,10 @@
 
 """Tests for JsonCheckpointHandler."""
 
+import threading
 import time
 from typing import Optional
+from unittest import mock
 
 from absl import flags
 from absl.testing import absltest
@@ -23,6 +25,7 @@ from etils import epath
 import jax
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
+from orbax.checkpoint._src.path import atomicity
 
 # Parse absl flags test_srcdir and test_tmpdir.
 jax.config.parse_flags_with_absl()
@@ -91,6 +94,44 @@ class JsonCheckpointHandlerTest(absltest.TestCase):
 
     asyncio_utils.run_sync(run_async_test())
     handler.close()
+
+  def test_async_save_with_deferred_path(self):
+    item = {'key': 'value'}
+    handler = JsonCheckpointHandler(filename='custom.json')
+    deferred_path = atomicity.DeferredPath()
+    save_dir = self.directory / 'deferred_path_ckpt'
+    await_creation_called = False
+    original_await = atomicity.DeferredPath.await_creation
+    set_path_lock = threading.Lock()
+
+    async def mock_await_creation(dp_self):
+      nonlocal await_creation_called
+      with set_path_lock:
+        if not dp_self._future_path.done():
+          save_dir.mkdir(parents=True, exist_ok=True)
+          dp_self.set_path(save_dir)
+      await_creation_called = True
+      return await original_await(dp_self)
+
+    with mock.patch.object(
+        atomicity.DeferredPath,
+        'await_creation',
+        mock_await_creation,
+    ):
+
+      async def run():
+        futures = await handler.async_save(
+            deferred_path, args=JsonSaveArgs(item)
+        )
+        for f in futures:
+          f.result()
+
+      asyncio_utils.run_sync(run())
+
+    self.assertTrue(await_creation_called)
+    self.assertTrue((save_dir / 'custom.json').exists())
+    restored = handler.restore(save_dir)
+    self.assertEqual(item, restored)
 
 
 if __name__ == '__main__':
