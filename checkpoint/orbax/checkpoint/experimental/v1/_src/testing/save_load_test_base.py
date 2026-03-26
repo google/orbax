@@ -171,7 +171,7 @@ class SaveLoadTestBase:
         dict(
             testcase_name='host_long_finalize',
             stage_to_delay='host_finalize',
-            sleep_secs={0: 10, 1: 0},
+            sleep_secs={0: 20, 1: 0},
             expected_msg_primary=(
                 r'Timed out while waiting for finalize to complete'
             ),
@@ -187,7 +187,7 @@ class SaveLoadTestBase:
         expected_msg_primary,
         expected_msg_non_primary,
     ):
-      timeout_secs = 3
+      timeout_secs = 10
 
       original_finalize = ocp.handlers.PyTreeHandler._finalize
 
