@@ -261,7 +261,6 @@ class OrbaxV0Layout(CheckpointLayout):
     except BaseException as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V0 Orbax checkpoint."
-          f" due to error encountered during validation: {e}"
       ) from e
 
   async def validate_pytree(
@@ -284,8 +283,7 @@ class OrbaxV0Layout(CheckpointLayout):
       await self._validate_pytree(path, checkpointable_name)
     except BaseException as e:
       raise InvalidLayoutError(
-          f"Failed to interpret path {path} as a V0 Orbax PyTree"
-          f" checkpoint. Encountered error during validation: {e}"
+          f"Failed to interpret path {path} as a V0 Orbax PyTree."
       ) from e
 
   async def load_pytree(
