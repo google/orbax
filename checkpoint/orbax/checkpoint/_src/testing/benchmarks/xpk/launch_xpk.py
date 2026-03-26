@@ -388,7 +388,7 @@ def check_preconditions() -> bool:
   Console.print_step(1, 6, 'Running Pre-flight Checks')
 
   # 1. Check Dependencies
-  dependencies = ('xpk', 'gcloud')
+  dependencies = (_XPK_PATH.value, 'gcloud')
   for dep in dependencies:
     try:
       run_command(['which', dep], capture_output=True, suppress_output=True)
