@@ -61,10 +61,10 @@ class SaveDecisionPolicy(Protocol):
 
   1. Configuring Checkpointer
   `SaveDecisionPolicy` instances can be passed to
-  :class:`~orbax.checkpoint.experimental.v1.training.Checkpointer` to control
+  :class:`~orbax.checkpoint.v1.training.Checkpointer` to control
   save frequency. For example::
 
-    from orbax.checkpoint.experimental.v1 import training
+    from orbax.checkpoint.v1 import training
     policies = training.save_decision_policies
 
     # Save every 1000 steps, or when a preemption is detected.
