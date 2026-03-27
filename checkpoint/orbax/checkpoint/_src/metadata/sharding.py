@@ -290,14 +290,17 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
     return cls(device_str=str(next(iter(jax_sharding.device_set))))
 
   def to_jax_sharding(self) -> jax.sharding.SingleDeviceSharding:
-    device_map = {str(device): device for device in jax.local_devices()}
-    device_str = self.device_str
+    # JAX 0.10 changed CPU devices so they report as cpu:0 not TFRT_CPU_0
+    device_map = {
+        str(device).replace('TFRT_CPU_', 'cpu:'): device
+        for device in jax.local_devices()
+    }
+    device_str = self.device_str.replace('TFRT_CPU_', 'cpu:')
     if device := device_map.get(device_str, None):
       return jax.sharding.SingleDeviceSharding(device)
-    else:
-      raise ValueError(
-          f'Device {device_str} was not found in jax.local_devices().'
-      )
+    raise ValueError(
+        f'Device {device_str} was not found in jax.local_devices().'
+    )
 
   @classmethod
   def from_deserialized_dict(
