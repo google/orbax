@@ -39,8 +39,10 @@ class CheckpointMetadata(
   names to metadata.
 
   The Orbax checkpointing API provides two symmetric levels of interaction:
+
   1. **Higher level** (sequence-of-steps API): Accessed via
      :py:class:`~.v1.training.Checkpointer`.
+
   2. **Lower level** (individual path API): Accessed via free functions.
 
   `CheckpointMetadata` objects are returned by both API levels using the same
