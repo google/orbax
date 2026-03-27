@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Add `use_load_and_broadcast` option.
 - Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite.
+- Deprecate JaxRandomKeyCheckpointHandler and NumpyRandomKeyCheckpointHandler.
 
 ### Removed
 

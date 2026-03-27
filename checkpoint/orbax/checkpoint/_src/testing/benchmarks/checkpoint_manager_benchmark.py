@@ -81,12 +81,12 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     save_kwargs = {
         'pytree': args_lib.StandardSave(pytree),
         'json_item': args_lib.JsonSave(json_data),
-        'np_random_key': args_lib.NumpyRandomKeySave(np_random_key),
+        'np_random_key': args_lib.StandardSave(np_random_key),
     }
     restore_kwargs = {
         'pytree': args_lib.StandardRestore(pytree_for_restore),
         'json_item': args_lib.JsonRestore(),
-        'np_random_key': args_lib.NumpyRandomKeyRestore(),
+        'np_random_key': args_lib.StandardRestore(),
     }
     composite_args = args_lib.Composite(**save_kwargs)
     restore_args = args_lib.Composite(**restore_kwargs)
