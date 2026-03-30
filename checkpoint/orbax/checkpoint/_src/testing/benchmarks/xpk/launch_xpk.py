@@ -595,7 +595,7 @@ def get_hardware_type(
 
   # 1. Check for TPU
   # Matches GCP TPU names like v2, v3, v4, v5e, v5p, or explicit 'tpu'
-  if re.search(r'\bv[2-5][a-z]?\b', device_type) or 'tpu' in device_type:
+  if re.search(r'\bv[2-5][a-z]*\b', device_type) or 'tpu' in device_type:
     return HardwareType.TPU
 
   # 2. Check for GPU
