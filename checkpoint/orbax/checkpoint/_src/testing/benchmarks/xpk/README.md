@@ -264,6 +264,7 @@ the complexities of cluster management and config propagation.
 | `--benchmark_binary_path` | `/app/...` | Path to the benchmark runner script within the Docker image. |
 | `--use_vertex_tensorboard` | `False` | Use Vertex AI Tensorboard for the workload. |
 | `--experiment_name` | `None` | Name of the Vertex AI experiment. |
+| `--skip_validation` | `False` | Skip dependency validation checks. |
 
 #### 🔌 Networking & Security
 | Flag | Default | Description |
