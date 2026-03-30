@@ -377,7 +377,7 @@ class CallableSignatures:
 
   @classmethod
   def from_saved_model(
-      cls, model_dir: str, tags: list[str], sess_config: ConfigProto = None
+      cls, model_dir: str, tags: Sequence[str], sess_config: ConfigProto = None
   ):
     """Loads a SavedModel and reconsruct its signatures as python callables.
 
