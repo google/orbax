@@ -96,23 +96,27 @@ def load_pytree(
   same shape and `dtype`. Each `AbstractLeafType` has a corresponding `LeafType`
   that is restored.
 
-  Example Usage::
-    path = '/tmp/my_checkpoint'
-    # Save a checkpoint
-    pytree = {'a': jnp.arange(8), 'b': jnp.zeros(4)}
-    ocp.save_pytree(path, pytree)
+  Example Usage:
 
-    # Load the checkpoint
-    # Highly recommended to provide the abstract pytree (structure/shapes)
-    abstract_pytree = jax.eval_shape(lambda: pytree)
+    Load a saved PyTree with and without providing its abstract structure::
 
-    # Method A: Load using the abstract structure.
-    # This automatically looks for the 'pytree' subdirectory inside 'path'.
-    restored = ocp.load_pytree(path, abstract_pytree)
+      path = '/tmp/my_checkpoint'
 
-    # Method B: Infer structure from file. (Not recommended for production use)
-    # cases or for complex trees.
-    restored_inferred = ocp.load_pytree(path)
+      # Save a checkpoint
+      pytree = {'a': jnp.arange(8), 'b': jnp.zeros(4)}
+      ocp.save_pytree(path, pytree)
+
+      # Load the checkpoint
+      # Highly recommended to provide the abstract pytree (structure/shapes)
+      abstract_pytree = jax.eval_shape(lambda: pytree)
+
+      # Method A: Load using the abstract structure.
+      # This automatically looks for the 'pytree' subdirectory inside 'path'.
+      restored = ocp.load_pytree(path, abstract_pytree)
+
+      # Method B: Infer structure from file (Not recommended for production use)
+      # cases or for complex trees.
+      restored_inferred = ocp.load_pytree(path)
 
   Args:
     path: The path to load the checkpoint from. This path must contain a
@@ -199,48 +203,51 @@ def load_checkpointables(
   checkpointables in the checkpoint. Any checkpointables names not provided in
   `abstract_checkpointables` will not be loaded.
 
-  Example Usage::
-    path = '/tmp/my_checkpoint_step_100'
+  Example Usage:
 
-    # Save multiple components (checkpointables)
-    params = {'w': jnp.ones((8, 8)), 'b': jnp.zeros(8)}
-    opt_state = {'count': jnp.array(100)}
+    Load checkpointables from a saved checkpoint::
 
-    # Setup Grain (Stateful Checkpointable)
-    import grain
-    dataset_iter = iter(
-        grain.MapDataset.range(30)
-        .batch(3)
-        .map(lambda x: x.tolist())
-    )
+      path = '/tmp/my_checkpoint_step_100'
 
-    ocp.save_checkpointables(path, {
-        'model': params,
-        'optimizer': opt_state,
-        'dataset': dataset_iter,
-    })
+      # Save multiple components (checkpointables)
+      params = {'w': jnp.ones((8, 8)), 'b': jnp.zeros(8)}
+      opt_state = {'count': jnp.array(100)}
 
-    # Load the checkpointables
-    abstract_params = jax.eval_shape(lambda: params)
-    abstract_opt = jax.eval_shape(lambda: opt_state)
+      # Setup Grain (Stateful Checkpointable)
+      import grain
+      dataset_iter = iter(
+          grain.MapDataset.range(30)
+          .batch(3)
+          .map(lambda x: x.tolist())
+      )
 
-    abstract_checkpointables = {
-        'model': abstract_params,
-        'optimizer': abstract_opt,
-        # Dataset is restored statefully. An initialized object must be
-        # passed, but its position will be set to the position recorded in the
-        # checkpoint after restoring.
-        'dataset': dataset_iter,
-    }
+      ocp.save_checkpointables(path, {
+          'model': params,
+          'optimizer': opt_state,
+          'dataset': dataset_iter,
+      })
 
-    # Load all components
-    restored = ocp.load_checkpointables(path, abstract_checkpointables)
+      # Load the checkpointables
+      abstract_params = jax.eval_shape(lambda: params)
+      abstract_opt = jax.eval_shape(lambda: opt_state)
 
-    # Load only a subset
-    restored_subset = ocp.load_checkpointables(
-        path,
-        {'model': abstract_params}
-    )
+      abstract_checkpointables = {
+          'model': abstract_params,
+          'optimizer': abstract_opt,
+          # Dataset is restored statefully. An initialized object must be
+          # passed, but its position will be set to the position recorded in the
+          # checkpoint after restoring.
+          'dataset': dataset_iter,
+      }
+
+      # Load all components
+      restored = ocp.load_checkpointables(path, abstract_checkpointables)
+
+      # Load only a subset
+      restored_subset = ocp.load_checkpointables(
+          path,
+          {'model': abstract_params}
+      )
 
   Args:
     path: The path to load the checkpoint from. This path must contain a
