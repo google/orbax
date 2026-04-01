@@ -475,7 +475,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         directory,
     )
 
-    if await async_path.exists(directory):
+    exists_start = time.time()
+    dir_exists = await async_path.exists(directory)
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/foreground/check_dir_exists_secs',
+        time.time() - exists_start,
+    )
+    if dir_exists:
       if force:
         if utils.is_primary_host(self._primary_host):
           logging.info(
@@ -498,7 +504,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           )
       )
     else:
+      create_dir_start = time.time()
       await self.create_temporary_path(tmpdir)
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/foreground/create_dir_secs',
+          time.time() - create_dir_start,
+      )
+
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
     ckpt_args = checkpointer.construct_checkpoint_args(

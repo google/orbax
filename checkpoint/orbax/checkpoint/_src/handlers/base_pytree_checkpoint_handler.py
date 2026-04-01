@@ -776,6 +776,18 @@ class BasePyTreeCheckpointHandler(
         total_serialization_initiated_time - batch_requests_ready_time,
         async_save_end_time - total_serialization_initiated_time,
     )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/foreground/batch_requests_ready_secs',
+        batch_requests_ready_time - start_time,
+    )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/foreground/d2h_transfer_secs',
+        total_serialization_initiated_time - batch_requests_ready_time,
+    )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/foreground/commit_write_metadata_prep_secs',
+        async_save_end_time - total_serialization_initiated_time,
+    )
     return chained_futures
 
   def save(self, directory: epath.Path, *args, **kwargs):
