@@ -18,8 +18,9 @@ WARNING: Do not use without specific approval. The API and implementation are
 subject to change without notice.
 """
 
+from collections.abc import Callable, Iterable, Sequence
 import dataclasses
-from typing import Any, Callable, Iterable, List, Sequence, Tuple
+from typing import Any, Optional
 
 from absl import logging
 from etils import epath
@@ -28,17 +29,20 @@ import jax
 from orbax.checkpoint import abstract_checkpoint_manager
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
-from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
+from orbax.checkpoint._src.checkpoint_managers import (
+    preservation_policy as preservation_policy_lib,
+)
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import pathways as pathways_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from orbax.checkpoint.path import step as step_lib
 from typing_extensions import Self  # for Python version < 3.11
-
 
 PyTree = Any
 DefaultCheckpointHandlerRegistry = (
@@ -59,18 +63,24 @@ _DATASET_ITEM_NAME = 'dataset'
 
 def _local_checkpoint_handler(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
-) -> Tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
+    distributed_to_device_ids_fn: Optional[
+        Callable[[], list[list[int]]]
+    ] = None,
+) -> tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
   """Create a PyTreeCheckpointHandler for local checkpoints."""
   if multiprocessing_options.primary_host is not None:
     raise ValueError(
         'multiprocessing_options.primary_host must be set to None for local'
         ' checkpoints.'
     )
+
   local_registry = type_handler_registry.create_type_handler_registry(
       (
           jax.Array,
           type_handlers.ArrayHandler(
-              primary_host=None, replica_id=None, use_replica_parallel=False
+              primary_host=None,
+              replica_id=None,
+              use_replica_parallel=False,
           ),
       ),
   )
@@ -80,30 +90,38 @@ def _local_checkpoint_handler(
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=local_registry,
   )
-  metadata_handler = ProcessMetadataCheckpointHandler()
+
+  metadata_handler = ProcessMetadataCheckpointHandler(
+      multiprocessing_options=multiprocessing_options,
+      distributed_to_device_ids_fn=distributed_to_device_ids_fn,
+  )
   return pytree_handler, metadata_handler
 
 
 @dataclasses.dataclass
 class ReplicatorCheckpointManagerOptions:
   save_interval_steps: int = 1
-  step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None
-  should_save_fn: Callable[[int, int | None], bool] | None = None
-  preservation_policy: preservation_policy_lib.PreservationPolicy | None = None
+  step_name_format: Optional[step_lib.NameFormat[step_lib.Metadata]] = None
+  should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
+  preservation_policy: Optional[preservation_policy_lib.PreservationPolicy] = (
+      None
+  )
+  use_colocated_python: bool = False
 
 
 def _get_checkpoint_manager_options(
     options: ReplicatorCheckpointManagerOptions,
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
+    create: bool = True,
 ) -> checkpoint_manager.CheckpointManagerOptions:
-  """Get options for persistent checkpoint manager."""
+  """Get options for checkpoint manager."""
   per_process_directory_creation = multiprocessing_options.primary_host is None
   return checkpoint_manager.CheckpointManagerOptions(
       save_interval_steps=options.save_interval_steps,
       step_name_format=options.step_name_format,
       should_save_fn=options.should_save_fn,
       multiprocessing_options=multiprocessing_options,
-      create=True,
+      create=create,
       cleanup_tmp_directories=False,  # Handled separately below.
       enable_background_delete=True,
       enable_async_checkpointing=True,
@@ -157,13 +175,17 @@ class ReplicatorCheckpointManager(
   def __init__(
       self,
       local_directory: epath.Path,
-      options: ReplicatorCheckpointManagerOptions | None = None,
+      options: Optional[ReplicatorCheckpointManagerOptions] = None,
       *,
       global_mesh: jax.sharding.Mesh,
-      persistent_directory: epath.Path | None = None,
-      handler_registry: (
-          handler_registration.CheckpointHandlerRegistry | None
-      ) = None,
+      persistent_directory: Optional[epath.Path] = None,
+      handler_registry: Optional[
+          handler_registration.CheckpointHandlerRegistry
+      ] = None,
+      _distributed_to_device_ids_fn: Optional[
+          Callable[[], list[list[int]]]
+      ] = None,
+      _is_sidecar: bool = False,
   ):
     self._global_mesh = global_mesh
     options = options or ReplicatorCheckpointManagerOptions()
@@ -171,6 +193,19 @@ class ReplicatorCheckpointManager(
         primary_host=None
     )
     self._options = options
+    self._local_directory = local_directory
+    self._is_sidecar = _is_sidecar
+    if self._is_sidecar and _distributed_to_device_ids_fn is None:
+      # Sidecars do not initialize JAX distributed client. Use a pathways-safe
+      # local mapping by default if caller did not inject one.
+      _distributed_to_device_ids_fn = (
+          lambda: pathways_utils.compute_distributed_to_device_ids(
+              jax.devices()
+          )
+      )
+    self._get_distributed_to_device_ids = (
+        _distributed_to_device_ids_fn or multihost.distributed_to_device_ids
+    )
     self._step_name_format = (
         options.step_name_format or step_lib.standard_name_format()
     )
@@ -178,11 +213,59 @@ class ReplicatorCheckpointManager(
         self._options,
         step_name_format=self._step_name_format,
     )
+    self._colocated_controller = None
+
+    if options.use_colocated_python:
+      self._init_colocated(
+          local_directory,
+          options,
+          multiprocessing_options,
+          persistent_directory,
+          handler_registry,
+      )
+    else:
+      self._init_standard(
+          local_directory,
+          options,
+          multiprocessing_options,
+          persistent_directory,
+          handler_registry,
+      )
+
+  def _init_standard(
+      self,
+      local_directory,
+      options,
+      multiprocessing_options,
+      persistent_directory,
+      handler_registry,
+  ):
+    """Initializes the standard backend path."""
+    is_sidecar = self._is_sidecar
+    # Sidecars own only a subset of global devices, so collectives-based
+    # barriers do not work there. Treat each sidecar as its own active process.
+    self._active_processes = None
+    sidecar_mp_options = multiprocessing_options
+    if is_sidecar:
+      self._active_processes = {jax.process_index()}
+      sidecar_mp_options = dataclasses.replace(
+          multiprocessing_options,
+          primary_host=None,
+          active_processes=self._active_processes,
+      )
+      epath.Path(local_directory).mkdir(parents=True, exist_ok=True)
     [state_handler, process_metadata_handler] = _local_checkpoint_handler(
-        multiprocessing_options
+        sidecar_mp_options,
+        distributed_to_device_ids_fn=(
+            self._get_distributed_to_device_ids if is_sidecar else None
+        ),
     )
+    self._state_handler = state_handler
+    self._process_metadata_handler = process_metadata_handler
     replicator_options = _get_checkpoint_manager_options(
-        options, multiprocessing_options
+        options,
+        sidecar_mp_options,
+        create=not is_sidecar,
     )
 
     self._local_handler_registry = DefaultCheckpointHandlerRegistry()
@@ -205,6 +288,7 @@ class ReplicatorCheckpointManager(
         options=replicator_options,
         handler_registry=self._local_handler_registry,
     )
+    self._colocated_controller = None
     non_replicated_multiprocessing_options = (
         checkpoint_manager.MultiprocessingOptions(
             barrier_sync_key_prefix='non_replicated',
@@ -224,6 +308,34 @@ class ReplicatorCheckpointManager(
       )
     self._run_initial_garbage_collection()
 
+  def _init_colocated(
+      self,
+      local_directory,
+      options,
+      multiprocessing_options,
+      persistent_directory,
+      handler_registry,
+  ):
+    """Initializes the Pathways single-controller transport wrapper."""
+    from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (  # pylint: disable=g-import-not-at-top  # type: ignore
+        colocated_controller,
+    )
+
+    self._colocated_controller = colocated_controller.ColocatedController(
+        local_directory=local_directory,
+        global_mesh=self._global_mesh,
+        options=options,
+        persistent_directory=persistent_directory,
+        handler_registry=handler_registry,
+        checkpoint_manager_options_fn=lambda mp_options: (
+            _get_checkpoint_manager_options(options, mp_options)
+        ),
+    )
+    self._impl = None
+    self._local_handler_registry = None
+    self._process_metadata_handler = None
+    self._active_processes = None
+
   def _run_initial_garbage_collection(self):
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
@@ -240,33 +352,61 @@ class ReplicatorCheckpointManager(
 
   @property
   def directory(self) -> epath.Path:
-    return self._impl.directory
+    if self._impl is not None:
+      return self._impl.directory
+    return self._local_directory
 
   @property
   def global_mesh(self) -> jax.sharding.Mesh:
     return self._global_mesh
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
+    if self._colocated_controller is not None:
+      raise NotImplementedError('all_steps is not supported in colocated mode.')
+    assert self._impl is not None
     return self._impl.all_steps(read=read)
 
-  def latest_step(self) -> int | None:
+  def latest_step(self) -> Optional[int]:
+    if self._colocated_controller is not None:
+      return self._colocated_controller.latest_step()
+    assert self._impl is not None
     return self._impl.latest_step()
 
   def best_step(self) -> int | None:
     raise NotImplementedError()
 
   def reload(self):
+    if self._colocated_controller is not None:
+      raise NotImplementedError('reload is not supported in colocated mode.')
+    assert self._impl is not None
     return self._impl.reload()
 
   def reached_preemption(self, step: int) -> bool:
+    if self._colocated_controller is not None:
+      return multihost.reached_preemption(step)
+    assert self._impl is not None
     return self._impl.reached_preemption(step)
 
   def should_save(self, step: int) -> bool:
+    if self._colocated_controller is not None:
+      return self._colocated_controller.should_save(step)
+    assert self._impl is not None
     return self._impl.should_save(step)
 
+  def is_saving_in_progress(self) -> bool:
+    """Returns whether a checkpoint save is currently in progress."""
+    if self._colocated_controller is not None:
+      return self._colocated_controller.is_saving_in_progress()
+    assert self._impl is not None
+    return self._impl.is_saving_in_progress()
+
   def delete(self, step: int):
+    if self._colocated_controller is not None:
+      self._colocated_controller.delete_persistent(step)
+      raise NotImplementedError('delete is not supported in colocated mode.')
     if self._persistent_checkpoint_manager is not None:
       self._persistent_checkpoint_manager.delete(step)
+    assert self._impl is not None
     return self._impl.delete(step)
 
   def _validate_and_standardize_args(
@@ -287,10 +427,23 @@ class ReplicatorCheckpointManager(
           f'{_PROCESS_METADATA_NAME} is a reserved key and should not be'
           ' specified by the user.'
       )
+    if self._colocated_controller is not None:
+      unsupported_items = set(args.keys()) - {
+          _STATE_ITEM_NAME,
+          _DATASET_ITEM_NAME,
+      }
+      if unsupported_items:
+        raise ValueError(
+            'colocated mode only supports the following items: '
+            f'{sorted((_STATE_ITEM_NAME, _DATASET_ITEM_NAME))}. '
+            f'Found unsupported items: {sorted(unsupported_items)}.'
+        )
     for k, a in args.items():
-      assert isinstance(a, args_lib.CheckpointArgs)
+      if not isinstance(a, args_lib.CheckpointArgs):
+        raise TypeError(f'Expected CheckpointArgs, got {type(a).__name__}')
       if (
-          not self._local_handler_registry.has(None, a)
+          self._local_handler_registry is not None
+          and not self._local_handler_registry.has(None, a)
           and k != _DATASET_ITEM_NAME
       ):
         raise ValueError(
@@ -308,11 +461,27 @@ class ReplicatorCheckpointManager(
       force: bool = False,
   ) -> bool:
     args = self._validate_and_standardize_args(args)
+    if self._colocated_controller is not None:
+      return self._colocated_controller.save(step, args, force=force)
+    return self._standard_save(step, args, force=force)
+
+  def _standard_save(
+      self,
+      step: int,
+      args: args_lib.Composite,
+      *,
+      force: bool = False,
+  ) -> bool:
+    """Standard (multi-controller) save path."""
+    assert self._impl is not None
+    assert self._process_metadata_handler is not None
+
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'CheckpointManager:save_start',
             prefix='replicator_checkpoint_manager',
         ),
+        processes=self._active_processes,
         record_event_name=(
             '/jax/orbax/write/checkpoint_start_sync_duration_secs'
         ),
@@ -322,48 +491,81 @@ class ReplicatorCheckpointManager(
             global_mesh=self._global_mesh,
         )
     )
-    if _DATASET_ITEM_NAME in args.keys():
-      if self._persistent_checkpoint_manager is not None:
-        self._persistent_checkpoint_manager.save(
-            step,
-            args=args_lib.Composite(
-                **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
-            ),
-            force=force,
-        )
+    if (
+        self._persistent_checkpoint_manager is not None
+        and _DATASET_ITEM_NAME in args.keys()
+    ):
+      self._persistent_checkpoint_manager.save(
+          step,
+          args=args_lib.Composite(
+              **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
+          ),
+          force=force,
+      )
 
     args_dict = dict(args.items())
     args_dict[_PROCESS_METADATA_NAME] = process_metadata_args
     args_dict.pop(_DATASET_ITEM_NAME, None)
     args = args_lib.Composite(**args_dict)
     saved = self._impl.save(step, args=args, force=force)
+
+    # Also save process_metadata to a stable top-level directory that
+    # survives the replicator daemon's directory manipulation during restore.
+    if saved:
+      stable_dir = self.directory / _PROCESS_METADATA_NAME
+      try:
+        self._process_metadata_handler.save(stable_dir, process_metadata_args)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        # Best-effort: the per-step save already succeeded. A failure here
+        # only affects resilience to replicator directory replacement; the
+        # per-step fallback in restore() will still work for non-MTC cases.
+        logging.warning(
+            'Failed to save stable process_metadata to %s: %s',
+            stable_dir,
+            e,
+        )
     return saved
 
   def _get_mesh_consistent_args(
       self,
-      previous_distributed_to_device_ids: List[List[int]],
-      previous_device_ids: List[int],
+      previous_distributed_to_device_ids: list[list[int]],
+      previous_device_ids: list[int],
       args: args_lib.Composite,
   ) -> tuple[args_lib.Composite, args_lib.Composite]:
+    current_distributed_to_device_ids = self._get_distributed_to_device_ids()
+
     restore_mesh = mesh_consistency.consistent_restore_mesh_from_metadata(
         self._global_mesh,
-        multihost.distributed_to_device_ids(),
+        current_distributed_to_device_ids,
         previous_distributed_to_device_ids=previous_distributed_to_device_ids,
         previous_device_ids=previous_device_ids,
     )
 
     def _replace_sharding(arg: type_handlers.ArrayRestoreArgs):
-      if arg.sharding is None:
-        raise ValueError('ArrayRestoreArgs sharding cannot be None.')
-      if not isinstance(arg.sharding, jax.sharding.NamedSharding):
+      sharding = arg.sharding
+      if isinstance(sharding, sharding_metadata.ShardingMetadata):
+        sharding = sharding.to_jax_sharding()
+      elif (
+          sharding is None
+          and arg.mesh is not None
+          and arg.mesh_axes is not None
+      ):
+        sharding = jax.sharding.NamedSharding(arg.mesh, arg.mesh_axes)
+      if sharding is None:
         raise ValueError(
-            'ArrayRestoreArgs sharding must be a NamedSharding, but got'
-            f' {type(arg.sharding)}.'
+            'ArrayRestoreArgs must provide sharding or (mesh, mesh_axes).'
+        )
+      if isinstance(sharding, jax.sharding.SingleDeviceSharding):
+        return arg
+      if not isinstance(sharding, jax.sharding.NamedSharding):
+        raise ValueError(
+            'ArrayRestoreArgs sharding must be a NamedSharding or'
+            f' SingleDeviceSharding, but got {type(sharding)}.'
         )
       return dataclasses.replace(
           arg,
           sharding=jax.sharding.NamedSharding(
-              mesh=restore_mesh, spec=arg.sharding.spec
+              mesh=restore_mesh, spec=sharding.spec
           ),
       )
 
@@ -372,11 +574,17 @@ class ReplicatorCheckpointManager(
     for k, a in args.items():
       if isinstance(a, args_lib.PyTreeRestore):
         if a.restore_args is None:
-          raise ValueError('`restore_args` cannot be None.')
+          # Allow inference-based restore args. Mesh-consistency remapping
+          # requires explicit per-leaf shardings and is skipped in this mode.
+          consistent_args[k] = a
+          continue
         consistent_args[k] = dataclasses.replace(
             a, restore_args=jax.tree.map(_replace_sharding, a.restore_args)
         )
-    return original_args, args_lib.Composite(**consistent_args)
+    return (
+        original_args,
+        args_lib.Composite(**consistent_args),
+    )
 
   def _get_mesh_consistent_result(
       self,
@@ -389,6 +597,10 @@ class ReplicatorCheckpointManager(
     for k, a in original_args.items():
       item_result = consistent_result[k]
       if isinstance(a, args_lib.PyTreeRestore):
+        if a.restore_args is None:
+          # Inference-based restore: preserve handler-returned sharding/layout.
+          result[k] = item_result
+          continue
         original_shardings = jax.tree.map(
             lambda arg: arg.sharding, a.restore_args
         )
@@ -406,67 +618,147 @@ class ReplicatorCheckpointManager(
 
   def restore(
       self,
-      step: int | None,
+      step: Optional[int],
       args: args_lib.Composite,
   ) -> Any:
     if step is None:
       step = self.latest_step()
       if step is None:
         raise FileNotFoundError(f'No steps found in {self.directory}.')
+
+    args = self._validate_and_standardize_args(args)
+    if self._colocated_controller is not None:
+      default_item_mode = (
+          checkpoint_manager.determine_default_item_mode_from_args(args)
+      )
+      return self._colocated_controller.restore(
+          step,
+          args,
+          default_item_mode=default_item_mode,
+      )
+    return self._standard_restore(step, args)
+
+  def _standard_restore(
+      self,
+      step: int,
+      args: args_lib.Composite,
+  ) -> Any:
+    """Standard (multi-controller) restore path."""
     default_item_mode = (
         checkpoint_manager.determine_default_item_mode_from_args(args)
     )
     args = self._validate_and_standardize_args(args)
-    process_meatadata_args = args_lib.Composite(**{
-        _PROCESS_METADATA_NAME: (
-            process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
-        )
-    })
-    process_metadata_restored = self._impl.restore(
-        step, args=process_meatadata_args
+    return self._standard_restore_single_step(
+        step, args, default_item_mode=default_item_mode
     )
-    previous_distributed_to_device_ids, previous_device_ids = (
-        process_metadata_restored[_PROCESS_METADATA_NAME]
-    )
+
+  def _standard_restore_single_step(
+      self,
+      step: int,
+      args: args_lib.Composite,
+      *,
+      default_item_mode: bool,
+  ) -> Any:
+    """Restores a single checkpoint step without any fallback behavior."""
+    assert self._impl is not None
+    assert self._process_metadata_handler is not None
+
+    # Restore process_metadata from the stable top-level directory first.
+    # This location survives the replicator daemon's step directory
+    # replacement during restore (.restore -> step rename). Fall back to
+    # the per-step directory for backward compatibility.
+    stable_dir = self.directory / _PROCESS_METADATA_NAME
+    try:
+      previous_distributed_to_device_ids, previous_device_ids = (
+          self._process_metadata_handler.restore(
+              stable_dir,
+              process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs(),
+          )
+      )
+    except (
+        FileNotFoundError,
+        ValueError,
+        RuntimeError,
+    ) as e:
+      logging.warning(
+          'Process metadata not found at stable'
+          ' location %s (%s), falling back to'
+          ' per-step directory.',
+          stable_dir,
+          e,
+      )
+      process_metadata_args = args_lib.Composite(**{
+          _PROCESS_METADATA_NAME: (
+              process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
+          )
+      })
+      process_metadata_restored = self._impl.restore(
+          step, args=process_metadata_args
+      )
+      previous_distributed_to_device_ids, previous_device_ids = (
+          process_metadata_restored[_PROCESS_METADATA_NAME]
+      )
     original_args, consistent_args = self._get_mesh_consistent_args(
-        previous_distributed_to_device_ids, previous_device_ids, args
+        previous_distributed_to_device_ids,
+        previous_device_ids,
+        args,
     )
     restored = self._impl.restore(step, args=consistent_args)
 
-    if _DATASET_ITEM_NAME in args.keys():
-      if self._persistent_checkpoint_manager is not None:
-        restored_dataset = self._persistent_checkpoint_manager.restore(
-            step,
-            args=args_lib.Composite(
-                **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
-            ),
-        )
-        args_dict = dict(restored.items())
-        args_dict[_DATASET_ITEM_NAME] = restored_dataset[_DATASET_ITEM_NAME]
-        restored = args_lib.Composite(**args_dict)
+    if (
+        self._persistent_checkpoint_manager is not None
+        and _DATASET_ITEM_NAME in args.keys()
+    ):
+      restored_dataset = self._persistent_checkpoint_manager.restore(
+          step,
+          args=args_lib.Composite(
+              **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
+          ),
+      )
+      args_dict = dict(restored.items())
+      args_dict[_DATASET_ITEM_NAME] = restored_dataset[_DATASET_ITEM_NAME]
+      restored = args_lib.Composite(**args_dict)
 
     return self._get_mesh_consistent_result(
-        original_args, restored, default_item_mode=default_item_mode
+        original_args,
+        restored,
+        default_item_mode=default_item_mode,
     )
 
   def item_metadata(self, step: int) -> Any:
+    if self._impl is None:
+      raise NotImplementedError(
+          'item_metadata is not supported in colocated mode.'
+      )
     return self._impl.item_metadata(step)
 
-  def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
+  def metadata(self, step: Optional[int] = None) -> RootMetadata | StepMetadata:
+    if self._impl is None:
+      raise NotImplementedError('metadata is not supported in colocated mode.')
     return self._impl.metadata(step)
 
-  def metrics(self, step: int) -> PyTree | None:
+  def metrics(self, step: int) -> Optional[PyTree]:
     raise NotImplementedError()
 
   def wait_until_finished(self):
+    if self._colocated_controller is not None:
+      self._colocated_controller.wait_until_finished()
+      return
+    assert self._impl is not None
     return self._impl.wait_until_finished()
 
   def check_for_errors(self):
+    if self._impl is None:
+      return
     return self._impl.check_for_errors()
 
   def close(self):
+    if self._colocated_controller is not None:
+      self._colocated_controller.close()
+      return
     if self._persistent_checkpoint_manager is not None:
       self._persistent_checkpoint_manager.close()
+    assert self._impl is not None
     return self._impl.close()
 
   def __contextmanager__(

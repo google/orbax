@@ -17,13 +17,17 @@
 import json
 from typing import Any
 from unittest import mock
+
 from absl import logging
+from absl.testing import absltest
 from absl.testing import flagsaver
 from absl.testing import parameterized
 from etils import epath
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import args as args_lib
+from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
@@ -32,14 +36,18 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
+from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency import process_metadata_checkpoint_handler
 from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity
+from orbax.checkpoint.path import step as step_lib
 
 
 PyTree = Any
+rcm_lib = replicator_checkpoint_manager
 PyTreeCheckpointHandler = pytree_checkpoint_handler.PyTreeCheckpointHandler
 PyTreeSaveArgs = pytree_checkpoint_handler.PyTreeSaveArgs
 PyTreeRestoreArgs = pytree_checkpoint_handler.PyTreeRestoreArgs
@@ -790,21 +798,7 @@ class ReplicatorCheckpointManagerTest(
         manager.restore(
             0,
             args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
-            ),
-        )
-      with self.assertRaises(ValueError):
-        manager.restore(
-            0,
-            args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
-            ),
-        )
-      with self.assertRaises(ValueError):
-        manager.restore(
-            0,
-            args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
+                self.pytree, checkpoint_args=args_lib.StandardRestore
             ),
         )
       with self.assertRaises(TypeError):
@@ -813,20 +807,11 @@ class ReplicatorCheckpointManagerTest(
         manager.restore(
             1,
             args=get_composite_restore_args(
-                self.pytree, args_lib.PyTreeRestore
+                self.pytree, checkpoint_args=args_lib.PyTreeRestore
             ),
         )
       with self.assertRaises(TypeError):
         manager.restore(1)
-
-    with ReplicatorCheckpointManager(
-        self.local_directory,
-        global_mesh=self.global_mesh,
-    ) as manager:
-      manager.save(
-          0,
-          args=get_composite_save_args(self.pytree, args_lib.PyTreeSave),
-      )
 
   @parameterized.parameters(
       ((8,), ('data',)),
@@ -859,6 +844,197 @@ class ReplicatorCheckpointManagerTest(
         0, args=get_composite_restore_args(restore_args=restore_args)
     )
     test_utils.assert_tree_equal(self, pytree, restored.state)
+
+
+class ReplicatorCheckpointManagerInternalTest(absltest.TestCase):
+
+  def _make_manager(self):
+    manager = rcm_lib.ReplicatorCheckpointManager.__new__(
+        rcm_lib.ReplicatorCheckpointManager
+    )
+    device = jax.devices()[0]
+    manager._global_mesh = jax.sharding.Mesh(np.array([device]), ('d',))
+    manager._persistent_checkpoint_manager = None
+    manager._process_metadata_handler = mock.Mock()
+    manager._impl = mock.Mock()
+    manager._colocated_controller = None
+    manager._active_processes = None
+    manager._local_handler_registry = None
+    manager._get_distributed_to_device_ids = mock.Mock(return_value=[[0]])
+    manager._global_mesh = jax.sharding.Mesh(np.array([device]), ('d',))
+    manager._local_directory = epath.Path('/tmp/local')
+    manager._impl.directory = manager._local_directory
+    manager._step_name_format = step_lib.standard_name_format()
+    manager._state_handler = mock.Mock()
+    return manager
+
+  def test_standard_save_writes_stable_process_metadata(self):
+    manager = self._make_manager()
+    manager._impl.directory = epath.Path('/tmp/local')
+    manager._impl.save.return_value = True
+    args = args_lib.Composite(state=args_lib.PyTreeSave({'x': 1}))
+
+    saved = manager._standard_save(7, args, force=False)
+
+    self.assertTrue(saved)
+    manager._impl.save.assert_called_once()
+    save_args = manager._impl.save.call_args.kwargs['args']
+    self.assertIn('process_metadata', save_args.keys())
+    manager._process_metadata_handler.save.assert_called_once_with(
+        epath.Path('/tmp/local/process_metadata'),
+        process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
+            global_mesh=manager._global_mesh,
+        ),
+    )
+
+  def test_standard_restore_prefers_stable_process_metadata(self):
+    manager = self._make_manager()
+    manager._impl.directory = epath.Path('/tmp/local')
+    stable_metadata = ([[0]], [0])
+    manager._process_metadata_handler.restore.return_value = stable_metadata
+    restore_args = args_lib.Composite(
+        state=args_lib.PyTreeRestore(
+            restore_args={'x': mock.Mock(sharding=mock.Mock())}
+        )
+    )
+    manager._get_mesh_consistent_args = mock.Mock(
+        return_value=(restore_args, restore_args)
+    )
+    restored = args_lib.Composite(state={'x': 1})
+    manager._impl.restore.return_value = restored
+    manager._get_mesh_consistent_result = mock.Mock(return_value=restored)
+
+    result = manager._standard_restore(3, restore_args)
+
+    self.assertEqual(result, restored)
+    manager._process_metadata_handler.restore.assert_called_once()
+    manager._impl.restore.assert_called_once_with(3, args=restore_args)
+
+  def test_standard_restore_falls_back_to_step_process_metadata(self):
+    manager = self._make_manager()
+    manager._impl.directory = epath.Path('/tmp/local')
+    manager._process_metadata_handler.restore.side_effect = FileNotFoundError
+    restore_args = args_lib.Composite(
+        state=args_lib.PyTreeRestore(
+            restore_args={'x': mock.Mock(sharding=mock.Mock())}
+        )
+    )
+    manager._get_mesh_consistent_args = mock.Mock(
+        return_value=(restore_args, restore_args)
+    )
+    manager._get_mesh_consistent_result = mock.Mock(return_value='restored')
+    manager._impl.restore.side_effect = [
+        args_lib.Composite(process_metadata=([[0]], [0])),
+        args_lib.Composite(state={'x': 1}),
+    ]
+
+    result = manager._standard_restore(5, restore_args)
+
+    self.assertEqual(result, 'restored')
+    self.assertEqual(manager._impl.restore.call_count, 2)
+    first_restore_args = manager._impl.restore.call_args_list[0].kwargs['args']
+    self.assertEqual(tuple(first_restore_args.keys()), ('process_metadata',))
+
+  def test_standard_restore_restores_requested_step_only(self):
+    manager = self._make_manager()
+    restore_args = args_lib.Composite(
+        state=args_lib.PyTreeRestore(restore_args={'x': mock.Mock()})
+    )
+    manager._validate_and_standardize_args = mock.Mock(
+        return_value=restore_args
+    )
+    manager._standard_restore_single_step = mock.Mock(
+        return_value=args_lib.Composite(state={'x': 1})
+    )
+
+    result = manager._standard_restore(209, restore_args)
+
+    self.assertEqual(result, args_lib.Composite(state={'x': 1}))
+    self.assertEqual(
+        manager._standard_restore_single_step.call_args.args[0], 209
+    )
+
+  def test_mesh_consistent_args_accepts_single_device_sharding(self):
+    manager = self._make_manager()
+    device = jax.devices()[0]
+    arg = type_handlers.ArrayRestoreArgs(
+        sharding=jax.sharding.SingleDeviceSharding(device),
+        global_shape=(1,),
+        dtype=jnp.float32,
+    )
+
+    _, consistent_args = manager._get_mesh_consistent_args(
+        previous_distributed_to_device_ids=[[0]],
+        previous_device_ids=[0],
+        args=args_lib.Composite(
+            state=args_lib.PyTreeRestore(
+                restore_args={'x': arg},
+            )
+        ),
+    )
+
+    self.assertIs(
+        consistent_args['state'].restore_args['x'].sharding,
+        arg.sharding,
+    )
+
+  def test_validate_args_rejects_unsupported_items_in_colocated_mode(self):
+    manager = self._make_manager()
+    manager._colocated_controller = mock.Mock()
+    args = args_lib.Composite(
+        state=args_lib.PyTreeSave({'x': 1}),
+        extra=args_lib.PyTreeSave({'y': 2}),
+    )
+
+    with self.assertRaisesRegex(
+        ValueError, 'colocated mode only supports the following items'
+    ):
+      manager._validate_and_standardize_args(args)
+
+  def test_local_checkpoint_handler_matches_standard_emergency_state_handler(
+      self,
+  ):
+    multiprocessing_options = checkpoint_manager.MultiprocessingOptions(
+        primary_host=None
+    )
+
+    mtc_state_handler, process_metadata_handler = (
+        rcm_lib._local_checkpoint_handler(multiprocessing_options)
+    )
+    standard_state_handler = (
+        emergency_checkpoint_manager._local_checkpoint_handler(
+            multiprocessing_options
+        )
+    )
+
+    self.assertEqual(
+        mtc_state_handler._use_ocdbt, standard_state_handler._use_ocdbt
+    )
+    self.assertEqual(
+        mtc_state_handler._use_zarr3, standard_state_handler._use_zarr3
+    )
+    self.assertEqual(
+        mtc_state_handler._type_handler_registry.get(jax.Array).__class__,
+        standard_state_handler._type_handler_registry.get(jax.Array).__class__,
+    )
+    mtc_array_handler = mtc_state_handler._type_handler_registry.get(jax.Array)
+    standard_array_handler = standard_state_handler._type_handler_registry.get(
+        jax.Array
+    )
+    self.assertEqual(
+        mtc_array_handler._primary_host, standard_array_handler._primary_host
+    )
+    self.assertEqual(
+        mtc_array_handler._replica_id, standard_array_handler._replica_id
+    )
+    self.assertEqual(
+        mtc_array_handler._use_replica_parallel,
+        standard_array_handler._use_replica_parallel,
+    )
+    self.assertIsInstance(
+        process_metadata_handler,
+        process_metadata_checkpoint_handler.ProcessMetadataCheckpointHandler,
+    )
 
 
 if __name__ == '__main__':
