@@ -270,7 +270,8 @@ class Checkpointer(epy.ContextManager):
   ) -> bool:
     """Saves a checkpoint, if dictated by :py:class:`.SaveDecisionPolicy`.
 
-    This function behaves similarly to :py:func:`.save_pytree` (see
+    This method behaves similarly to the standalone free function
+    :py:func:`~orbax.checkpoint.v1.save_pytree` (see
     documentation), but performs additional tasks related to managing a sequence
     of checkpoint steps.
 
@@ -292,37 +293,37 @@ class Checkpointer(epy.ContextManager):
 
     Example usage:
       1. Basic Usage:
-        Save a PyTree at a specific training step. The checkpointer
-        automatically manages the step-based directory structure inside your
-        root folder::
+         Save a PyTree at a specific training step. The checkpointer
+         automatically manages the step-based directory structure inside your
+         root folder::
 
-            from orbax.checkpoint.v1 import training
+           from orbax.checkpoint.v1 import training
 
-            # Initialize the checkpointer for a directory
-            ckptr = training.Checkpointer(directory)
+           # Initialize the checkpointer for a directory
+           ckptr = training.Checkpointer(directory)
 
-            # Save the tree at step 0.
-            saved = ckptr.save_pytree(step=0, pytree=tree)
+           # Save the tree at step 0.
+           saved = ckptr.save_pytree(step=0, pytree=tree)
 
-            # Clean up background threads gracefully when the training loop ends
-            ckptr.close()
+           # Clean up background threads gracefully when the training loop ends
+           ckptr.close()
 
       2. Advanced Saving with Metrics and Metadata:
-        Attach JSON-serializable metrics (like loss/accuracy) and custom
-        metadata to a specific step for thorough experiment tracking::
+         Attach JSON-serializable metrics (like loss/accuracy) and custom
+         metadata to a specific step for thorough experiment tracking::
 
-            from orbax.checkpoint.v1 import training
+           from orbax.checkpoint.v1 import training
 
-            ckptr = training.Checkpointer(directory)
+           ckptr = training.Checkpointer(directory)
 
-            ckptr.save_pytree(
-                step=1,
-                pytree=tree,
-                metrics={'loss': 0.12, 'accuracy': 0.95},
-                custom_metadata={'description': 'Model after epoch 1'},
-            )
+           ckptr.save_pytree(
+               step=1,
+               pytree=tree,
+               metrics={'loss': 0.12, 'accuracy': 0.95},
+               custom_metadata={'description': 'Model after epoch 1'},
+           )
 
-            ckptr.close()
+           ckptr.close()
 
 
     Args:
@@ -363,10 +364,10 @@ class Checkpointer(epy.ContextManager):
     """Saves a dictionary of checkpointable objects at the given step.
 
     This method saves a dictionary of checkpointable objects, mapping string
-    names to values. See `the guide on Checkpointables <`
-    `https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointables.html>`_
+    names to values. See `the guide on Checkpointables
+    <https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointables.html>`_
     for more details on checkpointables. Also see documentation for
-    :py:func:`.save_pytree`.
+    :py:func:`~orbax.checkpoint.v1.save_pytree`.
 
     Example:
       1. Basic Usage:
@@ -449,7 +450,7 @@ class Checkpointer(epy.ContextManager):
     """Saves a checkpoint asynchronously.
 
     This function is the asynchronous equivalent of
-    :py:func:`~orbax.checkpoint.v1.save_pytree`. It accepts the exact same
+    :py:meth:`~.save_pytree`. It accepts the exact same
     arguments; please refer to that method for detailed descriptions.
 
     This method executes mostly in the background, blocking the main thread for
@@ -495,7 +496,7 @@ class Checkpointer(epy.ContextManager):
     """Saves checkpointable objects asynchronously.
 
     This function is the asynchronous equivalent of
-    :py:func:`~orbax.checkpoint.v1.save_checkpointables`. Please refer to that
+    :py:meth:`~.save_checkpointables`. Please refer to that
     method for detailed instructions and argument descriptions.
 
     Example:
@@ -560,8 +561,8 @@ class Checkpointer(epy.ContextManager):
   ) -> tree_types.PyTreeOf[tree_types.LeafType]:
     """Loads a PyTree checkpoint at the given step.
 
-    This function behaves similarly to
-    :py:func:`~orbax.checkpoint.v1._src.loading.loading.load_pytree`.
+    This method behaves similarly to the standalone free function
+    :py:func:`~orbax.checkpoint.v1.load_pytree`.
 
     **Note:** Loading a PyTree without providing an `abstract_pytree` is
     provided purely for convenience. For serious or production use cases, it is
@@ -623,8 +624,8 @@ class Checkpointer(epy.ContextManager):
   ) -> dict[str, Any]:
     """Loads a set of checkpointables at the given step.
 
-    This function behaves similarly to
-    :py:func:`~orbax.checkpoint.v1._src.loading.loading.load_checkpointables`.
+    This method behaves similarly to the standalone free function
+    :py:func:`~orbax.checkpoint.v1.load_checkpointables`.
 
     This function retrieves multiple named items (such as model weights or
     optimizer states) from a specific checkpoint directory. If no step is
