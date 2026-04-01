@@ -62,6 +62,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
+from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 
 
@@ -131,7 +132,6 @@ class PyTreeCheckpointHandlerTest(
     self.directory = epath.Path(
         self.create_tempdir(name='checkpointing_test').full_path
     )
-    # TODO: b/365169723 - Add tests for support_rich_types=True.
     self.pytree_metadata_options = tree_metadata.PyTreeMetadataOptions(
         support_rich_types=False
     )
@@ -696,6 +696,27 @@ class PyTreeCheckpointHandlerTest(
         self.assertEqual(data['foo'], 'foo_val')
         self.assertEqual(data['bar'], 'bar_val')
 
+  def test_save_restore_rich_types(self):
+    """Test saving and restoring rich types (NamedTuple) with support_rich_types=True."""
+    pytree = test_tree_utils.IntegerNamedTuple(x=1, y=2)
+    with self.ocdbt_checkpoint_handler(
+        use_ocdbt=False,
+        pytree_metadata_options=tree_metadata.PyTreeMetadataOptions(
+            support_rich_types=True
+        ),
+    ) as checkpoint_handler:
+      checkpoint_handler.save(self.directory, args=PyTreeSaveArgs(pytree))
+      restored = checkpoint_handler.restore(
+          self.directory,
+          args=PyTreeRestoreArgs(
+              item=pytree,
+              restore_args=jax.tree.map(lambda _: RestoreArgs(), pytree)
+          ),
+      )
+      self.assertEqual(type(restored), test_tree_utils.IntegerNamedTuple)
+      self.assertEqual(restored.x, 1)
+      self.assertEqual(restored.y, 2)
+
   def test_cast(self):
     pytree, save_args, restore_args = self.create_mixed_format_pytree()
 
@@ -929,7 +950,9 @@ class PyTreeCheckpointHandlerTest(
 
     save_args = jax.tree.map(lambda _: SaveArgs(), params)
     with self.ocdbt_checkpoint_handler(
-        use_ocdbt, array_metadata_store=array_metadata_store
+        use_ocdbt,
+        array_metadata_store=array_metadata_store,
+        pytree_metadata_options=self.pytree_metadata_options,
     ) as checkpoint_handler:
       checkpoint_handler.save(
           self.directory, args=PyTreeSaveArgs(params, save_args)
@@ -2481,6 +2504,7 @@ class PyTreeCheckpointHandlerTest(
     with self.ocdbt_checkpoint_handler(
         use_ocdbt=use_ocdbt,
         array_metadata_store=array_metadata_store_lib.Store(),
+        pytree_metadata_options=self.pytree_metadata_options,
     ) as handler:
       handler.save(self.directory, args=PyTreeSaveArgs(self.pytree))
 
@@ -2733,12 +2757,14 @@ class PyTreeCheckpointHandlerTest(
     with self.ocdbt_checkpoint_handler(
         use_ocdbt=use_ocdbt,
         array_metadata_store=array_metadata_store_lib.Store(),
+        pytree_metadata_options=self.pytree_metadata_options,
     ) as save_handler:
       save_handler.save(directory, pytree)
 
     with self.ocdbt_checkpoint_handler(
         use_ocdbt=use_ocdbt,
         array_metadata_store=array_metadata_store_lib.Store(),
+        pytree_metadata_options=self.pytree_metadata_options,
     ) as restore_handler:
       reference_item = {
           'a': 0,
