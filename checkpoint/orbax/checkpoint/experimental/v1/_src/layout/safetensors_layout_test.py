@@ -234,6 +234,34 @@ class SafetensorsLayoutDirectoryTest(
     np.testing.assert_array_equal(pytree['c'], self.data1['c'])
     np.testing.assert_array_equal(pytree['d'], self.data2['d'])
 
+  async def test_load_directory_abstract_tree_sharding(self):
+    layout = SafetensorsLayout()
+    sharding = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+        jax.sharding.PartitionSpec(
+            None,
+        ),
+    )
+    tree = {
+        'a': jax.ShapeDtypeStruct(
+            shape=(2,), dtype=np.int32, sharding=sharding
+        ),
+        'c': jax.ShapeDtypeStruct(
+            shape=(2,), dtype=np.int32, sharding=sharding
+        ),
+    }
+    restore_fn = await layout.load_pytree(
+        self.checkpoint_dir, abstract_pytree=tree
+    )
+    pytree = await restore_fn
+    self.assertLen(pytree, 2)
+    np.testing.assert_array_equal(
+        pytree['a'], jax.device_put(self.data1['a'], device=sharding)
+    )
+    np.testing.assert_array_equal(
+        pytree['c'], jax.device_put(self.data1['c'], device=sharding)
+    )
+
   async def test_load_directory_abstract_tree_subset_one_file(self):
     layout = SafetensorsLayout()
     tree = {
