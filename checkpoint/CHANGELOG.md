@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 behavior.
 - #v1 Add `cleanup_tmp_directories` setting to V1 Checkpointer to manage
 temporary directory cleanup behavior.
+- #v1 Add `lightweight_initialize` which allows skipping checkpoint step
+metadata reading to improve initialization performance.
 
 ### Removed
 

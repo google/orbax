@@ -88,6 +88,7 @@ class Checkpointer(epy.ContextManager):
       ) = None,
       custom_metadata: tree_types.JsonType | None = None,
       cleanup_tmp_directories: bool = False,
+      lightweight_initialize: bool = False,
   ):
     """Initializes a Checkpointer.
 
@@ -153,6 +154,11 @@ class Checkpointer(epy.ContextManager):
         sequence of checkpoints, rather than to any single checkpoint.
       cleanup_tmp_directories: If True, cleans up any existing temporary
         directories on Checkpointer creation.
+      lightweight_initialize: If True, checkpoint step metadata is not read on
+        Checkpointer initialization during checkpoint info loading. This is
+        useful to improve init performance when there are O(1k) or more existing
+        checkpoint steps present and checkpoint info properties like `time` and
+        `metrics` are not needed.
     """
     context = context_lib.get_context()
 
@@ -173,6 +179,7 @@ class Checkpointer(epy.ContextManager):
         preservation_policy=preservation_policy,
         step_name_format=step_name_format,
         cleanup_tmp_directories=cleanup_tmp_directories,
+        lightweight_initialize=lightweight_initialize,
         max_to_keep=None,  # Unlimited.
         todelete_full_path=context.deletion_options.gcs_deletion_options.todelete_full_path,
         async_options=context.async_options.v0(),

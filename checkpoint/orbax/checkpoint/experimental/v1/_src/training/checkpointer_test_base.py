@@ -704,3 +704,23 @@ class CheckpointerTestBase:
           cleanup_tmp_directories,
       )
       checkpointer.close()
+
+    @parameterized.named_parameters(
+        dict(
+            testcase_name='true',
+            lightweight_initialize=True,
+        ),
+        dict(
+            testcase_name='false',
+            lightweight_initialize=False,
+        ),
+    )
+    def test_lightweight_initialize(self, lightweight_initialize):
+      checkpointer = Checkpointer(
+          self.directory, lightweight_initialize=lightweight_initialize
+      )
+      self.assertIs(
+          checkpointer._manager._options.lightweight_initialize,
+          lightweight_initialize,
+      )
+      checkpointer.close()

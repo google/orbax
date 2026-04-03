@@ -364,12 +364,11 @@ class CheckpointManagerOptions:
     supposed to be created per process. This is used to support async
     directory creation. If True, `multiprocessing_options.primary_host` must be
     None.
-  lightweight_initialize: If True, checkpoint step metadata is not
-  read on
+  lightweight_initialize: If True, checkpoint step metadata is not read on
     CheckpointManager initialization during checkpoint info loading. This is
-    useful to improve init performance
-    when there are O(1k) or more existing checkpoint step present and checkpoint
-    info properties like `time` and `metrics` are not needed.
+    useful to improve init performance when there are O(1k) or more existing
+    checkpoint steps present and checkpoint info properties like `time` and
+    `metrics` are not needed.
   """
 
   save_interval_steps: int = 1
