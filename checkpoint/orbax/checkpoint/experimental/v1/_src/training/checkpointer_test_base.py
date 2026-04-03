@@ -669,3 +669,16 @@ class CheckpointerTestBase:
           [all_metrics[step] for step in expected_steps],
       )
       checkpointer.close()
+
+    def test_gcs_deletion_options(self):
+      deletion_options = ocp.options.DeletionOptions(
+          gcs_deletion_options=ocp.options.DeletionOptions.GcsDeletionOptions(
+              todelete_full_path='trash'
+          )
+      )
+      with ocp.Context(deletion_options=deletion_options):
+        checkpointer = Checkpointer(self.directory)
+        self.assertEqual(
+            checkpointer._manager._options.todelete_full_path, 'trash'
+        )
+

@@ -170,8 +170,7 @@ class Checkpointer(epy.ContextManager):
         preservation_policy=preservation_policy,
         step_name_format=step_name_format,
         max_to_keep=None,  # Unlimited.
-        # TODO(b/401541834) Configure todelete_subdir.
-        # TODO(b/401541834) Enable background deletion.
+        todelete_full_path=context.deletion_options.gcs_deletion_options.todelete_full_path,
         async_options=context.async_options.v0(),
         file_options=context.file_options.v0(),
         multiprocessing_options=context.multiprocessing_options.v0(),
