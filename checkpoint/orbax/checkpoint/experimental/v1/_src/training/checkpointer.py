@@ -87,6 +87,7 @@ class Checkpointer(epy.ContextManager):
           path_step_lib.NameFormat[path_step_lib.Metadata] | None
       ) = None,
       custom_metadata: tree_types.JsonType | None = None,
+      cleanup_tmp_directories: bool = False,
   ):
     """Initializes a Checkpointer.
 
@@ -150,6 +151,8 @@ class Checkpointer(epy.ContextManager):
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the entire
         sequence of checkpoints, rather than to any single checkpoint.
+      cleanup_tmp_directories: If True, cleans up any existing temporary
+        directories on Checkpointer creation.
     """
     context = context_lib.get_context()
 
@@ -169,6 +172,7 @@ class Checkpointer(epy.ContextManager):
         save_decision_policy=save_decision_policy,
         preservation_policy=preservation_policy,
         step_name_format=step_name_format,
+        cleanup_tmp_directories=cleanup_tmp_directories,
         max_to_keep=None,  # Unlimited.
         todelete_full_path=context.deletion_options.gcs_deletion_options.todelete_full_path,
         async_options=context.async_options.v0(),

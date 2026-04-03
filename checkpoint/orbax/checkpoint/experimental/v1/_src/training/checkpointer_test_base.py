@@ -682,3 +682,25 @@ class CheckpointerTestBase:
             checkpointer._manager._options.todelete_full_path, 'trash'
         )
 
+
+    @parameterized.named_parameters(
+        dict(
+            testcase_name='true',
+            cleanup_tmp_directories=True,
+        ),
+        dict(
+            testcase_name='false',
+            cleanup_tmp_directories=False,
+        ),
+    )
+    def test_cleanup_tmp_directories(
+        self, cleanup_tmp_directories
+    ):
+      checkpointer = Checkpointer(
+          self.directory, cleanup_tmp_directories=cleanup_tmp_directories
+      )
+      self.assertIs(
+          checkpointer._manager._options.cleanup_tmp_directories,
+          cleanup_tmp_directories,
+      )
+      checkpointer.close()

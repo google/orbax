@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite.
 - #v1 Add `DeletionOptions` to configure V1 Checkpointer's checkpoint deletion
 behavior.
+- #v1 Add `cleanup_tmp_directories` setting to V1 Checkpointer to manage
+temporary directory cleanup behavior.
 
 ### Removed
 
