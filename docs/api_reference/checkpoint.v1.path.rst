@@ -14,3 +14,8 @@ Types
   :members:
 .. autoclass:: PathAwaitingCreation
   :members:
+
+Step entities
+------------------------------------------------------------
+.. automodule:: orbax.checkpoint.experimental.v1.path.step
+  :members:

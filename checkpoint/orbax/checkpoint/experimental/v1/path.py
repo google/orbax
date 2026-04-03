@@ -21,3 +21,4 @@ from orbax.checkpoint.experimental.v1._src.path.types import (
     PathLike,
     PathAwaitingCreation,
 )
+from orbax.checkpoint.experimental.v1._src.path import step
