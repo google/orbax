@@ -1,0 +1,26 @@
+# The name for the entire test suite run.
+suite_name: "Llama 3.1 70B slice 16"
+num_repeats: 20
+
+mesh_config:
+  mesh_axes: ["replica", "model"]
+  # Should match reference_sharding_path.
+  ici_parallelism: {"replica": 1, "model": 64}
+  dcn_parallelism: {"replica": 16}
+
+# Note: checkpoint_config field not specified.
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.replica_parallel_multislice_benchmark.ReplicaParallelMultislice"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `V1BenchmarkOptions` class
+      # associated with the `V1Benchmark` generator.
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: [true, false]
+      use_compression: true
+      reference_checkpoint_path: "gs://orbax-benchmarks/checkpoints/llama-70b_generate_4-8-4_subchunked/ckpt"
+      reference_sharding_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-128-data-1-fsdp-64-tensor-1/abstract_state.json"
+      use_load_and_broadcast: true # speed up the loading

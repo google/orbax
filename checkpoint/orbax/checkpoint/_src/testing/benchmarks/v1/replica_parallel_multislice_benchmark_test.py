@@ -24,20 +24,20 @@ import numpy as np
 from orbax.checkpoint import v1 as ocp
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
-from orbax.checkpoint._src.testing.benchmarks.v1 import restore_and_broadcast_benchmark
+from orbax.checkpoint._src.testing.benchmarks.v1 import replica_parallel_multislice_benchmark
 
 
-RestoreAndBroadcastBenchmarkOptions = (
-    restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmarkOptions
+ReplicaParallelMultisliceBenchmarkOptions = (
+    replica_parallel_multislice_benchmark.ReplicaParallelMultisliceBenchmarkOptions
 )
-RestoreAndBroadcastBenchmark = (
-    restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmark
+ReplicaParallelMultislice = (
+    replica_parallel_multislice_benchmark.ReplicaParallelMultislice
 )
 
 _REQUIRED_DEVICE_COUNT = 16
 
 
-class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
+class ReplicaParallelMultisliceBenchmarkTest(parameterized.TestCase):
 
   def setUp(self):
     self._prev_xla_flags = os.environ.get('XLA_FLAGS')
@@ -63,7 +63,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
 
   @parameterized.parameters(
       dict(
-          options=RestoreAndBroadcastBenchmarkOptions(
+          options=ReplicaParallelMultisliceBenchmarkOptions(
               reference_checkpoint_path='ckpt_path',
               reference_sharding_path='sharding_path',
           ),
@@ -71,7 +71,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
       ),
   )
   def test_generate_benchmarks(self, options, expected_len):
-    generator = RestoreAndBroadcastBenchmark(
+    generator = ReplicaParallelMultislice(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
@@ -79,7 +79,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
     self.assertLen(benchmarks, expected_len)
     for benchmark in benchmarks:
       self.assertIsInstance(
-          benchmark.options, RestoreAndBroadcastBenchmarkOptions
+          benchmark.options, ReplicaParallelMultisliceBenchmarkOptions
       )
 
   def test_benchmark_test_fn(self):
@@ -109,7 +109,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
     sharding_config_path = self.directory / 'sharding_config.json'
     sharding_config_path.write_text(json.dumps(sharding_config))
 
-    options = RestoreAndBroadcastBenchmarkOptions(
+    options = ReplicaParallelMultisliceBenchmarkOptions(
         reference_checkpoint_path=str(ref_ckpt_path),
         reference_sharding_path=str(sharding_config_path),
     )
@@ -123,19 +123,16 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
         options=options,
         mesh=global_mesh,
     )
-    self.assertTrue(options.use_load_and_broadcast)
-    self.assertTrue(
-        options.context.array_options.loading.use_load_and_broadcast
-    )
 
-    generator = RestoreAndBroadcastBenchmark(
+    generator = ReplicaParallelMultislice(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
         options=options,
     )
     result = generator.test_fn(context)
     self.assertIsInstance(result, benchmarks_core.TestResult)
     metrics = result.metrics.results
-    self.assertIn('load_time_duration', metrics)
+    self.assertIn('save_blocking_time_duration', metrics)
+    self.assertIn('save_background_time_duration', metrics)
 
 
 if __name__ == '__main__':
