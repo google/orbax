@@ -37,7 +37,6 @@ from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
-from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
 
@@ -230,20 +229,13 @@ class Checkpointer(
         ),
     )
     directory = epath.Path(directory)
-
-    if multihost.is_primary_host(self._primary_host):
-      jax.monitoring.record_event(
-          '/jax/orbax/write/storage_type',
-          storage_type=path_utils.get_storage_type(directory),
-      )
-    # TODO(dicentra): Revise other metrics to also only report from the primary
-    # host where appropriate.
-    jax.monitoring.record_event('/jax/orbax/write/start')
-    logging.info(
-        '[process=%s] Started saving checkpoint to %s.',
-        multihost.process_index(),
+    operation_recorder = event_tracking.OperationRecorder(
         directory,
+        operation_type=event_tracking.OperationType.SAVE,
+        async_origin=False,
+        primary_host=self._primary_host,
     )
+    operation_recorder.record_start()
     self.synchronize_next_awaitable_signal_operation_id()
 
     if directory.exists():
@@ -273,6 +265,9 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
+    operation_recorder.record_blocking_completion(
+        time.time() - checkpoint_start_time
+    )
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if multihost.is_primary_host(self._primary_host):
@@ -292,27 +287,29 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
-    save_duration_secs = time.time() - checkpoint_start_time
-    logging.info(
-        'Finished synchronous save in %.2f seconds to %s',
-        save_duration_secs,
-        directory,
-    )
+    operation_recorder.record_completion(time.time() - checkpoint_start_time)
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
     restore_start_time = time.time()
     directory = epath.Path(directory)
+    operation_recorder = event_tracking.OperationRecorder(
+        directory,
+        operation_type=event_tracking.OperationType.LOAD,
+        async_origin=False,
+        primary_host=self._primary_host,
+    )
+    operation_recorder.record_start()
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
     if not step_lib.is_path_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
+    operation_recorder.record_blocking_completion(
+        time.time() - restore_start_time
+    )
     restored = self._restore(directory, args=ckpt_args)
-
-    event_tracking.record_read_event(directory)
-
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:restore',
@@ -320,22 +317,7 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
-    restore_duration_secs = time.time() - restore_start_time
-    logging.info(
-        'Finished restoring checkpoint in %.2f seconds from %s.',
-        restore_duration_secs,
-        directory,
-    )
-
-    if multihost.is_primary_host(self._primary_host):
-      jax.monitoring.record_event(
-          '/jax/orbax/read/storage_type',
-          storage_type=path_utils.get_storage_type(directory),
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/read/total_duration_secs',
-          restore_duration_secs,
-      )
+    operation_recorder.record_completion(time.time() - restore_start_time)
     return restored
 
   def _restore(

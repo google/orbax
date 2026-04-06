@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import time
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -140,6 +144,45 @@ class LayoutLoadingTest(parameterized.TestCase):
         self.orbax_checkpointables_path, abstract_checkpointables=metadata
     )
     test_utils.assert_tree_equal(self, self.checkpointables_to_save, loaded)
+
+  @parameterized.parameters(
+      (options_lib.CheckpointLayout.SAFETENSORS,),
+      (options_lib.CheckpointLayout.ORBAX,),
+  )
+  def test_load_pytree_async(self, layout: options_lib.CheckpointLayout):
+    original_finalize_load = loading._LoadPyTreeResponse._finalize_load
+
+    async def sleep_and_load(*args, **kwargs):
+      await asyncio.sleep(2)
+      return await original_finalize_load(*args, **kwargs)
+
+    self.enter_context(
+        mock.patch.object(
+            loading._LoadPyTreeResponse,
+            '_finalize_load',
+            new=sleep_and_load,
+        )
+    )
+
+    pytree = self.object_to_save
+    if layout == options_lib.CheckpointLayout.SAFETENSORS:
+      directory = self.safetensors_path
+    else:
+      directory = self.orbax_pytree_path
+
+    with context_lib.Context(checkpoint_layout=layout):
+      if layout != options_lib.CheckpointLayout.SAFETENSORS:
+        with self.assertRaises(NotImplementedError):
+          loading.load_pytree_async(directory)
+        return
+
+      start = time.time()
+      response = loading.load_pytree_async(directory)
+
+    self.assertLess(time.time() - start, 1)
+    loaded = response.result()
+    self.assertGreater(time.time() - start, 2)
+    test_utils.assert_tree_equal(self, pytree, loaded)
 
   # TODO(b/431045454): Add tests for abstract_checkpointables.
 

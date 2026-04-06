@@ -124,15 +124,11 @@ class _SaveResponse(AsyncResponse[None]):
   ) -> _SaveResponse:
     """Creates and returns the final AsyncResponse for a save operation."""
     blocking_duration_secs = time.time() - start_time
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/async/blocking_duration_secs',
-        blocking_duration_secs,
-    )
-    logging.info(
-        'Finished blocking save in %.2f seconds. Continuing to write to %s.',
-        blocking_duration_secs,
+    event_tracking.OperationRecorder(
         temporary_path.temporary_path.get_final(),
-    )
+        operation_type=event_tracking.OperationType.SAVE,
+        async_origin=async_origin,
+    ).record_blocking_completion(blocking_duration_secs)
 
     handler_typestrs = {
         name: handler_types.typestr(type(handler))
@@ -221,11 +217,11 @@ class _SaveResponse(AsyncResponse[None]):
         processes=self._context.multiprocessing_options.active_processes,
     )
     total_duration_secs = time.time() - self._start_time
-    event_tracking.record_save_completion(
+    event_tracking.OperationRecorder(
         self._temporary_path.temporary_path.get_final(),
-        total_duration_secs=total_duration_secs,
+        operation_type=event_tracking.OperationType.SAVE,
         async_origin=self._async_origin,
-    )
+    ).record_completion(total_duration_secs)
 
   def result(self, timeout: float | None = None) -> None:
     return self._thread_runner.result(timeout=timeout)
@@ -285,9 +281,6 @@ async def _run_blocking_save(
       path=temporary_path.path_awaiting_creation,
       checkpointables=checkpointables,
   )
-  # Log write event for the final path.
-  event_tracking.record_write_event(temporary_path.temporary_path.get_final())
-
   return background_awaitable
 
 
@@ -374,7 +367,11 @@ def save_checkpointables_impl(
   """See caller docstrings."""
   validation.validate_abstract_checkpointables(checkpointables)
   start_time = time.time()
-  event_tracking.record_save_start(path, async_origin=async_origin)
+  event_tracking.OperationRecorder(
+      path,
+      operation_type=event_tracking.OperationType.SAVE,
+      async_origin=async_origin,
+  ).record_start()
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
   asyncio_utils.run_sync(context_lib.synchronize_next_operation_id())

@@ -31,12 +31,12 @@ from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import utils as path_utils
 
 
 
@@ -56,11 +56,6 @@ def _on_commit_callback(
           tmpdir,
           checkpoint_start_time=checkpoint_start_time,
       )
-  )
-  total_duration_secs = time.time() - checkpoint_start_time
-  jax.monitoring.record_event_duration_secs(
-      '/jax/checkpoint/write/async/total_duration_secs',
-      total_duration_secs,
   )
 
 
@@ -437,11 +432,14 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           tmpdir,
           checkpoint_start_time,
       )
-      logging.info(
-          'Finished async_save (blocking + background). Time taken: %fs.'
-          ' directory=%s',
-          time.time() - checkpoint_start_time,
+      operation_recorder = event_tracking.OperationRecorder(
           tmpdir.get_final(),
+          operation_type=event_tracking.OperationType.SAVE,
+          async_origin=True,
+          primary_host=self._primary_host,
+      )
+      operation_recorder.record_completion(
+          time.time() - checkpoint_start_time
       )
       # Clean up all awaitable signals for the current operation id as they are
       # no longer needed.
@@ -460,21 +458,6 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-
-    if utils.is_primary_host(self._primary_host):
-      jax.monitoring.record_event(
-          '/jax/orbax/write/storage_type',
-          storage_type=path_utils.get_storage_type(directory),
-      )
-    # TODO(dicentra): Revise other metrics to also only report from the primary
-    # host where appropriate.
-    jax.monitoring.record_event('/jax/orbax/write/async/start')
-    logging.info(
-        '[process=%s] Started async saving checkpoint to %s.',
-        multihost.process_index(),
-        directory,
-    )
-
     if await async_path.exists(directory):
       if force:
         if utils.is_primary_host(self._primary_host):
@@ -561,6 +544,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         ),
     )
     directory = epath.Path(directory)
+    operation_recorder = event_tracking.OperationRecorder(
+        directory,
+        operation_type=event_tracking.OperationType.SAVE,
+        async_origin=True,
+        primary_host=self._primary_host,
+    )
+    operation_recorder.record_start()
     tmpdir = self.get_temporary_path(directory)
     self.wait_until_finished()
     self.synchronize_next_awaitable_signal_operation_id()
@@ -575,21 +565,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
             **kwargs,
         )
     )
+    operation_recorder.record_blocking_completion(
+        time.time() - checkpoint_start_time
+    )
     self._async_manager.start_async_commit(
         directory,
         commit_futures=commit_ops,
         on_commit_callback=on_commit_callback,
-    )
-    blocking_duration_secs = time.time() - checkpoint_start_time
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/async/blocking_duration_secs',
-        blocking_duration_secs,
-    )
-    logging.info(
-        'Finished blocking save. Time taken: %fs. Continuing background save'
-        ' to %s.',
-        blocking_duration_secs,
-        directory,
     )
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
