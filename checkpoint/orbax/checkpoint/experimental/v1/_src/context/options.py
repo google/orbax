@@ -64,7 +64,7 @@ class AsyncOptions:
       asynchronously in the background.
   """
 
-  timeout_secs: int = 600  # 10 minutes.
+  timeout_secs: int = 1200  # 20 minutes.
   post_finalization_callback: Callable[[], None] | None = None
   create_directories_asynchronously: bool = True
 
