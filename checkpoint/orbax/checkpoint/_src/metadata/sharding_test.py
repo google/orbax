@@ -93,12 +93,7 @@ class TestShardingMetadata(absltest.TestCase):
     jax_sharding = jax.sharding.SingleDeviceSharding(
         jax.local_devices(backend="cpu")[0]
     )
-    # JAX used to report its cpu devices as TFRT_CPU_0
     expected_single_device_sharding_metadata = (
-        sharding_metadata.SingleDeviceShardingMetadata(device_str="TFRT_CPU_0")
-    )
-    # ... but now uses cpu:0
-    expected_single_device_sharding_metadata2 = (
         sharding_metadata.SingleDeviceShardingMetadata(device_str="cpu:0")
     )
     converted_single_device_sharding_metadata = (
@@ -109,12 +104,9 @@ class TestShardingMetadata(absltest.TestCase):
         converted_single_device_sharding_metadata,
         sharding_metadata.SingleDeviceShardingMetadata,
     )
-    self.assertIn(
+    self.assertEqual(
         converted_single_device_sharding_metadata,
-        [
-            expected_single_device_sharding_metadata,
-            expected_single_device_sharding_metadata2,
-        ],
+        expected_single_device_sharding_metadata,
     )
 
     # Convert from `SingleDeviceShardingMetadata` to

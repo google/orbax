@@ -325,7 +325,13 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
     return f'SingleDeviceShardingMetadata(device_str={self.device_str})'
 
   def __eq__(self, other):
-    return self.device_str == other.device_str
+    if not isinstance(other, SingleDeviceShardingMetadata):
+      return False
+    # JAX 0.10 changed CPU devices so they report as cpu:0 not TFRT_CPU_0
+    return (
+        self.device_str.replace('TFRT_CPU_', 'cpu:')
+        == other.device_str.replace('TFRT_CPU_', 'cpu:')
+    )
 
 
 def from_jax_sharding(jax_sharding) -> Optional[ShardingMetadata]:
