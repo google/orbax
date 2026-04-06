@@ -102,6 +102,7 @@ class Context(epy.ContextManager):
     pathways_options: Options for Pathways checkpointing.
     checkpoint_layout: The layout of the checkpoint. Defaults to ORBAX.
     deletion_options: Options for controlling deletion behavior.
+    memory_options: Options for controlling memory limits during save / load.
   """
 
   def __init__(
@@ -117,6 +118,7 @@ class Context(epy.ContextManager):
       pathways_options: options_lib.PathwaysOptions | None = None,
       checkpoint_layout: options_lib.CheckpointLayout | None = None,
       deletion_options: options_lib.DeletionOptions | None = None,
+      memory_options: options_lib.MemoryOptions | None = None,
   ):
     self._pytree_options = pytree_options or (
         context.pytree_options if context else options_lib.PyTreeOptions()
@@ -150,6 +152,9 @@ class Context(epy.ContextManager):
     )
     self._deletion_options = deletion_options or (
         context.deletion_options if context else options_lib.DeletionOptions()
+    )
+    self._memory_options = memory_options or (
+        context.memory_options if context else options_lib.MemoryOptions()
     )
 
   @property
@@ -187,6 +192,10 @@ class Context(epy.ContextManager):
   @property
   def deletion_options(self) -> options_lib.DeletionOptions:
     return self._deletion_options
+
+  @property
+  def memory_options(self) -> options_lib.MemoryOptions:
+    return self._memory_options
 
   def operation_id(self) -> str:
     return synchronization.OperationIdGenerator.get_current_operation_id()

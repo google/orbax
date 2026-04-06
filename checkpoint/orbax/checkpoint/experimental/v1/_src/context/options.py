@@ -273,11 +273,9 @@ class ArrayOptions:
           saving=ArrayOptions.Saving(
               use_zarr3=True,
               use_compression=False,
-              concurrent_bytes=1024 * 1024 * 100  # 100 MB
           ),
           loading=ArrayOptions.Loading(
               enable_padding_and_truncation=True
-          )
       )
 
   Attributes:
@@ -290,9 +288,6 @@ class ArrayOptions:
     """Options for saving arrays.
 
     Attributes:
-      concurrent_bytes: Max concurrent bytes that are allowed for writing. Can
-        help to reduce the possibility of OOM's when large checkpoints are
-        saved.
       storage_options: Options used to customize array storage behavior for
         individual leaves. See below.
       use_ocdbt: Enables OCDBT format.
@@ -349,7 +344,6 @@ class ArrayOptions:
       chunk_byte_size: int | None = None
       shard_axes: tuple[int, ...] = tuple()
 
-    concurrent_bytes: int | None = None
     storage_options: StorageOptions = dataclasses.field(
         default_factory=StorageOptions
     )
@@ -372,9 +366,6 @@ class ArrayOptions:
   class Loading:
     """Options for loading arrays.
 
-    concurrent_bytes:
-      Max concurrent bytes that are allowed for reading. Can help to reduce the
-      possibility of OOM's when large checkpoints are restored.
     enable_padding_and_truncation:
       If True, restoration allows silent truncating/padding of arrays if the
       stored array shape does not match the target shape. Otherwise, raises an
@@ -413,7 +404,6 @@ class ArrayOptions:
       broadcast_memory_limit_bytes: int | None = None
       broadcast_memory_scaling_factor: float | None = 0.75
 
-    concurrent_bytes: int | None = None
     enable_padding_and_truncation: bool = False
     raise_array_data_missing_error: bool = True
     use_load_and_broadcast: bool = False
@@ -530,6 +520,54 @@ class DeletionOptions:
       default_factory=GcsDeletionOptions
   )
 
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class MemoryOptions:
+  """Options for configuring memory limits for save / load.
+
+  Can help to reduce the possibility of OOM's when large checkpoints are
+  saved or loaded.
+
+  Attributes:
+    write_concurrent_bytes: Max concurrent bytes that are allowed for writing
+      (per host). This applies only to *additional* memory used beyond the
+      baseline space required to hold the model weights in memory. E.g. if
+      model weights require 100 GB of memory in RAM, a setting below 100 GB
+      will not prevent 100 GB from being allocated, but will prevent
+      additional memory from being used during the write to disk.
+      `None` indicates no limit.
+    read_concurrent_bytes:
+      Max concurrent bytes that are allowed for reading.
+      `None` indicates no limit.
+    transfer_concurrent_bytes: Max concurrent bytes allowed for device-to-host
+      transfers (per host). When the limit is reached, arrays must be finished
+      writing to the checkpoint before a new array can start being
+      transferred. E.g. if the limit is 100 GB, and model weights would
+      require 120 GB of RAM, then the remaining 20 GB will not be able to
+      start D2H transfer until the first 100 GB have finished being written to
+      the checkpoint. Note that asynchronous saves may not be truly
+      asynchronous with this option enabled, as we have to block on some array
+      writes before beginning others. Also see `is_prioritized_key_fn`.
+      `None` indicates no limit.
+    is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
+      using jax.tree.map_with_path) that should be scheduled for D2H transfer
+      before other keys. The transfer is scheduled before returning to the
+      caller, so the values will never be corrupted by a concurrent update.
+      Keys that are not prioritized will not be scheduled for transfer until
+      all prioritized keys have been fully written to the checkpoint. This
+      means that these values may be altered if the values are updated
+      concurrently. Callers should take care to call `wait_until_finished`
+      before updating array values (e.g. `apply_gradients`) if some keys are
+      not prioritized. Note that any "prioritized" keys are assumed to be
+      lightweight, and `transfer_concurrent_bytes` will be ignored for
+      them.
+  """
+
+  write_concurrent_bytes: int | None = None
+  read_concurrent_bytes: int | None = None
+  transfer_concurrent_bytes: int | None = None
+  is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
 
 
 class CheckpointLayout(enum.Enum):

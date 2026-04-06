@@ -22,6 +22,7 @@ import jax.experimental.layout as jax_layout
 import numpy as np
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -35,6 +36,8 @@ Shape = arrays_types.Shape
 DType = arrays_types.DType
 
 PLACEHOLDER = ...
+
+IsPrioritizedKeyFn = serialization_types.IsPrioritizedKeyFn
 
 Scalar = int | float | np.number
 # Optional type hint for a scalar leaf handler. If provided, the restored scalar

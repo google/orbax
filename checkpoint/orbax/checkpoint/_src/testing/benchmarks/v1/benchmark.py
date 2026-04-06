@@ -100,16 +100,18 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
                 use_replica_parallel=self.use_replica_parallel,
                 use_compression=self.use_compression,
                 enable_replica_parallel_separate_folder=self.enable_replica_parallel_separate_folder,
-                concurrent_bytes=self.save_concurrent_gb * 1024**3
-                if self.save_concurrent_gb is not None
-                else None,
             ),
             loading=ocp.options.ArrayOptions.Loading(
                 use_load_and_broadcast=self.use_load_and_broadcast,
-                concurrent_bytes=self.restore_concurrent_gb * 1024**3
-                if self.restore_concurrent_gb is not None
-                else None,
             ),
+        ),
+        memory_options=ocp.options.MemoryOptions(
+            write_concurrent_bytes=self.save_concurrent_gb * 1024**3
+            if self.save_concurrent_gb is not None
+            else None,
+            read_concurrent_bytes=self.restore_concurrent_gb * 1024**3
+            if self.restore_concurrent_gb is not None
+            else None,
         ),
     )
 

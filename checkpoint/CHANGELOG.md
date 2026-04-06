@@ -19,6 +19,7 @@ behavior.
 temporary directory cleanup behavior.
 - #v1 Add `lightweight_initialize` which allows skipping checkpoint step
 metadata reading to improve initialization performance.
+- #v1 Restructure memory-limiting options.
 
 ### Removed
 

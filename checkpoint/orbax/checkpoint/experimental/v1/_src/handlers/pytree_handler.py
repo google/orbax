@@ -108,8 +108,9 @@ def _create_v0_handler(
 ) -> base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler:
   """Creates a V0 handler from a V1 context."""
   return base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler(
-      save_concurrent_bytes=context.array_options.saving.concurrent_bytes,
-      restore_concurrent_bytes=context.array_options.loading.concurrent_bytes,
+      save_concurrent_bytes=context.memory_options.write_concurrent_bytes,
+      restore_concurrent_bytes=context.memory_options.read_concurrent_bytes,
+      save_device_host_concurrent_bytes=context.memory_options.transfer_concurrent_bytes,
       use_ocdbt=context.array_options.saving.use_ocdbt,
       use_zarr3=context.array_options.saving.use_zarr3,
       use_compression=context.array_options.saving.use_compression,
@@ -123,6 +124,7 @@ def _create_v0_handler(
       pytree_metadata_options=context.pytree_options.saving.pytree_metadata_options,
       array_metadata_validator=array_metadata_validator,
       enable_pinned_host_transfer=context.array_options.saving.enable_pinned_host_transfer,
+      is_prioritized_key_fn=context.memory_options.is_prioritized_key_fn,
   )
 
 
