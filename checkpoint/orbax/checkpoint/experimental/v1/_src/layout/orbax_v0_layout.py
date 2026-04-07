@@ -112,16 +112,18 @@ class OrbaxV0Layout(CheckpointLayout):
     Returns:
       The metadata describing the Orbax checkpoint.
     """
-    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(
-        path
-    )
-    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
-    if checkpoint_metadata and isinstance(
-        checkpoint_metadata.item_handlers, dict
+    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
+    if (
+        checkpoint_metadata
+        and isinstance(checkpoint_metadata.item_handlers, str)
+        or await orbax_layout.has_pytree_metadata_file(path)
     ):
-      return await self._orbax_layout.metadata(path)
-    # Otherwise, load the metadata as a PyTree checkpoint.
-    return await self._load_pytree_metadata(path, checkpoint_metadata)
+      return await self._load_pytree_metadata(path, checkpoint_metadata)
+    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
+    # If there is no checkpoint metadata, we assume it is a composite
+    # checkpoint, and even if it is a direct pytree checkpoint it will load as
+    # a composite checkpoint as there is no metadata to indicate otherwise.
+    return await self._orbax_layout.metadata(path)
 
   async def _validate(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
