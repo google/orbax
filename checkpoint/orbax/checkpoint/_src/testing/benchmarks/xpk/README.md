@@ -255,6 +255,7 @@ the complexities of cluster management and config propagation.
 | :--- | :--- | :--- |
 | `--config_file` | *Required* | Path to local YAML benchmark config. |
 | `--output_directory` | *Required* | GCS path (`gs://bucket/path`) for results/artifacts. |
+| `--config_directory` | `--output_directory` | GCS path (`gs://bucket/path`) to store the YAML benchmark config. |
 | `--docker_image` | `...:stable` | Docker image to run. |
 | `--env` | `[]` | List of env vars: `--env=KEY=VAL`. |
 | `--env_file` | `None` | Path to file with env vars. |
