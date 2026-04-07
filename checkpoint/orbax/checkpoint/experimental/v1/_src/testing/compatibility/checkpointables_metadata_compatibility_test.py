@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for V1 pytree_metadata API against generated V0 and V1 Checkpoints."""
-
+"""Tests for V1 checkpointables_metadata API against V0/V1 Checkpoints."""
 import os
 from typing import Tuple, Type
 
@@ -37,7 +36,7 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class PytreeMetadataCompatibilityTest(parameterized.TestCase):
+class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
 
   def setUp(self) -> None:
     super().setUp()
@@ -49,111 +48,51 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
     self.expected_state_metadata = jax.tree.map(
         compatibility_test_utils.create_value_metadata, self.expected_state
     )
-    self.expected_metadata = None
+    self.expected_checkpointables_metadata = {
+        'state': self.expected_state_metadata,
+        'metadata': None,
+    }
 
-  def setup_registry(
-      self,
-      name_registered: bool,
-      handler_registered: bool,
-  ) -> registration.CheckpointableHandlerRegistry:
+  def setup_registry(self) -> registration.CheckpointableHandlerRegistry:
     """Ensures we only have what we explicitly add."""
     registry = ocp.handlers.local_registry(include_global_registry=False)
-
-    if handler_registered:
-      # Register the handler without a specific name.
-      # This allows resolution based on handler_typestr.
-      # The recognized_handler_typestrs are those used to save the pytree
-      # 'state' for V0 composite and direct checkpoints respectively.
-      registry.add(
-          ocp.handlers.PyTreeHandler,
-          checkpointable_name=None,
-          secondary_typestrs=[
-              'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler',
-              'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler',
-          ],
-      )
-      registry.add(
-          ocp.handlers.JsonHandler,
-          checkpointable_name=None,
-          secondary_typestrs=[
-              'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonCheckpointHandler',
-          ],
-      )
-
-    if name_registered:
-      # We register all checkpointables within the checkpoint as metadata
-      # loading requires loading from all contents of the checkpoint.
-      registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='state')
-      registry.add(ocp.handlers.JsonHandler, checkpointable_name='metadata')
-
     registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='pytree')
     return registry
 
   def _determine_expected_outcome(
       self,
       version: str,
-      checkpointable_name: str | None,
       metadata_present: bool,
       is_direct_checkpoint: bool,
       is_pytree: bool,
   ) -> Tuple[Type[Exception] | None, str | None]:
-    """Encapsulates the complex boolean logic to determine load behavior."""
-    # LAYOUT VALIDATION BEHAVIOR:
-    if version == 'v1':
-      # V1 strictly requires that checkpoint metadata is present.
-      if not metadata_present:
-        return (
-            InvalidLayoutError,
-            (
-                r'Could not recognize the checkpoint at .* as a valid Orbax'
-                r' checkpoint'
-            ),
-        )
-      elif checkpointable_name is None:
-        return (
-            ValueError,
-            r'Failed to interpret path .* as a .* Orbax PyTree',
-        )
-    elif version == 'v0':
-      # V0 behavior specific to our generated checkpoints, as we know that
-      # composite checkpoints cannot be loaded as pytrees and that direct
-      # checkpoints can only be loaded as pytrees if checkpointable_name is
-      # None.
-      if not is_direct_checkpoint and checkpointable_name is None or (
-          is_direct_checkpoint and checkpointable_name is not None
-      ):
-        return (
-            InvalidLayoutError,
-            r'Failed to interpret path .* as a .* Orbax PyTree',
-        )
+    """Determines failure cases. All other cases default to Success."""
+    # If we indicate that this is a top level pytree checkpoint, but we do not
+    # have pytree metadata, then our metadata resolution fails.
+    if is_direct_checkpoint and metadata_present and not is_pytree:
+      return FileNotFoundError, r'Metadata file .* does not exist at .*'
 
-    # Load pytree enforces that pytree metadata is present.
-    if not is_pytree:
-      return (
-          InvalidLayoutError,
-          r'Failed to interpret path .* as a .* Orbax PyTree',
+    # V1 strictly requires that a checkpoint has checkpoint metadata.
+    if not is_direct_checkpoint and version == 'v1' and not metadata_present:
+      return InvalidLayoutError, (
+          r'Could not recognize the checkpoint at .* as a valid Orbax'
+          r' checkpoint'
       )
 
     return None, None
 
   @parameterized.product(
       version=['v0', 'v1'],
-      checkpointable_name=['state', None],
-      name_registered=[True, False],
       metadata_present=[True, False],
       is_direct_checkpoint=[True, False],
       is_pytree=[True, False],
-      handler_registered=[True, False],
   )
-  def test_pytree_metadata_compatibility(
+  def test_checkpointables_metadata_compatibility(
       self,
       version: str,
-      checkpointable_name: str | None,
-      name_registered: bool,
       metadata_present: bool,
       is_direct_checkpoint: bool,
       is_pytree: bool,
-      handler_registered: bool,
   ) -> None:
     path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, is_pytree
@@ -161,17 +100,15 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
     if path is None or not path.exists():
       self.skipTest('Checkpoint for combination does not exist.')
 
-    registry = self.setup_registry(
-        name_registered,
-        handler_registered,
-    )
+    registry = self.setup_registry()
 
-    error_type, error_msg = self._determine_expected_outcome(
-        version,
-        checkpointable_name,
-        metadata_present,
-        is_direct_checkpoint,
-        is_pytree,
+    error_type, expected_error_msg = (
+        self._determine_expected_outcome(
+            version,
+            metadata_present,
+            is_direct_checkpoint,
+            is_pytree,
+        )
     )
 
     with ocp.Context(
@@ -180,19 +117,26 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
         )
     ):
       if error_type is None:
-        loaded = ocp.pytree_metadata(
-            path,
-            checkpointable_name=checkpointable_name,
-        )
-        test_utils.assert_tree_equal(
-            self, self.expected_state_metadata, loaded.metadata
-        )
+        loaded = ocp.checkpointables_metadata(path)
+        # If the state checpointable is missing pytree metadata, then we expect
+        # the metadata to be a dict of None values with keys corresponding to
+        # the subdirectories of the checkpoint.
+        if not is_pytree:
+          subdirectories = [x for x in path.iterdir() if x.is_dir()]
+          expected = {subdir.name: None for subdir in subdirectories}
+        # If we find a direct checkpoint, we expect to load the top level
+        # pytree metadata, this is due to both pytree_metadata and
+        # checkpointables_metadata functions relying on the same
+        # metadata resolution functionality.
+        elif is_direct_checkpoint:
+          expected = self.expected_state_metadata
+        else:
+          expected = self.expected_checkpointables_metadata
+
+        test_utils.assert_tree_equal(self, expected, loaded.metadata)
       else:
-        with self.assertRaisesRegex(error_type, error_msg):
-          ocp.pytree_metadata(
-              path,
-              checkpointable_name=checkpointable_name,
-          )
+        with self.assertRaisesRegex(error_type, expected_error_msg):
+          ocp.checkpointables_metadata(path)
 
   @parameterized.product(
       version=['v0', 'v1'],
@@ -206,7 +150,7 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
           'missing_pytree_data_dir_array_metadatas',
       ],
   )
-  def test_pytree_metadata_non_critical_corruptions(
+  def test_checkpointables_metadata_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
     path = self.base_dir.joinpath(
@@ -215,15 +159,17 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
         'non_critical_metadata_alterations',
         alteration,
     )
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
+    # Missing sharding metadata results in a pytree identical to expected
+    # values except sharding metadata is None.
+    loaded = ocp.checkpointables_metadata(path)
     test_utils.assert_tree_equal(
-        self, self.expected_state_metadata, loaded.metadata
+        self, self.expected_checkpointables_metadata, loaded.metadata
     )
 
   @parameterized.product(
       version=['v0', 'v1'],
   )
-  def test_pytree_metadata_missing_sharding_corruption(
+  def test_checkpointables_metadata_missing_sharding_corruption(
       self, version: str
   ) -> None:
     path = self.base_dir.joinpath(
@@ -234,8 +180,8 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
     )
     # Missing sharding metadata results in a pytree identical to expected
     # values except sharding metadata is None.
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
-    self.assertIsNone(loaded.metadata['a'].sharding_metadata)
+    loaded = ocp.checkpointables_metadata(path)
+    self.assertIsNone(loaded.metadata['state']['a'].sharding_metadata)
 
   @parameterized.product(
       version=['v0', 'v1'],
@@ -244,7 +190,7 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
           'missing_pytree_data_dir_d',
       ],
   )
-  def test_pytree_metadata_critical_corruptions(
+  def test_checkpointables_metadata_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
     path = self.base_dir.joinpath(
@@ -254,8 +200,8 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
         alteration,
     )
     # Doesnt fail as we are just accessing the metadata.
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
-    self.assertIsNone(loaded.metadata)
+    loaded = ocp.checkpointables_metadata(path)
+    self.assertIsNone(loaded.metadata.get('state'))
 
 
 if __name__ == '__main__':

@@ -25,6 +25,7 @@ import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
+from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
 CheckpointLayoutEnum = options_lib.CheckpointLayout
@@ -58,40 +59,6 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
         'state': self.abstract_state,
         'metadata': self.abstract_metadata,
     }
-
-  def get_checkpoint_path(
-      self,
-      version: str,
-      metadata_present: bool,
-      is_direct_checkpoint: bool,
-      has_pytree_metadata: bool,
-  ) -> epath.Path | None:
-    """Returns the path to the checkpoint for each combination of parameters."""
-    if version == 'v1' and is_direct_checkpoint:
-      return None  # V1 does not support direct checkpoints.
-
-    version_dir = f'{version}_checkpoints'
-    type_dir = (
-        'direct_checkpoint' if is_direct_checkpoint else 'composite_checkpoint'
-    )
-    metadata_dir = (
-        'checkpoint_metadata_present'
-        if metadata_present
-        else 'checkpoint_metadata_missing'
-    )
-    pytree_dir = (
-        'pytree_checkpointable_has_metadata'
-        if has_pytree_metadata
-        else 'pytree_checkpointable_missing_metadata'
-    )
-
-    return (
-        self.base_dir
-        / version_dir
-        / type_dir
-        / metadata_dir
-        / pytree_dir
-    )
 
   def setup_registry(
       self,
@@ -209,7 +176,7 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
       has_pytree_metadata: bool,
       handler_registered: bool,
   ) -> None:
-    path = self.get_checkpoint_path(
+    path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, has_pytree_metadata
     )
     if path is None or not path.exists():
