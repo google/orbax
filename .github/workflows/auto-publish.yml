@@ -23,6 +23,7 @@ jobs:
         gh-token: ${{ secrets.GH_PUBLISH_TOKEN }}
         path: "./checkpoint/"
         pkg-name: orbax-checkpoint
+        parse-changelog: true
 
   publish-export-job:
     # Only try to publish if:

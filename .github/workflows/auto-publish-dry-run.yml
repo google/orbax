@@ -1,0 +1,17 @@
+name: Auto-publish Dry-Run
+
+on:
+  workflow_dispatch:
+
+jobs:
+  dry-run-checkpoint-job:
+    runs-on: ubuntu-latest
+    if: github.repository == 'google/orbax'
+    steps:
+    - uses: etils-actions/pypi-auto-publish@v1
+      with:
+        pypi-token: skip  # Skips PyPI upload
+        # Omitting gh-token skips GitHub release creation
+        path: "./checkpoint/"
+        pkg-name: orbax-checkpoint
+        parse-changelog: true
