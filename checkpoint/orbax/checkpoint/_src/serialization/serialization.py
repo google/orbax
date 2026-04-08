@@ -32,6 +32,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+import orbax.checkpoint.utils
 import tensorstore as ts
 
 
@@ -389,7 +390,7 @@ async def _read_array_index_and_device_put(
           f' TensorStore details: {t.spec}.'
       ) from e
     for device in devices:
-      sharding = jax.sharding.SingleDeviceSharding(
+      sharding = orbax.checkpoint.utils.make_single_device_sharding(
           device, memory_kind=memory_kind
       )
       result.append(jax.device_put(shard, Format(dll, sharding)))  # pytype: disable=wrong-arg-types

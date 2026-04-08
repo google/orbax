@@ -16,6 +16,7 @@ from absl.testing import absltest
 import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+import orbax.checkpoint.utils
 
 
 class TestShardingMetadata(absltest.TestCase):
@@ -90,7 +91,7 @@ class TestShardingMetadata(absltest.TestCase):
   ):
     # Convert from `jax.sharding.SingleDeviceSharding` to
     # `SingleDeviceShardingMetadata`
-    jax_sharding = jax.sharding.SingleDeviceSharding(
+    jax_sharding = orbax.checkpoint.utils.make_single_device_sharding(
         jax.local_devices(backend="cpu")[0]
     )
     expected_single_device_sharding_metadata = (

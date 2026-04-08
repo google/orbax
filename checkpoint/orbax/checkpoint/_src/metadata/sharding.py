@@ -25,6 +25,7 @@ from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 
 import jax
 import numpy as np
+import orbax.checkpoint.utils
 
 _AXIS_TYPE_MAP = {str(val): val for val in jax.sharding.AxisType}
 PartitionSpecElement = Union[None, str, Tuple[str, ...]]
@@ -297,7 +298,7 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
     }
     device_str = self.device_str.replace('TFRT_CPU_', 'cpu:')
     if device := device_map.get(device_str, None):
-      return jax.sharding.SingleDeviceSharding(device)
+      return orbax.checkpoint.utils.make_single_device_sharding(device)
     raise ValueError(
         f'Device {device_str} was not found in jax.local_devices().'
     )

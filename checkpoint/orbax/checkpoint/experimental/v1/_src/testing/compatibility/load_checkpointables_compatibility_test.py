@@ -26,6 +26,7 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
+import orbax.checkpoint.utils
 
 
 CheckpointLayoutEnum = options_lib.CheckpointLayout
@@ -44,7 +45,9 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
         'a': jnp.array([0, 1, 2, 3, 4, 5, 6, 7], dtype=jnp.int32),
         'b': {'c': jnp.array([1, 2, 3], dtype=jnp.int32)},
     }
-    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    sharding = orbax.checkpoint.utils.make_single_device_sharding(
+        jax.devices()[0]
+    )
     self.abstract_state = jax.tree.map(
         lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=sharding),
         self.expected_state

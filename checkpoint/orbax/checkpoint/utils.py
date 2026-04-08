@@ -152,6 +152,15 @@ def is_scalar(x):
   return isinstance(x, (int, float, np.number))
 
 
+def make_single_device_sharding(device, *, memory_kind=None):
+  return jax.sharding.SingleDeviceSharding(device, memory_kind=memory_kind)
+
+
+make_single_device_sharding = getattr(
+    jax.sharding, 'make_single_device_sharding', make_single_device_sharding
+)
+
+
 def fully_replicated_host_local_array_to_global_array(
     arr: jax.Array,
 ) -> jax.Array:
