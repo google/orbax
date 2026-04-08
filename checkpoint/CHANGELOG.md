@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite, with GCS
+connector and fsspec options.
+
 ## [0.11.34] - 2026-04-07
 
 ### Added
 
 - #v1 Add `use_load_and_broadcast` option.
-- Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite.
 - #v1 #safetensors Implement `load_pytree_async`, allowed only for the
 Safetensors format at the moment.
 - #v1 Add `DeletionOptions` to configure V1 Checkpointer's checkpoint deletion
