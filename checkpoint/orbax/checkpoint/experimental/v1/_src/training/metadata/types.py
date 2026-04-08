@@ -14,11 +14,14 @@
 
 """Metadata for :py:class:`~.v1.training.Checkpointer`."""
 
+from __future__ import annotations
+
 import dataclasses
 import datetime
 import pprint
 import typing
 from typing import TypeVar
+
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -28,7 +31,7 @@ CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 
 @typing.final
 class CheckpointMetadata(
-    metadata_types.CheckpointMetadata[CheckpointableMetadataT]
+    metadata_types.CheckpointMetadata[CheckpointableMetadataT],
 ):
   """Represents metadata for a single checkpoint (corresponding to a step).
 
@@ -77,19 +80,19 @@ class CheckpointMetadata(
 
   See also :py:class:`RootMetadata`.
 
-  Attributes:
-    init_timestamp_nsecs: The timestamp (in nanoseconds) when the checkpoint
-      save operation began.
-    commit_timestamp_nsecs: The timestamp (in nanoseconds) when the checkpoint
-      was successfully finalized and committed to disk.
-    custom_metadata: An optional dictionary containing user-provided metrics or
-      configuration data saved alongside the checkpoint.
-    metadata: The inner, checkpointable-specific metadata object(s).
+  See the parent class, :py:class:`~.v1.CheckpointMetadata`, for base
+  attributes.
+
+  Additional Attributes:
+    step: The step number of the checkpoint.
+    metrics: An optional dictionary containing user-provided metrics saved
+      alongside the checkpoint.
   """
 
   def __init__(
       self,
       step: int,
+      path: path_types.Path,
       *,
       metadata: CheckpointableMetadataT,
       init_timestamp_nsecs: int | None = None,
@@ -98,6 +101,7 @@ class CheckpointMetadata(
       metrics: tree_types.JsonType | None = None,
   ):
     super().__init__(
+        path=path,
         metadata=metadata,
         init_timestamp_nsecs=init_timestamp_nsecs,
         commit_timestamp_nsecs=commit_timestamp_nsecs,

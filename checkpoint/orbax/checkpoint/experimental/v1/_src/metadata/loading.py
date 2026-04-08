@@ -107,6 +107,7 @@ def pytree_metadata(
   else:
     metadata = step_metadata.metadata[checkpointable_name]
   return CheckpointMetadata[PyTreeMetadata](
+      path=path,
       metadata=metadata,
       init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
       commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,

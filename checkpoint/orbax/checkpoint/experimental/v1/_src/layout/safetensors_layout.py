@@ -207,6 +207,7 @@ class _MultiFileLoader:
 
     logging.info("[safetensors] Loaded metadata in %.0fs", time.time() - start)
     return metadata_types.CheckpointMetadata[dict[str, Any]](
+        path=self.path,
         metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata},
         commit_timestamp_nsecs=commit_timestamp_nsecs,
         custom_metadata=custom_metadata,

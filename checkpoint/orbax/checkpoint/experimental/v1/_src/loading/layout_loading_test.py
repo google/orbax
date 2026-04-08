@@ -128,7 +128,9 @@ class LayoutLoadingTest(parameterized.TestCase):
 
   def test_load_pytree_with_checkpoint_metadata(self):
     abstract_pytree = self.object_to_save
-    metadata = metadata_types.CheckpointMetadata(metadata=abstract_pytree)
+    metadata = metadata_types.CheckpointMetadata(
+        path=self.orbax_pytree_path, metadata=abstract_pytree
+    )
 
     loaded = loading.load_pytree(
         self.orbax_pytree_path, abstract_pytree=metadata
@@ -137,7 +139,8 @@ class LayoutLoadingTest(parameterized.TestCase):
 
   def test_load_checkpointables_with_checkpoint_metadata(self):
     metadata = metadata_types.CheckpointMetadata(
-        metadata=self.checkpointables_to_save
+        path=self.orbax_checkpointables_path,
+        metadata=self.checkpointables_to_save,
     )
 
     loaded = loading.load_checkpointables(

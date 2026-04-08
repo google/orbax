@@ -212,6 +212,7 @@ class OrbaxLayout(CheckpointLayout):
     item_metadata.pop("metrics", None)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
+        path=path,
         metadata=item_metadata,
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,

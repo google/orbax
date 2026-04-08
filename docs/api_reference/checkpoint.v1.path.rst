@@ -17,5 +17,9 @@ Types
 
 Step entities
 ------------------------------------------------------------
-.. automodule:: orbax.checkpoint.experimental.v1.path.step
+.. currentmodule:: orbax.checkpoint.experimental.v1.path.step
+
+.. autoclass:: NameFormat
   :members:
+.. autofunction:: standard_name_format
+.. autofunction:: composite_name_format

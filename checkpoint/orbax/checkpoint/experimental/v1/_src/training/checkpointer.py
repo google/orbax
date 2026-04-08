@@ -84,7 +84,7 @@ class Checkpointer(epy.ContextManager):
           preservation_policies.PreservationPolicy | None
       ) = None,
       step_name_format: (
-          path_step_lib.NameFormat[path_step_lib.Metadata] | None
+          path_step_lib.NameFormat[CheckpointMetadata[None]] | None
       ) = None,
       custom_metadata: tree_types.JsonType | None = None,
       cleanup_tmp_directories: bool = False,
@@ -240,6 +240,7 @@ class Checkpointer(epy.ContextManager):
     return [
         CheckpointMetadata[None](
             info.step,
+            path=self.directory / self._step_name_format.build_name(info.step),
             metadata=None,
             metrics=info.metrics,
             commit_timestamp_nsecs=int(info.time.timestamp() * 1e9),
@@ -792,6 +793,7 @@ class Checkpointer(epy.ContextManager):
         metadata_types.PyTreeMetadata
     ](
         step=checkpoint.step,
+        path=checkpoint_metadata.path,
         metadata=checkpoint_metadata.metadata,
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,
@@ -826,6 +828,7 @@ class Checkpointer(epy.ContextManager):
     )
     return training_metadata_types.CheckpointMetadata[dict[str, Any]](
         step=checkpoint.step,
+        path=checkpoint_metadata.path,
         metadata=checkpoint_metadata.metadata,
         init_timestamp_nsecs=checkpoint_metadata.init_timestamp_nsecs,
         commit_timestamp_nsecs=checkpoint_metadata.commit_timestamp_nsecs,

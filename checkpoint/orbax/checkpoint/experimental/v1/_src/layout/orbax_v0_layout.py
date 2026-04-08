@@ -95,6 +95,7 @@ class OrbaxV0Layout(CheckpointLayout):
       custom_metadata = metadata.custom_metadata
 
     return metadata_types.CheckpointMetadata(
+        path=path,
         metadata=pytree_metadata,
         init_timestamp_nsecs=init_timestamp_nsecs,
         commit_timestamp_nsecs=commit_timestamp_nsecs,

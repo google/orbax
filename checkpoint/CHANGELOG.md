@@ -26,6 +26,7 @@ metadata reading to improve initialization performance.
 - #v1 Restructure memory-limiting options.
 - #v1 Added compatibility testing to ensure v1 free functions can properly load
 varying layouts of both v0 and v1 checkpoints.
+- #v1 Add a `path` property to `CheckpointMetadata`.
 
 ### Removed
 

@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
+import datetime
 import pprint
 import typing
 from typing import Any, Generic, TypeAlias, TypeVar
 
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -37,6 +39,12 @@ standardized representation, with all container nodes represented as standard
 types (e.g., tuple, list, dict, etc.). The leaves of the tree are individual
 parameter metadatas.
 """
+
+
+def _nsecs_to_datetime(nsecs: int | None) -> datetime.datetime | None:
+  if nsecs is None:
+    return None
+  return datetime.datetime.fromtimestamp(nsecs / 1e9, tz=datetime.timezone.utc)
 
 
 @typing.final
@@ -83,16 +91,23 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
 
   def __init__(
       self,
+      path: path_types.Path,
       *,
       metadata: CheckpointableMetadataT,
       init_timestamp_nsecs: int | None = None,
       commit_timestamp_nsecs: int | None = None,
       custom_metadata: tree_types.JsonType | None = None,
   ):
+    self._path = path
     self._metadata = metadata
     self._init_timestamp_nsecs = init_timestamp_nsecs
-    self._commit_timestamp = commit_timestamp_nsecs
+    self._commit_timestamp_nsecs = commit_timestamp_nsecs
     self._custom_metadata = custom_metadata
+
+  @property
+  def path(self) -> path_types.Path:
+    """The path to the checkpoint."""
+    return self._path
 
   @property
   def metadata(self) -> CheckpointableMetadataT:
@@ -104,18 +119,22 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
 
   @property
   def commit_timestamp_nsecs(self) -> int | None:
-    return self._commit_timestamp
+    return self._commit_timestamp_nsecs
+
+  @property
+  def init_timestamp(self) -> datetime.datetime | None:
+    """Timestamp when the checkpoint began to be written."""
+    return _nsecs_to_datetime(self._init_timestamp_nsecs)
+
+  @property
+  def commit_timestamp(self) -> datetime.datetime | None:
+    """Timestamp when the checkpoint finished being written."""
+    return _nsecs_to_datetime(self._commit_timestamp_nsecs)
 
   @property
   def custom_metadata(self) -> tree_types.JsonType | None:
     return self._custom_metadata
 
-
-  @classmethod
-  def from_metadata(
-      cls, metadata: CheckpointableMetadataT
-  ) -> CheckpointMetadata[CheckpointableMetadataT]:
-    return cls(metadata=metadata)
 
   def _properties_strings(self) -> dict[str, str]:
     return {

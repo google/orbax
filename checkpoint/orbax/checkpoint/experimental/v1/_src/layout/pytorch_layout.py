@@ -379,6 +379,7 @@ class PyTorchLayout(CheckpointLayout):
     commit_timestamp_nsecs = int(stat_result.mtime * 1e9)
 
     return metadata_types.CheckpointMetadata[dict[str, Any]](
+        path=path,
         metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata_tree},
         commit_timestamp_nsecs=commit_timestamp_nsecs,
     )
