@@ -50,6 +50,7 @@ from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import memory_regulator
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as type_handler_registry_lib
@@ -347,7 +348,8 @@ class BasePyTreeCheckpointHandler(
       *,
       save_concurrent_bytes: Optional[int] = None,
       restore_concurrent_bytes: Optional[int] = None,
-      save_device_host_concurrent_bytes: Optional[int] = None,
+      save_device_host_concurrent_bytes: int | str | None = None,
+      max_save_device_host_concurrent_bytes: Optional[int] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       use_compression: bool = True,
@@ -377,7 +379,10 @@ class BasePyTreeCheckpointHandler(
       save_device_host_concurrent_bytes: max concurrent bytes allowed to be
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
-        before a new array can start being transferred.
+        before a new array can start being transferred. Can be "auto".
+      max_save_device_host_concurrent_bytes: The maximum memory limit in bytes
+        allowed for regulation. Required if `save_device_host_concurrent_bytes`
+        is "auto".
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       use_compression: If True, use zstd compression.
@@ -408,6 +413,24 @@ class BasePyTreeCheckpointHandler(
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
+    self._max_save_device_host_concurrent_bytes = (
+        max_save_device_host_concurrent_bytes
+    )
+    if self._save_device_host_concurrent_bytes == 'auto':
+      if self._max_save_device_host_concurrent_bytes is None:
+        raise ValueError(
+            'max_save_device_host_concurrent_bytes must be provided if'
+            ' save_device_host_concurrent_bytes is "auto"'
+        )
+      max_memory_limit_gib = self._max_save_device_host_concurrent_bytes / (
+          1024**3
+      )
+      self._memory_regulator = memory_regulator.MemoryRegulator(
+          max_memory_limit_gib=max_memory_limit_gib
+      )
+      self._current_device_host_limit_bytes = int(
+          self._memory_regulator.min_memory_limit_gib * 1024**3
+      )
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._use_compression = use_compression
@@ -656,9 +679,36 @@ class BasePyTreeCheckpointHandler(
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
     byte_limiter = limits.get_byte_limiter(self._save_concurrent_bytes)
-    device_host_byte_limiter = limits.get_byte_limiter(
-        self._save_device_host_concurrent_bytes
-    )
+
+    device_host_concurrent_bytes = self._save_device_host_concurrent_bytes
+    if device_host_concurrent_bytes == 'auto':
+      peak_usage_gib = memory_regulator.profiler_peak_usage_gib()
+      blocking_time_sec = memory_regulator.get_prev_blocking_time_sec()
+      expected_surge_gib = memory_regulator.get_expected_surge_gib()
+
+      current_limit_gib = self._current_device_host_limit_bytes / (1024**3)
+      next_limit_gib = self._memory_regulator.get_next_memory_limit(
+          current_limit_gib,
+          peak_usage_gib,
+          blocking_time_sec,
+          expected_surge_gib,
+      )
+      self._current_device_host_limit_bytes = int(next_limit_gib * 1024**3)
+      logging.info(
+          'MemoryRegulated: Updated device_host_concurrent_bytes to %s'
+          ' (peak=%f GiB)',
+          humanize.naturalsize(
+              self._current_device_host_limit_bytes, binary=True
+          ),
+          peak_usage_gib,
+      )
+      device_host_byte_limiter = limits.get_byte_limiter(
+          self._current_device_host_limit_bytes
+      )
+    else:
+      device_host_byte_limiter = limits.get_byte_limiter(
+          device_host_concurrent_bytes
+      )
     param_infos = self._get_param_infos(
         item,
         directory,
@@ -698,6 +748,7 @@ class BasePyTreeCheckpointHandler(
         directory / PYTREE_METADATA_FILE
     )
     batch_requests_ready_time = time.time()
+    memory_regulator.profiler_start()
     if partial_save:
       serialize_ops, tree_memory_size, param_infos, save_args = (
           await self._async_partial_save(
@@ -719,6 +770,11 @@ class BasePyTreeCheckpointHandler(
         tree_memory_size += write_size
     # Await copy futures. Returns List[List[future.Future]].
     commit_futures = await asyncio.gather(*serialize_ops)
+    memory_regulator.profiler_end()
+    logging.info(
+        'MemoryRegulated: Peak usage: %f GiB',
+        memory_regulator.profiler_peak_usage_gib(),
+    )
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
