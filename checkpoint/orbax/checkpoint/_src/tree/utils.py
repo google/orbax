@@ -16,7 +16,6 @@
 
 from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar, Union
 
-import flax
 import jax
 import jax.tree_util as jtu
 from orbax.checkpoint._src.arrays import abstract_arrays
@@ -231,6 +230,10 @@ def deserialize_tree(
     serialized: PyTree, target: PyTree, keep_empty_nodes: bool = False
 ) -> PyTree:
   """Deserializes a PyTree to the same structure as `target`."""
+  try:
+    import flax  # pylint: disable=g-import-not-at-top
+  except ImportError:
+    flax = None
 
   def _reconstruct_from_keypath(keypath, _):
     result = serialized
@@ -239,7 +242,7 @@ def deserialize_tree(
       if isinstance(key, jax.tree_util.GetAttrKey):
         if isinstance_of_namedtuple(result):
           result = getattr(result, key_name)
-        elif isinstance(result, flax.struct.PyTreeNode):
+        elif flax is not None and isinstance(result, flax.struct.PyTreeNode):
           # Special case to support flax.struct.PyTreeNode
           result = result.__dict__[key_name]
         else:
