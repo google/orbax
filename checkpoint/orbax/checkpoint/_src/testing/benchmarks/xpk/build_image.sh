@@ -4,20 +4,24 @@
 set -e
 
 # Default values
-PROJECT_ID=$(gcloud config get-value project)
+SCRIPT_DIR=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+PROJECT_ID=""
 IMAGE_NAME="orbax-benchmarks"
+USE_LOCAL_ORBAX="false"
 USER_TAG_FLAG=""
 PR_NUMBER=""
 BRANCH="main"
+BRANCH_SPECIFIED="false"
 JAX_VERSION="newest"
 DEVICE="tpu"
 BASE_IMAGE=""
 DOCKERFILE_PATH=""
 NO_CACHE_FLAG=""
+LOCAL_REPO_PATH=""
 
 function print_usage() {
   echo "Usage: $0 [OPTIONS]"
-  echo "Options:"+
+  echo "Options:"
   echo "  --project PROJECT_ID    GCP Project ID"
   echo "  --pr PR_NUMBER          GitHub PR number"
   echo "  --image IMAGE_NAME      Image name (default: orbax-benchmarks)"
@@ -27,8 +31,35 @@ function print_usage() {
   echo "  --base-image IMAGE      Base Docker image (optional)"
   echo "  --dockerfile FILE       Dockerfile path (optional)"
   echo "  --tag TAG               Image tag"
+  echo "  --local-repo PATH       Path to local Orbax repository"
   echo "  --no-cache              Disable Docker build cache"
   echo "  --help                  Show this help"
+}
+
+function prepare_local_orbax() {
+  local repo_path="$1"
+  local build_context="$2"
+  
+  if [[ -z "$repo_path" ]]; then
+    echo "Error: --local-repo path not specified."
+    return 1
+  fi
+
+  local abs_path="$repo_path"
+  abs_path=$(realpath "$abs_path")
+  echo "Resolved local repo path: ${abs_path}"
+
+
+  echo "Copying local repo contents to build context..."
+  mkdir -p "$build_context/checkpoint"
+  if [[ -f "${abs_path}/checkpoint/pyproject.toml" ]]; then
+    echo "Found pyproject.toml in checkpoint subdirectory. Copying contents of checkpoint/."
+    cp -r "${abs_path}"/checkpoint/* "$build_context/checkpoint/"
+  else
+    echo "Error: pyproject.toml not found in local repo."
+    exit 1
+  fi
+  return 0
 }
 
 # LINT.IfChange(build_image_flags)
@@ -38,12 +69,13 @@ while [[ $# -gt 0 ]]; do
     --project) PROJECT_ID="$2"; shift 2 ;;
     --pr) PR_NUMBER="$2"; shift 2 ;;
     --image) IMAGE_NAME="$2"; shift 2 ;;
-    --branch) BRANCH="$2"; shift 2 ;;
+    --branch) BRANCH="$2"; BRANCH_SPECIFIED="true"; shift 2 ;;
     --jax-version) JAX_VERSION="$2"; shift 2 ;;
     --device) DEVICE="$2"; shift 2 ;;
     --base-image) BASE_IMAGE="$2"; shift 2 ;;
     --dockerfile) DOCKERFILE_PATH="$2"; shift 2 ;;
     --tag) USER_TAG_FLAG="$2"; shift 2 ;;
+    --local-repo) LOCAL_REPO_PATH="$2"; shift 2 ;;
     --no-cache) NO_CACHE_FLAG="--no-cache"; shift 1 ;;
     --help) print_usage; exit 0 ;;
     *) echo "Unknown argument: $1"; print_usage; exit 1 ;;
@@ -51,8 +83,24 @@ while [[ $# -gt 0 ]]; do
 done
 # LINT.ThenChange(README.md:build_image_flags_table)
 
+# Validate that only one of --pr, --branch, or --local-repo is specified
+count=0
+[[ -n "$PR_NUMBER" ]] && count=$((count + 1))
+[[ "$BRANCH_SPECIFIED" == "true" ]] && count=$((count + 1))
+[[ -n "$LOCAL_REPO_PATH" ]] && count=$((count + 1))
+
+if [[ $count -gt 1 ]]; then
+  echo "Error: Only one of --pr, --branch, or --local-repo can be specified."
+  exit 1
+fi
+
 if [[ -z "$PROJECT_ID" ]]; then
-  echo "Error: Project ID not set."
+  # Try to get project ID from gcloud, but don't fail if it's not set
+  PROJECT_ID=$(gcloud config get-value project 2>/dev/null || echo "")
+fi
+
+if [[ -z "$PROJECT_ID" ]]; then
+  echo "Error: Project ID not set. Use --project <PROJECT_ID> or 'gcloud config set project <PROJECT_ID>'."
   exit 1
 fi
 
@@ -61,7 +109,6 @@ if [[ -z "$BASE_IMAGE" ]]; then
   BASE_IMAGE="python:3.13-slim"
 fi
 
-SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 if [[ -z "$DOCKERFILE_PATH" ]]; then
   DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 fi
@@ -120,9 +167,18 @@ done
 
 # Create a temporary directory to act as the clean build context
 BUILD_CONTEXT=$(mktemp -d)
+echo "Build context: ${BUILD_CONTEXT}"
 # Ensure the temporary directory is cleaned up when the script exits (success or fail)
 trap 'rm -rf "$BUILD_CONTEXT"' EXIT
 cp "${DOCKERFILE_PATH}" "$BUILD_CONTEXT/Dockerfile"
+
+if [[ -n "$LOCAL_REPO_PATH" ]]; then
+  USE_LOCAL_ORBAX="true"
+  if ! prepare_local_orbax "$LOCAL_REPO_PATH" "$BUILD_CONTEXT"; then
+    exit 1
+  fi
+fi
+
 cd "$BUILD_CONTEXT"
 
 # Build with local Docker
@@ -137,6 +193,7 @@ build_args+=(
   "--build-arg" "JAX_VERSION=${JAX_VERSION}"
   "--build-arg" "DEVICE=${DEVICE}"
   "--build-arg" "PR_NUMBER=${PR_NUMBER}"
+  "--build-arg" "USE_LOCAL_ORBAX=${USE_LOCAL_ORBAX}"
 )
 build_args+=("${build_tag_args[@]}")
 build_args+=(

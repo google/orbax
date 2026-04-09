@@ -37,7 +37,7 @@ jobs:
             DEVICE=tpu
             JAX_VERSION=newest
             BRANCH=main
-            GITHUB_RUNNER=true
+            USE_LOCAL_ORBAX=true
       - name: Add tags to Docker images
         shell: bash
         run: |

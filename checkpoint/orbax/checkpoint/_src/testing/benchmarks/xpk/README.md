@@ -158,6 +158,7 @@ JAX on TPU.
 | `--tag` | *(Auto)* | Image tag (e.g., `v1`, `pr-123`). | **Always**. Use unique tags to prevent GKE caching stale code. |
 | `--pr` | `None` | GitHub PR Number (e.g., `123`). | **CI/CD**. When verifying a specific PR before merging. |
 | `--branch` | `main` | GitHub Branch name. | **Feature Dev**. When building from a feature branch. |
+| `--local-repo` | `None` | Use local repo to build. | **Feature Dev**. Build with local edited source codes. |
 | `--jax-version` | `newest` | `newest`, `nightly`, or `x.y.z`. | **Debugging**. Use `nightly` to test bleeding-edge JAX features. |
 | `--device` | `tpu` | `tpu`, `gpu`, `cpu`. | **Multi-Hardware**. When testing on GPU or CP/Local validation. |
 | `--base-image` | `python:3.11...` | Base Docker Image. | **Advanced**. If you need custom drivers or non-standard OS libs. |

@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG PR_NUMBER
 ARG BRANCH=main
 ARG REPO_URL=https://github.com/google/orbax.git
-ARG GITHUB_RUNNER=false
+ARG USE_LOCAL_ORBAX=false
 
 # Logic:
 # 1. Init empty repo
@@ -29,10 +29,10 @@ ARG GITHUB_RUNNER=false
 WORKDIR /app/orbax_repo
 COPY ./checkpoin[t] ./checkpoint
 
-RUN if [ "$GITHUB_RUNNER" = "true" ]; then \
-      echo "GITHUB_RUNNER is true, copying from ./checkpoint..."; \
+RUN if [ "$USE_LOCAL_ORBAX" = "true" ]; then \
+      echo "USE_LOCAL_ORBAX is true, copying from ./checkpoint..."; \
     else \
-      echo "GITHUB_RUNNER is false, fetching from git..." && \
+      echo "USE_LOCAL_ORBAX is false, fetching from git..." && \
       git init && \
       git remote add origin $REPO_URL && \
       if [ -n "$PR_NUMBER" ]; then \
