@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
+import gc
 import pprint
 
 from absl import logging
@@ -46,10 +47,12 @@ class ReplicaParallelMultisliceBenchmarkOptions(benchmark.BenchmarkOptions):
       config is for a *single replica*. The benchmark should be configured with
       DCN parallelism, and the test harness will replicate the sharding config
       to the multiple replicas dictated by the mesh.
+    num_savings: The number of times to repeat the saving.
   """
 
   reference_checkpoint_path: str | None = None
   reference_sharding_path: str | None = None
+  num_savings: int = 1
 
   def is_valid(self) -> bool:
     if self.reference_checkpoint_path is None:
@@ -117,24 +120,37 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
           reference_checkpoint_path, abstract_pytree
       )
 
-    save_path = context.path / "ckpt"
-    with ocp.Context(context=options.context):
-      if options.enable_trace:
-        jax.profiler.start_trace(context.path / "trace_save")
-      if options.async_enabled:
-        with metrics.measure("save_blocking", metrics_to_measure):
-          f = ocp.save_pytree_async(save_path, loaded_pytree)
-        with metrics.measure("save_background", metrics_to_measure):
-          f.result()
-      else:
-        with metrics.measure("save_blocking", metrics_to_measure):
-          ocp.save_pytree(save_path, loaded_pytree)
-        with metrics.measure("save_background", metrics_to_measure):
-          pass
+    for step in range(options.num_savings):
+      logging.info("ReplicaParallelMultislice: Starting Step: %s", step)
+      save_path = context.path / "ckpt" / str(step)
+      with ocp.Context(context=options.context):
+        if options.enable_trace:
+          jax.profiler.start_trace(context.path / "trace_save")
+        if options.async_enabled:
+          with metrics.measure("save_blocking", metrics_to_measure):
+            logging.info(
+                "ReplicaParallelMultislice: Async Saving pytree to %s.",
+                save_path,
+            )
+            f = ocp.save_pytree_async(save_path, loaded_pytree)
+          with metrics.measure("save_background", metrics_to_measure):
+            f.result()
+        else:
+          with metrics.measure("save_blocking", metrics_to_measure):
+            ocp.save_pytree(save_path, loaded_pytree)
+          with metrics.measure("save_background", metrics_to_measure):
+            pass
 
-      # Clear the pytree to free up memory.
-      context.pytree = benchmark.clear_pytree(loaded_pytree)
-      if options.enable_trace:
-        jax.profiler.stop_trace()
+      # Manually trigger a full garbage collection to avoid OOMs.
+      collected_objects = gc.collect()
+      logging.info(
+          "ReplicaParallelMultislice: GC collected %s objects.",
+          collected_objects,
+      )
+
+    # Clear the pytree to free up memory.
+    context.pytree = benchmark.clear_pytree(loaded_pytree)
+    if options.enable_trace:
+      jax.profiler.stop_trace()
 
     return benchmarks_core.TestResult(metrics=metrics)

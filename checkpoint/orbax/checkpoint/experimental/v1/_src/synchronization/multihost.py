@@ -130,12 +130,14 @@ async def sync_global_processes(
       )
     processes = list(processes)
   await client.wait_at_barrier(key, timeout_secs=timeout, process_ids=processes)
+  duration = time.time() - sync_start_time
   logging.vlog(
       1,
-      '[process=%s][thread=%s] Done waiting at barrier: %s',
+      '[process=%s][thread=%s] Done waiting at barrier: %s, took %s s',
       process_index(),
       threading.current_thread().name,
       key,
+      duration,
   )
 
   # This may end up just being too noisy given how many barriers there are, but
@@ -143,7 +145,7 @@ async def sync_global_processes(
   # other processes to reach a barrier.
   jax.monitoring.record_event_duration_secs(
       record_event_name,
-      time.time() - sync_start_time,
+      duration,
   )
 
 
