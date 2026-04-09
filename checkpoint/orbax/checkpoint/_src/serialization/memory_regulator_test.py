@@ -60,46 +60,55 @@ class MemoryRegulatorTest(parameterized.TestCase):
     controller = memory_regulator.MemoryRegulator(
         max_memory_limit_gib=80.0,
         min_memory_limit_gib=2.0,
+        fallback_host_limit_gib=400.0,
     )
     self.assertEqual(controller.max_memory_limit_gib, 80.0)
     self.assertEqual(controller.target_ratio, 0.8)
     self.assertEqual(controller.min_memory_limit_gib, 2.0)
+    self.assertEqual(controller.fallback_host_limit_gib, 400.0)
     self.assertEqual(controller.integral, 0.0)
 
   @parameterized.named_parameters(
       dict(
           testcase_name="increase",
-          current_limit_gib=10.0,
-          peak_memory_usage_gib=50.0,
-          # Target = 64.0. error = 14.0.
-          # adjustment = 0.5 * 14.0 = 7.0.
-          # new_limit = 10.0 + 7.0 = 17.0.
-          expected_next_limit=17.0,
+          current_limit_gib=30.0,
+          peak_memory_usage_gib=190.0,
+          # Target = 200.0. error = 10.0.
+          # adjustment = 0.5 * 10.0 = 5.0.
+          # new_limit = 30.0 + 5.0 = 35.0.
+          expected_next_limit=35.0,
       ),
       dict(
           testcase_name="decrease",
-          current_limit_gib=30.0,
-          peak_memory_usage_gib=74.0,
-          # Target = 64.0. error = -10.0.
+          current_limit_gib=40.0,
+          peak_memory_usage_gib=210.0,
+          # Target = 200.0. error = -10.0.
           # adjustment = 0.5 * -10.0 = -5.0.
-          # new_limit = 30.0 - 5.0 = 25.0.
-          expected_next_limit=25.0,
+          # new_limit = 40.0 - 5.0 = 35.0.
+          expected_next_limit=35.0,
       ),
       dict(
           testcase_name="danger_zone_decrease",
-          current_limit_gib=40.0,
-          peak_memory_usage_gib=82.0,
-          # Target = 64.0. error = -18.0.
-          # adjustment = 0.5 * -18.0 = -9.0.
-          # new_limit = 40.0 - 9.0 = 31.0.
-          expected_next_limit=31.0,
+          current_limit_gib=50.0,
+          peak_memory_usage_gib=260.0,
+          # Target = 200.0. error = -60.0.
+          # adjustment = 0.5 * -60.0 = -30.0.
+          # max_error_gib = 250.0 - 260.0 = -10.0.
+          # min(max_error_gib, base_adjustment) = min(-10.0, -30.0) = -30.0.
+          # new_limit = 50.0 - 30.0 = 20.0.
+          expected_next_limit=20.0,
       ),
   )
   def test_controller_pid(
       self, current_limit_gib, peak_memory_usage_gib, expected_next_limit
   ):
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, target_ratio=0.8, kp=0.5, ki=0, kd=0
+        max_memory_limit_gib=80.0,
+        target_ratio=0.8,
+        kp=0.5,
+        ki=0,
+        kd=0,
+        fallback_host_limit_gib=250.0,
     )
     next_limit = controller.get_next_memory_limit(
         current_limit_gib=current_limit_gib,
@@ -109,7 +118,9 @@ class MemoryRegulatorTest(parameterized.TestCase):
     self.assertAlmostEqual(next_limit, expected_next_limit)
 
   def test_controller_feedforward_increase(self):
-    controller = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+    controller = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, fallback_host_limit_gib=250.0
+    )
     controller.integral = 10.0  # Set some fake history
     controller.prev_error = 5.0
 
@@ -145,7 +156,7 @@ class MemoryRegulatorTest(parameterized.TestCase):
       )
 
   def test_danger_zone_with_positive_derivative(self):
-    # Target = 64.0. Max = 80.0.
+    # Target = 200.0. Max = 250.0.
     controller = memory_regulator.MemoryRegulator(
         max_memory_limit_gib=80.0,
         min_memory_limit_gib=10.0,
@@ -153,61 +164,92 @@ class MemoryRegulatorTest(parameterized.TestCase):
         kp=0.5,
         ki=0,
         kd=10.0,
+        fallback_host_limit_gib=250.0,
     )
     # Step 1: Huge OOM.
-    # Peak = 120. error = 64-120 = -56.
-    _ = controller.get_next_memory_limit(40.0, 120.0, 0.0)
+    # Peak = 280. error = 200-280 = -80.
+    _ = controller.get_next_memory_limit(
+        current_limit_gib=40.0,
+        peak_memory_usage_gib=280.0,
+        blocking_time_sec=0.0,
+    )
 
-    # Step 2: Still over hard limit (80), but Peak is recovering.
-    # New peak = 85. error = 64-85 = -21.
-    # prev_error was -56.
-    # d_term = 10 * (-21 - (-56)) = 10 * 35 = 350.
-    # p_term = 0.5 * -21 = -10.5.
-    # base_adjustment = 350 - 10.5 = 339.5.
-    # adjustment is capped at max_error_gib (-5.0).
-    next_limit = controller.get_next_memory_limit(20.0, 85.0, 0.0)
-    # 20.0 - 5.0 = 15.0
-    self.assertAlmostEqual(next_limit, 15.0)
+    # Step 2: Still over hard limit (250), but Peak is recovering.
+    # New peak = 260. error = 200-260 = -60.
+    # prev_error was -80.
+    # d_term = 10 * (-60 - (-80)) = 10 * 20 = 200.
+    # p_term = 0.5 * -60 = -30.
+    # base_adjustment = 200 - 30 = 170.
+    # adjustment is capped at max_error_gib (-10.0).
+    next_limit = controller.get_next_memory_limit(
+        current_limit_gib=20.0,
+        peak_memory_usage_gib=260.0,
+        blocking_time_sec=0.0,
+    )
+    # 20.0 - 10.0 = 10.0
+    self.assertAlmostEqual(next_limit, 10.0)
 
   def test_integral_windup_clamping(self):
     # ki=1.0 to see integral effect clearly.
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, target_ratio=0.8, kp=0, ki=1.0, kd=0
+        max_memory_limit_gib=80.0,
+        target_ratio=0.8,
+        kp=0,
+        ki=1.0,
+        kd=0,
+        fallback_host_limit_gib=250.0,
     )
-    # Target = 64. error = 64 - 10 = 54.
+    # Target = 200. error = 200 - 146 = 54.
     # windup limit is 50.0.
-    _ = controller.get_next_memory_limit(30.0, 10.0, 0.0)
+    _ = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=146.0,
+        blocking_time_sec=0.0,
+    )
     self.assertEqual(controller.integral, 50.0)
 
     # Opposite direction.
     _ = controller.get_next_memory_limit(
-        30.0, 200.0, 0.0
-    )  # error = 64 - 200 = -136
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=336.0,
+        blocking_time_sec=0.0,
+    )  # error = 200 - 336 = -136
     self.assertEqual(controller.integral, -50.0)
 
   def test_surge_history_preservation(self):
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, kd=1.0
+        max_memory_limit_gib=80.0, kd=1.0, fallback_host_limit_gib=250.0
     )
-    # Target = 64. Peak = 90. error = -26.
-    _ = controller.get_next_memory_limit(30.0, 90.0, 0.0)
+    # Target = 200. Peak = 226. error = -26.
+    _ = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=226.0,
+        blocking_time_sec=0.0,
+    )
     self.assertAlmostEqual(controller.prev_error, -26.0)
 
     # Surge happens.
     _ = controller.get_next_memory_limit(
-        30.0, 90.0, 0.0, expected_surge_gib=10.0
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=240.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=10.0,
     )
     # prev_error should be FROZEN (not updated) during surge.
     self.assertAlmostEqual(controller.prev_error, -26.0)
 
   def test_surge_resumption_level(self):
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, kp=0.5
+        max_memory_limit_gib=80.0, kp=0.5, fallback_host_limit_gib=250.0
     )
-    # Target = 64.0.
-    # Baseline: Current limit 30.0. Peak 64.0 (error=0).
+    # Target = 200.0.
+    # Baseline: Current limit 30.0. Peak 200.0 (error=0).
     # next_limit = 30.0 + 0.5*0 = 30.0.
-    limit = controller.get_next_memory_limit(30.0, 64.0, 0.0)
+    limit = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+    )
     self.assertEqual(limit, 30.0)
 
     # Surge starts: expected_surge = 10.0.
@@ -215,7 +257,10 @@ class MemoryRegulatorTest(parameterized.TestCase):
     # surge_delta = 10.0 - 0.0 = 10.0.
     # next_limit = 30.0 + 0.0 - 10.0 = 20.0.
     limit = controller.get_next_memory_limit(
-        30.0, 64.0, 0.0, expected_surge_gib=10.0
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=10.0,
     )
     self.assertEqual(limit, 20.0)
 
@@ -223,58 +268,120 @@ class MemoryRegulatorTest(parameterized.TestCase):
     # adjustment = 0.0. surge_delta = 10.0 - 10.0 = 0.0.
     # next_limit = 20.0 + 0.0 - 0.0 = 20.0.
     limit = controller.get_next_memory_limit(
-        20.0, 64.0, 0.0, expected_surge_gib=10.0
+        current_limit_gib=20.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=10.0,
     )
     self.assertEqual(limit, 20.0)
 
     # Surge ends: expected_surge = 0.0.
-    # adjustment = 0.5 * (64.0 - 64.0) = 0.0.
+    # adjustment = 0.5 * (200.0 - 200.0) = 0.0.
     # surge_delta = 0.0 - 10.0 = -10.0.
     # next_limit = 20.0 + 0.0 - (-10.0) = 30.0.
     limit = controller.get_next_memory_limit(
-        20.0, 64.0, 0.0, expected_surge_gib=0.0
+        current_limit_gib=20.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=0.0,
     )
     self.assertEqual(limit, 30.0)
 
   def test_consecutive_surges(self):
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, kp=0.5
+        max_memory_limit_gib=80.0, kp=0.5, fallback_host_limit_gib=250.0
     )
 
     limit = controller.get_next_memory_limit(
-        30.0, 64.0, 0.0, expected_surge_gib=10.0
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=10.0,
     )
     self.assertEqual(limit, 20.0)  # 30 - 10 = 20.
 
     limit = controller.get_next_memory_limit(
-        20.0, 64.0, 0.0, expected_surge_gib=15.0
+        current_limit_gib=20.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=15.0,
     )
     self.assertEqual(limit, 15.0)  # 30 - 15 = 15.
 
     limit = controller.get_next_memory_limit(
-        15.0, 64.0, 0.0, expected_surge_gib=15.0
+        current_limit_gib=15.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=15.0,
     )
     self.assertEqual(limit, 15.0)  # 30 - 15 = 15.
 
     limit = controller.get_next_memory_limit(
-        15.0, 64.0, 0.0, expected_surge_gib=0.0
+        current_limit_gib=15.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=0.0,
     )
     self.assertEqual(limit, 30.0)
 
   def test_adjustment_during_surge(self):
     controller = memory_regulator.MemoryRegulator(
-        max_memory_limit_gib=80.0, kp=0.5, ki=0, kd=0
+        max_memory_limit_gib=80.0,
+        kp=0.5,
+        ki=0,
+        kd=0,
+        fallback_host_limit_gib=250.0,
     )
-    # Target = 64.0.
+    # Target = 200.0.
     # Current limit 30.0. Surge 10.0.
-    # Peak Memory Usage = 74.0. error = 64.0 - 74 = -10.
+    # Peak Memory Usage = 210.0. error = 200.0 - 210 = -10.
     # PID adjustment = 0.5 * -10 = -5.
     # Surge delta = 10 - 0 = 10.
     limit = controller.get_next_memory_limit(
-        30.0, 74.0, 0.0, expected_surge_gib=10.0
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=210.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=10.0,
     )
     # next_limit = 30 + (-5) - 10 = 15.
     self.assertEqual(limit, 15.0)
+
+  def test_fallback_host_limit(self):
+    controller = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0,
+        fallback_host_limit_gib=250.0,
+        kp=0.5,
+        ki=0,
+        kd=0,
+    )
+    # total_memory_gib is None, should use fallback_host_limit_gib (250.0).
+    # Target = 250.0 * 0.8 = 200.0.
+    # Peak = 190.0. error = 200.0 - 190.0 = 10.0.
+    # adjustment = 0.5 * 10.0 = 5.0.
+    # new_limit = 30.0 + 5.0 = 35.0.
+    limit = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=190.0,
+        blocking_time_sec=0.0,
+        total_memory_gib=None,
+    )
+    self.assertAlmostEqual(limit, 35.0)
+
+  def test_fallback_host_limit_raises_value_error(self):
+    controller = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0,
+        fallback_host_limit_gib=None,
+    )
+    # total_memory_gib is None and no fallback provided.
+    with self.assertRaisesRegex(
+        ValueError, "Total memory limit is required"
+    ):
+      controller.get_next_memory_limit(
+          current_limit_gib=30.0,
+          peak_memory_usage_gib=50.0,
+          blocking_time_sec=0.0,
+          total_memory_gib=None,
+      )
 
 
 if __name__ == "__main__":
