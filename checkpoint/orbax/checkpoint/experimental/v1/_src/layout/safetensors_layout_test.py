@@ -83,6 +83,7 @@ class SafetensorsLayoutTest(
           np.float64,
           np.bool_,
           jax.numpy.bfloat16,
+          jax.numpy.float8_e4m3fn
       ]
   )
   async def test_load_safetensors_checkpoint(self, dtype: np.dtype):

@@ -54,8 +54,8 @@ def _get_dtypes() -> dict[str, Any]:
       "F32": np.float32,
       "F64": np.float64,
       "BF16": jnp.bfloat16,
-      "F8_E8M0": jnp.float8_e8m0fnu,
-      "F8_E4M3": jnp.float8_e4m3,
+      "F8_E5M2": jnp.float8_e5m2,
+      "F8_E4M3": jnp.float8_e4m3fn,
   }
 
 
@@ -106,6 +106,8 @@ class _SingleFileLoader:
       start_offset, end_offset = info["data_offsets"]
       tensor_bytes = data_bytes[start_offset:end_offset]
       np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
+      if not np.isfinite(np_array).all():
+        raise ValueError(f"Non-finite values found in tensor {name}.")
       tensors[name] = np_array
     return tensors
 
