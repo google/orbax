@@ -32,10 +32,10 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 
 Scalar = types.Scalar
 AbstractScalar = types.AbstractScalar
-ScalarSerializationParam = types.SerializationParam[Scalar]
-ScalarDeserializationParam = types.DeserializationParam[
-    AbstractScalar
+ScalarSerializationParam = types.SerializationParam[
+    Scalar, type_handlers_v0.SaveArgs
 ]
+ScalarDeserializationParam = types.DeserializationParam[AbstractScalar]
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
@@ -62,23 +62,6 @@ def _create_v0_saving_paraminfo(
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr="scalar",
-  )
-
-
-def _create_v0_savearg(
-    param: ScalarSerializationParam,
-    context: context_lib.Context,
-) -> type_handlers_v0.SaveArgs:
-  """Creates a V0 SaveArgs from V1 params and context for saving."""
-  fn = context.pytree_options.saving.create_array_storage_options_fn
-  if fn:
-    storage_options = fn(param.keypath, param.value)
-  else:
-    storage_options = context.array_options.saving.storage_options
-  return type_handlers_v0.SaveArgs(
-      dtype=np.dtype(storage_options.dtype) if storage_options.dtype else None,
-      chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
   )
 
 
@@ -168,7 +151,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
         _create_v0_saving_paraminfo(p, self._context, serialization_context)
         for p in params
     ]
-    saveargs = [_create_v0_savearg(p, self._context) for p in params]
+    saveargs = [p.options for p in params]
 
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs

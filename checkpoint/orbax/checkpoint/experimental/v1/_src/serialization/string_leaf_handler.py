@@ -28,7 +28,7 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
 AbstractString = types.AbstractString
-StringSerializationParam = types.SerializationParam[str]
+StringSerializationParam = types.SerializationParam[str, None]
 StringDeserializationParam = types.DeserializationParam[
     AbstractString
 ]

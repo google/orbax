@@ -25,7 +25,6 @@ from typing import Awaitable, Sequence, cast
 
 from absl import logging
 import jax
-import jax.numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types_v0
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
@@ -39,7 +38,9 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 
 Shape = arrays_types_v0.Shape
 AbstractShardedArray = types.AbstractShardedArray
-ArraySerializationParam = types.SerializationParam[jax.Array]
+ArraySerializationParam = types.SerializationParam[
+    jax.Array, type_handlers_v0.SaveArgs
+]
 ArrayDeserializationParam = types.DeserializationParam[AbstractShardedArray]
 
 
@@ -104,23 +105,6 @@ def _create_v0_saving_paraminfo(
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
       enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,
-  )
-
-
-def _create_v0_savearg(
-    param: ArraySerializationParam,
-    context: context_lib.Context,
-) -> type_handlers_v0.SaveArgs:
-  """Creates a V0 `SaveArgs` from V1 params and context for saving."""
-  fn = context.pytree_options.saving.create_array_storage_options_fn
-  if fn:
-    storage_options = fn(param.keypath, param.value)
-  else:
-    storage_options = context.array_options.saving.storage_options
-  return type_handlers_v0.SaveArgs(
-      dtype=jnp.dtype(storage_options.dtype) if storage_options.dtype else None,
-      chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
   )
 
 
@@ -223,7 +207,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
         _create_v0_saving_paraminfo(p, self._context, serialization_context)
         for p in params
     ]
-    saveargs = [_create_v0_savearg(p, self._context) for p in params]
+    saveargs = [p.options for p in params]
 
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs

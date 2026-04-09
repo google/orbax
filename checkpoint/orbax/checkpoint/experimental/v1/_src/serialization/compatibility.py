@@ -89,10 +89,12 @@ def _keypath_from_param_name(param_name: str) -> tree_types.PyTreeKeyPath:
 def _construct_serialization_param(
     value: types.Leaf,
     info: types_v0.ParamInfo,
-) -> types.SerializationParam[types.Leaf]:
+    options: Any | None = None,
+) -> types.SerializationParam[types.Leaf, Any]:
   return types.SerializationParam(
       keypath=_keypath_from_param_name(info.name),
       value=value,
+      options=options,
   )
 
 
@@ -290,9 +292,9 @@ class CompatibleTypeHandler(
 
     params = []
     info0 = infos[0]
-    for info, value in zip(infos, values):
+    for info, value, arg in zip(infos, values, args or [None] * len(values)):
       logging.vlog(1, 'info: %s', info)
-      params.append(_construct_serialization_param(value, info))
+      params.append(_construct_serialization_param(value, info, options=arg))
     serialization_context = _construct_serialization_context(info0)
     serialization_task = await self._leaf_handler.serialize(
         params, serialization_context

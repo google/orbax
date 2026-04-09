@@ -388,11 +388,16 @@ class LazyArrayHandler(
 
   async def serialize(
       self,
-      params: Sequence[types.SerializationParam[LazyArray]],
+      params: Sequence[types.SerializationParam[LazyArray, Any]],
       serialization_context: types.SerializationContext,
   ) -> Awaitable[None]:
     array_params = [
-        types.SerializationParam(p.keypath, p.value.array) for p in params
+        types.SerializationParam(
+            p.keypath,
+            p.value.array,
+            p.options,
+        )
+        for p in params
     ]
     return await self._array_handler.serialize(
         array_params, serialization_context

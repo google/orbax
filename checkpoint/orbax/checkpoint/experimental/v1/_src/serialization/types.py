@@ -97,9 +97,11 @@ class AbstractShardedArray(Protocol):
 def is_placeholder(value: Any) -> bool:
   return value is PLACEHOLDER
 
+OptionsT = TypeVar('OptionsT')
+
 
 @dataclasses.dataclass
-class SerializationParam(Generic[Leaf]):
+class SerializationParam(Generic[Leaf, OptionsT]):
   """Represents a specific leaf-level parameter within a PyTree.
 
   SerializationParam represents a single PyTree leaf by pairing its value
@@ -133,9 +135,11 @@ class SerializationParam(Generic[Leaf]):
     value (Any): The data associated with the leaf. This could be a jax.Array,
       a numpy.ndarray, or a metadata object depending on the stage of
       the checkpointing process.
+    options: Optional[OptionsT] = None: Optional options for the leaf.
   """
   keypath: tree_types.PyTreeKeyPath
   value: Leaf
+  options: OptionsT | None = None
 
   @property
   def name(self) -> str:
@@ -287,7 +291,7 @@ class LeafHandler(Protocol[Leaf, AbstractLeaf]):
 
   async def serialize(
       self,
-      params: Sequence[SerializationParam[Leaf]],
+      params: Sequence[SerializationParam[Leaf, Any]],
       serialization_context: SerializationContext,
   ) -> Awaitable[None]:
     """Writes the specified leaves of a checkpointable to a storage location.
