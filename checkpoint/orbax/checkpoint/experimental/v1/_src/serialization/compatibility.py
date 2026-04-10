@@ -455,7 +455,7 @@ def get_v0_type_handler_registry(
       ) from e
 
     typestrs = leaf_handler_registry.get_secondary_typestrs(leaf_handler_type)
-    typestr = typestrs[0] if typestrs else f'{leaf_type!r}'
+    typestr = typestrs[0] if typestrs else types.typestr(leaf_handler_type)
     handlers.append((
         leaf_type,
         CompatibleTypeHandler(

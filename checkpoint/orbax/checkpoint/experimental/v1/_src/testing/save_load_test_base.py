@@ -378,7 +378,7 @@ class SaveLoadTestBase:
           jax.Array,
           types.AbstractShardedArray,
           array_leaf_handler.ArrayLeafHandler,
-          secondary_typestrs=[str(handler_utils.LazyArray)],
+          secondary_typestrs=[types.typestr(handler_utils.LazyArrayHandler)],
           override=True,
       )
       custom_context2 = ocp.Context(
