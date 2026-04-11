@@ -107,6 +107,7 @@ def create_test_suite_from_config(
     config_path: str,
     output_dir: str | None = None,
     local_directory: str | None = None,
+    remove_repeated_dir: bool = False,
 ) -> core.TestSuite:
   """Creates a single TestSuite object from the benchmark configuration.
 
@@ -116,6 +117,8 @@ def create_test_suite_from_config(
       results will be stored in a temporary directory.
     local_directory: Optional local directory for benchmark results. This is
       used for ECM benchmarks.
+    remove_repeated_dir: Whether to remove the generated repeat_* directories
+      after execution.
 
   Returns:
     A TestSuite object containing all benchmarks generated from the config.
@@ -200,4 +203,5 @@ def create_test_suite_from_config(
       num_repeats=num_repeats,
       output_dir=output_dir,
       local_directory=local_directory,
+      remove_repeated_dir=remove_repeated_dir,
   )
