@@ -32,7 +32,7 @@ import tensorstore as ts
 
 
 AbstractString = types.AbstractString
-StringSerializationParam = types.SerializationParam[str]
+StringSerializationParam = types.SerializationParam[str, None]
 StringDeserializationParam = types.DeserializationParam[
     AbstractString
 ]
