@@ -1,4 +1,4 @@
-# proto-file: //orbax/export/protos/oex_orchestration.proto
+# proto-file: //third_party/neptune/protos/orchestration.proto
 # proto-message: Pipelines
 name_to_pipeline {
   key: "serving_default"
