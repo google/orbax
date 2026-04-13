@@ -14,6 +14,7 @@
 
 import unittest
 from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -305,6 +306,47 @@ class SafetensorsLayoutDirectoryTest(
     )
     with self.assertRaisesRegex(KeyError, "Tensor 'e' not found"):
       await restore_fn
+
+
+class GetTensorBundlesTest(parameterized.TestCase):
+
+  def test_empty_header(self):
+    header = {}
+    bundles = safetensors_layout._get_tensor_bundles(header, num_hosts=2)
+    self.assertEqual(bundles, [[], []])
+
+  def test_single_tensor(self):
+    header = {
+        'tensor1': {'data_offsets': [0, 100]},
+    }
+    bundles = safetensors_layout._get_tensor_bundles(header, num_hosts=2)
+    self.assertEqual(bundles, [['tensor1'], []])
+
+  def test_equal_distribution(self):
+    header = {
+        'tensor1': {'data_offsets': [0, 100]},
+        'tensor2': {'data_offsets': [100, 200]},
+    }
+    bundles = safetensors_layout._get_tensor_bundles(header, num_hosts=2)
+    self.assertEqual(bundles, [['tensor1'], ['tensor2']])
+
+  def test_unequal_distribution_contiguous(self):
+    header = {
+        'tensor1': {'data_offsets': [0, 100]},
+        'tensor2': {'data_offsets': [100, 150]},
+        'tensor3': {'data_offsets': [150, 300]},
+    }
+    bundles = safetensors_layout._get_tensor_bundles(header, num_hosts=2)
+    self.assertEqual(bundles, [['tensor1', 'tensor2'], ['tensor3']])
+
+  def test_unequal_distribution_greedy_choice(self):
+    header = {
+        'tensor1': {'data_offsets': [0, 100]},
+        'tensor2': {'data_offsets': [100, 250]},
+        'tensor3': {'data_offsets': [250, 300]},
+    }
+    bundles = safetensors_layout._get_tensor_bundles(header, num_hosts=2)
+    self.assertEqual(bundles, [['tensor1'], ['tensor2', 'tensor3']])
 
 
 if __name__ == '__main__':

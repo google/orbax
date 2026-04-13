@@ -119,6 +119,7 @@ class Context(epy.ContextManager):
       checkpoint_layout: options_lib.CheckpointLayout | None = None,
       deletion_options: options_lib.DeletionOptions | None = None,
       memory_options: options_lib.MemoryOptions | None = None,
+      safetensors_options: options_lib.SafetensorsOptions | None = None,
   ):
     self._pytree_options = pytree_options or (
         context.pytree_options if context else options_lib.PyTreeOptions()
@@ -155,6 +156,11 @@ class Context(epy.ContextManager):
     )
     self._memory_options = memory_options or (
         context.memory_options if context else options_lib.MemoryOptions()
+    )
+    self._safetensors_options = safetensors_options or (
+        context.safetensors_options
+        if context
+        else options_lib.SafetensorsOptions()
     )
 
   @property
@@ -196,6 +202,10 @@ class Context(epy.ContextManager):
   @property
   def memory_options(self) -> options_lib.MemoryOptions:
     return self._memory_options
+
+  @property
+  def safetensors_options(self) -> options_lib.SafetensorsOptions:
+    return self._safetensors_options
 
   def operation_id(self) -> str:
     return synchronization.OperationIdGenerator.get_current_operation_id()

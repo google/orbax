@@ -570,6 +570,19 @@ class MemoryOptions:
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SafetensorsOptions:
+  """Options for configuring Safetensors loading.
+
+  Attributes:
+    ignore_load_sharding: If True, skips sharding of the tensors across
+      hosts/devices during load. Whole tensors will be present on each host,
+      allowing for efficient conversion.
+  """
+
+  ignore_load_sharding: bool = False
+
+
 class CheckpointLayout(enum.Enum):
   """The layout of the checkpoint.
 
