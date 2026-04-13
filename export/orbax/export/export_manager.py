@@ -73,7 +73,7 @@ class ExportManager:
       module: The `JaxModule` to be exported. Can be None in specific delayed
         initialization or native Orbax load scenarios.
       serving_configs: a sequence of which each element is a `ServingConfig`
-        cooresponding to a serving signature of the exported SavedModel.
+        corresponding to a serving signature of the exported SavedModel.
     """
     self._jax_module = module
     if (

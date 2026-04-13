@@ -47,7 +47,7 @@ The latest release of `orbax-checkpoint` can be installed from
 ``pip install orbax-checkpoint``
 
 You may also install directly from GitHub, using the following command. This
-can be used to obtain the most recent version of Optax.
+can be used to obtain the most recent version of Orbax.
 
 ``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'``
 
