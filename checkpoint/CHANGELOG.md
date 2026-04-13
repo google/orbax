@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.35] - 2026-04-13
+
 ### Added
 
 - Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite, with GCS
