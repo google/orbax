@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
 - Add PyTorch DCP (Distributed Checkpoint) to the benchmark suite, with GCS
 connector and fsspec options.
 - Eliminate unadvertised flax dependency from tree/utils.
+
+### Fixed
+
+- #v1 Fix import path for `step` in `orbax.checkpoint.experimental.v1.path`.
 
 ## [0.11.34] - 2026-04-07
 
