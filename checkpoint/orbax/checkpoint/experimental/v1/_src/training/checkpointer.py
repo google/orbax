@@ -838,10 +838,7 @@ class Checkpointer(epy.ContextManager):
 
   def root_metadata(
       self,
-  ) -> (
-      training_metadata_types.CheckpointMetadata[metadata_types.PyTreeMetadata]
-      | training_metadata_types.RootMetadata
-  ):
+  ) -> training_metadata_types.RootMetadata:
     metadata = self._manager.metadata(None)
     return RootMetadata(
         directory=self.directory, custom_metadata=metadata.custom_metadata
