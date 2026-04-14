@@ -16,15 +16,12 @@
 
 from __future__ import annotations
 
-import abc
 import dataclasses
-from typing import Any, List, Mapping, Optional, Tuple, Union
+from typing import Any, List, Optional, Union
 
 from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
-from orbax.checkpoint import options as options_lib
-from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import array_checkpoint_handler
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
@@ -32,6 +29,7 @@ from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
+
 
 NumpyRandomKeyType = Union[tuple, dict]
 
@@ -60,120 +58,32 @@ class BaseRandomKeyCheckpointHandler(
     Args:
       key_name: Provides a name for the directory under which Tensorstore files
         will be saved. Defaults to 'random_key'.
+
+    Raises:
+      DeprecationWarning: If the handler is used.
     """
-    self._key_name = key_name
-    self._key_metadata = f'{self._key_name}_metadata'
-    composite_options = composite_checkpoint_handler.CompositeOptions(
-        async_options=options_lib.AsyncOptions(
-            create_directories_asynchronously=False
-        )
+    del key_name
+    raise DeprecationWarning(
+        'BaseRandomKeyCheckpointHandler is deprecated. Use '
+        'PyTreeCheckpointHandler instead.'
     )
-    self._handler = CompositeCheckpointHandler(
-        composite_options=composite_options
-    )
-
-  @abc.abstractmethod
-  def checkpoint_save_args(
-      self, args: CheckpointArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
-    """Return the `args` for saving item and metadata.
-
-    Args:
-      args: An ocp.checkpoint_args.CheckpointArgs.
-
-    Returns:
-      Return a tuple of CheckpointArgs, and JsonSaveArgs.
-      The CheckpointArgs is to save the actual random key and the JsonSaveArgs
-      is to save any extra metadata
-    """
-    pass
-
-  @abc.abstractmethod
-  def checkpoint_restore_args(
-      self,
-      args: CheckpointArgs,
-  ) -> CheckpointArgs:
-    """Return the `args` for retoring the item.
-
-    Args:
-      args: An ocp.checkpoint_args.CheckpointArgs.
-
-    Returns:
-      Return a CheckpointArgs to restore the item
-    """
-    pass
-
-  @abc.abstractmethod
-  def post_restore(self, item: Any, metadata: Mapping[Any, Any]) -> Any:
-    """Final operations needed to be done on the returning result."""
-    pass
 
   async def async_save(
       self,
       directory: epath.Path,
       args: CheckpointArgs,
   ) -> Optional[List[future.Future]]:
-    """Saves a random key asynchronously.
-
-    Args:
-      directory: Folder in which to save.
-      args: An ocp.checkpoint_args.CheckpointArgs.
-
-    Returns:
-      A list of commit futures which can be run to complete the save.
-    """
-    item_arg, metadata_arg = self.checkpoint_save_args(args)
-    return await self._handler.async_save(
-        directory,
-        CompositeArgs(**{
-            self._key_name: item_arg,
-            self._key_metadata: metadata_arg,
-        }),
-    )
+    pass
 
   def save(self, directory: epath.Path, *args, **kwargs):
-    """Saves a random key synchronously."""
-
-    async def async_save():
-      commit_futures = await self.async_save(directory, *args, **kwargs)  # pytype: disable=bad-return-type
-      # Futures are already running, so sequential waiting is equivalent to
-      # concurrent waiting.
-      if commit_futures:  # May be None.
-        for f in commit_futures:
-          f.result()  # Block on result.
-
-    asyncio_utils.run_sync(async_save())
+    pass
 
   def restore(
       self,
       directory: epath.Path,
       args: CheckpointArgs,
   ) -> Any:
-    """Restores a random key.
-
-    Args:
-      directory: folder from which to read.
-      args: An ocp.checkpoint_args.CheckpointArgs.
-
-    Returns:
-      The restored object.
-    """
-    item_arg = self.checkpoint_restore_args(args)
-    result = self._handler.restore(
-        directory,
-        args=CompositeArgs(**{
-            self._key_name: item_arg,
-            self._key_metadata: JsonRestoreArgs(),
-        }),
-    )
-
-    return self.post_restore(result[self._key_name], result[self._key_metadata])
-
-  def finalize(self, directory: epath.Path):
-    self._handler.finalize(directory)
-
-  def close(self):
-    self._handler.close()
+    pass
 
 
 class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
@@ -185,37 +95,15 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     Args:
       key_name: Provides a name for the directory under which Tensorstore files
         will be saved. Defaults to 'jax_random_key'.
+
+    Raises:
+      DeprecationWarning: If the handler is used.
     """
-    super().__init__(key_name or 'jax_random_key')
-
-  def checkpoint_save_args(
-      self, args: JaxRandomKeySaveArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
-    item = args.item
-    save_args = args.save_args
-
-    if isinstance(item, jax.Array):
-      if is_typed := jax.dtypes.issubdtype(item.dtype, jax.dtypes.prng_key):
-        item = jax.random.key_data(item)
-      metadata = {'typed': is_typed}
-    else:
-      raise TypeError(f'Unsupported type: {type(item)}.')
-
-    return (
-        ArraySaveArgs(jax.random.key_data(item), save_args),
-        JsonSaveArgs(metadata),
+    raise DeprecationWarning(
+        'JaxRandomKeyCheckpointHandler is deprecated. Use '
+        'PyTreeCheckpointHandler instead.'
     )
-
-  def checkpoint_restore_args(
-      self, args: JaxRandomKeyRestoreArgs
-  ) -> CheckpointArgs:
-    return ArrayRestoreArgs(restore_args=args.restore_args)
-
-  def post_restore(self, item: Any, metadata: Mapping[Any, Any]) -> Any:
-    if metadata['typed']:
-      return jax.random.wrap_key_data(item)
-    else:
-      return item
+    super().__init__(key_name or 'jax_random_key')  # pylint: disable=unreachable
 
 
 @register_with_handler(JaxRandomKeyCheckpointHandler, for_save=True)
@@ -231,6 +119,12 @@ class JaxRandomKeySaveArgs(CheckpointArgs):
   item: jax.Array
   save_args: Optional[type_handlers.SaveArgs] = None
 
+  def __post_init__(self):
+    raise DeprecationWarning(
+        'JaxRandomKeySaveArgs is deprecated. Use PyTreeCheckpointHandler'
+        ' instead.'
+    )
+
 
 @register_with_handler(JaxRandomKeyCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -244,6 +138,12 @@ class JaxRandomKeyRestoreArgs(CheckpointArgs):
 
   restore_args: Optional[type_handlers.RestoreArgs] = None
 
+  def __post_init__(self):
+    raise DeprecationWarning(
+        'JaxRandomKeyRestoreArgs is deprecated. Use PyTreeCheckpointHandler'
+        ' instead.'
+    )
+
 
 class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
   """Saves Nnumpy random key in legacy or non-lagacy format."""
@@ -254,36 +154,17 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     Args:
       key_name: Provides a name for the directory under which Tensorstore files
         will be saved. Defaults to 'np_random_key'.
+
+    Raises:
+      DeprecationWarning: Raise deprecation error.
     """
-    super().__init__(key_name or 'np_random_key')
-
-  def checkpoint_save_args(
-      self, args: NumpyRandomKeySaveArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
-    item = args.item
-
-    if isinstance(item, tuple):
-      metadata = {'legacy': True}
-    elif isinstance(item, dict):
-      metadata = {'legacy': False}
-    else:
-      raise TypeError(f'Unsupported type: {type(item)}.')
-
-    return (PyTreeSaveArgs(item), JsonSaveArgs(metadata))
-
-  def checkpoint_restore_args(
-      self, args: NumpyRandomKeyRestoreArgs
-  ) -> CheckpointArgs:
-    return PyTreeRestoreArgs()
-
-  def post_restore(self, item: Any, metadata: Mapping[Any, Any]) -> Any:
-    if metadata['legacy']:
-      return tuple(item)
-    else:
-      return item
+    raise DeprecationWarning(
+        'NumpyRandomKeyCheckpointHandler is deprecated. Use'
+        ' PyTreeCheckpointHandler to save or restore numpy random keys.'
+    )
+    super().__init__(key_name or 'np_random_key')  # pylint: disable=unreachable
 
 
-@register_with_handler(NumpyRandomKeyCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class NumpyRandomKeySaveArgs(CheckpointArgs):
   """Parameters for saving a Numpy random key.
@@ -294,6 +175,12 @@ class NumpyRandomKeySaveArgs(CheckpointArgs):
 
   item: NumpyRandomKeyType
 
+  def __post_init__(self):
+    raise DeprecationWarning(
+        'NumpyRandomKeySaveArgs is deprecated. Use PyTreeCheckpointHandler'
+        ' instead.'
+    )
+
 
 @register_with_handler(NumpyRandomKeyCheckpointHandler, for_restore=True)
 @dataclasses.dataclass
@@ -301,3 +188,9 @@ class NumpyRandomKeyRestoreArgs(CheckpointArgs):
   """Numpy random key restore args."""
 
   pass
+
+  def __post_init__(self):
+    raise DeprecationWarning(
+        'NumpyRandomKeyRestoreArgs is deprecated. Use PyTreeCheckpointHandler'
+        ' instead.'
+    )
