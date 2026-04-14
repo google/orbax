@@ -109,12 +109,14 @@ class CompatibilitySaveLoadTestBase:
         )
         test_utils.assert_tree_equal(self, self.pytree, loaded)
 
-      with self.subTest('no_checkpointable_name_error'):
-        with self.assertRaises(InvalidLayoutError):
-          ocp.load_pytree(
-              self.ckpt_directory,
-              self.abstract_pytree if with_abstract_pytree else None,
-          )
+      with self.subTest('flat_layout_no_checkpointable_name'):
+        loaded = ocp.load_pytree(
+            self.ckpt_directory,
+            self.abstract_pytree if with_abstract_pytree else None,
+        )
+        test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+      with self.subTest('root_path_no_checkpointable_name_error'):
         with self.assertRaises(InvalidLayoutError):
           ocp.load_pytree(
               self.root_directory,
@@ -179,9 +181,13 @@ class CompatibilitySaveLoadTestBase:
             self, self.abstract_pytree, loaded.metadata
         )
 
-      with self.subTest('no_checkpointable_name_error'):
-        with self.assertRaises(InvalidLayoutError):
-          ocp.pytree_metadata(self.ckpt_directory)
+      with self.subTest('flat_layout_no_checkpointable_name'):
+        metadata = ocp.pytree_metadata(self.ckpt_directory)
+        test_utils.assert_tree_same_structure(
+            self, self.abstract_pytree, metadata.metadata
+        )
+
+      with self.subTest('root_path_no_checkpointable_name_error'):
         with self.assertRaises(InvalidLayoutError):
           ocp.pytree_metadata(self.root_directory)
 

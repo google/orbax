@@ -648,15 +648,16 @@ class SaveLoadTestBase:
         test_utils.assert_tree_equal(self, self.pytree, loaded['numpy_pytree'])
 
     def test_missing_keys(self):
+      baz_checkpointable = handler_utils.Baz(123, 'hi')
       checkpointables = {
           'numpy_pytree': self.numpy_pytree,
-          'baz': handler_utils.Baz(123, 'hi'),
+          'baz': baz_checkpointable,
       }
       ocp.save_checkpointables(self.directory, checkpointables)
 
       with self.subTest('load_pytree'):
-        with self.assertRaises(InvalidLayoutError):
-          ocp.load_pytree(self.directory)
+        loaded = ocp.load_pytree(self.directory)
+        test_utils.assert_tree_equal(self, self.numpy_pytree, loaded)
 
       with self.subTest('load_checkpointables'):
         with self.assertRaisesRegex(

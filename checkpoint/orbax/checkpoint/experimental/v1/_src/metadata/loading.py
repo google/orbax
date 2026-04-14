@@ -36,7 +36,7 @@ EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 def pytree_metadata(
     path: path_types.PathLike,
-    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str | None = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
 ) -> CheckpointMetadata[PyTreeMetadata]:
   """Loads the PyTree metadata from a checkpoint.
 
@@ -78,11 +78,16 @@ def pytree_metadata(
 
   Args:
     path: The path to the checkpoint.
-    checkpointable_name: The name of the checkpointable to load. Defaults to
-      `pytree`. A subdirectory with this name must exist in `path`. If None then
-      path itself is expected to contain all files relevant for loading the
-      PyTree, rather than any subdirectory. Such files include, for example,
-      manifest.ocdbt, _METADATA, ocdbt.process_X.
+    checkpointable_name: The name of the checkpointable to load. A subdirectory
+      with this name must exist in `path`. If None, then path itself is expected
+      to contain all files relevant for loading the PyTree, rather than any
+      subdirectory. Such files include, for example, `manifest.ocdbt`,
+      `_METADATA`, `ocp.process_X`. Defaults to `AUTO`. Setting to `AUTO` mode
+      dynamically discovers and resolves a pytree checkpointable. It prioritizes
+      the standard 'pytree' checkpointable name if present, then sorts any other
+      valid pytree checkpointable names alphabetically and returns the first
+      valid one, and ultimately falls back to interpreting the path as a flat
+      V0 root layout if no standard pytree exists.
 
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
@@ -91,21 +96,23 @@ def pytree_metadata(
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
-  layout = asyncio_utils.run_sync(
-      layout_registry.get_checkpoint_layout_pytree(
-          path, ctx.checkpoint_layout, checkpointable_name
+  resolver = asyncio_utils.run_sync(
+      layout_registry.CheckpointLayoutResolver.resolve(
+          path, ctx.checkpoint_layout, pytree_name=checkpointable_name
       )
   )
+  layout = resolver.layout
+  resolved_name = resolver.pytree_name
 
   # TODO(b/477603241): This logic currently accounts for the V0
   # metadata function returning a pytree for direct pytree checkpoints, while
   # V1 returns a dictionary. This logic should be cleaned up once we roll up
   # the composite handler into the layout themselves.
   step_metadata = _checkpointables_metadata_impl(layout, path)
-  if checkpointable_name is None:
+  if resolved_name is None:
     metadata = step_metadata.metadata
   else:
-    metadata = step_metadata.metadata[checkpointable_name]
+    metadata = step_metadata.metadata[resolved_name]
   return CheckpointMetadata[PyTreeMetadata](
       path=path,
       metadata=metadata,

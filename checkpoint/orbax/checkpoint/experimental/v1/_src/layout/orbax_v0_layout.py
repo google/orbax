@@ -72,6 +72,21 @@ class OrbaxV0Layout(CheckpointLayout):
     )
     self._orbax_layout = orbax_layout.OrbaxLayout()
 
+  async def get_checkpointable_names(self, path: Path) -> list[str]:
+    """Returns candidate checkpointable names to use for loading.
+
+    Checks all subdirectories and returns their names in an order that
+    prioritizes the 'pytree' checkpointable name if present, and sorts the rest
+    alphabetically.
+
+    Args:
+      path: The path to the checkpoint directory.
+
+    Returns:
+      A list of candidate checkpointable names to use for loading.
+    """
+    return await self._orbax_layout.get_checkpointable_names(path)
+
   async def _load_pytree_metadata(
       self,
       path: Path,

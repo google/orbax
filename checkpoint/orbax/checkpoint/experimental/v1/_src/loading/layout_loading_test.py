@@ -189,6 +189,65 @@ class LayoutLoadingTest(parameterized.TestCase):
 
   # TODO(b/431045454): Add tests for abstract_checkpointables.
 
+  def test_load_auto_resolution_mode_orbax(self):
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
+    ):
+      loaded_orbax = loading.load_pytree(
+          self.orbax_pytree_path,
+          checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+      )
+    test_utils.assert_tree_equal(self, self.object_to_save, loaded_orbax)
+
+  def test_load_auto_resolution_mode_safetensors(self):
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
+    ):
+      loaded_safe = loading.load_pytree(
+          self.safetensors_path,
+          checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+      )
+    test_utils.assert_tree_equal(self, self.object_to_save, loaded_safe)
+
+  def test_load_auto_multiple_checkpointables_priority(self):
+    # Save a checkpoint structure containing multiple checkpointable names.
+    checkpointables = {
+        'analytics': {'a': np.array([1, 2, 3])},
+        'pytree': {'a': np.array([1, 2, 3])},
+        'state': {'b': np.array([4, 5, 6])},
+    }
+    multiple_path = epath.Path(self.test_dir.full_path) / 'multi_checkpoint'
+    saving.save_checkpointables(multiple_path, checkpointables)
+
+    # Triggering AUTO loading mode should prioritize resolving 'pytree'.
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
+    ):
+      loaded = loading.load_pytree(multiple_path)
+
+    test_utils.assert_tree_equal(self, checkpointables['pytree'], loaded)
+
+  def test_load_auto_non_pytree_fallback(self):
+    # Save a checkpoint that intentionally omits the standard 'pytree' key.
+    custom_checkpointables = {
+        'custom_state': {'c': np.array([7, 8, 9])},
+    }
+    fallback_path = epath.Path(self.test_dir.full_path) / 'fallback_checkpoint'
+    saving.save_checkpointables(fallback_path, custom_checkpointables)
+
+    with context_lib.Context(
+        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
+    ):
+      loaded = loading.load_pytree(
+          fallback_path,
+          checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+      )
+
+    # Returns the first valid checkpointable name alphabetically.
+    test_utils.assert_tree_equal(
+        self, custom_checkpointables['custom_state'], loaded
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

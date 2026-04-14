@@ -187,6 +187,37 @@ class OrbaxLayout(CheckpointLayout):
         include_global_registry=False,
     )
 
+  async def get_checkpointable_names(self, path: Path) -> list[str]:
+    """Returns candidate checkpointable names to use for loading.
+
+    Checks all subdirectories and returns their names in an order that
+    prioritizes the 'pytree' checkpointable name if present, and sorts the rest
+    alphabetically.
+
+    Args:
+      path: The path to the checkpoint directory.
+
+    Returns:
+      A list of candidate checkpointable names to use for loading.
+    """
+    existing_names = await _existing_checkpointable_names(path)
+    checkpointable_names = [
+        n
+        for n in existing_names
+        if n not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
+    ]
+    if checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY in checkpointable_names:
+      # Prioritize 'pytree' checkpointable name if present.
+      other_names = sorted([
+          n
+          for n in checkpointable_names
+          if n != checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+      ])
+      names = [checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY] + other_names
+    else:
+      names = sorted(checkpointable_names)
+    return names
+
   async def metadata(
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:

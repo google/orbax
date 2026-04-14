@@ -37,6 +37,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+AUTO_CHECKPOINTABLE_KEY = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = ...
@@ -67,13 +68,13 @@ def load_pytree(
         AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
     *,
-    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str | None = AUTO_CHECKPOINTABLE_KEY,
 ) -> tree_types.PyTreeOf[tree_types.LeafType]:
   """Loads a PyTree.
 
   Loads from a `PyTree` checkpoint. A `PyTree` checkpoint must be a path
   containing a subdirectory with the name provided by `checkpointable_name`,
-  with default value `pytree`. See `checkpointable_name` for more details.
+  with default value `AUTO`. See `checkpointable_name` for more details.
 
   This function must be called on all available controller processes.
 
@@ -130,11 +131,16 @@ def load_pytree(
     abstract_pytree: Provides a tree structure for the checkpoint to be restored
       into. May be omitted to load exactly as saved, but this is much more
       brittle than providing the tree.
-    checkpointable_name: The name of the checkpointable to load. Defaults to
-      `pytree`. A subdirectory with this name must exist in `path`. If None,
-      then path itself is expected to contain all files relevant for loading the
-      PyTree, rather than any subdirectory. Such files include, for example,
-      `manifest.ocdbt`, `_METADATA`, `ocdbt.process_X`.
+    checkpointable_name: The name of the checkpointable to load. A subdirectory
+      with this name must exist in `path`. If None, then path itself is expected
+      to contain all files relevant for loading the PyTree, rather than any
+      subdirectory. Such files include, for example, `manifest.ocdbt`,
+      `_METADATA`, `ocp.process_X`. Defaults to `AUTO`. Setting to `AUTO` mode
+      dynamically discovers and resolves a pytree checkpointable. It prioritizes
+      the standard 'pytree' checkpointable name if present, then sorts any other
+      valid pytree checkpointable names alphabetically and returns the first
+      valid one, and ultimately falls back to interpreting the path as a flat
+      V0 root layout if no standard pytree exists.
 
   Returns:
     The restored `PyTree`.
@@ -151,18 +157,18 @@ def load_pytree(
 
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
-  layout = asyncio_utils.run_sync(
-      layout_registry.get_checkpoint_layout_pytree(
-          path, ctx.checkpoint_layout, checkpointable_name
+
+  resolver = asyncio_utils.run_sync(
+      layout_registry.CheckpointLayoutResolver.resolve(
+          path, ctx.checkpoint_layout, pytree_name=checkpointable_name
       )
   )
-
   loaded_pytree = _load_impl(
       path,
       functools.partial(
-          layout.load_pytree,
+          resolver.layout.load_pytree,
           path=path,
-          checkpointable_name=checkpointable_name,
+          checkpointable_name=resolver.pytree_name,
           abstract_pytree=abstract_pytree,
       ),
       start_time=start_time,
@@ -468,12 +474,12 @@ def load_pytree_async(
   validation.validate_pytree_checkpointable_name(checkpointable_name)
 
   async def _blocking_load() -> Any:
-    layout = await layout_registry.get_checkpoint_layout_pytree(
-        path, ctx.checkpoint_layout, checkpointable_name
+    resolver = await layout_registry.CheckpointLayoutResolver.resolve(
+        path, ctx.checkpoint_layout, pytree_name=checkpointable_name
     )
-    return await layout.load_pytree(
+    return await resolver.layout.load_pytree(
         path,
-        checkpointable_name=checkpointable_name,
+        checkpointable_name=resolver.pytree_name,
         abstract_pytree=abstract_pytree,
     )
 

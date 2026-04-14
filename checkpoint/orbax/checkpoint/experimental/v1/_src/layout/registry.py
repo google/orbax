@@ -13,9 +13,11 @@
 # limitations under the License.
 
 """Registry for checkpoint layouts."""
+from __future__ import annotations
 
 import asyncio
 
+from absl import logging
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
@@ -113,15 +115,93 @@ async def get_checkpoint_layout(
     ) from e
 
 
-async def get_checkpoint_layout_pytree(
-    path: path_types.PathLike,
-    layout_enum: CheckpointLayoutEnum,
-    checkpointable_name: str | None = None,
-) -> CheckpointLayout:
-  """Validates pytree checkpoint and returns the layout for the given path."""
-  ctx = context_lib.get_context()
-  path = ctx.file_options.path_class(path)
+class CheckpointLayoutResolver:
+  """Resolves the layout and pytree name for a checkpoint."""
 
-  layout = await get_checkpoint_layout(path, layout_enum)
-  await layout.validate_pytree(path, checkpointable_name)
-  return layout
+  def __init__(
+      self,
+      path: path_types.PathLike,
+      layout_enum: CheckpointLayoutEnum,
+      layout: CheckpointLayout,
+      resolved_pytree_name: str | None,
+  ):
+    self._path = path
+    self._layout_enum = layout_enum
+    self._layout = layout
+    self._resolved_pytree_name = resolved_pytree_name
+
+  @classmethod
+  async def resolve(
+      cls,
+      path: path_types.PathLike,
+      layout_enum: CheckpointLayoutEnum,
+      *,
+      pytree_name: str | None = None,
+  ) -> CheckpointLayoutResolver:
+    """Resolves the layout and pytree name for a checkpoint.
+
+    Args:
+      path: The path to the checkpoint.
+      layout_enum: The checkpoint layout to use.
+      pytree_name: The name of the pytree to load. If
+        `checkpoint_layout.AUTO_CHECKPOINTABLE_KEY`, the name will be
+        auto-resolved.
+
+    Returns:
+      A CheckpointLayoutResolver instance.
+
+    Raises:
+      InvalidLayoutError: If the checkpoint layout is invalid or if a valid
+        PyTree checkpointable cannot be found.
+    """
+    ctx = context_lib.get_context()
+    path = ctx.file_options.path_class(path)
+
+    layout = await get_checkpoint_layout(path, layout_enum)
+    if pytree_name == checkpoint_layout.AUTO_CHECKPOINTABLE_KEY:
+      names = await layout.get_checkpointable_names(path)
+      for name in names:
+        try:
+          await layout.validate_pytree(path, name)
+          logging.info(
+              "AUTO resolution mode successfully identified a pytree with"
+              " checkpointable name '%s' at path '%s'. Attempting to load with"
+              " this name. If this is not the desired checkpointable, please"
+              " specify the name explicitly.",
+              name,
+              path,
+          )
+          return cls(path, layout_enum, layout, name)
+        except InvalidLayoutError:
+          continue
+
+      if isinstance(layout, orbax_v0_layout.OrbaxV0Layout):
+        try:
+          await layout.validate_pytree(path, None)
+          logging.info(
+              "AUTO resolution mode successfully identified a pytree at path"
+              " '%s'. Attempting to load as a flat layout V0 Orbax checkpoint."
+              " with checkpointable_name=None.",
+              path,
+          )
+          return cls(path, layout_enum, layout, None)
+        except InvalidLayoutError:
+          pass
+
+      raise InvalidLayoutError(
+          "Failed to load checkpoint using AUTO resolution mode on"
+          f" path='{path}'. No valid PyTree checkpointable found."
+      ) from None
+
+    await layout.validate_pytree(path, pytree_name)
+    return cls(path, layout_enum, layout, pytree_name)
+
+  @property
+  def layout(self) -> CheckpointLayout:
+    """Returns the checkpoint layout."""
+    return self._layout
+
+  @property
+  def pytree_name(self) -> str | None:
+    """Returns the resolved pytree name."""
+    return self._resolved_pytree_name

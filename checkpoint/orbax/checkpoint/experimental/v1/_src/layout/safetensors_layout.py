@@ -763,6 +763,9 @@ class SafetensorsLayout(CheckpointLayout):
           f"Path {path} is neither a file nor a directory or does not exist."
       )
 
+  async def get_checkpointable_names(self, path: Path) -> list[str]:
+    return [checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+
   async def validate_pytree(
       self, path: Path, checkpointable_name: str | None
   ) -> None:

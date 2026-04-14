@@ -31,7 +31,10 @@ def validate_pytree_checkpointable_name(
   Raises:
     ValueError: If the checkpointable name is reserved.
   """
-  if checkpointable_name is None:
+  if (
+      checkpointable_name is None
+      or checkpointable_name == checkpoint_layout.AUTO_CHECKPOINTABLE_KEY
+  ):
     return
   if checkpointable_name == EMPTY_CHECKPOINTABLE_KEY:
     raise ValueError(

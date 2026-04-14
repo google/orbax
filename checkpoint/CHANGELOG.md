@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add auto loading functionality to `load_pytree` and `pytree_metadata`.
+
 ## [0.11.35] - 2026-04-13
 
 ### Added

@@ -26,11 +26,13 @@ Path = types.Path
 
 PYTREE_CHECKPOINTABLE_KEY = "pytree"
 EMPTY_CHECKPOINTABLE_KEY = ""
+AUTO_CHECKPOINTABLE_KEY = "AUTO"
 
 METRICS_CHECKPOINTABLE_KEY = "metrics"
 
 RESERVED_CHECKPOINTABLE_KEYS = frozenset({
     METRICS_CHECKPOINTABLE_KEY,
+    AUTO_CHECKPOINTABLE_KEY,
 })
 
 
@@ -49,6 +51,21 @@ class CheckpointLayout(Protocol):
     - Saves and loads checkpointables to/from individual subdirectories by
     delegating to the resolved handlers.
   """
+
+  async def get_checkpointable_names(self, path: Path) -> list[str]:
+    """Returns a list of candidate checkpointable names to use for loading.
+
+    Attempts to resolve checkpointable names for by inspecting the checkpoint
+    format and finding appropriate checkpointable names to use. The result may
+    be an empty list.
+
+    Args:
+      path: The path to the checkpoint.
+
+    Returns:
+      A list of checkpointable names, ordered by priority / importance.
+    """
+    ...
 
   async def metadata(
       self, path: Path
