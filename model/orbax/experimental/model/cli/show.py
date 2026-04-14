@@ -21,7 +21,6 @@ from typing import List, NoReturn
 from google.protobuf import message
 from google.protobuf import text_format
 import jax.extend as jex
-from jax.interpreters import mlir
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
 from orbax.experimental.model.cli import printer
@@ -82,13 +81,11 @@ def _save_stablehlo(
 ) -> None:
   """Saves the StableHLO function body to the given file."""
   body = _get_stable_hlo_body(manifest, fn_name)
-  with mlir.make_ir_context():
-    stablehlo_module = jex.mlir.deserialize_portable_artifact(
-        body.stable_hlo.inlined_bytes
-    )
-    module_str = str(stablehlo_module)
+  stablehlo_module = jex.mlir.deserialize_portable_artifact(
+      body.stable_hlo.inlined_bytes
+  )
   with file_utils.open_file(output_file, 'w') as f:
-    f.write(module_str)
+    f.write(str(stablehlo_module))
   rich.print(f'Saved StableHLO function to `{output_file}`')
 
 
