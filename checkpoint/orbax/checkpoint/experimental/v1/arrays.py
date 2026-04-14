@@ -18,4 +18,5 @@
 
 from orbax.checkpoint.experimental.v1._src.arrays.abstract_arrays import (
     to_shape_dtype_struct,
+    ArrayLike,
 )

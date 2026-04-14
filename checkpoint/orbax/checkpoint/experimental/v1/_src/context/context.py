@@ -92,17 +92,28 @@ class Context(epy.ContextManager):
 
 
   Attributes:
-    pytree_options: Options for PyTree checkpointing.
+    pytree_options: Options for PyTree checkpointing. See
+      :class:`~orbax.checkpoint.experimental.v1.options.PyTreeOptions`.
     array_options: Options for saving and loading array (and array-like
-      objects).
-    async_options: Options for controlling asynchronous behavior.
-    multiprocessing_options: Options for multiprocessing behavior.
-    file_options: Options for working with the file system.
+      objects). See
+      :class:`~orbax.checkpoint.experimental.v1.options.ArrayOptions`.
+    async_options: Options for controlling asynchronous behavior. See
+      :class:`~orbax.checkpoint.experimental.v1.options.AsyncOptions`.
+    multiprocessing_options: Options for multiprocessing behavior. See
+      :class:`~orbax.checkpoint.experimental.v1.options.MultiprocessingOptions`.
+    file_options: Options for working with the file system. See
+      :class:`~orbax.checkpoint.experimental.v1.options.FileOptions`.
     checkpointables_options: Options for controlling checkpointables behavior.
-    pathways_options: Options for Pathways checkpointing.
-    checkpoint_layout: The layout of the checkpoint. Defaults to ORBAX.
-    deletion_options: Options for controlling deletion behavior.
+      See
+      :class:`~orbax.checkpoint.experimental.v1.options.CheckpointablesOptions`.
+    pathways_options: Options for Pathways checkpointing. See
+      :class:`~orbax.checkpoint.experimental.v1.options.PathwaysOptions`.
+    checkpoint_layout: The layout of the checkpoint. Defaults to ORBAX. See
+      :class:`~orbax.checkpoint.experimental.v1.options.CheckpointLayout`.
+    deletion_options: Options for controlling deletion behavior. See
+      :class:`~orbax.checkpoint.experimental.v1.options.DeletionOptions`.
     memory_options: Options for controlling memory limits during save / load.
+      See :class:`~orbax.checkpoint.experimental.v1.options.MemoryOptions`.
   """
 
   def __init__(

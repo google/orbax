@@ -1,7 +1,7 @@
-Training Save Decision Policies
+``ocp.v1.training.save_decision_policies`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.training.save_decision_policies
+.. currentmodule:: orbax.checkpoint.v1.training.save_decision_policies
 
 .. automodule:: orbax.checkpoint.experimental.v1.training.save_decision_policies
 

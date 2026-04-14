@@ -1,5 +1,25 @@
-Checkpoint Training
+``ocp.v1.training`` module
 ============================================================================
+
+.. currentmodule:: orbax.checkpoint.v1.training
+
+.. automodule:: orbax.checkpoint.experimental.v1.training
+
+
+Checkpointer
+------------------------------------------------------------
+.. autoclass:: Checkpointer
+  :members:
+
+CheckpointMetadata
+------------------------------------------------------------
+.. autoclass:: CheckpointMetadata
+  :members:
+
+RootMetadata
+------------------------------------------------------------
+.. autoclass:: RootMetadata
+  :members:
 
 .. toctree::
    :maxdepth: 3

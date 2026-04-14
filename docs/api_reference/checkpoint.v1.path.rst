@@ -1,7 +1,7 @@
-Checkpointing Path
+``ocp.v1.path`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.path
+.. currentmodule:: orbax.checkpoint.v1.path
 
 .. automodule:: orbax.checkpoint.experimental.v1.path
   :members:
@@ -17,7 +17,7 @@ Types
 
 Step entities
 ------------------------------------------------------------
-.. currentmodule:: orbax.checkpoint.experimental.v1.path.step
+.. currentmodule:: orbax.checkpoint.v1.path.step
 
 .. autoclass:: NameFormat
   :members:

@@ -23,7 +23,7 @@ AbstractT = TypeVar('AbstractT')
 
 
 @runtime_checkable
-class StatefulCheckpointable(Protocol[T]):
+class StatefulCheckpointable(Protocol):
   """An interface that defines save/load logic for a checkpointable object."""
 
   async def save(
@@ -32,11 +32,7 @@ class StatefulCheckpointable(Protocol[T]):
     """Saves the given `checkpointable` to the given `directory`."""
     ...
 
-  async def load(
-      self,
-      directory: path_types.Path,
-      abstract_checkpointable: T | None = None,
-  ) -> Awaitable[None]:
+  async def load(self, directory: path_types.Path) -> Awaitable[None]:
     """Loads the checkpointable from the given `directory`."""
     ...
 

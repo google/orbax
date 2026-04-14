@@ -32,6 +32,7 @@ from orbax.checkpoint.experimental.v1 import tree
 from orbax.checkpoint.experimental.v1._src.synchronization.types import (
     AsyncResponse,
 )
+from orbax.checkpoint.experimental.v1 import multihost
 from orbax.checkpoint.experimental.v1.handlers import (
     CheckpointableHandler,
     StatefulCheckpointable,

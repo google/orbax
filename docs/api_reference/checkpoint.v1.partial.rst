@@ -1,7 +1,7 @@
-Checkpointing Partial
+``ocp.v1.partial`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.partial
+.. currentmodule:: orbax.checkpoint.v1.partial
 
 .. automodule:: orbax.checkpoint.experimental.v1.partial
   :members:

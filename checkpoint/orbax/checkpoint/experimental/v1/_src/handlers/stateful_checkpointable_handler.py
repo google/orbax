@@ -14,33 +14,32 @@
 
 """StatefulCheckpointableHandler class."""
 
-from typing import Any, Awaitable, Generic
+from typing import Any, Awaitable
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
-T = handler_types.T
+StatefulCheckpointable = handler_types.StatefulCheckpointable
 
 
 class StatefulCheckpointableHandler(
-    handler_types.CheckpointableHandler[T, T],
-    Generic[T],
+    handler_types.CheckpointableHandler[
+        StatefulCheckpointable, StatefulCheckpointable
+    ],
 ):
   """Serializes/deserializes a :py:class:`~.v1.handlers.StatefulCheckpointable`."""
 
   async def save(
       self,
       directory: path_types.PathAwaitingCreation,
-      checkpointable: handler_types.StatefulCheckpointable[T],
+      checkpointable: StatefulCheckpointable,
   ) -> Awaitable[None]:
     return await checkpointable.save(directory)
 
   async def load(
       self,
       directory: path_types.Path,
-      abstract_checkpointable: (
-          handler_types.StatefulCheckpointable[T] | None
-      ) = None,
-  ) -> Awaitable[T]:
+      abstract_checkpointable: StatefulCheckpointable | None = None,
+  ) -> Awaitable[StatefulCheckpointable]:
     if abstract_checkpointable is None:
       raise ValueError(
           'To restore a `StatefulCheckpointable`, you must pass an instance of'
@@ -50,7 +49,7 @@ class StatefulCheckpointableHandler(
     # Returns Awaitable[None]
     background_load = await abstract_checkpointable.load(directory)
 
-    async def _background_load() -> T:
+    async def _background_load() -> StatefulCheckpointable:
       await background_load
       # After loading, `abstract_checkpointable` (actually just a concrete
       # checkpointable) should be populated with the loaded data.
@@ -58,16 +57,16 @@ class StatefulCheckpointableHandler(
 
     return _background_load()
 
-  async def metadata(self, directory: path_types.Path) -> T:
+  async def metadata(
+      self, directory: path_types.Path
+  ) -> StatefulCheckpointable:
     raise NotImplementedError(
         'Metadata retrieval is not supported for objects implementing'
         ' `StatefulCheckpointable`.'
     )
 
   def is_handleable(self, checkpointable: Any) -> bool:
-    return isinstance(checkpointable, handler_types.StatefulCheckpointable)
+    return isinstance(checkpointable, StatefulCheckpointable)
 
   def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
-    return isinstance(
-        abstract_checkpointable, handler_types.StatefulCheckpointable
-    )
+    return isinstance(abstract_checkpointable, StatefulCheckpointable)

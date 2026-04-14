@@ -1,7 +1,7 @@
-Configuration Options
+``ocp.v1.options`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.options
+.. currentmodule:: orbax.checkpoint.v1.options
 
 .. automodule:: orbax.checkpoint.experimental.v1.options
 
@@ -34,4 +34,19 @@ ArrayOptions
 CheckpointablesOptions
 ------------------------------------------------------------
 .. autoclass:: CheckpointablesOptions
+  :members:
+
+PathwaysOptions
+------------------------------------------------------------
+.. autoclass:: PathwaysOptions
+  :members:
+
+DeletionOptions
+------------------------------------------------------------
+.. autoclass:: DeletionOptions
+  :members:
+
+MemoryOptions
+------------------------------------------------------------
+.. autoclass:: MemoryOptions
   :members:

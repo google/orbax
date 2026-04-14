@@ -1,7 +1,7 @@
-Checkpointable Handlers
+``ocp.v1.handlers`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.handlers
+.. currentmodule:: orbax.checkpoint.v1.handlers
 
 .. automodule:: orbax.checkpoint.experimental.v1.handlers
   :members:

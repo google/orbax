@@ -1,7 +1,7 @@
-Serialization
+``ocp.v1.serialization`` module
 ============================================================================
 
-.. currentmodule:: orbax.checkpoint.experimental.v1.serialization
+.. currentmodule:: orbax.checkpoint.v1.serialization
 
 .. automodule:: orbax.checkpoint.experimental.v1.serialization
   :members:

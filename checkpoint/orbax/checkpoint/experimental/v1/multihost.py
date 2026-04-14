@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public symbols for tree module."""
+"""Multihost functionalities."""
 
-# pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
+# pylint: disable=g-importing-member, g-multiple-import, unused-import, g-bad-import-order
 
-from orbax.checkpoint.experimental.v1._src.tree.structure_utils import (
-    merge_trees as merge,
-)
-from orbax.checkpoint.experimental.v1._src.tree.types import (
-    PyTreeOf,
-    PyTreeKey,
-    PyTreeKeyPath,
-    JsonType,
+from orbax.checkpoint.experimental.v1._src.synchronization.multihost import (
+    is_pathways_backend,
+    sync_global_processes,
+    is_primary_host,
+    process_count,
+    process_index,
 )
