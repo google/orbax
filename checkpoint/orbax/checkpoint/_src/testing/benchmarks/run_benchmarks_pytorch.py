@@ -39,6 +39,11 @@ _OUTPUT_DIRECTORY = flags.DEFINE_string(
     'Output directory for benchmark results.',
     required=True,
 )
+_REMOVE_REPEATED_DIR = flags.DEFINE_bool(
+    'remove_repeated_dir',
+    False,
+    'Remove the generated repeat_* directories after execution.',
+)
 
 
 
@@ -73,7 +78,9 @@ def _init_torch_distributed() -> None:
         raise
 
 
-def _run_benchmarks(config_file: str, output_directory: str) -> None:
+def _run_benchmarks(
+    config_file: str, output_directory: str, remove_repeated_dir: bool = False
+) -> None:
   """Runs the benchmarks."""
   logging.info('Running benchmarks from config: %s', config_file)
   logging.info('Output directory: %s', output_directory)
@@ -89,7 +96,9 @@ def _run_benchmarks(config_file: str, output_directory: str) -> None:
 
   try:
     test_suite = config_parsing.create_test_suite_from_config(
-        config_file, output_dir=output_directory
+        config_file,
+        output_dir=output_directory,
+        remove_repeated_dir=remove_repeated_dir,
     )
   except Exception as e:
     logging.error('Failed to create test suite from config: %s', e)
@@ -119,7 +128,11 @@ def main(argv: Sequence[str]) -> None:
 
   logging.info('run_benchmarks_pytorch.py started.')
   _init_torch_distributed()
-  _run_benchmarks(_CONFIG_FILE.value, _OUTPUT_DIRECTORY.value)
+  _run_benchmarks(
+      _CONFIG_FILE.value,
+      _OUTPUT_DIRECTORY.value,
+      remove_repeated_dir=_REMOVE_REPEATED_DIR.value,
+  )
   logging.info('run_benchmarks_pytorch.py finished.')
 
 

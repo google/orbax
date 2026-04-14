@@ -55,6 +55,11 @@ _ENABLE_HLO_DUMP = flags.DEFINE_bool(
     False,
     'Enables HLO dumping to a subdirectory within --output_directory.',
 )
+_REMOVE_REPEATED_DIR = flags.DEFINE_bool(
+    'remove_repeated_dir',
+    False,
+    'Remove the generated repeat_* directories after execution.',
+)
 
 
 
@@ -126,7 +131,10 @@ def _configure_hlo_dump(output_directory: str):
 
 
 def _run_benchmarks(
-    config_file: str, output_directory: str, local_directory: str | None = None
+    config_file: str,
+    output_directory: str,
+    local_directory: str | None = None,
+    remove_repeated_dir: bool = False,
 ) -> None:
   """Runs Orbax checkpoint benchmarks based on a generator class and a config file.
 
@@ -135,6 +143,8 @@ def _run_benchmarks(
     output_directory: Directory to store benchmark results in.
     local_directory: Local directory for benchmark results. This is used for ECM
       benchmarks.
+    remove_repeated_dir: Whether to remove the generated repeat_* directories
+      after execution.
 
   Raises:
     RuntimeError: If any benchmark test fails.
@@ -155,6 +165,7 @@ def _run_benchmarks(
         config_file,
         output_dir=output_directory,
         local_directory=local_directory,
+        remove_repeated_dir=remove_repeated_dir,
     )
   except Exception as e:
     logging.error('Failed to create test suite from config: %s', e)
@@ -201,7 +212,10 @@ def main(argv: List[str]) -> None:
   logging.info('Set jax_enable_x64=True')
 
   _run_benchmarks(
-      _CONFIG_FILE.value, _OUTPUT_DIRECTORY.value, _LOCAL_DIRECTORY.value
+      _CONFIG_FILE.value,
+      _OUTPUT_DIRECTORY.value,
+      _LOCAL_DIRECTORY.value,
+      remove_repeated_dir=_REMOVE_REPEATED_DIR.value,
   )
 
   logging.info('run_benchmarks.py finished.')
