@@ -33,13 +33,32 @@ class UtilsTest(parameterized.TestCase):
     jd_sig = {
         'a': MockJDSignature(shape=(1, 2), dtype=np.dtype(np.int32)),
         'b': MockJDSignature(shape=(3,), dtype=np.dtype(np.float32)),
+        'c': MockJDSignature(shape=(2, 7, 2), dtype=np.dtype(np.str_)),
+        'd': MockJDSignature(shape=(4,), dtype=np.dtype(np.bytes_)),
+        'e': MockJDSignature(shape=(5,), dtype=np.dtype(np.object_)),
     }
     obm_spec = utils.jd_signature_to_obm_spec(jd_sig)
     expected_obm_spec = {
         'a': obm.ShloTensorSpec(shape=(1, 2), dtype=obm.ShloDType.i32),
         'b': obm.ShloTensorSpec(shape=(3,), dtype=obm.ShloDType.f32),
+        'c': obm.ShloTensorSpec(shape=(2, 7, 2), dtype=obm.ShloDType.str),
+        'd': obm.ShloTensorSpec(shape=(4,), dtype=obm.ShloDType.str),
+        'e': obm.ShloTensorSpec(shape=(5,), dtype=obm.ShloDType.str),
     }
     self.assertEqual(obm_spec, expected_obm_spec)
+
+  @parameterized.parameters(
+      (obm.ShloDType.i32, np.dtype(np.int32)),
+      (obm.ShloDType.f32, np.dtype(np.float32)),
+      (obm.ShloDType.str, np.dtype(np.object_)),
+      (obm.ShloDType.bool, np.dtype(np.bool_)),
+  )
+  def test_obm_to_jd_dtype(self, obm_dtype, expected_jd_dtype):
+    self.assertEqual(utils._obm_to_jd_dtype(obm_dtype), expected_jd_dtype)
+
+  def test_obm_to_jd_dtype_unsupported(self):
+    with self.assertRaisesRegex(ValueError, "Not an obm.ShloDType: int32"):
+      utils._obm_to_jd_dtype(np.dtype(np.int32))
 
   def test_jd_to_obm_dtype_error(self):
     with self.assertRaisesRegex(

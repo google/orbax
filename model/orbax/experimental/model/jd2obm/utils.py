@@ -24,17 +24,19 @@ JDSignatureTree = dict[str, Any]
 
 
 def _obm_to_jd_dtype(t):
-  if isinstance(t, obm.ShloDType):
-    if t == obm.ShloDType.str:
-      return np.dtype(np.str_)
-    return obm.shlo_dtype_to_np_dtype(t)
-  return t
+  if not isinstance(t, obm.ShloDType):
+    raise ValueError(f"Not an obm.ShloDType: {t}")
+  if t == obm.ShloDType.str:
+    # xla::IfrtDtypeToNbDtype converts kString into np.object_.
+    return np.dtype(np.object_)
+  return obm.shlo_dtype_to_np_dtype(t)
 
 
 def _jd_to_obm_dtype(t) -> obm.ShloDType:
   if not isinstance(t, np.dtype):
     raise ValueError(f'Expected a numpy.dtype, got {t!r} of type {type(t)}')
-  if t == np.dtype(np.str_) or t == np.dtype(np.bytes_):
+  # Check for all string ('U'), bytes ('S'), or object ('O') dtypes.
+  if t.kind in ('U', 'S', 'O'):
     return obm.ShloDType.str
   return obm.np_dtype_to_shlo_dtype(t)
 
