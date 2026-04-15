@@ -90,8 +90,9 @@ def _construct_serialization_param(
     value: types.Leaf,
     info: types_v0.ParamInfo,
 ) -> types.SerializationParam[types.Leaf]:
+  assert info.keypath is not None
   return types.SerializationParam(
-      keypath=_keypath_from_param_name(info.name),
+      keypath=info.keypath,
       value=value,
   )
 
@@ -196,7 +197,9 @@ def _construct_deserialization_param(
   logging.vlog(1, 'deserialization_param.value: %r', value)
 
   return types.DeserializationParam(
-      keypath=_keypath_from_param_name(info.name),
+      keypath=info.keypath
+      if info.keypath is not None
+      else _keypath_from_param_name(info.name),
       value=value,
   )
 
@@ -339,7 +342,9 @@ class CompatibleTypeHandler(
 
       params.append(
           types.DeserializationParam(
-              keypath=_keypath_from_param_name(info.name),
+              keypath=info.keypath
+              if info.keypath is not None
+              else _keypath_from_param_name(info.name),
               value=abstract_leaf,
           )
       )
