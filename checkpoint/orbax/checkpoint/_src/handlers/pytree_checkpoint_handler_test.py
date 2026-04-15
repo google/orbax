@@ -1943,7 +1943,8 @@ class PyTreeCheckpointHandlerTest(
     with mock.patch.object(
         limits,
         'get_byte_limiter',
-        new=lambda _: byte_limiter,
+        autospec=True,
+        return_value=byte_limiter,
     ):
       handler.save(self.directory, args=PyTreeSaveArgs(tree))
     # Replicated shards are handled within the _write_array_shard function.
@@ -1958,6 +1959,25 @@ class PyTreeCheckpointHandlerTest(
           limit_bytes // np.int32().itemsize,
           sleep_time,
       )
+
+  def test_concurrent_gb_auto_save(self):
+    handler = PyTreeCheckpointHandler(
+        save_device_host_concurrent_gb='auto',
+        max_save_device_host_concurrent_gb=80,
+        use_ocdbt=False,
+    )
+    tree = {'a': np.ones(10)}
+    # Verify it doesn't crash when saving with "auto".
+    with mock.patch.object(
+        base_pytree_checkpoint_handler.memory_regulator,
+        'get_total_memory_gib',
+        autospec=True,
+        return_value=250.0,
+    ):
+      handler.save(self.directory, args=PyTreeSaveArgs(tree))
+      # Verify we can also restore
+      restored = handler.restore(self.directory)
+    np.testing.assert_array_equal(restored['a'], tree['a'])
 
   @parameterized.parameters((5,), (9,))
   def test_concurrent_gb_restore(self, limit_bytes):
@@ -1975,7 +1995,8 @@ class PyTreeCheckpointHandlerTest(
     with mock.patch.object(
         limits,
         'get_byte_limiter',
-        new=lambda _,: byte_limiter,
+        autospec=True,
+        return_value=byte_limiter,
     ):
       restored = handler.restore(
           self.directory,

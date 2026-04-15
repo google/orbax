@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-from typing import Optional
 
 # CONSTANT
 _BYTES_TO_GIB = 1024.0**3
@@ -46,7 +45,7 @@ class MemoryProfiler(abc.ABC):
 
   @property
   def peak_usage_gib(self) -> float:
-    """Returns peak memory usage in GiB."""
+    """Peak memory usage in GiB."""
     return self.peak_usage_bytes / _BYTES_TO_GIB
 
   @abc.abstractmethod
@@ -59,11 +58,16 @@ class MemoryProfiler(abc.ABC):
     """Returns the expected memory surge for the next iteration in GiB."""
     raise NotImplementedError
 
+  @property
+  def total_memory_gib(self) -> float | None:
+    """Total system capacity in GiB, if available."""
+    return None
 
-_profiler: Optional[MemoryProfiler] = None
+
+_profiler: MemoryProfiler | None = None
 
 
-def register_memory_profiler(profiler: Optional[MemoryProfiler]) -> None:
+def register_memory_profiler(profiler: MemoryProfiler | None) -> None:
   global _profiler
   _profiler = profiler
 
@@ -96,6 +100,12 @@ def get_expected_surge_gib() -> float:
   return 0.0
 
 
+def get_total_memory_gib() -> float | None:
+  if _profiler:
+    return _profiler.total_memory_gib
+  return None
+
+
 @dataclasses.dataclass
 class MemoryRegulator:
   """Regulates maximum concurrent memory usage using a PID controller based on peak memory usage feedback.
@@ -118,6 +128,8 @@ class MemoryRegulator:
     kp: Proportional coefficient
     ki: Integral coefficient
     kd: Derivative coefficient
+    fallback_host_limit_gib: A fallback value for the total host memory limit in
+      GiB, used if dynamic total memory is not available.
     integral: Integral term accumulated over time
     prev_error: Error term from the previous step
     integral_windup_limit: Upper and lower bounds for the integral term to
@@ -130,6 +142,7 @@ class MemoryRegulator:
   kp: float = 0.4
   ki: float = 0.05
   kd: float = 0.1
+  fallback_host_limit_gib: float | None = None
 
   integral: float = dataclasses.field(init=False)
   prev_error: float = dataclasses.field(init=False)
@@ -164,16 +177,18 @@ class MemoryRegulator:
 
   def get_next_memory_limit(
       self,
+      *,
       current_limit_gib: float,
       peak_memory_usage_gib: float,
       blocking_time_sec: float,  # pylint: disable=unused-argument
       expected_surge_gib: float = 0.0,
+      total_memory_gib: float | None = None,
   ) -> float:
     """Calculates the next memory limit using PID control and expected surge data.
 
     The PID controller adjusts the memory limit based on feedback from
     `peak_memory_usage_gib` to guide usage towards
-    `max_memory_limit_gib * target_ratio`.
+    `effective_host_limit * target_ratio`.
 
     If `expected_surge_gib` is positive, it signals an anticipated temporary
     increase in memory consumption. The regulator preemptively reduces the
@@ -191,11 +206,27 @@ class MemoryRegulator:
         for memory in the last interval. Currently unused.
       expected_surge_gib: The anticipated memory surge in GiB. If 0, no surge
         is expected.
+      total_memory_gib: The total system memory capacity in GiB, if available.
+        If not available, `fallback_host_limit_gib` will be used. A ValueError
+        is raised if neither is provided.
 
     Returns:
       The calculated memory limit for the next interval in GiB.
+
+    Raises:
+      ValueError: If `total_memory_gib` is None and `fallback_host_limit_gib`
+        was not provided during initialization.
     """
-    effective_host_limit = self.max_memory_limit_gib
+    if total_memory_gib is not None and total_memory_gib > 0:
+      effective_host_limit = total_memory_gib
+    elif self.fallback_host_limit_gib is not None:
+      effective_host_limit = self.fallback_host_limit_gib
+    else:
+      raise ValueError(
+          'Total memory limit is required for PID controller but not available'
+          ' dynamically and no fallback_host_limit_gib was provided.'
+      )
+
     target_mem_gib = effective_host_limit * self.target_ratio
 
     error_gib = target_mem_gib - peak_memory_usage_gib
