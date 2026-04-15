@@ -184,27 +184,6 @@ class PyTreeOptions:
 
   # TODO: Include an example of registering a custom LeafHandler.
 
-  Example:
-    To save certain leaves in float16, while others in float32, we can use
-    `create_array_storage_options_fn` like so::
-
-      import jax
-      import jax.numpy as jnp
-      from orbax.checkpoint.v1 import options as ocp_options
-
-      def create_opts_fn(keypath, value):
-        if 'small' in jax.tree_util.keystr(keypath):
-          return ocp_options.ArrayOptions.Saving.StorageOptions(
-              dtype=jnp.float16
-          )
-        return ocp_options.ArrayOptions.Saving.StorageOptions(dtype=jnp.float32)
-
-      pytree_options = ocp_options.PyTreeOptions(
-          saving=ocp_options.PyTreeOptions.Saving(
-              create_array_storage_options_fn=create_opts_fn
-          )
-      )
-
   Attributes:
     saving: Options for saving PyTrees.
     loading: Options for loading PyTrees.
@@ -216,25 +195,9 @@ class PyTreeOptions:
   class Saving:
     """Options for saving PyTrees.
 
-    create_array_storage_options_fn:
-      A function that is called in order to create
-      :py:class:`.ArrayOptions.Saving.StorageOptions` for each leaf in a PyTree,
-      when it is
-      being saved. It is called similar to:
-      `jax.tree.map_with_path(create_array_storage_options_fn, pytree_to_save)`.
-      If provided, it overrides any default settings in
-      :py:class:`.ArrayOptions.Saving.StorageOptions`.
     pytree_metadata_options: Options for managing PyTree metadata.
     """
 
-    class CreateArrayStorageOptionsFn(Protocol):
-
-      def __call__(
-          self, key: tree_types.PyTreeKeyPath, value: Any
-      ) -> ArrayOptions.Saving.StorageOptions:
-        ...
-
-    create_array_storage_options_fn: CreateArrayStorageOptionsFn | None = None
     pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
         dataclasses.field(default_factory=tree_metadata.PyTreeMetadataOptions)
     )
@@ -265,7 +228,8 @@ class ArrayOptions:
   names during initialization.
 
   Example:
-    Configure array options with specific saving formats and loading behaviors::
+    To configure array options with specific saving formats and loading
+    behaviors we can do so like this::
 
       from orbax.checkpoint.v1.options import ArrayOptions
 
@@ -276,6 +240,30 @@ class ArrayOptions:
           ),
           loading=ArrayOptions.Loading(
               enable_padding_and_truncation=True
+      )
+
+    To save certain leaves in float16, while others in float32, we can use
+    `scoped_storage_options_creator` like so::
+
+      import jax
+      import jax.numpy as jnp
+      from orbax.checkpoint.v1 import options as ocp_options
+
+      def create_opts_fn(keypath, value):
+        if 'small' in jax.tree_util.keystr(keypath):
+          return ocp_options.ArrayOptions.Saving.StorageOptions(
+              dtype=jnp.float16
+          )
+        return None  # Fall back to global `storage_options`
+
+      array_options = ocp_options.ArrayOptions(
+          saving=ocp_options.ArrayOptions.Saving(
+              storage_options=ocp_options.ArrayOptions.Saving.StorageOptions(
+                  dtype=jnp.float32
+              ),
+              scoped_storage_options_creator=create_opts_fn
+          )
+
       )
 
   Attributes:
@@ -289,7 +277,7 @@ class ArrayOptions:
 
     Attributes:
       storage_options: Options used to customize array storage behavior for
-        individual leaves. See below.
+        all leaves at a global level. See below.
       use_ocdbt: Enables OCDBT format.
       use_zarr3: If True, use Zarr3 format.
       use_compression: If True, use ZSTD compression.
@@ -317,7 +305,22 @@ class ArrayOptions:
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
         ArrayMetadata persistence, set it to None.
+      scoped_storage_options_creator: A function that, when dealing with
+        PyTrees, is applied to every leaf. If it returns an
+        :py:class:`ArrayOptions.Saving.StorageOptions`, its fields take
+        precedence when merging if they are set to non-None or non-default
+        values with respect to `storage_options`. If it returns `None`,
+        `storage_options` is used as a default for all fields. It is called
+        similar to: `jax.tree.map_with_path(scoped_storage_options_creator,
+        pytree_to_save)`.
     """
+
+    class ScopedStorageOptionsCreator(Protocol):
+
+      def __call__(
+          self, key: tree_types.PyTreeKeyPath, value: Any
+      ) -> ArrayOptions.Saving.StorageOptions | None:
+        ...
 
     @dataclasses.dataclass(frozen=True, kw_only=True)
     class StorageOptions:
@@ -342,7 +345,7 @@ class ArrayOptions:
 
       dtype: np.typing.DTypeLike | None = None
       chunk_byte_size: int | None = None
-      shard_axes: tuple[int, ...] = tuple()
+      shard_axes: tuple[int, ...] | None = None
 
     storage_options: StorageOptions = dataclasses.field(
         default_factory=StorageOptions
@@ -361,6 +364,7 @@ class ArrayOptions:
     array_metadata_store: array_metadata_store_lib.Store | None = (
         array_metadata_store_lib.Store()
     )
+    scoped_storage_options_creator: ScopedStorageOptionsCreator | None = None
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
   class Loading:

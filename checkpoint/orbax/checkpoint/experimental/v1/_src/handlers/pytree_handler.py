@@ -29,6 +29,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint._src.serialization import types as v0_serialization_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
@@ -36,6 +37,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import types as handler_type
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
+from orbax.checkpoint.experimental.v1._src.serialization import options_resolution
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
@@ -69,32 +71,19 @@ def _get_remaining_timeout(
 
 def _get_v0_save_args(
     checkpointable: PyTree,
-    array_storage_options: options_lib.ArrayOptions.Saving.StorageOptions,
-    create_array_storage_options_fn: (
-        options_lib.PyTreeOptions.Saving.CreateArrayStorageOptionsFn | None
-    ),
+    array_saving_options: options_lib.ArrayOptions.Saving,
 ) -> PyTree:
   """Returns save args that are compatible with the V0 API."""
-
   def _leaf_get_v0_save_args(k, v):
-    if create_array_storage_options_fn:
-      individual_array_storage_options = create_array_storage_options_fn(k, v)
-      save_dtype = (
-          np.dtype(individual_array_storage_options.dtype)
-          if individual_array_storage_options.dtype
-          else None
-      )
-      return v0_serialization_types.SaveArgs(
-          dtype=save_dtype,
-          chunk_byte_size=individual_array_storage_options.chunk_byte_size,
-          shard_axes=individual_array_storage_options.shard_axes,
-      )
-    return v0_serialization_types.SaveArgs(
-        dtype=np.dtype(array_storage_options.dtype)
-        if array_storage_options.dtype
+    resolved_options = options_resolution.resolve_storage_options(
+        k, v, array_saving_options
+    )
+    return type_handlers_v0.SaveArgs(
+        dtype=np.dtype(resolved_options.dtype)
+        if resolved_options.dtype is not None
         else None,
-        chunk_byte_size=array_storage_options.chunk_byte_size,
-        shard_axes=array_storage_options.shard_axes,
+        chunk_byte_size=resolved_options.chunk_byte_size,
+        shard_axes=resolved_options.shard_axes,
     )
 
   return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
@@ -137,8 +126,7 @@ def create_v0_save_args(
       item=checkpointable,
       save_args=_get_v0_save_args(
           checkpointable,
-          context.array_options.saving.storage_options,
-          context.pytree_options.saving.create_array_storage_options_fn,
+          context.array_options.saving,
       ),
       ocdbt_target_data_file_size=context.array_options.saving.ocdbt_target_data_file_size,
   )

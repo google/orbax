@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add colocated runtime helpers for Pathways MTC.
+- #v1 Centralize `StorageOptions` into `ArrayOptions` and implement field-level
+merging.
 
 ## [0.11.36] - 2026-04-14
 

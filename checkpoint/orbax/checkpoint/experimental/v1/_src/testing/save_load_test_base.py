@@ -528,15 +528,15 @@ class SaveLoadTestBase:
           'numpy_array': np.arange(len(jax.devices()), dtype=load_dtype),
       }
 
-      create_array_storage_options_fn = (
+      scoped_storage_options_creator = (
           lambda k, v: ocp.options.ArrayOptions.Saving.StorageOptions(
               dtype=save_dtype
           )
       )
       with ocp.Context(
-          pytree_options=ocp.options.PyTreeOptions(
-              saving=ocp.options.PyTreeOptions.Saving(
-                  create_array_storage_options_fn=create_array_storage_options_fn
+          array_options=ocp.options.ArrayOptions(
+              saving=ocp.options.ArrayOptions.Saving(
+                  scoped_storage_options_creator=scoped_storage_options_creator
               )
           )
       ):
@@ -1167,7 +1167,7 @@ class SaveLoadTestBase:
             self.assertEqual(metadata[k].storage_metadata.chunk_shape, (2,))
 
       with self.subTest('per_key_setting'):
-        def create_array_storage_options_fn(key, value):
+        def scoped_storage_options_creator(key, value):
           del value
           if 'a' in tree_utils.str_keypath(key):
             return ocp.options.ArrayOptions.Saving.StorageOptions(
@@ -1177,9 +1177,9 @@ class SaveLoadTestBase:
               chunk_byte_size=8,  # force divide in 2 subchunks
           )
         with ocp.Context(
-            pytree_options=ocp.options.PyTreeOptions(
-                saving=ocp.options.PyTreeOptions.Saving(
-                    create_array_storage_options_fn=create_array_storage_options_fn
+            array_options=ocp.options.ArrayOptions(
+                saving=ocp.options.ArrayOptions.Saving(
+                    scoped_storage_options_creator=scoped_storage_options_creator
                 )
             ),
         ):

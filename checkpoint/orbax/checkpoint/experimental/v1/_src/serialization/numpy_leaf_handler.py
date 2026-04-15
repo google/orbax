@@ -30,6 +30,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.serialization import options_resolution
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
@@ -99,11 +100,9 @@ def _create_v0_savearg(
     context: context_lib.Context,
 ) -> type_handlers_v0.SaveArgs:
   """Creates a V0 `SaveArgs` from V1 params and context for saving."""
-  fn = context.pytree_options.saving.create_array_storage_options_fn
-  if fn:
-    storage_options = fn(param.keypath, param.value)
-  else:
-    storage_options = context.array_options.saving.storage_options
+  storage_options = options_resolution.resolve_storage_options(
+      param.keypath, param.value, context.array_options.saving
+  )
   return type_handlers_v0.SaveArgs(
       dtype=np.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
