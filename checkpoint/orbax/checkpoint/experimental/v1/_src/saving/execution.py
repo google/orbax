@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any, Awaitable, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 import uuid
 
 from absl import logging
@@ -225,6 +225,9 @@ class _SaveResponse(AsyncResponse[None]):
 
   def result(self, timeout: float | None = None) -> None:
     return self._thread_runner.result(timeout=timeout)
+
+  def on_complete(self, callback: Callable[[None], None]) -> None:
+    self._thread_runner.on_complete(callback)
 
 
 async def _run_blocking_save(

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from absl import logging
 from etils import epy
@@ -32,6 +32,7 @@ from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.saving import validation
+from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.training import errors
 from orbax.checkpoint.experimental.v1._src.training import preservation_policies
@@ -48,17 +49,23 @@ PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 
 
 class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
+  """Response for asynchronous saving."""
 
   def __init__(
       self, manager: checkpoint_manager.CheckpointManager, saved: bool
   ):
-    self._manager = manager
-    self._saved = saved
+
+    async def _wait() -> bool:
+      manager.wait_until_finished()
+      return saved
+
+    self._thread_runner = thread_utils.BackgroundThreadRunner[bool](_wait())
 
   def result(self, timeout: float | None = None) -> bool:
-    del timeout  # Ignored.
-    self._manager.wait_until_finished()
-    return self._saved
+    return self._thread_runner.result(timeout=timeout)
+
+  def on_complete(self, callback: Callable[[bool], None]) -> None:
+    self._thread_runner.on_complete(callback)
 
 
 def _resolve_integer_step(

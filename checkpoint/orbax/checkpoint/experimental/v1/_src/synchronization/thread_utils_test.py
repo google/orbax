@@ -58,6 +58,22 @@ class BackgroundThreadRunnerTest(parameterized.TestCase):
     with self.assertRaises(concurrent.futures.TimeoutError):
       runner.result(timeout=0.5)
 
+  def test_on_complete(self):
+    async def target() -> int:
+      await asyncio.sleep(0.5)
+      return 42
+
+    runner = thread_utils.BackgroundThreadRunner[int](target())
+    completed = []
+
+    def callback(result):
+      completed.append(result)
+
+    runner.on_complete(callback)
+    result = runner.result()
+    self.assertEqual(result, 42)
+    self.assertEqual(completed, [42])
+
 
 if __name__ == "__main__":
   absltest.main()

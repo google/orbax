@@ -14,7 +14,7 @@
 
 """Types for async and synchronization constructs."""
 
-from typing import Protocol, TypeVar
+from typing import Callable, Protocol, TypeVar
 
 T = TypeVar('T')
 
@@ -22,4 +22,7 @@ T = TypeVar('T')
 class AsyncResponse(Protocol[T]):
 
   def result(self, timeout: float | None = None) -> T:
+    ...
+
+  def on_complete(self, callback: Callable[[T], None]) -> None:
     ...

@@ -16,7 +16,7 @@
 
 import asyncio
 import threading
-from typing import Awaitable, Generic, TypeVar
+from typing import Awaitable, Callable, Generic, TypeVar
 
 T = TypeVar('T')
 
@@ -55,3 +55,11 @@ class BackgroundThreadRunner(Generic[T]):
       self._thread.join(timeout=timeout)
       self._thread = None
     return r
+
+  def on_complete(self, callback: Callable[[T], None]) -> None:
+    """Registers a callback to be called when the task is complete."""
+
+    def _callback(fut):
+      callback(fut.result())
+
+    self._future.add_done_callback(_callback)
