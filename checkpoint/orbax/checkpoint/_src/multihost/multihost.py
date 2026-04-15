@@ -36,6 +36,9 @@ _DISTRIBUTED_TO_DEVICE_IDS: List[List[int]] = None
 # Map from runtime process index to distributed process index.
 _RUNTIME_TO_DISTRIBUTED_ID: List[int] = None
 
+# Marks the colocated-Python runtime in Pathways single-controller mode.
+_PATHWAYS_COLOCATED_RUNTIME_ACTIVE = False
+
 EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_PROCESS_ID = flags.DEFINE_bool(
     'experimental_orbax_use_distributed_process_id',
     False,
@@ -69,6 +72,17 @@ def is_pathways_backend() -> bool:
 
 def is_pathways_controller() -> bool:
   return jax.local_devices()[0].client.runtime_type == 'pathways'
+
+
+def mark_pathways_colocated_runtime_active() -> None:
+  """Marks the current Python process as the Pathways colocated runtime."""
+  global _PATHWAYS_COLOCATED_RUNTIME_ACTIVE
+  _PATHWAYS_COLOCATED_RUNTIME_ACTIVE = True
+
+
+def is_pathways_colocated_runtime_active() -> bool:
+  """Returns whether this Python process is the Pathways colocated runtime."""
+  return _PATHWAYS_COLOCATED_RUNTIME_ACTIVE
 
 
 def is_runtime_to_distributed_ids_initialized() -> bool:
@@ -231,7 +245,7 @@ def get_barrier_sync_fn(
     block until either 1) all processes have reached the barrier or
     2) the timeout is exceeded.
   """
-  if jax.process_count() == 1:
+  if should_skip_process_sync(processes):
     return lambda **kwargs: None
 
   client = get_jax_distributed_client()

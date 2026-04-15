@@ -285,10 +285,12 @@ class TestGetSignalingClient(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
+    multihost._PATHWAYS_COLOCATED_RUNTIME_ACTIVE = False  # pylint: disable=protected-access
     signaling_client.get_signaling_client.cache_clear()
 
   def tearDown(self):
     super().tearDown()
+    multihost._PATHWAYS_COLOCATED_RUNTIME_ACTIVE = False  # pylint: disable=protected-access
     signaling_client.get_signaling_client.cache_clear()
 
   @mock.patch.object(multihost, "is_jax_distributed_client_initialized")
@@ -312,13 +314,19 @@ class TestGetSignalingClient(absltest.TestCase):
     client2 = signaling_client.get_signaling_client()
     self.assertIs(client, client2)
 
+  @mock.patch.object(multihost, "is_pathways_backend", return_value=False)
+  @mock.patch.object(multihost, "process_count", return_value=1)
   @mock.patch.object(multihost, "is_jax_distributed_client_initialized")
-  def test_returns_thread_safe_client_when_not_initialized(self, mock_is_init):
+  def test_returns_thread_safe_client_when_single_process_not_initialized(
+      self, mock_is_init, mock_process_count, mock_is_pathways_backend
+  ):
     mock_is_init.return_value = False
 
     client = signaling_client.get_signaling_client()
 
     mock_is_init.assert_called_once()
+    mock_is_pathways_backend.assert_called_once()
+    mock_process_count.assert_called_once()
     self.assertIsInstance(
         client, signaling_client.ThreadSafeKeyValueSignalingClient
     )
@@ -330,9 +338,85 @@ class TestGetSignalingClient(absltest.TestCase):
   @mock.patch.object(
       multihost, "is_jax_distributed_client_initialized", return_value=False
   )
+  @mock.patch.object(multihost, "is_pathways_backend", return_value=True)
+  @mock.patch.object(multihost, "process_count", return_value=2)
+  def test_returns_thread_safe_client_when_pathways_active(
+      self, mock_process_count, mock_is_pathways_backend, mock_is_init
+  ):
+    client = signaling_client.get_signaling_client()
+
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+    mock_is_init.assert_called_once()
+    mock_is_pathways_backend.assert_called_once()
+    mock_process_count.assert_not_called()
+
+  @mock.patch.object(
+      multihost, "is_jax_distributed_client_initialized", return_value=False
+  )
+  @mock.patch.object(multihost, "is_pathways_backend", return_value=False)
+  @mock.patch.object(multihost, "process_count", return_value=16)
+  def test_returns_thread_safe_client_when_explicit_colocated_runtime_active(
+      self,
+      mock_process_count,
+      mock_is_pathways_backend,
+      mock_is_init,
+  ):
+    multihost._PATHWAYS_COLOCATED_RUNTIME_ACTIVE = True  # pylint: disable=protected-access
+
+    client = signaling_client.get_signaling_client()
+
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+    mock_is_init.assert_called_once()
+    mock_is_pathways_backend.assert_called_once()
+    mock_process_count.assert_not_called()
+
+  @mock.patch.object(multihost, "is_jax_distributed_client_initialized")
+  @mock.patch.object(multihost, "process_count", return_value=2)
+  @mock.patch.object(multihost, "is_pathways_backend", return_value=False)
+  @mock.patch.object(multihost, "get_jax_distributed_client")
+  def test_mark_pathways_colocated_runtime_active_clears_cached_client(
+      self,
+      mock_get_jax_client,
+      mock_is_pathways_backend,
+      mock_process_count,
+      mock_is_init,
+  ):
+    del mock_is_pathways_backend, mock_process_count
+    mock_is_init.return_value = True
+    mock_get_jax_client.return_value = mock.Mock()
+
+    client = signaling_client.get_signaling_client()
+    self.assertIsInstance(
+        client, signaling_client.JaxDistributedSignalingClient
+    )
+
+    mock_is_init.return_value = False
+    signaling_client.mark_pathways_colocated_runtime_active()
+
+    client = signaling_client.get_signaling_client()
+    self.assertIsInstance(
+        client, signaling_client.ThreadSafeKeyValueSignalingClient
+    )
+    self.assertTrue(multihost.is_pathways_colocated_runtime_active())
+
+  @mock.patch.object(
+      multihost, "is_jax_distributed_client_initialized", return_value=False
+  )
+  @mock.patch.object(multihost, "is_pathways_backend", return_value=False)
+  @mock.patch.object(
+      multihost, "is_pathways_colocated_runtime_active", return_value=False
+  )
   @mock.patch.object(multihost, "process_count", return_value=2)
   def test_raises_error_when_multiprocess_and_not_initialized(
-      self, mock_is_init, mock_process_count
+      self,
+      mock_process_count,
+      mock_is_pathways_colocated_runtime_active,
+      mock_is_pathways_backend,
+      mock_is_init,
   ):
 
     with self.assertRaisesRegex(
@@ -342,6 +426,8 @@ class TestGetSignalingClient(absltest.TestCase):
     ):
       signaling_client.get_signaling_client()
     mock_is_init.assert_called_once()
+    mock_is_pathways_backend.assert_called_once()
+    mock_is_pathways_colocated_runtime_active.assert_called_once()
     mock_process_count.assert_called_once()
 
 

@@ -183,6 +183,42 @@ class MultihostUtilsTestBase:
         mock_sync_global_devices.assert_called_once()
         mock_get_barrier_sync_fn.assert_not_called()
 
+    def test_get_barrier_sync_fn_skips_client_when_process_sync_is_skippable(
+        self,
+    ):
+      with mock.patch.object(
+          multihost, 'should_skip_process_sync', return_value=True
+      ) as mock_should_skip, mock.patch.object(
+          multihost, 'get_jax_distributed_client', autospec=True
+      ) as mock_get_client:
+        sync_fn = multihost.get_barrier_sync_fn(processes={3})
+
+      mock_should_skip.assert_called_once_with({3})
+      mock_get_client.assert_not_called()
+      self.assertIsNone(sync_fn(key='unused', timeout_ms=1))
+
+    def test_get_barrier_sync_fn_uses_client_for_non_skipped_subset(self):
+      mock_client = mock.Mock()
+      with mock.patch.object(
+          multihost, 'should_skip_process_sync', return_value=False
+      ), mock.patch.object(
+          multihost, 'get_jax_distributed_client', return_value=mock_client
+      ), mock.patch.object(
+          multihost, 'process_index', return_value=1
+      ), mock.patch.object(
+          multihost.jax, 'process_count', return_value=4
+      ), mock.patch.object(
+          multihost,
+          '_unique_barrier_key',
+          side_effect=lambda key: f'unique-{key}',
+      ):
+        sync_fn = multihost.get_barrier_sync_fn(processes={1, 3})
+        sync_fn(key='barrier', timeout_ms=123)
+
+      mock_client.wait_at_barrier.assert_called_once_with(
+          'unique-barrier', 123, process_ids=[1, 3]
+      )
+
 
 class MultihostUtilsTestStandard(MultihostUtilsTestBase.Test):
 
