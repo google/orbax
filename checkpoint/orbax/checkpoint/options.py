@@ -35,6 +35,14 @@ class AsyncOptions:
   post_finalization_callback: Optional[Callable[[], None]] = None
   create_directories_asynchronously: bool = True
 
+  # Auto-concurrency options
+  auto_concurrency_host_limit_gib: Optional[float] = None
+  auto_concurrency_target_ratio: Optional[float] = None
+  auto_concurrency_kp: Optional[float] = None
+  auto_concurrency_ki: Optional[float] = None
+  auto_concurrency_kd: Optional[float] = None
+  auto_concurrency_kb: Optional[float] = None
+
 
 @dataclasses.dataclass
 class MultiprocessingOptions:
