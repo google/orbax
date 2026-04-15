@@ -66,6 +66,34 @@ class SingleHostTest(parameterized.TestCase):
     np.testing.assert_array_equal(x, restored_tree['x'])
     assert isinstance(restored_tree['x'], jax.Array)
 
+  @parameterized.named_parameters(
+      # using lambda to avoid jax creation during class initialization
+      ('array', lambda: jnp.array([1, 2, 3])),
+      ('random_key', lambda: jax.random.key(1)),
+      ('random_prng', lambda: jax.random.PRNGKey(2)),
+      ('int', lambda: 1),
+      ('float', lambda: 1.0),
+      ('np', lambda: np.array([1, 2, 3])),
+  )
+  def test_save_and_restore_single_item(self, value_fn):
+    value = value_fn()
+    handler = PyTreeCheckpointHandler(use_ocdbt=True, use_zarr3=True)
+    handler.save(
+        self.ckpt_dir,
+        args=pytree_checkpoint_handler.PyTreeSaveArgs(value),
+    )
+    restored_tree = handler.restore(self.ckpt_dir)
+    test_utils.assert_tree_equal(self, value, restored_tree)
+
+    # Special validation for jax.random.key type.
+    if isinstance(value, jax.Array) and jax.dtypes.issubdtype(
+        value.dtype, jax.dtypes.prng_key
+    ):
+      self.assertIsInstance(restored_tree, jax.Array)
+      self.assertTrue(
+          jax.dtypes.issubdtype(restored_tree.dtype, jax.dtypes.prng_key)
+      )
+
   def test_save_and_restore_zarrv3_jax_array_default_chunk_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
     key = jax.random.PRNGKey(0)
