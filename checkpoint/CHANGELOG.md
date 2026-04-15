@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add colocated runtime helpers for Pathways MTC.
 - #v1 Centralize `StorageOptions` into `ArrayOptions` and implement field-level
 merging.
+- Support single Jax.random.key item as a PyTree.
 
 ## [0.11.36] - 2026-04-14
 

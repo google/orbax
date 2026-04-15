@@ -648,7 +648,7 @@ class BasePyTreeCheckpointHandler(
     """
     start_time = time.time()
     item = args.item
-    if not item:
+    if item is None:
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
