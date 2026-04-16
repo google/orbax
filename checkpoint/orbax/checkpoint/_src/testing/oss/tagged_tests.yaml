@@ -22,7 +22,6 @@ processes:4:
 - orbax/checkpoint/_src/multihost:multihost_test
 - orbax/checkpoint/_src/testing/tree_verity:checkpoint_manager_test
 - orbax/checkpoint/experimental/emergency:local_checkpoint_data_debugging_test
-- orbax/checkpoint/experimental/emergency:local_checkpoint_manager_test
 - orbax/checkpoint/experimental/emergency:process_metadata_checkpoint_handler_test
 - orbax/checkpoint/experimental/emergency:single_slice_checkpoint_manager_test
 - orbax/checkpoint/testing:local_path_test

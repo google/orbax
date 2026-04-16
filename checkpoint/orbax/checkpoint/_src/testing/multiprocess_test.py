@@ -19,7 +19,7 @@ import os
 import jax
 from orbax.checkpoint._src.multihost import multihost
 
-from .learning.brain.research.jax.tests.multiprocess import multiprocess_test
+from orbax.checkpoint._src.testing.oss import multiprocess_test
 
 main = multiprocess_test.main
 

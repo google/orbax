@@ -73,6 +73,7 @@ jobs:
         --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py \
+        --ignore=orbax/checkpoint/_src/testing/oss/multiprocess_test.py \
         $(python3 -c "import yaml; d=yaml.safe_load(open('orbax/checkpoint/_src/testing/oss/tagged_tests.yaml')); print(' '.join(['--ignore=' + t.replace(':', '/') + '.py' for k,v in d.items() if k.startswith('processes') and v for t in v]))")
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
