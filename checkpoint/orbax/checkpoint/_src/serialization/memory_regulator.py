@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-from typing import Optional
+
+from absl import logging
+import humanize
 
 # CONSTANT
 _BYTES_TO_GIB = 1024.0**3
@@ -46,7 +48,7 @@ class MemoryProfiler(abc.ABC):
 
   @property
   def peak_usage_gib(self) -> float:
-    """Returns peak memory usage in GiB."""
+    """Peak memory usage in GiB."""
     return self.peak_usage_bytes / _BYTES_TO_GIB
 
   @abc.abstractmethod
@@ -59,11 +61,16 @@ class MemoryProfiler(abc.ABC):
     """Returns the expected memory surge for the next iteration in GiB."""
     raise NotImplementedError
 
+  @property
+  def total_memory_gib(self) -> float:
+    """Total system capacity in GiB, if available."""
+    raise NotImplementedError
 
-_profiler: Optional[MemoryProfiler] = None
+
+_profiler: MemoryProfiler | None = None
 
 
-def register_memory_profiler(profiler: Optional[MemoryProfiler]) -> None:
+def register_memory_profiler(profiler: MemoryProfiler | None) -> None:
   global _profiler
   _profiler = profiler
 
@@ -93,6 +100,12 @@ def get_prev_blocking_time_sec() -> float:
 def get_expected_surge_gib() -> float:
   if _profiler:
     return _profiler.get_expected_surge_gib()
+  return 0.0
+
+
+def get_total_memory_gib() -> float:
+  if _profiler:
+    return _profiler.total_memory_gib
   return 0.0
 
 
@@ -164,16 +177,18 @@ class MemoryRegulator:
 
   def get_next_memory_limit(
       self,
+      *,
       current_limit_gib: float,
       peak_memory_usage_gib: float,
       blocking_time_sec: float,  # pylint: disable=unused-argument
       expected_surge_gib: float = 0.0,
+      total_memory_gib: float,
   ) -> float:
     """Calculates the next memory limit using PID control and expected surge data.
 
     The PID controller adjusts the memory limit based on feedback from
     `peak_memory_usage_gib` to guide usage towards
-    `max_memory_limit_gib * target_ratio`.
+    `effective_host_limit * target_ratio`.
 
     If `expected_surge_gib` is positive, it signals an anticipated temporary
     increase in memory consumption. The regulator preemptively reduces the
@@ -191,11 +206,12 @@ class MemoryRegulator:
         for memory in the last interval. Currently unused.
       expected_surge_gib: The anticipated memory surge in GiB. If 0, no surge
         is expected.
-
+      total_memory_gib: The total system memory capacity in GiB.
     Returns:
       The calculated memory limit for the next interval in GiB.
     """
-    effective_host_limit = self.max_memory_limit_gib
+    effective_host_limit = total_memory_gib
+
     target_mem_gib = effective_host_limit * self.target_ratio
 
     error_gib = target_mem_gib - peak_memory_usage_gib
@@ -247,3 +263,29 @@ class MemoryRegulator:
     )
 
     return new_limit_gib
+
+  def update_limit_bytes(self, current_limit_bytes: int) -> int:
+    """Calculates the next memory limit in bytes, using profiler inputs."""
+    peak_usage_gib = profiler_peak_usage_gib()
+    blocking_time_sec = get_prev_blocking_time_sec()
+    expected_surge_gib = get_expected_surge_gib()
+
+    total_memory_gib = get_total_memory_gib()
+    current_limit_gib = current_limit_bytes / (1024**3)
+    next_limit_gib = self.get_next_memory_limit(
+        current_limit_gib=current_limit_gib,
+        peak_memory_usage_gib=peak_usage_gib,
+        blocking_time_sec=blocking_time_sec,
+        expected_surge_gib=expected_surge_gib,
+        total_memory_gib=total_memory_gib,
+    )
+    next_limit_bytes = int(next_limit_gib * 1024**3)
+    logging.info(
+        'MemoryRegulated: Updated device_host_concurrent_bytes to %s'
+        ' (peak=%f GiB, total=%f GiB)',
+        humanize.naturalsize(next_limit_bytes, binary=True),
+        peak_usage_gib,
+        total_memory_gib,
+    )
+    return next_limit_bytes
+

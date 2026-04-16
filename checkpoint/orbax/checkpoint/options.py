@@ -72,3 +72,17 @@ class FileOptions:
   """
 
   path_permission_mode: int | None = None
+
+
+@dataclasses.dataclass
+class MemoryLimitOptions:
+  """Options for configuring memory limits for save.
+
+  Can help to reduce the possibility of OOM's when large checkpoints are saved.
+
+  Attributes:
+    max_transfer_concurrent_gb: The max memory limit in GB allowed for.
+      Required if `save_device_host_concurrent_gb` is set to `"auto"`.
+  """
+
+  max_transfer_concurrent_gb: int | None = None

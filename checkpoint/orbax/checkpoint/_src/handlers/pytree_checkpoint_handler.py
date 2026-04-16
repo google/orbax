@@ -460,8 +460,10 @@ def _get_impl_save_args(
 
 
 def _concurrent_bytes(
-    concurrent_gb: int | None, *, use_default_if_none: bool = True
-) -> int | None:
+    concurrent_gb: int | str | None, *, use_default_if_none: bool = True
+) -> int | str | None:
+  if concurrent_gb == 'auto':
+    return 'auto'
   if concurrent_gb is None:
     if use_default_if_none:
       return DEFAULT_CONCURRENT_GB * 10**9
@@ -500,7 +502,8 @@ class PyTreeCheckpointHandler(
       *,
       save_concurrent_gb: Optional[int] = None,
       restore_concurrent_gb: Optional[int] = None,
-      save_device_host_concurrent_gb: Optional[int] = None,
+      save_device_host_concurrent_gb: int | str | None = None,
+      memory_limit_options: options_lib.MemoryLimitOptions | None = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       use_compression: bool = True,
@@ -544,6 +547,8 @@ class PyTreeCheckpointHandler(
         transferred from device to host. Note that asynchronous saves may not be
         truly asynchronous with this option enabled, as we have to block on some
         array writes before beginning others. Also see `is_prioritized_key_fn`.
+        Can be set to "auto" to enable Memory Regulator.
+      memory_limit_options: Memory limit options for the checkpoint handler.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
@@ -597,6 +602,7 @@ class PyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,
         restore_concurrent_bytes=self._restore_concurrent_bytes,
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
+        memory_limit_options=memory_limit_options,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         use_compression=use_compression,
