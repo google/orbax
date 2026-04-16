@@ -1,0 +1,173 @@
+edition = "2023";
+
+package orbax.checkpoint.tiering;
+
+option java_outer_classname = "TieringServiceOuterClass";
+option java_multiple_files = true;
+import "google/protobuf/timestamp.proto";
+
+
+
+enum AssetState {
+  ASSET_STATE_UNSPECIFIED = 0;
+  ASSET_STATE_ACTIVE_WRITE = 1;
+  ASSET_STATE_STORED = 2;
+  ASSET_STATE_DELETED = 3;
+  ASSET_STATE_INCOMPLETE = 4;
+}
+
+enum BackendType {
+  BACKEND_TYPE_UNSPECIFIED = 0;
+  BACKEND_TYPE_LUSTRE = 1;
+  BACKEND_TYPE_GCS = 2;
+}
+
+message MultipleRegions {
+  repeated string regions = 1;
+}
+
+message TierPath {
+  // To describe the locations for an asset
+  int32 level = 1;
+  oneof location {
+    string zone = 2;
+    string region = 3;
+    MultipleRegions multi_region = 4;  // e.g. GCS could be multi-regional.
+  }
+  BackendType backend_type = 5;
+  string path = 6;
+
+  // If specified, the asset is ready to read. The asset can be in a pending
+  // state and not ready to read yet, in which case ready_at will not be set.
+  google.protobuf.Timestamp ready_at = 7;
+
+  // If specified, the checkpoint could be removed from this location after it
+  // expires. This indicates users shouldn't read after expiration and should
+  // call prefetch again. When this field is absent, indicating it won't expire
+  // (e.g., in GCS, the asset path won't expire).
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+message Asset {
+  string uuid = 1;
+  string unique_path = 2;
+  string user = 3;
+  repeated string tags = 4;
+  AssetState state = 5;
+  repeated TierPath tier_paths = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp finalized_at = 8;
+  google.protobuf.Timestamp deleted_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message ReserveRequest {
+  string unique_path = 1;
+  repeated string tags = 2;
+  string user = 3;
+  oneof location {
+    string zone = 4;
+    string region = 5;
+  }
+}
+
+message ReserveResponse {
+  Asset asset = 1;
+  int64 keep_alive_interval_seconds = 2;
+}
+
+message ReserveKeepAliveRequest {
+  string uuid = 1;
+}
+
+message ReserveKeepAliveResponse {
+  Asset asset = 1;
+  int64 keep_alive_interval_seconds = 2;
+}
+
+message FinalizeRequest {
+  string uuid = 1;
+}
+
+message FinalizeResponse {
+  Asset asset = 1;
+}
+
+message PrefetchRequest {
+  oneof identifier {
+    string uuid = 1;
+    string unique_path = 2;
+  }
+  oneof location {
+    string zone = 3;
+    string region = 4;
+  }
+}
+
+message PrefetchResponse {
+  Asset asset = 1;
+  int64 keep_alive_interval_seconds = 2;
+}
+
+message PrefetchKeepAliveRequest {
+  string uuid = 1;
+}
+
+message PrefetchKeepAliveResponse {
+  Asset asset = 1;
+  int64 keep_alive_interval_seconds = 2;
+}
+
+message DeleteRequest {
+  oneof identifier {
+    string uuid = 1;
+    string unique_path = 2;
+  }
+}
+
+message DeleteResponse {}
+
+message InfoRequest {
+  oneof identifier {
+    string uuid = 1;
+    string unique_path = 2;
+  }
+}
+
+message InfoResponse {
+  Asset asset = 1;
+}
+
+service TieringService {
+  // Looks up if there are existing assets associated with the specified inputs.
+  // If it's new, CTS creates a new asset record. CTS then returns the UUID to
+  // the requester, along with the current asset state, and the corresponding
+  // Lustre and GCS paths, if they exist.
+  rpc Reserve(ReserveRequest) returns (ReserveResponse);
+
+  // To guard against a client crashing and never sending Finalize to an asset,
+  // the keep_alive_interval is returned in the ReserveResponse and
+  // ReserveKeepAliveResponse. The interval indicates that clients must send
+  // ReserveKeepAlive to extend the writing timeout or finalize before it
+  // expires.
+  rpc ReserveKeepAlive(ReserveKeepAliveRequest) returns (ReserveKeepAliveResponse);
+
+  // Indicates a checkpoint is saved and completed. Assets will enter into the
+  // "STORED" state from "ACTIVE_WRITE". Successive "finalize" requests will be
+  // rejected.
+  rpc Finalize(FinalizeRequest) returns (FinalizeResponse);
+
+  // Signals to CTS to copy an asset to the closest Tier 0 storage instance.
+  // This function can be called multiple times on a given asset (idempotent).
+  rpc Prefetch(PrefetchRequest) returns (PrefetchResponse);
+
+  // Signals to CTS to extend the timeout of a promoted asset. This call also
+  // returns the state and LustrePath when it's available.
+  rpc PrefetchKeepAlive(PrefetchKeepAliveRequest) returns (PrefetchKeepAliveResponse);
+
+  // Removes an asset from all tiers.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Provides all metadata information and states for a given asset.
+  rpc Info(InfoRequest) returns (InfoResponse);
+}
