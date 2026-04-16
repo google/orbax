@@ -101,7 +101,6 @@ class CheckpointManagerOptionsTest(parameterized.TestCase):
     self.assertEmpty(options.save_on_steps)
     self.assertIsNone(options.todelete_subdir)
     self.assertIsNone(options.should_save_fn)
-    self.assertIsNone(options.should_keep_fn)
 
   def test_replace_for_read_only(self):
     options = ocp.CheckpointManagerOptions(
@@ -110,14 +109,6 @@ class CheckpointManagerOptionsTest(parameterized.TestCase):
     self.assertEmpty(options.save_on_steps)
     updated_options = dataclasses.replace(options, step_prefix='prefix')
     self.assertEmpty(updated_options.save_on_steps)
-
-  def test_replace_for_should_keep_fn(self):
-    options = ocp.CheckpointManagerOptions(
-        keep_period=1,
-        should_keep_fn=lambda step: True,
-    )
-    self.assertIsNone(options.keep_period)
-    self.assertIsNotNone(options.should_keep_fn)
 
   @parameterized.named_parameters(
       dict(
