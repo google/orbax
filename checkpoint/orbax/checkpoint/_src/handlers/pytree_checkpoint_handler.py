@@ -460,8 +460,10 @@ def _get_impl_save_args(
 
 
 def _concurrent_bytes(
-    concurrent_gb: int | None, *, use_default_if_none: bool = True
-) -> int | None:
+    concurrent_gb: int | str | None, *, use_default_if_none: bool = True
+) -> int | str | None:
+  if concurrent_gb == 'auto':
+    return 'auto'
   if concurrent_gb is None:
     if use_default_if_none:
       return DEFAULT_CONCURRENT_GB * 10**9
@@ -500,7 +502,8 @@ class PyTreeCheckpointHandler(
       *,
       save_concurrent_gb: Optional[int] = None,
       restore_concurrent_gb: Optional[int] = None,
-      save_device_host_concurrent_gb: Optional[int] = None,
+      save_device_host_concurrent_gb: int | str | None = None,
+      max_save_device_host_concurrent_gb: Optional[float] = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
       use_compression: bool = True,
@@ -544,6 +547,10 @@ class PyTreeCheckpointHandler(
         transferred from device to host. Note that asynchronous saves may not be
         truly asynchronous with this option enabled, as we have to block on some
         array writes before beginning others. Also see `is_prioritized_key_fn`.
+        Can be set to "auto" to enable Memory Regulator.
+      max_save_device_host_concurrent_gb: The maximum memory limit in GB allowed
+        for regulation. Required if `save_device_host_concurrent_gb` is set to
+        "auto".
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
@@ -582,12 +589,24 @@ class PyTreeCheckpointHandler(
     self._aggregate_filename = aggregate_filename
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
-    self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
     self._save_concurrent_bytes = _concurrent_bytes(save_concurrent_gb)
     self._restore_concurrent_bytes = _concurrent_bytes(restore_concurrent_gb)
+    if (
+        save_device_host_concurrent_gb == 'auto'
+        and max_save_device_host_concurrent_gb is None
+    ):
+      raise ValueError(
+          'max_save_device_host_concurrent_gb must be provided if'
+          ' save_device_host_concurrent_gb is "auto"'
+      )
     self._save_device_host_concurrent_bytes = _concurrent_bytes(
         save_device_host_concurrent_gb, use_default_if_none=False
+    )
+    max_save_device_host_concurrent_bytes = (
+        None
+        if max_save_device_host_concurrent_gb is None
+        else int(max_save_device_host_concurrent_gb * 10**9)
     )
     logging.info(
         'save_device_host_concurrent_bytes=%s',
@@ -597,6 +616,7 @@ class PyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,
         restore_concurrent_bytes=self._restore_concurrent_bytes,
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
+        max_save_device_host_concurrent_bytes=max_save_device_host_concurrent_bytes,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         use_compression=use_compression,
