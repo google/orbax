@@ -27,6 +27,7 @@ if no args are provided.
 - Double the default timeout from 600 to 1200 (20 minutes) in `AsyncOptions`;
 `timeout_secs` now becomes a mandatory parameter with default value of 1200
 (20 minutes) in `AsyncCheckpointer`.
+- Reduced default OCDBT target file size from 2GiB to 400MiB for GCS paths.
 
 ### Fixed
 
