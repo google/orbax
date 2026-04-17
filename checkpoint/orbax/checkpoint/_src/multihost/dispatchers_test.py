@@ -71,6 +71,20 @@ class DispatchersTest(parameterized.TestCase):
     self.assertTrue(dummy.sharding.is_fully_replicated)
     self.assertCountEqual(list(dummy.sharding.device_set), arr.devices())
 
+  def test_get_dummy_input_array_from_result_specs_no_mesh(self):
+    devices = jax.devices()
+    sharding = jax.sharding.SingleDeviceSharding(devices[0])
+    result_specs = jax.ShapeDtypeStruct((), jnp.float32, sharding=sharding)
+
+    with self.assertLogs(level='WARNING') as cm:
+      dummy = dispatchers._get_dummy_input_array_from_result_specs(result_specs)
+
+    self.assertEqual(dummy.shape, ())
+    self.assertEqual(dummy.dtype, jnp.bool)
+    self.assertTrue(dummy.sharding.is_fully_replicated)
+    self.assertCountEqual(list(dummy.devices()), [devices[0]])
+    self.assertIn('No mesh found in result_specs', cm.output[0])
+
 
 class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
