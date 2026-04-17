@@ -15,12 +15,142 @@
 """Unit tests for P2PNode service."""
 
 import functools
+import os
 import threading
 from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
 from orbax.checkpoint.experimental.emergency.p2p import service
+
+
+class SafePathJoinTest(absltest.TestCase):
+  """Tests for the ``_safe_path_join`` path-containment helper."""
+
+  def setUp(self):
+    super().setUp()
+    self.base = epath.Path(self.create_tempdir().full_path)
+
+  def test_valid_relative_path(self):
+    result = service._safe_path_join(self.base, '1/file1')
+    self.assertIsNotNone(result)
+    self.assertEqual(str(result), str(self.base / '1/file1'))
+
+  def test_valid_nested_path(self):
+    result = service._safe_path_join(self.base, '1/subdir/file2')
+    self.assertIsNotNone(result)
+
+  def test_empty_rel_path_rejected(self):
+    self.assertIsNone(service._safe_path_join(self.base, ''))
+
+  def test_absolute_posix_path_rejected(self):
+    self.assertIsNone(service._safe_path_join(self.base, '/etc/passwd'))
+
+  def test_parent_traversal_rejected(self):
+    self.assertIsNone(service._safe_path_join(self.base, '../secret'))
+
+  def test_deep_parent_traversal_rejected(self):
+    self.assertIsNone(
+        service._safe_path_join(self.base, 'a/b/../../../etc/passwd')
+    )
+
+  def test_traversal_to_siblings_rejected(self):
+    # Reference the base directory's sibling by name; must still be rejected.
+    sibling = os.path.basename(os.path.dirname(str(self.base))) + '_evil'
+    self.assertIsNone(service._safe_path_join(self.base, f'../{sibling}/x'))
+
+  def test_symlink_escape_rejected(self):
+    # A symlink inside ``base`` that points outside ``base`` must not be
+    # writable through ``_safe_path_join``.
+    outside = epath.Path(self.create_tempdir().full_path)
+    link_dir = self.base / 'link'
+    try:
+      os.symlink(str(outside), str(link_dir))
+    except (OSError, NotImplementedError):
+      self.skipTest('Symlinks not supported on this platform')
+    self.assertIsNone(service._safe_path_join(self.base, 'link/pwn'))
+
+
+class PathTraversalRegressionTest(absltest.TestCase):
+  """Regression tests for CVE-class path-traversal in the P2P service."""
+
+  def setUp(self):
+    super().setUp()
+    self.temp_dir = epath.Path(self.create_tempdir().full_path)
+    self.enter_context(
+        mock.patch.object(service, '_ThreadingTCPServer', autospec=True)
+    )
+    server = service._ThreadingTCPServer.return_value
+    server.server_address = ('localhost', 12345)
+    self.enter_context(
+        mock.patch.object(service.multihost, 'process_index', return_value=0)
+    )
+    self.enter_context(
+        mock.patch.object(
+            service.socket,
+            'getaddrinfo',
+            return_value=[(service.socket.AF_INET, 0, 0, '', ('127.0.0.1', 0))],
+        )
+    )
+    self.node = service.P2PNode(directory=self.temp_dir)
+
+  @mock.patch.object(service.protocol.TCPMessage, 'send_file', autospec=True)
+  def test_handle_download_blocks_traversal(self, mock_send_file):
+    """Server must reject ``..`` components regardless of form."""
+    sock = mock.Mock()
+    for bad in [
+        '../unsafe',
+        'a/b/../../../etc/passwd',
+        '/etc/passwd',
+        '',
+    ]:
+      mock_send_file.reset_mock()
+      self.node.handle_download(sock, {'rel_path': bad})
+      mock_send_file.assert_called_once_with(sock, epath.Path('__INVALID__'))
+
+  @mock.patch.object(service.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(service.shutil, 'move', autospec=True)
+  @mock.patch.object(service.time, 'time', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'request', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'download', autospec=True)
+  def test_fetch_shard_from_peer_rejects_malicious_manifest(
+      self,
+      mock_download,
+      mock_request,
+      unused_mock_time,
+      unused_mock_move,
+      unused_mock_rmtree,
+  ):
+    """Client must refuse to download peer-supplied traversal paths.
+
+    A malicious peer returns a manifest whose ``rel_path`` tries to escape the
+    staging directory (e.g., writing a ``.pth`` file into site-packages).
+    ``fetch_shard_from_peer`` must abort before any ``download`` call.
+    """
+    mock_request.return_value = [
+        {'rel_path': '../../evil.pth', 'size': 10},
+    ]
+    self.assertFalse(self.node.fetch_shard_from_peer('peer', 123, 1, 10))
+    mock_download.assert_not_called()
+
+  @mock.patch.object(service.shutil, 'rmtree', autospec=True)
+  @mock.patch.object(service.shutil, 'move', autospec=True)
+  @mock.patch.object(service.time, 'time', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'request', autospec=True)
+  @mock.patch.object(service.protocol.TCPClient, 'download', autospec=True)
+  def test_fetch_shard_from_peer_rejects_absolute_path(
+      self,
+      mock_download,
+      mock_request,
+      unused_mock_time,
+      unused_mock_move,
+      unused_mock_rmtree,
+  ):
+    mock_request.return_value = [
+        {'rel_path': '/etc/passwd', 'size': 10},
+    ]
+    self.assertFalse(self.node.fetch_shard_from_peer('peer', 123, 1, 10))
+    mock_download.assert_not_called()
 
 
 class NodeHandlerTest(absltest.TestCase):
