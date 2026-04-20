@@ -14,10 +14,20 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
+import dataclasses
+import time
+from typing import Awaitable
+
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.handlers import global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
+from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import stateful_checkpointable_handler
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.partial import path as partial_path_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -28,6 +38,55 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+
+StatefulCheckpointableHandler = (
+    stateful_checkpointable_handler.StatefulCheckpointableHandler
+)
+
+
+@dataclasses.dataclass
+class _PartialSavePyTree(handler_types.StatefulCheckpointable):
+  """Wraps a PyTree to signal that it should be saved in partial mode."""
+
+  pytree: tree_types.PyTree
+
+  def __post_init__(self):
+    self.handler = pytree_handler.PyTreeHandler()
+
+  async def save(
+      self, directory: path_types.PathAwaitingCreation
+  ) -> Awaitable[None]:
+    start_time = time.time()
+
+    operation_id = (
+        synchronization.OperationIdGenerator.get_current_operation_id()
+    )
+    operation_id = f'{operation_id}.{directory.path.name}'
+
+    # pylint: disable=protected-access
+    self.handler._validate_leaves_handleable(self.pytree)
+
+    v0_save_args = pytree_handler.create_v0_save_args(
+        self.handler._context, self.pytree
+    )
+    v0_save_args = dataclasses.replace(v0_save_args, partial_save_mode=True)
+
+    commit_futures = await self.handler._handler_impl.async_save(
+        directory.path,
+        args=v0_save_args,
+    )
+    assert commit_futures
+
+    return self.handler._background_save(
+        directory,
+        commit_futures=commit_futures,
+        operation_id=operation_id,
+        start_time=start_time,
+    )
+    # pylint: enable=protected-access
+
+  async def load(self, directory: path_types.Path) -> Awaitable[None]:
+    raise NotImplementedError('Partial load is not supported via this wrapper.')
 
 
 def save_pytree(
@@ -190,14 +249,35 @@ def save_pytree_async(
   if path.exists():
     raise FileExistsError(f'Finalized checkpoint already exists at {path}.')
 
-  return execution.save_checkpointables_impl(
-      partial_path_lib.add_partial_save_suffix(path),
-      {PYTREE_CHECKPOINTABLE_KEY: pytree},
-      overwrite=False,
-      custom_metadata=custom_metadata,
-      async_origin=True,
-      partial_save=True,
+  # By default, the registry associates 'pytree' (PYTREE_CHECKPOINTABLE_KEY)
+  # with PyTreeHandler. We want to use StatefulCheckpointableHandler for our
+  # wrapper (_PartialSavePyTree) to carry the partial save flag. Since
+  # name-based resolution takes priority, we override 'pytree' in a local
+  # registry.
+  current_reg = ctx.checkpointables_options.registry
+  local_reg = registration.local_registry(include_global_registry=False)
+  for handler, name in current_reg.get_all_entries():
+    if name != PYTREE_CHECKPOINTABLE_KEY:
+      local_reg.add(
+          handler,
+          checkpointable_name=name,
+          secondary_typestrs=current_reg.get_secondary_typestrs(handler),
+      )
+  local_reg.add(
+      StatefulCheckpointableHandler,
+      checkpointable_name=PYTREE_CHECKPOINTABLE_KEY,
   )
+
+  new_options = options_lib.CheckpointablesOptions(registry=local_reg)
+  with context_lib.Context(ctx, checkpointables_options=new_options):
+    return execution.save_checkpointables_impl(
+        partial_path_lib.add_partial_save_suffix(path),
+        {PYTREE_CHECKPOINTABLE_KEY: _PartialSavePyTree(pytree)},
+        overwrite=False,
+        custom_metadata=custom_metadata,
+        async_origin=True,
+        partial_save=True,
+    )
 
 
 def finalize(path: path_types.PathLike) -> None:

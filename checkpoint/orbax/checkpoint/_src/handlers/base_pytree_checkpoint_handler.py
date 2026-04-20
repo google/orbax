@@ -733,23 +733,12 @@ class BasePyTreeCheckpointHandler(
         self._type_handler_registry,
     )
 
-    # Determine if this is a partial save by checking for the '.partial_save'
-    # suffix in the checkpoint directory name and if the metadata file exists.
-    # Cannot rely solely on the metadata file existing pre-empted saves may be
-    # misclassified as partial saves.
-    # TODO(b/484298759): Remove the path-based check once all callers use
-    # partial_save_mode.
-    is_partial_save_path = (
-        isinstance(directory, epath.Path)
-        and '.partial_save' in directory.parent.name
-    )
-    is_partial_save = is_partial_save_path
-    partial_save = is_partial_save and await async_path.exists(
+    is_partial_save = args.partial_save_mode and await async_path.exists(
         directory / PYTREE_METADATA_FILE
     )
     batch_requests_ready_time = time.time()
     with _memory_profiler_context():
-      if partial_save:
+      if is_partial_save:
         serialize_ops, tree_memory_size, param_infos, save_args = (
             await self._async_partial_save(
                 directory, item, batch_requests, param_infos, save_args
@@ -795,7 +784,7 @@ class BasePyTreeCheckpointHandler(
                   custom_metadata=custom_metadata,
                   use_ocdbt=self._use_ocdbt,
                   use_zarr3=self._use_zarr3,
-                  partial_save=partial_save,
+                  partial_save=is_partial_save,
               ),
               name='write_metadata_after_commits',
           )
@@ -1512,6 +1501,7 @@ class BasePyTreeSaveArgs(CheckpointArgs):
   save_args: Optional[PyTree] = None
   ocdbt_target_data_file_size: Optional[int] = None
   custom_metadata: tree_types.JsonType | None = None
+  partial_save_mode: bool = False
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_restore=True)
