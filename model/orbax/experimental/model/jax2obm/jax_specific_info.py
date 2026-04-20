@@ -23,6 +23,7 @@ import jax
 # Somehow JAX requires this import to make `jax.export` available.
 from jax import export  # pylint: disable=unused-import
 from jax.experimental import layout as jax_layout
+import jax.extend as jex
 import jax.numpy as jnp
 import numpy as np
 from orbax.experimental.model import core as obm
@@ -37,6 +38,13 @@ from tensorflow.compiler.xla import xla_data_pb2
 
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
+
+try:
+  # JAX v0.10.0 or newer
+  Effect = jex.core.Effect
+except AttributeError:
+  # JAX v0.9.2 or older
+  Effect = jax.core.Effect
 
 
 def unzip2(
@@ -120,7 +128,7 @@ def _name_leaf(
   return leaf
 
 
-def _serialize_effect(eff: jax.core.Effect) -> str:
+def _serialize_effect(eff: Effect) -> str:
   """Serializes a JAX Effect to a string.
 
   Args:
@@ -240,8 +248,8 @@ class JaxSpecificInfo(obm.ShloFunctionSupplementalInfo):
   output_spec_refinements: Sequence[ShapeDTypeRefinementPair] | None
   nr_devices: int
 
-  ordered_effects: Sequence[jax.core.Effect]
-  unordered_effects: Sequence[jax.core.Effect]
+  ordered_effects: Sequence[Effect]
+  unordered_effects: Sequence[Effect]
   disabled_safety_checks: Sequence[jax.export.DisabledSafetyCheck]
 
   uses_shape_polymorphism: bool
