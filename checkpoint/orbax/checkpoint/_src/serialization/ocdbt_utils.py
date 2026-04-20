@@ -71,9 +71,8 @@ async def _validate_params(
   without_zarray = set()
   for ts_param in raw_ts_params:
     ts_param = ts_param.decode('utf-8')
-    if logging.vlog_is_on(1):
-      logging.vlog(
-          1,
+    if True:  # pylint: disable=using-constant-test
+      logging.info(
           '[process=%s][thread=%s] Validating raw param: %s',
           process_index,
           current_thread_name,
@@ -85,9 +84,8 @@ async def _validate_params(
       # a/.zarray -> a
       ts_param = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
       with_zarray.add(ts_param)
-      if logging.vlog_is_on(1):
-        logging.vlog(
-            1,
+      if True:  # pylint: disable=using-constant-test
+        logging.info(
             '[process=%s][thread=%s] Collecting param with .zarray: %s',
             process_index,
             current_thread_name,
@@ -96,9 +94,8 @@ async def _validate_params(
     else:
       # b -> b
       without_zarray.add(ts_param)
-      if logging.vlog_is_on(1):
-        logging.vlog(
-            1,
+      if True:  # pylint: disable=using-constant-test
+        logging.info(
             '[process=%s][thread=%s] Collecting param without .zarray: %s',
             process_index,
             current_thread_name,
@@ -106,8 +103,7 @@ async def _validate_params(
         )
 
   unique = with_zarray | without_zarray
-  logging.vlog(
-      1,
+  logging.info(
       '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
       process_index,
       current_thread_name,
@@ -162,7 +158,7 @@ async def merge_ocdbt_per_process_files(
         directory.as_posix(),
         process_dir.name,
     )
-    logging.vlog(1, 'child_kvstore_tspec: %s', child_kvstore_tspec)
+    logging.info('child_kvstore_tspec: %s', child_kvstore_tspec)
     open_ops.append(ts_utils.open_kv_store(child_kvstore_tspec, ts_context))
   if not open_ops:  # No per-process OCDBT checkpoint found!
     logging.warning(

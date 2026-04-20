@@ -1,0 +1,40 @@
+# The name for the entire test suite run.
+suite_name: "Llama 3.1 70B v5p-64"
+num_repeats: 1
+
+mesh_configs:
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 4, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 8, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 16, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 32, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 64, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 128, "tensor": 1}
+  - mesh_axes: ["data", "fsdp", "tensor"]
+    ici_parallelism: {"data": 1, "fsdp": 256, "tensor": 1}
+
+# The checkpoint configuration, shared across all generated benchmarks.
+checkpoint_configs:
+  # - path: "gs://orbax-benchmarks/checkpoints/llama-3.1-70B-checkpoints/0/items"
+    # sharding_config_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-70b-v5p-64-data-1-fsdp-32-tensor-1/abstract_state.json"
+  - spec:
+  #     # a_1d: {dtype: "float32", shape: [32], sharding: [null]}
+  #     # b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
+      array_1gb: {dtype: "float32", shape: [8192, 1024, 32], sharding: ["tensor", fsdp]} # 1gb
+  #     # custom_array: {dtype: "float32", shape: [8192, 1024, 1024], sharding: ["fsdp", tensor]} # 32gb
+   
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.pytree_checkpoint_benchmark.PyTreeCheckpointBenchmark"
+  # - generator: "orbax.checkpoint._src.testing.benchmarks.v1.benchmark.Benchmark"
+    options:
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_colocated_python: true

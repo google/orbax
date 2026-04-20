@@ -233,8 +233,7 @@ def _globalize_single_replica_arrays(
       f' sharding.spec {sharding.spec}'
   )
   global_shape = (num_replicas,) + local_replica_shape
-  logging.vlog(
-      1,
+  logging.info(
       'Globalizing array with local shape %s to Global shape: %s',
       local_replica_shape,
       global_shape,
@@ -264,8 +263,7 @@ def _globalize_single_replica_arrays(
       zero_data = jnp.zeros(slice_shape, dtype=inp.dtype, device=d)
       device_buffers.append(zero_data)
 
-  logging.vlog(
-      1,
+  logging.info(
       'Device buffers: %r',
       {d.device: d for d in device_buffers},
   )
