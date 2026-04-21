@@ -118,7 +118,10 @@ class ReplicaSlicesTest(parameterized.TestCase):
         self.assertEqual(rslice.slice_args.axis, expected_axis)
 
   @parameterized.product(
-      shape=[2 * 768, 2 * 1024,],
+      shape=[
+          2 * 768,
+          2 * 1024,
+      ],
       partitioned=[False, True],
   )
   def test_get_replica_slices_pinned_host_passes(self, shape, partitioned):
@@ -437,6 +440,111 @@ class ReplicaSlicesTest(parameterized.TestCase):
         4 * 2 * np.dtype(np.int16).itemsize
     )
     self.assertEqual(rslices.nbytes, expected_nbytes)
+
+
+class FilterArraysToReplicaTest(parameterized.TestCase):
+
+  @parameterized.product(partitioned=[False, True])
+  def test_replicated_array_is_filtered(self, partitioned):
+    """A replicated array should have fewer shards after filtering."""
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test')
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=partitioned,
+    )
+
+    if num_replicas <= 1:
+      self.skipTest('Test requires multiple replicas.')
+
+    filtered_arrays, rslices_list = replica_slices.filter_arrays_to_replica(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=False,
+    )
+    self.assertLen(filtered_arrays, 1)
+    self.assertLen(rslices_list, 1)
+
+    filtered = filtered_arrays[0]
+    rslices = rslices_list[0]
+
+    self.assertLess(
+        len(filtered.addressable_shards), len(arr.addressable_shards)
+    )
+    self.assertLen(rslices.replica_slices, num_partitions)
+
+  def test_non_replicated_array_passes_through(self):
+    """A fully-sharded array should be returned unchanged."""
+    num_devices = len(jax.devices())
+    mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+    spec = jax.sharding.PartitionSpec('x')
+    sharding = jax.sharding.NamedSharding(mesh, spec)
+    arr = jax.device_put(
+        jax.random.normal(jax.random.PRNGKey(0), (num_devices * 8,)),
+        sharding,
+    )
+
+    filtered_arrays, _ = replica_slices.filter_arrays_to_replica(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=False,
+    )
+    self.assertLen(filtered_arrays, 1)
+    self.assertIs(filtered_arrays[0], arr)
+
+  def test_replica_parallel_sub_slicing(self):
+    """With replica-parallel, filtered array should contain sub-sliced data."""
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test')
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+    if num_replicas <= 1:
+      self.skipTest('Test requires multiple replicas.')
+
+    filtered_arrays, rslices_list = replica_slices.filter_arrays_to_replica(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=True,
+    )
+    self.assertLen(filtered_arrays, 1)
+
+    filtered = filtered_arrays[0]
+    rslices = rslices_list[0]
+
+    # In a single-process test environment, all replica shards are local, so the
+    # filtered size matches the original. In a multi-process environment, only
+    # the process-local subset is retained, making it smaller.
+    if jax.process_count() > 1:
+      self.assertLess(filtered.size, arr.size)
+    else:
+      self.assertEqual(filtered.size, arr.size)
+    self.assertTrue(
+        any(rs.slice_args is not None for rs in rslices.replica_slices)
+    )
+
+  def test_metadata_preserved(self):
+    """ReplicaSlices metadata should have correct global_shape and sharding."""
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test')
+    arr, _, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=False,
+    )
+    if num_replicas <= 1:
+      self.skipTest('Test requires multiple replicas.')
+
+    _, rslices_list = replica_slices.filter_arrays_to_replica(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=False,
+    )
+    rslices = rslices_list[0]
+    self.assertEqual(rslices.global_shape, arr.shape)
+    self.assertEqual(rslices.sharding, arr.sharding)
+    self.assertEqual(rslices.dtype, arr.dtype)
+
 
 if __name__ == '__main__':
   absltest.main()
