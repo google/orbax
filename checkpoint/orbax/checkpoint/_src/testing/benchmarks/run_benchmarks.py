@@ -29,7 +29,9 @@ from absl import flags
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
+import pathwaysutils
 
 
 # Core Flags
@@ -195,7 +197,15 @@ def main(argv: List[str]) -> None:
 
   logging.info('run_benchmarks.py started.')
 
-  _init_jax_distributed()
+  pathwaysutils.initialize()
+
+  if multihost.is_pathways_backend():
+    logging.info('Detected Pathways backend.')
+  else:
+    logging.info(
+        'Detected non-Pathways backend. Initialize JAX distributed system.'
+    )
+    _init_jax_distributed()
 
   if _ENABLE_HLO_DUMP.value:
     _configure_hlo_dump(_OUTPUT_DIRECTORY.value)

@@ -680,11 +680,10 @@ def construct_workload_command(
     v_level: int | None,
 ) -> str:
   """Constructs the command to run inside the workload."""
-  # Environment variables
+  # Environment variables.
   if enable_pathways:
     env_vars = [
         'export JAX_PLATFORMS=proxy',
-        'export ENABLE_PATHWAYS_PERSISTENCE=1',
         'export ENABLE_PJRT_COMPATIBILITY=true',
     ]
   else:
@@ -730,12 +729,13 @@ def construct_workload_command(
   python_cmd = ' '.join(python_args)
   if hardware_type == HardwareType.CPU:
     python_cmd += ' --jax_cpu_collectives_implementation=gloo'
-  if enable_pathways:
-    python_cmd = (
-        'python3 -c "import pathwaysutils;'
-        ' pathwaysutils.initialize()" && '
-        + python_cmd
-    )
+  # if enable_pathways:
+  #   python_cmd = (
+  #       'echo "Initializing Pathways" && python3 -c "import pathwaysutils;'
+  #       ' import logging; logging.basicConfig(level=logging.DEBUG);'
+  #       ' pathwaysutils.initialize()" && '
+  #       + python_cmd
+  #   )
 
   return f'{env_cmd}{python_cmd}'
 
@@ -806,7 +806,7 @@ def construct_xpk_command(
     image_args = [
         f'--server-image={_PATHWAYS_SERVER_IMAGE.value}',
         f'--proxy-server-image={_PATHWAYS_PROXY_IMAGE.value}',
-        f'--docker-image={_DOCKER_IMAGE.value}'
+        f'--docker-image={_DOCKER_IMAGE.value}',
     ]
 
   else:

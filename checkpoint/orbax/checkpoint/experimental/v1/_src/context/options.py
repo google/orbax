@@ -485,7 +485,9 @@ class PathwaysOptions:
     checkpointing_impl: The implementation to use for Pathways checkpointing.
   """
 
-  checkpointing_impl: pathways_types.CheckpointingImpl | None = None
+  checkpointing_impl: pathways_types.CheckpointingImpl | None = (
+      pathways_types.CheckpointingImpl.COLOCATED_PYTHON
+  )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
