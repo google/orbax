@@ -17,7 +17,8 @@
 # pylint: disable=g-importing-member
 
 import abc
-from collections.abc import Set
+from collections.abc import Callable, Set
+from typing import Any
 
 
 class DataProcessor(abc.ABC):
