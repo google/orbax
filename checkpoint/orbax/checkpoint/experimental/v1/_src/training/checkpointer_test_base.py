@@ -121,6 +121,8 @@ class CheckpointerTestBase:
         test_utils.assert_tree_equal(self, self.pytree, loaded)
 
       with self.subTest('without_abstract_pytree'):
+        if multihost.is_pathways_backend():
+          self.skipTest('Must provide abstract_pytree for Pathways.')
         loaded = checkpointer.load_pytree(0)
         test_utils.assert_tree_equal(self, self.pytree, loaded)
 
@@ -435,6 +437,8 @@ class CheckpointerTestBase:
       self.save_checkpointables(checkpointer, 0, checkpointables)
 
       with self.subTest('load'):
+        if multihost.is_pathways_backend():
+          self.skipTest('Sharding metadata not present in Pathways.')
         loaded = checkpointer.load_checkpointables(0)
         self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
         test_utils.assert_tree_equal(
@@ -443,7 +447,16 @@ class CheckpointerTestBase:
         self.assertEqual(checkpointables['foo'], loaded['foo'])
         self.assertEqual(checkpointables['bar'], loaded['bar'])
       with self.subTest('load_with_free_function'):
-        loaded = ocp.load_checkpointables(self.directory / '0')
+        if multihost.is_pathways_backend():
+          self.skipTest('Sharding metadata not present in Pathways.')
+        checkpointables_options = (
+            ocp.options.CheckpointablesOptions.create_with_handlers(
+                handler_utils.FooHandler,
+                handler_utils.BarHandler,
+            )
+        )
+        with ocp.Context(checkpointables_options=checkpointables_options):
+          loaded = ocp.load_checkpointables(self.directory / '0')
         self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
         test_utils.assert_tree_equal(
             self, checkpointables['pytree'], loaded['pytree']
@@ -462,6 +475,8 @@ class CheckpointerTestBase:
         self.assertEqual(checkpointables['foo'], loaded['foo'])
         self.assertEqual(checkpointables['bar'], loaded['bar'])
       with self.subTest('load_with_abstract_checkpointables_none_values'):
+        if multihost.is_pathways_backend():
+          self.skipTest('Sharding metadata not present in Pathways.')
         abstract_checkpointables = {
             'pytree': None,
             'foo': None,
@@ -682,6 +697,51 @@ class CheckpointerTestBase:
             checkpointer._manager._options.todelete_full_path, 'trash'
         )
 
+
+    def test_context_constructor_override(self):
+      # Default is True, so set to False to prove constructor arg is used.
+      ctx1 = ocp.Context(
+          array_options=ocp.options.ArrayOptions(
+              saving=ocp.options.ArrayOptions.Saving(use_ocdbt=False)
+          ),
+          pytree_options=ocp.options.PyTreeOptions(
+              loading=ocp.options.PyTreeOptions.Loading(partial_load=True)
+          ),
+      )
+      checkpointer = Checkpointer(self.directory, context=ctx1)
+      self.enter_context(checkpointer)
+
+      self.save_pytree(checkpointer, 0, self.pytree)
+
+      pytree_dir = self.directory / '0' / 'pytree'
+      self.assertFalse(
+          (pytree_dir / 'manifest.ocdbt').exists(),
+          f'Expected NO manifest.ocdbt under {pytree_dir}',
+      )
+
+      loaded = checkpointer.load_pytree(0, self.abstract_pytree)
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+      # Test partial load override.
+      partial_abstract = {'jax_array': self.abstract_pytree['jax_array']}
+      loaded_partial = checkpointer.load_pytree(0, partial_abstract)
+      expected_pytree = {'jax_array': self.pytree['jax_array']}
+      test_utils.assert_tree_equal(self, expected_pytree, loaded_partial)
+
+      # Override with local context setting use_ocdbt=True
+      ctx2 = ocp.Context(
+          array_options=ocp.options.ArrayOptions(
+              saving=ocp.options.ArrayOptions.Saving(use_ocdbt=True)
+          )
+      )
+      with ctx2:
+        self.save_pytree(checkpointer, 1, self.pytree)
+
+      pytree_dir_1 = self.directory / '1' / 'pytree'
+      self.assertTrue(
+          (pytree_dir_1 / 'manifest.ocdbt').exists(),
+          f'Expected manifest.ocdbt under {pytree_dir_1}',
+      )
 
     @parameterized.named_parameters(
         dict(
