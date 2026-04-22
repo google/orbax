@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 merging.
 - Add Patch for Pathways CPU ids.
 - Add sidecar MTC backend support
+- #v1 Add `LeafHandler` as a `CheckpointableHandler`, so that ordinary PyTree
+leaves can also be saved as individual checkpointables.
 
 ## [0.11.36] - 2026-04-14
 
