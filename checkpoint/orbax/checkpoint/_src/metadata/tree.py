@@ -459,9 +459,33 @@ class InternalTreeMetadata:
       )
       return self.value_metadata_tree
 
+    # Sort entries hierarchically by their actual key paths.
+    # This guarantees that any prefix path (e.g., ('a', 'b')) will always appear
+    # immediately before its descendants (e.g., ('a', 'b', 'c')).
+    entries_with_keys = [
+        (tuple(tree_utils.get_key_name(k) for k in e.jax_keypath()), e)
+        for e in self.tree_metadata_entries
+    ]
+    entries_with_keys.sort(key=lambda x: x[0])
+
+    # Filter out prefix keypaths.
+    # When partial saving merges subtrees, a node might initially be an empty
+    # container placeholder but later get populated with descendants. This
+    # leaves both the placeholder and the descendants in the metadata entries.
+    # If `from_flattened_with_keypath` encounters the placeholder, it will
+    # insert a leaf object and then crash when trying to traverse through it for
+    # the descendants. Filtering out the prefix placeholders resolves this.
+    filtered_entries = []
+    for i, (kp, entry) in enumerate(entries_with_keys):
+      if i + 1 < len(entries_with_keys):
+        next_kp = entries_with_keys[i + 1][0]
+        if len(next_kp) > len(kp) and next_kp[: len(kp)] == kp:
+          continue
+      filtered_entries.append(entry)
+
     return tree_utils.from_flattened_with_keypath([
         (entry.jax_keypath(), entry.value_metadata)
-        for entry in self.tree_metadata_entries
+        for entry in filtered_entries
     ])
 
   def as_custom_metadata(

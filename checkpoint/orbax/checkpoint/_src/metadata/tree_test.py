@@ -92,6 +92,30 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
 
   @parameterized.product(
       test_pytree=test_tree_utils.TEST_PYTREES,
+      pytree_metadata_options=[
+          tree_metadata_lib.PyTreeMetadataOptions(support_rich_types=False),
+      ],
+  )
+  def test_as_nested_tree_unordered_entries(
+      self,
+      test_pytree: test_tree_utils.TestPyTree,
+      pytree_metadata_options: tree_metadata_lib.PyTreeMetadataOptions,
+  ):
+    tree = test_pytree.provide_tree()
+    internal_tree_metadata = InternalTreeMetadata.build(
+        param_infos=_to_param_infos(tree, pytree_metadata_options),
+        pytree_metadata_options=pytree_metadata_options,
+    )
+    # Reverse the order of entries.
+    internal_tree_metadata.tree_metadata_entries = list(
+        reversed(internal_tree_metadata.tree_metadata_entries)
+    )
+    restored_tree_metadata = internal_tree_metadata.as_nested_tree()
+    expected_tree_metadata = test_pytree.expected_nested_tree_metadata
+    chex.assert_trees_all_equal(restored_tree_metadata, expected_tree_metadata)
+
+  @parameterized.product(
+      test_pytree=test_tree_utils.TEST_PYTREES,
       pytree_metadata_options_switch=[
           (
               tree_metadata_lib.PyTreeMetadataOptions(support_rich_types=False),
