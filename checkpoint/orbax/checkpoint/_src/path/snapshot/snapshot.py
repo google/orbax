@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Snapshot represents operations on how to create, delete snapshots of a checkpoint."""
+"""Provides abstractions for creating and managing snapshots of checkpoints."""
 
 import abc
 import asyncio
+import enum
 import time
+import uuid
 
 from absl import logging
 from etils import epath
@@ -24,6 +26,11 @@ from orbax.checkpoint._src.path import utils as ocp_path_utils
 
 
 SNAPSHOTTING_TIME = "snapshotting_time"
+
+
+class SnapshotType(enum.Enum):
+  IN_PLACE = "in_place"
+  EMPTY = "empty"
 
 
 class Snapshot(abc.ABC):
@@ -112,10 +119,67 @@ class _DefaultSnapshot(Snapshot):
 
 
 
+class _EmptySnapshot(Snapshot):
+  """An empty snapshot doesn't copy initially.
+
+  Used to aggregate new files into a new separate subdirectory, which is then
+  cheaply moved under the `_source` directory upon `replace_source`.
+  """
+
+  def __init__(
+      self,
+      src: epath.PathLike,
+      dst: epath.PathLike,
+  ):
+    self._source = epath.Path(src)
+    self._snapshot = epath.Path(dst)
+
+  async def create_snapshot(self) -> None:
+    if not await asyncio.to_thread(self._snapshot.is_absolute):
+      raise ValueError(
+          f"Snapshot destination must be absolute, but was '{self._snapshot}'."
+      )
+    await asyncio.to_thread(self._snapshot.mkdir, parents=True, exist_ok=True)
+
+  async def release_snapshot(self) -> None:
+    if not await asyncio.to_thread(self._snapshot.exists):
+      return
+    await asyncio.to_thread(self._snapshot.rmtree)
+
+  async def replace_source(self) -> None:
+    if not self._snapshot.is_absolute():
+      raise ValueError(
+          f"Snapshot destination must be absolute, but was '{self._snapshot}'."
+      )
+    if not self._source.is_absolute():
+      raise ValueError(
+          f"Snapshot source must be absolute, but was '{self._source}'."
+      )
+
+    def _move_items_into_source():
+      if not self._snapshot.exists():
+        raise FileNotFoundError(f"Snapshot does not exist: {self._snapshot}")
+      if not self._source.exists():
+        self._source.mkdir(parents=True, exist_ok=True)
+      # Move files from inside the tmp snapshot into the original source
+      # directory under a pending suffix. This is to avoid potentially wiping
+      # out previous files.
+      pending_suffix = f".pending_{uuid.uuid4()}"
+      dst_path = self._source / f"{self._source.name}{pending_suffix}"
+      self._snapshot.rename(dst_path)
+
+    await asyncio.to_thread(_move_items_into_source)
+
+
 def create_instance(
     source: epath.Path,
     snapshot: epath.Path,
     *,
     set_immutable: bool | None = None,
+    snapshot_type: SnapshotType = SnapshotType.IN_PLACE,
 ):
+  """Creates a snapshot instance according to the provided options."""
+  if snapshot_type == SnapshotType.EMPTY:
+    return _EmptySnapshot(source, snapshot)
+
   return _DefaultSnapshot(source, snapshot)

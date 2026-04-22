@@ -171,5 +171,163 @@ class DefaultSnapshotTest(absltest.TestCase):
     self.assertEqual('data', (recovery_path / 'data.txt').read_text())
 
 
+class EmptySnapshotTest(absltest.TestCase):
+
+  def __init__(self, *args, **kwargs):
+    super(EmptySnapshotTest, self).__init__(*args, **kwargs)
+    self.root = epath.Path(self.create_tempdir(name='root').full_path)
+
+    self.source_path = self.root / 'path/to/source'
+    self.dest_path = self.root / 'path/to/dest'
+
+  def test_create_snapshot(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    self.assertFalse(self.dest_path.exists())
+    asyncio.run(empty_snapshot.create_snapshot())
+    self.assertTrue(self.dest_path.exists())
+
+  def test_release_snapshot(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    asyncio.run(empty_snapshot.create_snapshot())
+    self.assertTrue(self.dest_path.exists())
+    asyncio.run(empty_snapshot.release_snapshot())
+    self.assertFalse(self.dest_path.exists())
+
+  def test_create_snapshot_with_relative_dest_path_fails(self):
+    empty_snapshot = snapshot._EmptySnapshot(
+        self.source_path, epath.Path('relative/path')
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Snapshot destination must be absolute'
+    ):
+      asyncio.run(empty_snapshot.create_snapshot())
+
+  def test_release_non_existent_snapshot(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    self.assertFalse(self.dest_path.exists())
+    # Should not raise any error
+    asyncio.run(empty_snapshot.release_snapshot())
+
+  def test_replace_source(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    asyncio.run(empty_snapshot.create_snapshot())
+    self.assertTrue(self.dest_path.exists())
+    (self.dest_path / 'new_file.txt').write_text('new_file_data')
+
+    asyncio.run(empty_snapshot.replace_source())
+
+    self.assertTrue(self.source_path.exists())
+    self.assertFalse(self.dest_path.exists())
+
+    # Should be moved into source_path with pending suffix
+    pending_dirs = [
+        p
+        for p in self.source_path.iterdir()
+        if p.name.startswith(f'{self.source_path.name}.pending_')
+    ]
+    self.assertLen(pending_dirs, 1)
+    pending_dir = pending_dirs[0]
+    self.assertTrue((pending_dir / 'new_file.txt').exists())
+    self.assertEqual(
+        'new_file_data', (pending_dir / 'new_file.txt').read_text()
+    )
+
+  def test_replace_source_without_snapshot(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    self.assertFalse(self.dest_path.exists())
+    # Should raise FileNotFoundError
+    with self.assertRaisesRegex(FileNotFoundError, 'Snapshot does not exist'):
+      asyncio.run(empty_snapshot.replace_source())
+    self.assertFalse(self.source_path.exists())
+
+  def test_replace_source_with_existing_source(self):
+    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+
+    # Pre-populate the source directory with an existing file
+    self.source_path.mkdir(parents=True)
+    (self.source_path / 'old_file.txt').write_text('old_data')
+
+    asyncio.run(empty_snapshot.create_snapshot())
+
+    # Populate the snapshot directory
+    (self.dest_path / 'new_file.txt').write_text('new_data')
+
+    asyncio.run(empty_snapshot.replace_source())
+
+    # The source should still exist and retain its original files
+    self.assertTrue(self.source_path.exists())
+    self.assertEqual(
+        'old_data', (self.source_path / 'old_file.txt').read_text()
+    )
+
+    # The new file should be under a pending suffix directory
+    pending_dirs = [
+        p
+        for p in self.source_path.iterdir()
+        if p.name.startswith(f'{self.source_path.name}.pending_')
+    ]
+    self.assertLen(pending_dirs, 1)
+    pending_dir = pending_dirs[0]
+    self.assertTrue((pending_dir / 'new_file.txt').exists())
+    self.assertEqual('new_data', (pending_dir / 'new_file.txt').read_text())
+
+  def test_replace_source_multiple_snapshots(self):
+    dest_path1 = self.root / 'path/to/dest1'
+    dest_path2 = self.root / 'path/to/dest2'
+
+    snapshot1 = snapshot._EmptySnapshot(self.source_path, dest_path1)
+    snapshot2 = snapshot._EmptySnapshot(self.source_path, dest_path2)
+
+    asyncio.run(snapshot1.create_snapshot())
+    asyncio.run(snapshot2.create_snapshot())
+
+    (dest_path1 / 'file1.txt').write_text('data1')
+    (dest_path2 / 'file2.txt').write_text('data2')
+
+    asyncio.run(snapshot1.replace_source())
+    asyncio.run(snapshot2.replace_source())
+
+    self.assertTrue(self.source_path.exists())
+    self.assertFalse(dest_path1.exists())
+    self.assertFalse(dest_path2.exists())
+
+    pending_dirs = [
+        p
+        for p in self.source_path.iterdir()
+        if p.name.startswith(f'{self.source_path.name}.pending_')
+    ]
+    self.assertLen(pending_dirs, 2)
+
+    # Verify each pending directory has the correct contents.
+    found_data1 = False
+    found_data2 = False
+    for pending_dir in pending_dirs:
+      if (pending_dir / 'file1.txt').exists():
+        self.assertEqual('data1', (pending_dir / 'file1.txt').read_text())
+        found_data1 = True
+      elif (pending_dir / 'file2.txt').exists():
+        self.assertEqual('data2', (pending_dir / 'file2.txt').read_text())
+        found_data2 = True
+
+    self.assertTrue(found_data1)
+    self.assertTrue(found_data2)
+
+  def test_replace_source_with_relative_dest_path_fails(self):
+    empty_snapshot = snapshot._EmptySnapshot(
+        self.source_path, epath.Path('relative/path')
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Snapshot destination must be absolute'
+    ):
+      asyncio.run(empty_snapshot.replace_source())
+
+  def test_replace_source_with_relative_source_path_fails(self):
+    empty_snapshot = snapshot._EmptySnapshot(
+        epath.Path('relative/path'), self.dest_path
+    )
+    with self.assertRaisesRegex(ValueError, 'Snapshot source must be absolute'):
+      asyncio.run(empty_snapshot.replace_source())
+
+
 if __name__ == '__main__':
   absltest.main()
