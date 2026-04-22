@@ -52,6 +52,9 @@ async def _validate_params(
     return
 
   raw_ts_params = await ts_kv_store.list()
+  if any(p.decode('utf-8').endswith('zarr.json') for p in raw_ts_params):
+    logging.info('Detected Zarr3 files. Skipping validation.')
+    return
   if not raw_ts_params:
     # TODO: b/361090820 - Raise error once we confirm that Bennu writing empty
     # states is a bug.
