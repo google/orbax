@@ -253,6 +253,7 @@ def _block_and_process_restore_dir(
   Raises:
     TimeoutError: if no .restore file is found within the timeout.
   """
+  local_checkpoint_directory = epath.Path(local_checkpoint_directory)
   for _ in range(timeout_seconds):
     files = [f.name for f in local_checkpoint_directory.glob('*.restore')]
     logging.info('block_and_process_restore_dir: restore files: %s', files)
