@@ -204,9 +204,10 @@ class MemoryRegulator:
         last adjustment.
       blocking_time_sec: The time in seconds that consumers were blocked waiting
         for memory in the last interval. Currently unused.
-      expected_surge_gib: The anticipated memory surge in GiB. If 0, no surge
-        is expected.
+      expected_surge_gib: The anticipated memory surge in GiB. If 0, no surge is
+        expected.
       total_memory_gib: The total system memory capacity in GiB.
+
     Returns:
       The calculated memory limit for the next interval in GiB.
     """
@@ -253,16 +254,25 @@ class MemoryRegulator:
       # the surge headroom while still allowing throttling.
       adjustment = min(0.0, adjustment)
 
-    # Surge delta handles immediate jump down and up.
-    surge_delta = expected_surge_gib - self._prev_expected_surge_gib
-    self._prev_expected_surge_gib = expected_surge_gib
-
-    new_limit_gib = current_limit_gib + adjustment - surge_delta
-    new_limit_gib = max(
-        self.min_memory_limit_gib, min(self.max_memory_limit_gib, new_limit_gib)
+    # Calculate target without surge effect
+    target_no_surge = (
+        current_limit_gib + self._prev_expected_surge_gib + adjustment
+    )
+    clamped_no_surge = max(
+        self.min_memory_limit_gib,
+        min(self.max_memory_limit_gib, target_no_surge),
     )
 
-    return new_limit_gib
+    # Calculate target with the new surge
+    target_with_surge = target_no_surge - expected_surge_gib
+    clamped_with_surge = max(
+        self.min_memory_limit_gib,
+        min(self.max_memory_limit_gib, target_with_surge),
+    )
+
+    self._prev_expected_surge_gib = clamped_no_surge - clamped_with_surge
+
+    return clamped_with_surge
 
   def update_limit_bytes(self, current_limit_bytes: int) -> int:
     """Calculates the next memory limit in bytes, using profiler inputs."""
@@ -288,4 +298,3 @@ class MemoryRegulator:
         total_memory_gib,
     )
     return next_limit_bytes
-

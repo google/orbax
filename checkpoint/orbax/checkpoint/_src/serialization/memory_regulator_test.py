@@ -355,6 +355,63 @@ class MemoryRegulatorTest(parameterized.TestCase):
     # next_limit = 30 + (-5) - 10 = 15.
     self.assertEqual(limit, 15.0)
 
+  def test_surge_recovery_clamping_spike(self):
+    controller = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0,
+        min_memory_limit_gib=10.0,
+        target_ratio=0.8,
+        kp=0.4,
+        ki=0.0,
+        kd=0.0,  # Set kd=0 to isolate the P-term effect
+    )
+    # Step 18: Normal operation.
+    # Total = 600.0. Target = 480.0. Peak = 560.0. error = -80.
+    # p_term = 0.4 * -80 = -32.0.
+    # adjustment = -32.0. _prev_expected_surge_gib = 0.0.
+    # target_no_surge = 10 + 0 + -32 = -22.
+    # new_limit = max(10, -22-0) = 10.
+    limit18 = controller.get_next_memory_limit(
+        current_limit_gib=10.0,
+        peak_memory_usage_gib=560.0,
+        blocking_time_sec=0.0,
+        total_memory_gib=600.0,
+    )
+    self.assertEqual(limit18, 10.0)
+
+    # Step 20: Surge happens (80 GiB).
+    # expected_surge = 80.0.
+    # Peak = 560.0. error = -80.0.
+    # p_term = 0.4 * -80.0 = -32.0. adjustment = min(0, -32.0) = -32.0.
+    # _prev_expected_surge_gib = 0.0
+    # target_no_surge = 10 + 0 + -32 = -22.
+    # new_limit = max(10, -22-80) = 10.
+    limit20 = controller.get_next_memory_limit(
+        current_limit_gib=10.0,
+        peak_memory_usage_gib=560.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=80.0,
+        total_memory_gib=600.0,
+    )
+    self.assertEqual(limit20, 10.0)
+
+    # Step 22: Surge ends.
+    # expected_surge = 0.0.
+    # Peak is still the surge peak (560.0).
+    # error = -80.0. p_term = -32.0.
+    # adjustment = -32.0. _prev_expected_surge_gib = 0.0, because limit was
+    # clamped at 10 in step 20.
+    # target_no_surge = 10 + 0 + -32 = -22.
+    # new_limit = max(10, -22-0) = 10.
+    limit22 = controller.get_next_memory_limit(
+        current_limit_gib=10.0,
+        peak_memory_usage_gib=560.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=0.0,
+        total_memory_gib=600.0,
+    )
+    # The limit should stay at 10.0 instead of spiking.
+    self.assertAlmostEqual(limit22, 10.0, places=1)
+
 
 if __name__ == "__main__":
   absltest.main()
