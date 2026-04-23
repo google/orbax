@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import Any, Awaitable, Generic, Sequence, Type, TypeVar
+from typing import Any, Awaitable, Generic, Protocol, Sequence, Type, TypeVar
 
 import aiofiles
 from etils import epath
@@ -49,33 +49,63 @@ async def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
   return await awaitable
 
 
-class _TestHandler(Generic[T, AbstractT]):
+class TestHandler(Protocol[T, AbstractT]):
   """This class facilitates testing of :py:class:`~.v1.handlers.CheckpointableHandler` independently.
 
   Use :py:func:`.create_test_handler`.
   """
+
+  def save(self, directory: Path, checkpointable: T) -> None:
+    ...
+
+  def save_async(self, directory: Path, checkpointable: T) -> Awaitable[None]:
+    ...
+
+  def load(
+      self, path: Path, abstract_checkpointable: AbstractT | None = None
+  ) -> T:
+    ...
+
+  def load_async(
+      self, path: Path, abstract_checkpointable: AbstractT | None = None
+  ) -> Awaitable[T]:
+    ...
+
+  def metadata(self, path: Path) -> AbstractT:
+    ...
+
+  def is_handleable(self, checkpointable: Any) -> bool:
+    ...
+
+  def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool | None:
+    ...
+
+
+class _TestHandler(Generic[T, AbstractT]):
 
   def __init__(
       self, handler_class: type[CheckpointableHandler[T, AbstractT]], **kwargs
   ):
     self._handler: CheckpointableHandler[T, AbstractT] = handler_class(**kwargs)
 
-  def save(self, directory: Path, checkpointable: T):
+  def save(self, directory: Path, checkpointable: T) -> None:
     path = path_test_utils.PathAwaitingCreationWrapper(directory)
     awaitable = asyncio_utils.run_sync(self._handler.save(path, checkpointable))
     return asyncio_utils.run_sync(_run_awaitable(awaitable))
 
-  def save_async(self, directory: Path, checkpointable: T):
+  def save_async(self, directory: Path, checkpointable: T) -> Awaitable[None]:
     path = path_test_utils.PathAwaitingCreationWrapper(directory)
     return asyncio_utils.run_sync(self._handler.save(path, checkpointable))
 
-  def load(self, path: Path, abstract_checkpointable: AbstractT | None = None):
+  def load(
+      self, path: Path, abstract_checkpointable: AbstractT | None = None
+  ) -> T:
     awaitable = self.load_async(path, abstract_checkpointable)
     return asyncio_utils.run_sync(_run_awaitable(awaitable))
 
   def load_async(
       self, path: Path, abstract_checkpointable: AbstractT | None = None
-  ):
+  ) -> Awaitable[T]:
     return asyncio_utils.run_sync(
         self._handler.load(path, abstract_checkpointable)
     )

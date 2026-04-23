@@ -140,6 +140,22 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
         self, restored_checkpointables['pytree'], self.object_to_save
     )
 
+  async def test_save_with_custom_name(self):
+    custom_path = epath.Path(self.test_dir.full_path) / 'custom_checkpoint'
+    saving.save_pytree(
+        custom_path,
+        self.object_to_save,
+        checkpointable_name='my_custom_name',
+    )
+    self.assertTrue((custom_path / 'my_custom_name').exists())
+    layout = OrbaxLayout()
+    restored_checkpointables = await (
+        await layout.load_checkpointables(custom_path)
+    )
+    test_utils.assert_tree_equal(
+        self, restored_checkpointables['my_custom_name'], self.object_to_save
+    )
+
   async def test_metadata(self):
     """Tests the metadata() method."""
     layout = OrbaxLayout()

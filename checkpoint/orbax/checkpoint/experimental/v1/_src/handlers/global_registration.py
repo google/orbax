@@ -23,6 +23,7 @@ given checkpointable will be used.
 from typing import Sequence, Type
 
 from orbax.checkpoint.experimental.v1._src.handlers import json_handler
+from orbax.checkpoint.experimental.v1._src.handlers import leaf_handler
 from orbax.checkpoint.experimental.v1._src.handlers import proto_handler
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -66,11 +67,20 @@ _try_register_handler(
     json_handler.MetricsHandler,
     checkpoint_layout.METRICS_CHECKPOINTABLE_KEY,
 )
+# Registration for leaf types that can be treated as distinct checkpointables.
+_try_register_handler(leaf_handler.ShardedArrayHandler)
+_try_register_handler(leaf_handler.ArrayHandler)
+_try_register_handler(leaf_handler.ScalarHandler)
+_try_register_handler(leaf_handler.StringHandler)
+
 _try_register_handler(
     pytree_handler.PyTreeHandler,
     secondary_typestrs=[
         'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler',
         'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler',
+        handler_types.typestr(
+            stateful_checkpointable_handler.StatefulCheckpointableHandler
+        ),
     ],
 )
 _try_register_handler(

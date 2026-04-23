@@ -20,25 +20,32 @@ RESERVED_CHECKPOINTABLE_KEYS = checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 
-def validate_abstract_checkpointables(abstract_checkpointables):
-  """Validates the abstract_checkpointables dictionary.
+def validate_save_checkpointables(checkpointables):
+  """Validates the checkpointables dictionary.
 
   Args:
-    abstract_checkpointables: A dictionary of abstract checkpointables.
+    checkpointables: A dictionary of checkpointables.
 
   Raises:
-    ValueError: If any of the keys in abstract_checkpointables are reserved.
+    ValueError: If any of the keys in checkpointables are reserved.
   """
-  if abstract_checkpointables is None:
-    return
-  if EMPTY_CHECKPOINTABLE_KEY in abstract_checkpointables:
+  if not checkpointables or not isinstance(
+      checkpointables, dict
+  ):
+    raise ValueError(
+        '`checkpointables` must be a valid mapping of checkpointable names to'
+        ' desired checkpointables to save, but got'
+        f' {type(checkpointables)}'
+    )
+
+  if EMPTY_CHECKPOINTABLE_KEY in checkpointables:
     raise ValueError(
         'Empty string is not supported as a checkpointable name in'
         ' `save_checkpointables`. Each checkpointable name must be a valid'
         ' non-empty string name.'
     )
   if (
-      provided_reserved_keys := abstract_checkpointables.keys()
+      provided_reserved_keys := checkpointables.keys()
       & RESERVED_CHECKPOINTABLE_KEYS
   ):
     raise ValueError(

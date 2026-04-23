@@ -30,6 +30,14 @@ from orbax.checkpoint.experimental.v1._src.serialization import types
 import typing_extensions
 
 
+class AlreadyRegisteredTypeError(ValueError):
+  """Raised when a leaf is already registered."""
+
+
+class UnregisteredTypeError(ValueError):
+  """Raised when a leaf is not registered."""
+
+
 # The standard type, abstract type, and optional typestrs to handler mapping.
 # The type to abstract type pairs are well defined standard and users should
 # rarely need to override the pair.
@@ -163,7 +171,7 @@ class BaseLeafHandlerRegistry:
       self, leaf_type: type[types.Leaf]
   ) -> type[types.LeafHandler[types.Leaf, Any]]:
     if (handler_type := self._try_get(leaf_type)) is None:
-      raise ValueError(
+      raise UnregisteredTypeError(
           f'Unknown Leaf type: "{leaf_type!r}". Must register it with'
           ' LeafHandlerRegistry.'
       )
@@ -190,7 +198,7 @@ class BaseLeafHandlerRegistry:
       abstract_type: type[types.AbstractLeaf],
   ) -> type[types.LeafHandler[Any, types.AbstractLeaf]]:
     if (handler_type := self._try_get_abstract(abstract_type)) is None:
-      raise ValueError(
+      raise UnregisteredTypeError(
           f'Unknown AbstractLeaf type: "{abstract_type!r}". Must register it'
           ' with LeafHandlerRegistry.'
       )
@@ -245,8 +253,8 @@ class BaseLeafHandlerRegistry:
         secondary identifiers for the handler.
 
     Raises:
-      ValueError: If a duplicate `leaf_type` or conflicting `abstract_type`
-        mapping exists and `override` is False.
+      AlreadyRegisteredTypeError: If a duplicate `leaf_type` or conflicting
+        `abstract_type` mapping exists and `override` is False.
     """
 
     # Check for exact duplicate registration
@@ -294,13 +302,13 @@ class BaseLeafHandlerRegistry:
     else:
       for e in self._entries:
         if e.leaf_type == leaf_type:
-          raise ValueError(
+          raise AlreadyRegisteredTypeError(
               f'leaf_type [{leaf_type}] is already handled by '
               f'{e.handler_type}. Use override=True to replace its entry. '
               f'Registry: {self._entries}'
           )
         if e.abstract_type == abstract_type and e.handler_type != handler_type:
-          raise ValueError(
+          raise AlreadyRegisteredTypeError(
               f'abstract_type[{abstract_type}] is already handled by '
               f'{e.handler_type}. Use override=True to replace all '
               f'conflicting entries. Registry: {self._entries}'

@@ -59,6 +59,12 @@ def validate_abstract_checkpointables(abstract_checkpointables):
   """
   if abstract_checkpointables is None:
     return
+  if not isinstance(abstract_checkpointables, dict):
+    raise ValueError(
+        '`abstract_checkpointables` must be a valid mapping of checkpointable'
+        ' names to abstract checkpointables to load, but got'
+        f' {type(abstract_checkpointables)}'
+    )
   if EMPTY_CHECKPOINTABLE_KEY in abstract_checkpointables:
     raise ValueError(
         'Empty string is not supported as a checkpointable name in'

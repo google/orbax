@@ -368,7 +368,7 @@ def save_checkpointables_impl(
     partial_save: bool = False,
 ) -> async_types.AsyncResponse[None]:
   """See caller docstrings."""
-  validation.validate_abstract_checkpointables(checkpointables)
+  validation.validate_save_checkpointables(checkpointables)
   start_time = time.time()
   event_tracking.OperationRecorder(
       path,
