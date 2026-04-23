@@ -193,6 +193,18 @@ def build_kvstore_tspec(
         'driver': 'ocdbt',
         'base': base_driver_spec,
     })
+    # For OCDBT on local filesystems (including GCSFuse), we can safely use
+    # non-atomic writes for data files to avoid expensive renames. However,
+    # the manifest file still requires atomic writes to avoid corruption.
+    # We achieve this by splitting the spec into 'base' (for data files) and
+    # 'manifest'. Direct GCS paths ('gs://') do not need this optimization
+    # as they don't use the file driver.
+    if not is_gcs_path:
+      base_spec = copy.deepcopy(base_driver_spec)
+      if isinstance(base_spec, dict):
+        base_spec['file_io_locking'] = {'mode': 'non_atomic'}
+        kv_spec['base'] = base_spec
+        kv_spec['manifest'] = base_driver_spec
     if name is not None:
       kv_spec['path'] = name
 
