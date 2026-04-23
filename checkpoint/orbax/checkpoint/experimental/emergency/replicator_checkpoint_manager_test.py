@@ -14,6 +14,7 @@
 
 """Test base classes for emergency.ReplicatorCheckpointManager."""
 
+
 import json
 from typing import Any
 from unittest import mock
@@ -37,6 +38,7 @@ from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manage
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity
+from orbax.checkpoint.path import step as step_lib
 
 
 PyTree = Any
@@ -190,9 +192,15 @@ class ReplicatorCheckpointManagerTest(
       self,
       step: int,
       global_mesh: jax.sharding.Mesh,
+      step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None,
   ):
+    step_directory = self.local_directory / str(step)
+    if step_name_format is not None:
+      step_directory = step_name_format.find_step(
+          self.local_directory, step
+      ).path
     metadata_folder = mesh_consistency.process_metadata_folder(
-        self.local_directory / str(step) / 'process_metadata'
+        step_directory / 'process_metadata'
     )
     metadata_path = (
         metadata_folder / mesh_consistency._GLOBAL_PROCESS_METADATA_FILE_NAME
@@ -750,6 +758,38 @@ class ReplicatorCheckpointManagerTest(
     test_utils.assert_tree_equal(self, pytree, restored.state)
     test_utils.assert_tree_equal(self, doubled_pytree, restored.other_state)
 
+  @parameterized.parameters((0,), (1,))
+  def test_multiple_items_with_inferred_restore_args(
+      self, replica_axis_index: int
+  ):
+    global_mesh = self.make_global_mesh(replica_axis_index=replica_axis_index)
+    pytree, _ = self.setup_pytree(global_mesh)
+    doubled_pytree = test_utils.apply_function(pytree, lambda x: x * 2)
+    with ReplicatorCheckpointManager(
+        self.local_directory,
+        global_mesh=global_mesh,
+    ) as manager:
+      manager.save(
+          0,
+          args=args_lib.Composite(
+              state=PyTreeSaveArgs(pytree),
+              other_state=PyTreeSaveArgs(doubled_pytree),
+          ),
+      )
+      self.assert_process_metadata_files_exist(0, global_mesh)
+
+    restored = manager.restore(
+        0,
+        args=args_lib.Composite(
+            state=PyTreeRestoreArgs(),
+            other_state=PyTreeRestoreArgs(),
+        ),
+    )
+    self.assertIn('state', restored)
+    self.assertIn('other_state', restored)
+    test_utils.assert_tree_equal(self, pytree, restored.state)
+    test_utils.assert_tree_equal(self, doubled_pytree, restored.other_state)
+
   def test_invalid_args_save(self):
     with ReplicatorCheckpointManager(
         self.local_directory,
@@ -786,27 +826,6 @@ class ReplicatorCheckpointManagerTest(
       )
       test_utils.assert_tree_equal(self, self.pytree, restored.state)
 
-      with self.assertRaises(ValueError):
-        manager.restore(
-            0,
-            args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
-            ),
-        )
-      with self.assertRaises(ValueError):
-        manager.restore(
-            0,
-            args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
-            ),
-        )
-      with self.assertRaises(ValueError):
-        manager.restore(
-            0,
-            args=get_composite_restore_args(
-                self.pytree, args_lib.StandardRestore
-            ),
-        )
       with self.assertRaises(TypeError):
         manager.restore(0)
       with self.assertRaises(FileNotFoundError):

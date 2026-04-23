@@ -20,8 +20,9 @@ Implementation of CheckpointHandler interface.
 from __future__ import annotations
 
 import dataclasses
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
+from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint import checkpoint_args
@@ -47,8 +48,15 @@ class ProcessMetadataCheckpointHandler(
   def __init__(
       self,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
+      distributed_to_device_ids_fn: Optional[
+          Callable[[], List[List[int]]]
+      ] = None,
   ):
     """Initializes ProcessMetadataCheckpointHandler."""
+    self._multiprocessing_options = multiprocessing_options
+    self._distributed_to_device_ids_fn = (
+        distributed_to_device_ids_fn or multihost.distributed_to_device_ids
+    )
 
   async def async_save(
       self,
@@ -64,13 +72,14 @@ class ProcessMetadataCheckpointHandler(
     Returns:
       A list of commit futures.
     """
+    logging.info('Saving process metadata to %s', directory)
     return [
         future.CommitFutureAwaitingContractedSignals(
             mesh_consistency.save_process_metadata(
                 directory,
                 args.global_mesh,
-                multihost.distributed_to_device_ids(),
-                ),
+                self._distributed_to_device_ids_fn(),
+            ),
             name='process_metadata_ch_save',
         )
     ]
@@ -102,6 +111,7 @@ class ProcessMetadataCheckpointHandler(
     Returns:
       A tuple of previous distributed to device ids and previous device ids.
     """
+    logging.info('Restoring process metadata from %s', directory)
     return mesh_consistency.read_process_metadata(directory)
 
 

@@ -72,6 +72,7 @@ async def save_process_metadata(
 ):
   """Saves process metadata to local storage. Runs on every process."""
   metadata_folder = process_metadata_folder(directory)
+  metadata_folder.mkdir(parents=True, exist_ok=True)
   logging.info('Saving process index metadata at %s', metadata_folder)
 
   (metadata_folder / _GLOBAL_PROCESS_METADATA_FILE_NAME).write_text(

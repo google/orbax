@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Centralize `StorageOptions` into `ArrayOptions` and implement field-level
 merging.
 - Add Patch for Pathways CPU ids.
+- Add sidecar MTC backend support
 
 ## [0.11.36] - 2026-04-14
 
