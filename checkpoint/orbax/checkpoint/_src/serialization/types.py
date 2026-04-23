@@ -99,6 +99,8 @@ class ParamInfo:
     write_shape: Shape of the array shard. Used in the subchunking context.
     is_prioritized_key_fn: See ``IsPrioritizedKeyFn`` definition.
     keypath: Tuple of keys identifying the parameter's position in the PyTree.
+    use_non_atomic_file_io_locking: If True, enables non-atomic file I/O
+      locking mode for TensorStore OCDBT data files.
   """
 
   def __init__(
@@ -121,6 +123,7 @@ class ParamInfo:
       raise_array_data_missing_error: bool = True,
       write_shape: arrays_types.Shape | None = None,
       is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
+      use_non_atomic_file_io_locking: bool = True,
   ):
     self.name = name
     self._parent_dir = parent_dir
@@ -139,6 +142,7 @@ class ParamInfo:
     self.raise_array_data_missing_error = raise_array_data_missing_error
     self.write_shape = write_shape
     self.is_prioritized_key_fn = is_prioritized_key_fn
+    self.use_non_atomic_file_io_locking = use_non_atomic_file_io_locking
 
   @property
   def parent_dir(self) -> epath.Path:

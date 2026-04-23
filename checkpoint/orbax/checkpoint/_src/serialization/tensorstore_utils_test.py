@@ -245,6 +245,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         use_zarr3=False,
         use_ocdbt=True,
         process_id=13,
+        use_non_atomic_file_io_locking=False,
     )
     self.assertTrue(tspec.metadata.use_ocdbt)
     json_tspec = tspec.json
@@ -256,6 +257,49 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         os.path.join(directory, 'ocdbt.process_13'),
     )
     self.assertEqual(json_tspec['kvstore']['path'], self.param_name)
+
+  def test_ocdbt_kvstore_with_non_atomic_locking(self):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=False,
+        use_ocdbt=True,
+        process_id=13,
+    )
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    json_tspec = tspec.json
+    kvstore_tspec = json_tspec['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
+
+    # Base spec should have non_atomic locking
+    base_spec = kvstore_tspec['base']
+    self.assertEqual(base_spec['driver'], 'file')
+    self.assertEqual(base_spec['file_io_locking'], {'mode': 'non_atomic'})
+
+    # Manifest spec should be present and NOT have non_atomic locking
+    self.assertIn('manifest', kvstore_tspec)
+    manifest_spec = kvstore_tspec['manifest']
+    self.assertEqual(manifest_spec['driver'], ts_utils.DEFAULT_DRIVER)
+    self.assertNotIn('file_io_locking', manifest_spec)
+
+  def test_ocdbt_kvstore_with_non_atomic_locking_gcs_path(self):
+    tspec = self.array_write_spec_constructor(
+        directory='gs://gcs_bucket/object_path',
+        relative_array_filename=self.param_name,
+        use_zarr3=False,
+        use_ocdbt=True,
+        process_id=0,
+    )
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    kvstore_tspec = tspec.json['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
+
+    # Base should be a string (URL) and NOT have file_io_locking
+    self.assertIsInstance(kvstore_tspec['base'], str)
+
+    # Manifest should NOT be present in the spec
+    self.assertNotIn('manifest', kvstore_tspec)
+
 
   @parameterized.named_parameters(
       dict(

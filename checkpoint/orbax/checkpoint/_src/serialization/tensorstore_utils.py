@@ -143,6 +143,7 @@ def build_kvstore_tspec(
     use_ocdbt: bool = True,
     process_id: int | str | None = None,
     replica_separate_folder: bool = False,
+    use_non_atomic_file_io_locking: bool = True,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -155,6 +156,8 @@ def build_kvstore_tspec(
       `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
       a string, must conform to [A-Za-z0-9]+ pattern.
     replica_separate_folder: Whether a replica separated folder is used.
+    use_non_atomic_file_io_locking: If True, enables non-atomic file I/O
+      locking mode for TensorStore OCDBT data files.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -194,6 +197,26 @@ def build_kvstore_tspec(
         'driver': 'ocdbt',
         'base': base_driver_spec,
     })
+    # For OCDBT on local filesystems (including GCSFuse), we can safely use
+    # non-atomic writes for data files to avoid expensive renames. However,
+    # the manifest file still requires atomic writes to avoid corruption.
+    # We achieve this by splitting the spec into 'base' (for data files) and
+    # 'manifest'. Direct GCS paths ('gs://') do not need this optimization
+    # as they don't use the file driver.
+    is_tree_verity_path = str(directory).startswith('/tree_verity/')
+    is_remote = is_remote_storage(base_driver_spec)
+    if (
+        use_non_atomic_file_io_locking
+        and not is_gcs_path
+        and not is_tree_verity_path
+        and not is_remote
+    ):
+      base_spec = copy.deepcopy(base_driver_spec)
+      if isinstance(base_spec, dict):
+        base_spec['driver'] = 'file'  # Force 'file' driver
+        base_spec['file_io_locking'] = {'mode': 'non_atomic'}
+        kv_spec['base'] = base_spec
+        kv_spec['manifest'] = base_driver_spec
     if name is not None:
       kv_spec['path'] = name
 
@@ -503,6 +526,7 @@ class ArrayWriteSpec:
       metadata_key: str | None = None,
       replica_separate_folder: bool = False,
       ext_metadata: ExtMetadata | None = None,
+      use_non_atomic_file_io_locking: bool = True,
   ):
     """Builds a TensorStore spec for writing an array."""
     # Construct the underlying KvStore spec.
@@ -512,6 +536,7 @@ class ArrayWriteSpec:
         use_ocdbt=use_ocdbt,
         process_id=process_id,
         replica_separate_folder=replica_separate_folder,
+        use_non_atomic_file_io_locking=use_non_atomic_file_io_locking,
     )
     # Construct the top-level array spec.
     tspec = {
@@ -684,6 +709,7 @@ def _get_json_tspec(
       name=info.name,
       use_ocdbt=use_ocdbt,
       process_id=process_index,
+      use_non_atomic_file_io_locking=info.use_non_atomic_file_io_locking,
   )
 
   tspec = {
@@ -803,6 +829,7 @@ def build_array_write_spec(
     replica_separate_folder: bool = False,
     metadata_key: str | None = None,
     ext_metadata: dict[str, Any] | None = None,
+    use_non_atomic_file_io_locking: bool = True,
 ) -> ArrayWriteSpec:
   """Gets ArrayWriteSpec for writing."""
   if info.name is None or info.parent_dir is None:
@@ -828,6 +855,7 @@ def build_array_write_spec(
       ocdbt_target_data_file_size=info.ocdbt_target_data_file_size,
       metadata_key=metadata_key,
       ext_metadata=ext_metadata,
+      use_non_atomic_file_io_locking=use_non_atomic_file_io_locking,
   )
 
 
