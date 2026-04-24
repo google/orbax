@@ -281,6 +281,7 @@ class Checkpointer(epy.ContextManager):
       step: int,
       pytree: tree_types.PyTreeOf[tree_types.LeafType],
       *,
+      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
       force: bool = False,
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
@@ -347,6 +348,8 @@ class Checkpointer(epy.ContextManager):
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
+      checkpointable_name: The name of the checkpointable to save a pytree
+        under. Defaults to 'pytree'.
       force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
         always decides to save a checkpoint.
       overwrite: If True, deletes any existing checkpoint at the given step
@@ -363,6 +366,7 @@ class Checkpointer(epy.ContextManager):
     return self.save_pytree_async(
         step,
         pytree,
+        checkpointable_name=checkpointable_name,
         force=force,
         overwrite=overwrite,
         metrics=metrics,
@@ -460,6 +464,7 @@ class Checkpointer(epy.ContextManager):
       step: int,
       pytree: tree_types.PyTreeOf[tree_types.LeafType],
       *,
+      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
       force: bool = False,
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
@@ -483,6 +488,8 @@ class Checkpointer(epy.ContextManager):
     Args:
       step: The step number to save.
       pytree: The PyTree to save.
+      checkpointable_name: The name of the checkpointable to save a pytree
+        under. Defaults to 'pytree'.
       force: See `save_pytree`.
       overwrite: See `save_pytree`.
       metrics: See `save_pytree`.
@@ -494,7 +501,7 @@ class Checkpointer(epy.ContextManager):
     """
     return self.save_checkpointables_async(
         step,
-        {PYTREE_CHECKPOINTABLE_KEY: pytree},
+        {checkpointable_name: pytree},
         force=force,
         overwrite=overwrite,
         metrics=metrics,

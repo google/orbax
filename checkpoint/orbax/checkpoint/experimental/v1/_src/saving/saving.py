@@ -37,6 +37,7 @@ def save_pytree(
     path: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
+    checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ):
@@ -65,6 +66,8 @@ def save_pytree(
       Default supported leaf types include `jax.Array`, `np.ndarray`, simple
       types like `int`, `float`, `str`, and empty nodes. Support for custom
       leaves is also possible by implementing a `LeafTypeHandler`.
+    checkpointable_name: The name of the checkpointable to save a pytree under.
+      Defaults to 'pytree'.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
@@ -73,7 +76,7 @@ def save_pytree(
   """
   execution.save_checkpointables_impl(
       path,
-      {PYTREE_CHECKPOINTABLE_KEY: pytree},
+      {checkpointable_name: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
       async_origin=False,
@@ -149,6 +152,7 @@ def save_pytree_async(
     path: path_types.PathLike,
     pytree: tree_types.PyTreeOf[tree_types.LeafType],
     *,
+    checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
@@ -193,6 +197,8 @@ def save_pytree_async(
       Default supported leaf types include `jax.Array`, `np.ndarray`, simple
       types like `int`, `float`, `str`, and empty nodes. Support for custom
       leaves is also possible by implementing a `LeafTypeHandler`.
+    checkpointable_name: The name of the checkpointable to save a pytree under.
+      Defaults to 'pytree'.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
       Otherwise, raises an error if the checkpoint already exists.
     custom_metadata: User-provided custom metadata. An arbitrary
@@ -205,7 +211,7 @@ def save_pytree_async(
   """
   return execution.save_checkpointables_impl(
       path,
-      {PYTREE_CHECKPOINTABLE_KEY: pytree},
+      {checkpointable_name: pytree},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
       async_origin=True,
