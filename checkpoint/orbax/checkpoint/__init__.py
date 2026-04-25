@@ -18,6 +18,7 @@
 
 import contextlib
 import functools
+import os
 
 from orbax.checkpoint.experimental import v1
 from orbax.checkpoint import arrays
@@ -40,6 +41,7 @@ from orbax.checkpoint import type_handlers
 from orbax.checkpoint import utils
 from orbax.checkpoint import version
 # TODO(cpgaffney): Import the public multihost API.
+from orbax.checkpoint._src.monitoring import monitoring as _orbax_monitoring
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import step
 
@@ -90,3 +92,8 @@ from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
 __version__ = version.__version__
 del version
 
+
+# Autostart Prometheus metrics server if enabled via environment variable.
+# Example: export ENABLE_ORBAX_TELEMETRY=true
+if os.environ.get('ENABLE_ORBAX_TELEMETRY', 'false').lower() == 'true':
+  _orbax_monitoring.initialize(port=9431)
