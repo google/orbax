@@ -58,7 +58,8 @@ class TensorFlowExport(export_base.ExportBase):
     Args:
       model_path: The path to save the model.
       **kwargs: Additional arguments to pass to the `save` method. Accepted
-        arguments are `save_options` and `serving_signatures`.
+        arguments are `save_options`,`serving_signatures`, and
+        `tree_verity_options`.
     """
 
     logging.info('Exporting model using TensorFlow SavedModel.')
