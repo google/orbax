@@ -18,6 +18,7 @@
 
 import contextlib
 import functools
+import os
 
 from orbax.checkpoint.experimental import v1
 from orbax.checkpoint import arrays
@@ -90,3 +91,7 @@ from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
 __version__ = version.__version__
 del version
 
+from orbax.checkpoint._src.logging import monitoring as _orbax_monitoring
+
+_orbax_monitoring.initialize_from_env()
+del _orbax_monitoring
