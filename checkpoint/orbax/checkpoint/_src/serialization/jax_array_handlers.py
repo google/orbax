@@ -107,6 +107,92 @@ def any_jax_array_param_info(param_infos: Pytree) -> types.ParamInfo | None:
   )
 
 
+def _get_underlying_shape_and_dtype(
+    shape: tuple[int, ...], dtype: Any
+) -> jax.ShapeDtypeStruct:
+  """Returns the data shape and dtype for PRNG keys.
+
+  Args:
+    shape: The shape of the array.
+    dtype: The dtype of the array.
+  """
+  return jax.eval_shape(
+      jax.random.key_data, jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
+  )
+
+
+def _downgrade_prng_restore_args(
+    args: Sequence[jax_array_restore_args.ArrayRestoreArgs],
+) -> tuple[Sequence[jax_array_restore_args.ArrayRestoreArgs], bool]:
+  """Downgrades PRNG key restore args to their underlying data representation.
+
+  PRNG key dtypes (e.g. ``key<fry>``) cannot be compiled by Pathways Remote
+  Python. This function replaces PRNG key dtypes and shapes with their
+  underlying data equivalents so the args can be safely dispatched to workers.
+
+  Args:
+    args: Restore args, potentially containing PRNG key dtypes.
+
+  Returns:
+    A tuple of (safe_args, has_prng_key). If no PRNG keys are present,
+    safe_args is the original args unchanged.
+  """
+  is_prng_key = [
+      arg.dtype is not None
+      and jax.dtypes.issubdtype(arg.dtype, jax.dtypes.prng_key)
+      for arg in args
+  ]
+  if not any(is_prng_key):
+    return args, False
+
+  safe_args: list[jax_array_restore_args.ArrayRestoreArgs] = []
+  for arg, is_prng_key in zip(args, is_prng_key, strict=True):
+    if is_prng_key:
+      base_shape_dtype = _get_underlying_shape_and_dtype(
+          arg.global_shape, arg.dtype
+      )
+      safe_args.append(
+          dataclasses.replace(
+              arg,
+              dtype=base_shape_dtype.dtype,
+              global_shape=base_shape_dtype.shape,
+              shape=base_shape_dtype.shape,
+          )
+      )
+    else:
+      safe_args.append(arg)
+  return safe_args, True
+
+
+def _wrap_prng_key_results(
+    results: Sequence[jax.Array],
+    original_args: Sequence[jax_array_restore_args.ArrayRestoreArgs],
+) -> list[jax.Array]:
+  """Wraps raw data arrays back into PRNG key arrays.
+
+  After dispatching deserialization with downgraded args, the returned arrays
+  are raw data (e.g. uint32). This wraps them back into PRNG key arrays using
+  the dtype info from the original (pre-downgrade) restore args.
+
+  Args:
+    results: Data arrays returned from the worker.
+    original_args: Original restore args containing PRNG key dtypes.
+
+  Returns:
+    Arrays with PRNG key entries wrapped back to their original key type.
+  """
+  wrapped = list(results)
+  for i, (arr, orig_arg) in enumerate(zip(results, original_args, strict=True)):
+    if orig_arg.dtype is not None and jax.dtypes.issubdtype(
+        orig_arg.dtype, jax.dtypes.prng_key
+    ):
+      # Access the PRNGImpl's registered name (e.g. 'threefry2x32') for
+      # wrap_key_data, not the short tag from dtype.name (e.g. 'key<fry>').
+      impl = orig_arg.dtype._impl.name  # pytype: disable=attribute-error  # pylint: disable=protected-access
+      wrapped[i] = jax.random.wrap_key_data(arr, impl=impl)
+  return wrapped
+
+
 @functools.lru_cache(maxsize=4096)
 def _is_replicated_sharding(sharding: jax.sharding.Sharding) -> bool:
   """Returns True if the sharding is replicated.
@@ -1234,18 +1320,38 @@ class ArrayHandler(types.TypeHandler):
       args = await self._maybe_read_metadata_and_update_restore_args(
           infos, args
       )
+
+      safe_args, has_prng_key = _downgrade_prng_restore_args(args)
+      # We must disable array_metadata_store on the worker side for PRNG
+      # keys because it would try to wrap the data into a PRNG key on the
+      # worker, which is exactly what fails.
+      worker_array_metadata_store = (
+          None if has_prng_key else self._array_metadata_store
+      )
+
       ret = self._dispatcher.dispatch(
           _sync_deserialize_arrays,
-          result_specs=_get_abstract_arrays(args, shardings),
+          result_specs=_get_abstract_arrays(safe_args, shardings),
           func_kwargs={
               'infos': infos,
-              'args': args,
+              'args': safe_args,
               'shardings': shardings,
               'metadata_key': self._metadata_key,
-              'array_metadata_store': self._array_metadata_store,
+              'array_metadata_store': worker_array_metadata_store,
           },
       )
-      jax.block_until_ready(ret)
+      if has_prng_key:
+        ret = _wrap_prng_key_results(ret, args)
+
+      # Block on key data for PRNGKey arrays, as they are not supported by
+      # jax.block_until_ready() as it will raise an error when some backends
+      # call __array__ on array.
+      jax.block_until_ready([
+          jax.random.key_data(a)
+          if jax.dtypes.issubdtype(a.dtype, jax.dtypes.prng_key)
+          else a
+          for a in ret
+      ])
     if logging.vlog_is_on(1):
       for a in ret:
         logging.vlog(
@@ -1572,23 +1678,35 @@ class SingleReplicaArrayHandler(ArrayHandler):
           primary_replica_devices
       )
       # Step 1: Deserialize arrays on a single replica.
+      safe_args, has_prng_key = _downgrade_prng_restore_args(args)
+
       ret = self._dispatcher.dispatch(
           _single_replica_deserialize_on_worker,
           input_arrays=dummy_input_array,
-          result_specs=_get_abstract_arrays(args, single_replica_shardings),
+          result_specs=_get_abstract_arrays(
+              safe_args, single_replica_shardings
+          ),
           func_kwargs={
               'infos': infos,
-              'args': args,
+              'args': safe_args,
               'single_replica_shardings': single_replica_shardings,
               'metadata_key': self._metadata_key,
           },
       )
+      if has_prng_key:
+        ret = _wrap_prng_key_results(ret, args)
+
       # Step 2: Use `jax.device_put` to broadcast/reshard the data to all
       # devices according to the final desired sharding. This is the equivalent
       # of multislice.broadcast_one_replica_to_all in non-dispatcher based
       # implementation.
       ret = jax.tree.map(jax.device_put, ret, shardings)
-      jax.block_until_ready(ret)
+      jax.block_until_ready([
+          jax.random.key_data(a)
+          if jax.dtypes.issubdtype(a.dtype, jax.dtypes.prng_key)
+          else a
+          for a in ret
+      ])
 
     return ret
 
