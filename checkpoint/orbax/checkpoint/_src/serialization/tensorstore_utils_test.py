@@ -33,12 +33,20 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
   def test_ocdbt_target_data_file_size_none(self):
     kvstore_tspec = {}
     ts_utils.add_ocdbt_write_options(kvstore_tspec, target_data_file_size=None)
-    self.assertNotIn('target_data_file_size', kvstore_tspec)
+    self.assertIn('target_data_file_size', kvstore_tspec)
+    self.assertEqual(
+        kvstore_tspec['target_data_file_size'],
+        ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
 
   def test_ocdbt_target_data_file_size_none_is_default(self):
     kvstore_tspec = {}
     ts_utils.add_ocdbt_write_options(kvstore_tspec)
-    self.assertNotIn('target_data_file_size', kvstore_tspec)
+    self.assertIn('target_data_file_size', kvstore_tspec)
+    self.assertEqual(
+        kvstore_tspec['target_data_file_size'],
+        ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
 
   def test_ocdbt_target_data_file_size_rejects_negative_value(self):
     with self.assertRaises(ValueError):
@@ -55,6 +63,54 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
     )
     self.assertEqual(
         kvstore_tspec['target_data_file_size'], target_data_file_size
+    )
+
+
+class GetBackendOcdbtTargetDataFileSizeTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='none_spec',
+          kvstore_spec=None,
+          expected_size=ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_gcs_str',
+          kvstore_spec={'base': 'gs://bucket/path'},
+          expected_size=ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_local_str',
+          kvstore_spec={'base': '/tmp/path'},
+          expected_size=ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_gcs_driver_dict',
+          kvstore_spec={'base': {'driver': 'gcs', 'bucket': 'bucket'}},
+          expected_size=ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_dict_with_gcs_path',
+          kvstore_spec={'base': {'driver': 'file', 'path': 'gs://bucket/path'}},
+          expected_size=ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_dict_with_local_path',
+          kvstore_spec={'base': {'driver': 'file', 'path': '/tmp/path'}},
+          expected_size=ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='spec_without_base',
+          kvstore_spec={},
+          expected_size=ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+  )
+  def test_get_backend_ocdbt_target_data_file_size(
+      self, kvstore_spec, expected_size
+  ):
+    self.assertEqual(
+        ts_utils._get_backend_ocdbt_target_data_file_size(kvstore_spec),
+        expected_size,
     )
 
 
@@ -231,11 +287,39 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         os.path.join(expected_directory or directory, 'ocdbt.process_0'),
     )
     self.assertEqual(kvstore_tspec['path'], self.param_name)
+    self.assertEqual(
+        kvstore_tspec['target_data_file_size'],
+        ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
 
-  @parameterized.product(use_zarr3=(True, False))
-  def test_ocdbt_kvstore_default_target_data_file_size(self, use_zarr3: bool):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='zarr3_None',
+          use_zarr3=True,
+          directory_override=None,
+      ),
+      dict(
+          testcase_name='zarr3_tfhub',
+          use_zarr3=True,
+          directory_override='/tfhub/prod/model',
+      ),
+      dict(
+          testcase_name='no_zarr3_None',
+          use_zarr3=False,
+          directory_override=None,
+      ),
+      dict(
+          testcase_name='no_zarr3_tfhub',
+          use_zarr3=False,
+          directory_override='/tfhub/prod/model',
+      ),
+  )
+  def test_ocdbt_kvstore_default_target_data_file_size(
+      self, use_zarr3: bool, directory_override: str | None
+  ):
+    directory = directory_override or self.directory
     tspec = self.array_write_spec_constructor(
-        directory=self.directory,
+        directory=directory,
         relative_array_filename=self.param_name,
         use_zarr3=use_zarr3,
         use_ocdbt=True,
@@ -244,7 +328,11 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
     self.assertTrue(tspec.metadata.use_ocdbt)
     self.assertEqual(tspec.json['kvstore']['driver'], 'ocdbt')
-    self.assertNotIn('target_data_file_size', tspec.json['kvstore'])
+    self.assertIn('target_data_file_size', tspec.json['kvstore'])
+    self.assertEqual(
+        tspec.json['kvstore']['target_data_file_size'],
+        ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
 
   @parameterized.named_parameters(
       dict(testcase_name='none', target_data_file_size=None),
@@ -267,7 +355,11 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     kvstore_tspec = tspec.json['kvstore']
     self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     if target_data_file_size is None:
-      self.assertNotIn('target_data_file_size', kvstore_tspec)
+      self.assertIn('target_data_file_size', kvstore_tspec)
+      self.assertEqual(
+          kvstore_tspec['target_data_file_size'],
+          ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      )
     else:
       self.assertEqual(
           kvstore_tspec['target_data_file_size'], target_data_file_size
@@ -592,6 +684,50 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           math.prod(chunk_shape) * self.dtype.itemsize,
           expected_chunk_byte_size_limit,
       )
+
+  @parameterized.product(
+      chunk_byte_size=[None, 512 * 2**20],
+      use_zarr3=[True, False],
+  )
+  def test_gcs_chunk_byte_size_is_adjusted_for_target_data_file_size(
+      self,
+      chunk_byte_size: int | None,
+      use_zarr3: bool,
+  ):
+    gcs_dir = 'gs://gcs_bucket/object_path'
+    self.shape = (8 * 1024, 2 * 1024, 4 * 1024)
+    self.write_shape = (2 * 1024, 1024, 2 * 1024)
+    storage_dtype = self.dtype
+
+    tspec = ts_utils.ArrayWriteSpec(
+        directory=gcs_dir,
+        relative_array_filename=self.param_name,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=self.dtype,
+        target_dtype=None,
+        chunk_byte_size=chunk_byte_size,
+        use_zarr3=use_zarr3,
+        use_ocdbt=True,
+        process_id='w13',
+        ocdbt_target_data_file_size=None,
+    )
+    self.assertEqual(tspec.metadata.dtype, storage_dtype)
+    chunk_shape = self._get_chunk_shape_from_tspec(
+        tspec.json,
+        use_zarr3=use_zarr3,
+    )
+    np.testing.assert_array_equal(chunk_shape, tspec.metadata.chunk_shape)
+    self.assertTrue(
+        subchunking.validate_divisible_shapes(self.write_shape, chunk_shape),
+        f'Write shape {self.write_shape} is not divisible by chunk shape'
+        f' {chunk_shape}.',
+    )
+
+    self.assertLessEqual(
+        math.prod(chunk_shape) * storage_dtype.itemsize,
+        ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
 
   def test_maybe_cloud_storage(self):
     gs_path = 'gs://some-buck/path'

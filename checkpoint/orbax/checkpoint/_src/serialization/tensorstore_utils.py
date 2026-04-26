@@ -34,9 +34,9 @@ from orbax.checkpoint._src.metadata import array_metadata
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
-
 
 JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = arrays_types.Shape
@@ -51,6 +51,7 @@ PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
 REPLICA_SUBDIR_SUFFIX = 'replica_'
 _OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
+_GCS_OCDBT_TARGET_DATA_FILE_SIZE = 400 * 2**20  # 400 MiB
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
@@ -240,19 +241,45 @@ def build_kvstore_tspec_for_merge(
   )
 
 
+def _get_backend_ocdbt_target_data_file_size(
+    kvstore_spec: JsonSpec | None,
+) -> int:
+  """Gets OCDBT target data file size based on kvstore spec."""
+  if kvstore_spec is None:
+    return _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+  base = kvstore_spec.get('base')
+
+  if isinstance(base, str):
+    # OCDBT base is generally a string when it's a GCS path.
+    if gcs_utils.is_gcs_path(epath.Path(base)):
+      return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
+  elif isinstance(base, dict):
+    # OCDBT base can also be a dict with 'driver' and 'path' keys.
+    if base.get('driver') == 'gcs':
+      return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
+    path_str = base.get('path')
+    if path_str and gcs_utils.is_gcs_path(epath.Path(path_str)):
+      return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
+
+  return _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+
+
 def add_ocdbt_write_options(
     kvstore_tspec: JsonSpec,
     target_data_file_size: int | None = None,
 ) -> None:
   """Adds write-specific options to a TensorStore OCDBT KVStore spec."""
-  if target_data_file_size is not None:
-    # TODO: b/354139177 - disallow too small values, too.
-    if target_data_file_size < 0:
-      raise ValueError(
-          'OCDBT target_data_file_size must be >= 0, where 0 means no limit'
-          f'; got {target_data_file_size}'
-      )
-    kvstore_tspec['target_data_file_size'] = target_data_file_size
+  if target_data_file_size is None:
+    target_data_file_size = _get_backend_ocdbt_target_data_file_size(
+        kvstore_tspec
+    )
+  # TODO: b/354139177 - Disallow too small values, too.
+  if target_data_file_size < 0:
+    raise ValueError(
+        'OCDBT target_data_file_size must be >= 0, where 0 means no limit'
+        f'; got {target_data_file_size}'
+    )
+  kvstore_tspec['target_data_file_size'] = target_data_file_size
 
   kvstore_tspec['config'] = {
       # Store .zarray metadata inline but not large chunks.
@@ -342,13 +369,14 @@ def calculate_chunk_byte_size(
     *,
     chunk_byte_size: int | None,
     ocdbt_target_data_file_size: int | None = None,
+    kvstore_spec: JsonSpec | None = None,
 ) -> int | None:
   """Selects chunk byte size to fit both target data file and chunk sizes."""
   # Check if the chunk size would exceed ocdbt target file size.
   if ocdbt_target_data_file_size is None:
-    # Set to default used by TensorStore
-    # (from https://google.github.io/tensorstore/kvstore/ocdbt/index.html).
-    ocdbt_target_data_file_size = _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
+    ocdbt_target_data_file_size = _get_backend_ocdbt_target_data_file_size(
+        kvstore_spec
+    )
 
   if ocdbt_target_data_file_size == 0:
     # No limit.
@@ -509,6 +537,7 @@ class ArrayWriteSpec:
           target_storage_dtype,
           chunk_byte_size=chunk_byte_size,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+          kvstore_spec=tspec['kvstore'],
       )
     # Choose chunk shape.
     chunk_shape = subchunking.choose_chunk_shape(
@@ -719,6 +748,7 @@ def get_json_tspec_write(
         dtype,
         chunk_byte_size=chunk_byte_size,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        kvstore_spec=tspec['kvstore'],
     )
 
   chunk_shape = subchunking.choose_chunk_shape(
