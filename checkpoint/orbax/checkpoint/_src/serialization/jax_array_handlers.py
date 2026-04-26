@@ -234,6 +234,7 @@ def _worker_serialize_arrays(
     ext_metadata: Dict[str, Any],
 ):
   """Worker function to serialize arrays."""
+  start_time = time.time()
   rslices_per_array = _get_replica_slices(
       arrays,
       replica_id,
@@ -241,7 +242,9 @@ def _worker_serialize_arrays(
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
   )
+  logging.info('_get_replica_slices took %f seconds', time.time() - start_time)
 
+  start_time = time.time()
   asyncio_utils.run_sync(
       _async_serialize_replica_slices(
           rslices_per_array,
@@ -254,6 +257,10 @@ def _worker_serialize_arrays(
           use_replica_parallel=use_replica_parallel,
           ext_metadata=ext_metadata,
       )
+  )
+  logging.info(
+      '_async_serialize_replica_slices (run_sync) took %f seconds',
+      time.time() - start_time,
   )
 
 
@@ -469,30 +476,44 @@ def _serialize_arrays(
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
     ):
-      ret = dispatcher.dispatch(
-          _worker_serialize_arrays,
-          input_arrays=batch_arrays,
-          func_kwargs={
-              'infos': batch_infos,
-              'args': batch_args,
-              'replica_id': replica_id,
-              'use_replica_parallel': use_replica_parallel,
-              'min_slice_bytes_for_replica_parallel': (
-                  min_slice_bytes_for_replica_parallel
-              ),
-              'max_replicas_for_replica_parallel': (
-                  max_replicas_for_replica_parallel
-              ),
-              'primary_host': primary_host,
-              'metadata_key': metadata_key,
-              'array_metadata_store': array_metadata_store,
-              'enable_replica_parallel_separate_folder': (
-                  enable_replica_parallel_separate_folder
-              ),
-              'ext_metadata': ext_metadata,
-          },
+      logging.info(
+          '_serialize_batch: starting dispatch for %d arrays with'
+          ' dispatcher %s',
+          len(batch_arrays),
+          dispatcher.name(),
       )
-      jax.block_until_ready(ret)
+      try:
+        ret = dispatcher.dispatch(
+            _worker_serialize_arrays,
+            input_arrays=batch_arrays,
+            func_kwargs={
+                'infos': batch_infos,
+                'args': batch_args,
+                'replica_id': replica_id,
+                'use_replica_parallel': use_replica_parallel,
+                'min_slice_bytes_for_replica_parallel': (
+                    min_slice_bytes_for_replica_parallel
+                ),
+                'max_replicas_for_replica_parallel': (
+                    max_replicas_for_replica_parallel
+                ),
+                'primary_host': primary_host,
+                'metadata_key': metadata_key,
+                'array_metadata_store': array_metadata_store,
+                'enable_replica_parallel_separate_folder': (
+                    enable_replica_parallel_separate_folder
+                ),
+                'ext_metadata': ext_metadata,
+            },
+        )
+        logging.info(
+            '_serialize_batch: successfully dispatched, blocking until ready'
+        )
+        jax.block_until_ready(ret)
+        logging.info('_serialize_batch: finished block_until_ready')
+      except Exception as e:
+        logging.error('_serialize_batch: dispatcher failed with error: %s', e)
+        raise
 
     # Enqueue D2H operation for prioritized values.
     if prioritized:
@@ -518,12 +539,28 @@ def _serialize_arrays(
 
     all_infos = infos
     async def _serialize():
+      logging.info(
+          '_serialize (async): awaiting path creation for %d items',
+          len(all_infos),
+      )
       for info in all_infos:
         await info.await_path_creation()
+      logging.info('_serialize (async): finished awaiting path creation')
       if prioritized:
+        logging.info(
+            '_serialize (async): processing prioritized batch of size %d',
+            len(prioritized),
+        )
         arrays, infos, args = zip(*prioritized)
         _serialize_batch(infos, args, arrays)
+        logging.info(
+            '_serialize (async): finished processing prioritized batch'
+        )
       if deprioritized:
+        logging.info(
+            '_serialize (async): processing deprioritized items with limit=%s',
+            device_host_max_bytes,
+        )
         assert device_host_max_bytes is not None
         for (
             b_arrays,
@@ -535,7 +572,15 @@ def _serialize_arrays(
             replica_id=replica_id,
             dispatcher=dispatcher,
         ):
+          logging.info(
+              '_serialize (async): processing deprioritized chunk of size %d',
+              len(b_arrays),
+          )
           _serialize_batch(b_infos, b_args, b_arrays)
+          logging.info(
+              '_serialize (async): finished processing deprioritized chunk'
+          )
+      logging.info('_serialize (async): all batches processed successfully')
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(),
@@ -591,16 +636,15 @@ async def _async_serialize_replica_slices(
     tspec = array_write_spec.json
     ts_context = info.ts_context
 
-    if logging.vlog_is_on(1):
-      logging.vlog(1, 'info: %s', info)
-      logging.vlog(1, 'arg: %s', arg)
-      logging.vlog(
-          1,
+    if True:  # pylint: disable=using-constant-test
+      logging.info('info: %s', info)
+      logging.info('arg: %s', arg)
+      logging.info(
           'value.global_shape: %s, value.sharding: %s',
           value.global_shape,
           value.sharding,
       )
-      logging.vlog(1, 'tspec: %s', tspec)
+      logging.info('tspec: %s', tspec)
 
     write_coros.append(
         serialization.async_serialize_from_host(
@@ -622,7 +666,12 @@ async def _async_serialize_replica_slices(
         )
     )
 
+  start_time = time.time()
   await asyncio.gather(*write_coros)
+  logging.info(
+      '_async_serialize_replica_slices: asyncio.gather took %f seconds',
+      time.time() - start_time,
+  )
   if ocdbt_transaction is not None:
     await ocdbt_transaction.commit_async()
 
@@ -634,7 +683,7 @@ def _wrap_random_key_data(
 ) -> Sequence[jax.Array]:
   """Parse array_metadatas and wrap deserialized_arrays as random keys."""
 
-  logging.vlog(1, 'array_metadatas = %s', array_metadatas)
+  logging.info('array_metadatas = %s', array_metadatas)
   if not isinstance(array_metadatas, Dict):
     raise ValueError(
         'Expecting array_metadatas to be a "Dict" but got'
@@ -657,8 +706,7 @@ def _wrap_random_key_data(
 
       if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):  # pytype: disable=attribute-error
         deserialized_arrays[i] = jax.random.wrap_key_data(v, impl=impl)
-        logging.vlog(
-            1,
+        logging.info(
             '%s: recreated as a random key: %s',
             info.name,
             deserialized_arrays[i],
@@ -786,12 +834,12 @@ async def _deserialize_arrays(
           if jax.dtypes.issubdtype(arg.dtype, jax.dtypes.prng_key)
           else arg.dtype
       )
-      if logging.vlog_is_on(1):
-        logging.vlog(1, 'tspec = %s', tspec)
-        logging.vlog(1, 'info = %s', info)
-        logging.vlog(1, 'arg = %s', arg)
-        logging.vlog(1, 'dtype = %s', dtype)
-        logging.vlog(1, 'sharding = %s', sharding)
+      if True:  # pylint: disable=using-constant-test
+        logging.info('tspec = %s', tspec)
+        logging.info('info = %s', info)
+        logging.info('arg = %s', arg)
+        logging.info('dtype = %s', dtype)
+        logging.info('sharding = %s', sharding)
       deserialize_ops.append(
           serialization.async_deserialize(
               sharding,

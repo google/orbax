@@ -16,6 +16,7 @@
 
 import abc
 from collections.abc import Sequence
+import time
 from typing import Any, Callable
 
 from absl import logging
@@ -95,9 +96,8 @@ def _make_dummy_result_array(
 
 
 def _vlog_dispatch(fn: Callable[..., Any], dispatcher_name: str):
-  if logging.vlog_is_on(1):
-    logging.vlog(
-        1,
+  if True:  # pylint: disable=using-constant-test
+    logging.info(
         'Executing function %r via %s on process=%s/%s',
         fn,
         dispatcher_name,
@@ -228,13 +228,36 @@ class ColocatedPythonDispatcher(Dispatcher):
 
     @cp.colocated_python
     def _cp_wrapper(inp: PyTree) -> PyTree:
+      logging.info(
+          'Entering _cp_wrapper on process=%s/%s for func=%s',
+          multihost.process_index(),
+          multihost.process_count(),
+          func,
+      )
       _vlog_dispatch(func, 'ColocatedPythonDispatcher')
       args = (inp,) + cpu_args if is_input_arrays_provided else cpu_args
+      logging.info(
+          '_cp_wrapper: about to execute user function with %d args, %d kwargs',
+          len(args),
+          len(cpu_kwargs),
+      )
+      start_time = time.time()
       if is_func_output_discarded:
         func(*args, **cpu_kwargs)
-        return _make_dummy_result_array(inp)
+        res = _make_dummy_result_array(inp)
       else:
-        return func(*args, **cpu_kwargs)
+        res = func(*args, **cpu_kwargs)
+      logging.info(
+          'Worker execution of %r took %f seconds',
+          func,
+          time.time() - start_time,
+      )
+      logging.info(
+          'Exiting _cp_wrapper on process=%s/%s',
+          multihost.process_index(),
+          multihost.process_count(),
+      )
+      return res
 
     result_specs = result_specs or _make_dummy_result_array(
         input_arrays, abstract=True
@@ -244,7 +267,25 @@ class ColocatedPythonDispatcher(Dispatcher):
         out_specs_fn=lambda _: cpu_result_specs
     )
 
-    result = specialized_wrapper(self.to_colocated_python(input_arrays))
-    return self._to_final_specs(result, result_specs)
+    start_time = time.time()
+    input_on_cpu = self.to_colocated_python(input_arrays)
+    logging.info(
+        'to_colocated_python took %f seconds', time.time() - start_time
+    )
+
+    start_time = time.time()
+    result = specialized_wrapper(input_on_cpu)
+    logging.info(
+        'specialized_wrapper took %f seconds', time.time() - start_time
+    )
+
+    start_time = time.time()
+    final_result = self._to_final_specs(result, result_specs)
+    logging.info(
+        '_to_final_specs took %f seconds, result_specs=%s',
+        time.time() - start_time,
+        result_specs,
+    )
+    return final_result
 
 
