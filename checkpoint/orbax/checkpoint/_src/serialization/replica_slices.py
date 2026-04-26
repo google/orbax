@@ -18,7 +18,7 @@ import collections
 import dataclasses
 import functools
 import math
-from typing import Optional, Sequence
+from typing import cast, Optional, Sequence
 
 from absl import logging
 import jax
@@ -27,7 +27,6 @@ from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
-
 
 Shape = types.Shape
 Index = types.Index
@@ -386,6 +385,58 @@ def get_replica_slices(
       is_on_host=False,
       replica_slices=rslices,
   )
+
+
+def filter_arrays_to_replica(
+    arrays: Sequence[jax.Array],
+    replica_id: int,
+    use_replica_parallel: bool,
+    min_slice_bytes_for_replica_parallel: Optional[int] = None,
+    max_replicas_for_replica_parallel: Optional[int] = None,
+) -> tuple[Sequence[jax.Array], Sequence[ReplicaSlices]]:
+  """Pre-filter arrays to only let the data of this replica gets serialized."""
+  filtered_arrays: list[jax.Array] = []
+  rslices_list: list[ReplicaSlices] = []
+
+  for arr in arrays:
+    rslices = get_replica_slices(
+        arr,
+        replica_id,
+        use_replica_parallel,
+        min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel,
+    )
+    rslices_list.append(rslices)
+    if not rslices.replica_slices:
+      filtered_arrays.append(arr)
+      continue
+
+    has_sub_slicing = any(
+        rs.slice_args is not None for rs in rslices.replica_slices
+    )
+    if not has_sub_slicing and len(rslices.replica_slices) == len(
+        arr.addressable_shards
+    ):
+      filtered_arrays.append(arr)
+      continue
+
+    shard_data_list: list[jax.Array] = []
+    for rslice in rslices.replica_slices:
+      shard_data_list.append(cast(jax.Array, rslice.data()))
+
+    devices = np.array([sd.device for sd in shard_data_list])
+    mesh = jax.sharding.Mesh(devices, ('d',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('d'))
+
+    total_elements = sum(sd.size for sd in shard_data_list)
+    compact_shape = (total_elements,)
+
+    flat_shards = [sd.reshape(-1) for sd in shard_data_list]
+    compact_arr = jax.make_array_from_single_device_arrays(
+        compact_shape, sharding, flat_shards
+    )
+    filtered_arrays.append(compact_arr)
+  return filtered_arrays, rslices_list
 
 
 def transfer_arrays_to_host(
