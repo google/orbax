@@ -32,6 +32,7 @@ dependencies = [
     'tensorstore >= 0.1.74',
     'aiofiles',
     'protobuf',
+    'grpcio-tools',
     'humanize',
     'simplejson >= 3.16.0',
     'psutil',
