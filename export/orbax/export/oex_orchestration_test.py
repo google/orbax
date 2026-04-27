@@ -20,6 +20,8 @@ from absl.testing import parameterized
 from orbax.export import oex_orchestration
 from orbax.export import typing as oex_typing
 from orbax.export.data_processors import data_processor_base
+from orbax.export.data_processors import jax_data_processor
+from orbax.export.data_processors import tf_data_processor
 from orbax.export.modules import obm_module
 from orbax.export.protos import oex_orchestration_pb2
 import tensorflow as tf
@@ -34,7 +36,7 @@ def tf_t(shape, name=None, dtype=tf.float32):
   return tf.TensorSpec(shape=shape, dtype=dtype, name=name)
 
 
-class TestProcessor(data_processor_base.DataProcessor):
+class TestJaxProcessor(jax_data_processor.JaxDataProcessor):
 
   def __init__(
       self,
@@ -42,10 +44,28 @@ class TestProcessor(data_processor_base.DataProcessor):
       input_keys: Set[str] = frozenset(),
       output_keys: Set[str] = frozenset(),
   ):
-    super().__init__(name=name, input_keys=input_keys, output_keys=output_keys)
+    super().__init__(
+        name=name,
+        processor_callable=lambda x: x,
+        input_keys=input_keys,
+        output_keys=output_keys,
+    )
 
-  def prepare(self, input_signature):
-    pass
+
+class TestTfProcessor(tf_data_processor.TfDataProcessor):
+
+  def __init__(
+      self,
+      name: str = "",
+      input_keys: Set[str] = frozenset(),
+      output_keys: Set[str] = frozenset(),
+  ):
+    super().__init__(
+        name=name,
+        processor_callable=lambda x: x,
+        input_keys=input_keys,
+        output_keys=output_keys,
+    )
 
 
 class MockObmModule:
