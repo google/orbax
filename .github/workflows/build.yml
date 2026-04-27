@@ -117,7 +117,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@v3
       with:
         version: '3.x'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -190,7 +190,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@v3
       with:
         version: '3.x'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
