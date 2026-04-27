@@ -185,7 +185,7 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = False,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ):
     self._tmp_path = temporary_path
     self._final_path = final_path
@@ -194,11 +194,12 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
     self._checkpoint_metadata_store = checkpoint_metadata_store
     self._path_permission_mode = file_options.path_permission_mode
     self._snapshot = None
-    if use_snapshot:
+    if snapshot_type is not None:
       self._snapshot = snapshot_lib.create_instance(
           source=final_path,
           snapshot=temporary_path,
           set_immutable=False,
+          snapshot_type=snapshot_type,
       )
 
   def get(self) -> epath.Path:
@@ -347,7 +348,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
       temporary_path: epath.Path,
       *,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> ReadOnlyTemporaryPath:
     """Not implemented for ReadOnlyTemporaryPath."""
     raise NotImplementedError(
@@ -363,7 +364,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> ReadOnlyTemporaryPath:
     """Not implemented for ReadOnlyTemporaryPath."""
     raise NotImplementedError(
@@ -403,9 +404,7 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
 
 async def _shared_validate(class_name: str, path: epath.Path):
   if not await async_path.is_dir(path):
-    raise ValidationError(
-        f'Expected {class_name} ({path}) to be a directory.'
-    )
+    raise ValidationError(f'Expected {class_name} ({path}) to be a directory.')
   if not await async_path.exists(path):
     raise ValidationError(f'Expected {class_name} ({path}) to exist.')
 
@@ -456,9 +455,7 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
       cls,
       temporary_path: epath.Path,
   ):
-    await validate_atomic_rename_temporary_path(
-        cls.__name__, temporary_path
-    )
+    await validate_atomic_rename_temporary_path(cls.__name__, temporary_path)
 
   @classmethod
   async def validate_final(
@@ -473,13 +470,13 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
       temporary_path: epath.Path,
       *,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> AtomicRenameTemporaryPath:
     return cls(
         temporary_path,
         _get_final_directory(temporary_path),
         file_options=file_options,
-        use_snapshot=use_snapshot,
+        snapshot_type=snapshot_type,
     )
 
   @classmethod
@@ -491,21 +488,21 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> AtomicRenameTemporaryPath:
     return cls(
         _get_tmp_directory(final_path),
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
-        use_snapshot=use_snapshot,
+        snapshot_type=snapshot_type,
     )
 
   def get_final(self) -> epath.Path:
     return self._final_path
 
   async def create(self) -> epath.Path:
-    """Creates a non-deterministic tmp directory for saving for given `final_dir`.
+    """Creates a non-deterministic tmp directory for saving given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
 
@@ -600,13 +597,13 @@ class CommitFileTemporaryPath(TemporaryPathBase):
       temporary_path: epath.Path,
       *,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> CommitFileTemporaryPath:
     return cls(
         temporary_path,
         temporary_path,
         file_options=file_options,
-        use_snapshot=use_snapshot,
+        snapshot_type=snapshot_type,
     )
 
   @classmethod
@@ -618,9 +615,9 @@ class CommitFileTemporaryPath(TemporaryPathBase):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> CommitFileTemporaryPath:
-    if use_snapshot:
+    if snapshot_type is not None:
       raise ValueError('Snapshot is not supported for CommitFileTemporaryPath.')
 
     return cls(
@@ -628,13 +625,14 @@ class CommitFileTemporaryPath(TemporaryPathBase):
         final_path,
         checkpoint_metadata_store=checkpoint_metadata_store,
         file_options=file_options,
+        snapshot_type=snapshot_type,
     )
 
   def get_final(self) -> epath.Path:
     return self._final_path
 
   async def create(self) -> epath.Path:
-    """Creates a non-deterministic tmp directory for saving for given `final_dir`.
+    """Creates a non-deterministic tmp directory for saving given `final_dir`.
 
     Also writes checkpoint metadata in the tmp directory.
 

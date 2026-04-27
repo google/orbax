@@ -891,7 +891,7 @@ class MockDeferredWritableTemporaryPath(
       *,
       checkpoint_metadata_store=None,
       file_options=None,
-      use_snapshot=None,
+      snapshot_type=None,
   ):
     return cls(
         final_path,
@@ -901,7 +901,7 @@ class MockDeferredWritableTemporaryPath(
 
   @classmethod
   def from_temporary(
-      cls, temporary_path, *, file_options=None, use_snapshot=None
+      cls, temporary_path, *, file_options=None, snapshot_type=None
   ):
     raise NotImplementedError
 

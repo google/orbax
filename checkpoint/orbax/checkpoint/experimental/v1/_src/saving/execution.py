@@ -30,6 +30,7 @@ from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -333,10 +334,12 @@ class _TemporaryPathAwaitingCreation:
       path: path_types.Path,
       subdirectories: Iterable[str],
       *,
-      use_snapshot: bool,
+      snapshot_type: snapshot_lib.SnapshotType | None,
   ):
     self._temporary_path = saving_path_utils.get_temporary_path(
-        path, context=context_lib.get_context(), use_snapshot=use_snapshot
+        path,
+        context=context_lib.get_context(),
+        snapshot_type=snapshot_type,
     )
     self._temporary_path_awaiting_creation = (
         path_async_utils.PathAwaitingCreation.build(
@@ -389,10 +392,11 @@ def save_checkpointables_impl(
       checkpointables, context=context
   )
   subdirectories = [] if path_exists else checkpointables.keys()
+  snapshot_type = snapshot_lib.SnapshotType.IN_PLACE if path_exists else None
   temporary_path = _TemporaryPathAwaitingCreation(
       path,
       subdirectories=subdirectories,
-      use_snapshot=path_exists,
+      snapshot_type=snapshot_type,
   )
   background_awaitable = asyncio_utils.run_sync(
       _run_blocking_save(

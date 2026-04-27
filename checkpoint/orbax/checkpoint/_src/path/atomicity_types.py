@@ -21,9 +21,11 @@ paths, which allow other implementations.
 from __future__ import annotations
 
 import abc
+
 from etils import epath
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 
 
@@ -72,7 +74,7 @@ class TemporaryPath(abc.ABC):
       temporary_path: epath.Path,
       *,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a temporary path."""
     ...
@@ -87,7 +89,7 @@ class TemporaryPath(abc.ABC):
           checkpoint_metadata.MetadataStore | None
       ) = None,
       file_options: options_lib.FileOptions | None = None,
-      use_snapshot: bool | None = None,
+      snapshot_type: snapshot_lib.SnapshotType | None = None,
   ) -> TemporaryPath:
     """Creates a TemporaryPath from a final path."""
     ...

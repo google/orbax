@@ -18,6 +18,7 @@ from absl import logging
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
@@ -28,14 +29,14 @@ def get_temporary_path(
     path: path_types.Path,
     *,
     context: context_lib.Context,
-    use_snapshot: bool | None = None,
+    snapshot_type: snapshot_lib.SnapshotType | None = None,
 ) -> atomicity_types.TemporaryPath:
   """Gets a :py:class:`~.atomicity_types.TemporaryPath` for the given path.
 
   Args:
     path: The final path to use for the checkpoint.
     context: The Orbax context.
-    use_snapshot: Whether to use snapshotting for the temporary path.
+    snapshot_type: The type of snapshot to use for the temporary path.
 
   Returns:
     A TemporaryPath for the given path.
@@ -50,7 +51,7 @@ def get_temporary_path(
       # writing.
       checkpoint_metadata_store=None,
       file_options=context.file_options.v0(),
-      use_snapshot=use_snapshot,
+      snapshot_type=snapshot_type,
   )
   return tmpdir
 

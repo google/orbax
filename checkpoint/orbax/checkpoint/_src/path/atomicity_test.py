@@ -24,6 +24,7 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 
 AtomicRenameTemporaryPath = atomicity.AtomicRenameTemporaryPath
@@ -80,7 +81,9 @@ class AtomicRenameTemporaryPathTest(
     path.mkdir(parents=True)
 
     (path / 'foo').write_text('bar')
-    tmp_path = AtomicRenameTemporaryPath.from_final(path, use_snapshot=True)
+    tmp_path = AtomicRenameTemporaryPath.from_final(
+        path, snapshot_type=snapshot_lib.SnapshotType.IN_PLACE
+    )
     self.assertIsNotNone(tmp_path._snapshot)
 
     await tmp_path.create()
@@ -150,7 +153,9 @@ class CommitFileTemporaryPathTest(
   async def test_finalize_with_snapshot_raises(self):
     path = self.directory / 'ckpt'
     with self.assertRaises(ValueError):
-      CommitFileTemporaryPath.from_final(path, use_snapshot=True)
+      CommitFileTemporaryPath.from_final(
+          path, snapshot_type=snapshot_lib.SnapshotType.IN_PLACE
+      )
 
 
 class ReadOnlyTemporaryPathTest(
