@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 import dataclasses
 import enum
 import itertools
-import logging
+from absl import logging
 import jax
 from jax import export as jax_export
 

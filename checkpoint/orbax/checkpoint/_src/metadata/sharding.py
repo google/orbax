@@ -20,7 +20,7 @@ import abc
 import dataclasses
 import enum
 import json
-import logging
+from absl import logging
 from typing import Any, List, Mapping, Optional, Sequence, Tuple, Union
 
 import jax
