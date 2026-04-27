@@ -66,7 +66,7 @@ class CheckpointManagerTest(
         ).full_path
     )
     self.persistent_directory = epath.Path(
-        self.create_tempdir(name='persistent_checkpointing_test').full_path
+        self.multiprocess_create_tempdir(name='persistent_checkpointing_test')
     )
 
     self.assertEqual(jax.device_count(), 8)

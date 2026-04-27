@@ -138,10 +138,12 @@ class CheckpointManagerTest(
         self.axes_tree,
     )
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpoint_manager_test').full_path
+        self.multiprocess_create_tempdir(name='checkpoint_manager_test')
     )
     self.secondary_directory = epath.Path(
-        self.create_tempdir(name='checkpoint_manager_test_secondary').full_path
+        self.multiprocess_create_tempdir(
+            name='checkpoint_manager_test_secondary'
+        )
     )
     test_utils.set_tensorstore_driver_for_test()
 

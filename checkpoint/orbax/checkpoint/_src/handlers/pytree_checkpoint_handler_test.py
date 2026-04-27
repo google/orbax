@@ -131,7 +131,7 @@ class PyTreeCheckpointHandlerTest(
         _create_restore_args, pytree, mesh_tree, axes_tree
     )
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_test').full_path
+        self.multiprocess_create_tempdir(name='checkpointing_test')
     )
     self.pytree_metadata_options = tree_metadata.PyTreeMetadataOptions(
         support_rich_types=False
@@ -2567,7 +2567,7 @@ class PyTreeCheckpointHandlerTest(
     }
 
     simple_dir = epath.Path(
-        self.create_tempdir(name='simple_placeholder_dir').full_path
+        self.multiprocess_create_tempdir(name='simple_placeholder_dir')
     )
 
     handler = PyTreeCheckpointHandler()

@@ -52,7 +52,7 @@ class ArrayCheckpointHandlerTest(
     super().setUp()
     self.devices = np.asarray(jax.devices())
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_test').full_path
+        self.multiprocess_create_tempdir(name='checkpointing_test')
     )
 
     test_utils.sync_global_processes(

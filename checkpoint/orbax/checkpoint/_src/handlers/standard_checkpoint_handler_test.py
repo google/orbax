@@ -94,7 +94,7 @@ class StandardCheckpointHandlerTestBase(
     }
 
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_test').full_path
+        self.multiprocess_create_tempdir(name='checkpointing_test')
     )
     test_utils.set_tensorstore_driver_for_test()
 
@@ -637,7 +637,7 @@ class StandardCheckpointHandlerTestJaxRandomKeys(
     self.zeros_pytree, _, _ = test_utils.setup_sharded_pytree(zeros_pytree)
 
     self.directory = epath.Path(
-        self.create_tempdir(name='checkpointing_random_keys_test').full_path
+        self.multiprocess_create_tempdir(name='checkpointing_random_keys_test')
     )
     test_utils.set_tensorstore_driver_for_test()
 
