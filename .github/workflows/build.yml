@@ -51,6 +51,8 @@ jobs:
       # Currently in place to override remote orbax import due to flax dependency.
       run: |
         pip install --no-cache-dir -e .
+        
+        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
         pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         pip uninstall -y orbax
         pip install tensorboard
@@ -116,24 +118,16 @@ jobs:
       uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v1
-      with:
-        version: '3.x'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Extract branch name
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
       id: extract_branch
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-        protoc -I=. --python_out=. $(find orbax/export/ -name "*.proto")
-
-        pip install .
-        pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install -e .
+        pip install -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        
+        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/export/ -name "*.proto")
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
@@ -189,27 +183,19 @@ jobs:
       uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v1
-      with:
-        version: '3.x'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Extract branch name
       shell: bash
       run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
       id: extract_branch
     - name: Install dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
         pip install tensorflow
-
-        protoc -I=. --python_out=. $(find orbax/experimental/model/ -name "*.proto")
 
         pip install -e .
 
         pip install .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        
+        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/experimental/model/ -name "*.proto")
 
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
