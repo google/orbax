@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import asyncio
+import io
+import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -134,6 +136,39 @@ class AsyncPathTest(parameterized.TestCase):
       self.assertEqual(results, ['01234', '56789', '2345678'])
 
     asyncio.run(_test())
+
+  def test_open_file_with_context_manager(self):
+    test_file = self.test_dir / 'test_cm.txt'
+
+    mock_file_object = unittest.mock.MagicMock(spec=io.TextIOBase)
+    mock_file_object.read.return_value = 'mocked data'
+    mock_file_object.close.return_value = None
+
+    mock_context_manager = unittest.mock.MagicMock()
+    mock_context_manager.__enter__.return_value = mock_file_object
+    mock_context_manager.__exit__.return_value = None
+    # If close is called on context manager, it's an error.
+    mock_context_manager.close.side_effect = AttributeError(
+        'close() should not be called on context manager'
+    )
+    mock_open = self.enter_context(
+        unittest.mock.patch.object(
+            test_file, 'open', return_value=mock_context_manager, autospec=True
+        )
+    )
+
+    async def _test():
+      async with async_path.open_file(test_file, 'r') as f:
+        content = await f.read()
+        self.assertEqual(content, 'mocked data')
+        await f.close()  # Check that calling close on AsyncFile works.
+      mock_context_manager.__enter__.assert_called_once()
+      mock_context_manager.__exit__.assert_called_once()
+      mock_file_object.read.assert_called_once()
+      mock_file_object.close.assert_called_once()
+
+    asyncio.run(_test())
+    mock_open.assert_called_once_with(mode='r')
 
 
 if __name__ == '__main__':
