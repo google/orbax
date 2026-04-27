@@ -23,5 +23,7 @@ from absl import logging
 import jax
 import jaxtyping
 from orbax.export.data_processors import data_processor_base
+from orbax.export.data_processors import jax_data_processor
+from orbax.export.data_processors import jax_data_processor
 from orbax.export.modules import obm_module
 import orbax.export.typing as oex_typing
