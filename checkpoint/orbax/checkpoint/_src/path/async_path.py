@@ -27,6 +27,7 @@ Should be implemented as::
 import asyncio
 import contextlib
 import os
+import sys
 from typing import Any, AsyncIterator, Iterator
 
 from etils import epath
@@ -163,8 +164,12 @@ async def open_file(
     path: epath.Path, mode: str = 'rb'
 ) -> AsyncIterator[AsyncFile]:
   """Async context manager for opening files."""
-  f = await asyncio.to_thread(path.open, mode=mode)
+  cm = await asyncio.to_thread(path.open, mode=mode)
+  f = await asyncio.to_thread(cm.__enter__)
   try:
     yield AsyncFile(f)
-  finally:
-    await asyncio.to_thread(f.close)
+  except BaseException:
+    await asyncio.to_thread(cm.__exit__, *sys.exc_info())
+    raise
+  else:
+    await asyncio.to_thread(cm.__exit__, None, None, None)
