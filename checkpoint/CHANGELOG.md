@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- For CNS checkpointing paths, continuous checkpointing will only be enabled for
+  experiments whose compute and storage are within the same metro or cluster.
+
 ### Added
 
 - Add colocated runtime helpers for Pathways MTC.
