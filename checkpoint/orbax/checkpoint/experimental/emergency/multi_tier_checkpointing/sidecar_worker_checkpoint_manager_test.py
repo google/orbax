@@ -116,7 +116,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.manager._rcm.latest_step.assert_called_once_with()
     mock_make_scalar.assert_called_once_with(9, dummy_array, dtype=jnp.int32)
 
-  def test_latest_step_returns_zero_when_no_step_exists(self):
+  def test_latest_step_returns_sentinel_when_no_step_exists(self):
     dummy_array = jnp.asarray(True)
     packed_result = object()
     self.manager._rcm.latest_step.return_value = None
@@ -130,6 +130,50 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
 
     self.assertIs(result, packed_result)
     mock_make_scalar.assert_called_once_with(0, dummy_array, dtype=jnp.int32)
+
+  def test_all_steps_returns_sorted_fixed_size_array(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    self.manager._rcm.all_steps.return_value = [5, 1, 4]
+
+    result = self.manager.all_steps(dummy_array)
+
+    steps_array = np.asarray(result)
+    max_steps = sidecar_lib.colocated_utils.MAX_TRACKED_STEPS
+    self.assertEqual(steps_array.shape, (max_steps,))
+    self.assertEqual(steps_array.dtype, np.int32)
+    expected = [1, 4, 5] + [0] * (max_steps - 3)
+    np.testing.assert_array_equal(
+        steps_array, np.asarray(expected, dtype=np.int32)
+    )
+    self.manager._rcm.all_steps.assert_called_once_with()
+
+  def test_all_steps_limits_to_latest_max_steps(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    max_steps = sidecar_lib.colocated_utils.MAX_TRACKED_STEPS
+    self.manager._rcm.all_steps.return_value = list(range(1, max_steps + 3))
+
+    result = self.manager.all_steps(dummy_array)
+
+    steps_array = np.asarray(result)
+    self.assertEqual(steps_array.shape, (max_steps,))
+    expected = list(range(3, max_steps + 3))
+    np.testing.assert_array_equal(
+        steps_array, np.asarray(expected, dtype=np.int32)
+    )
+
+  def test_all_steps_returns_all_sentinels_when_no_steps_exist(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    self.manager._rcm.all_steps.return_value = []
+
+    result = self.manager.all_steps(dummy_array)
+
+    steps_array = np.asarray(result)
+    max_steps = sidecar_lib.colocated_utils.MAX_TRACKED_STEPS
+    self.assertEqual(steps_array.shape, (max_steps,))
+    expected = [0] * max_steps
+    np.testing.assert_array_equal(
+        steps_array, np.asarray(expected, dtype=np.int32)
+    )
 
   def test_is_saving_in_progress_delegates_to_rcm_and_packs_result(self):
     dummy_array = jnp.asarray(True)

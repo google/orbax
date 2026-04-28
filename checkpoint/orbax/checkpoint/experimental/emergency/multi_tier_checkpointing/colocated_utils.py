@@ -25,6 +25,8 @@ from orbax.checkpoint._src.multihost import pathways
 
 
 PyTree = Any
+NO_STEP_SENTINEL = 0
+MAX_TRACKED_STEPS = 128
 
 
 def make_scalar_on_like(
@@ -160,6 +162,18 @@ def require_unanimous_scalar_result(
     result: jax.Array, *, op_name: str
 ) -> Any:
   """Returns a unanimous scalar value from workers or raises."""
+  values = scalar_result_values(result, op_name=op_name)
+  unique_values = set(values)
+  if len(unique_values) != 1:
+    raise RuntimeError(
+        f'{op_name}: workers disagreed on scalar result: '
+        f'{sorted(unique_values)} (sample={values[:8]})'
+    )
+  return values[0]
+
+
+def scalar_result_values(result: jax.Array, *, op_name: str) -> list[Any]:
+  """Returns scalar values from workers."""
   values = []
   for shard in result.addressable_shards:
     value = np.asarray(shard.data)
@@ -175,10 +189,20 @@ def require_unanimous_scalar_result(
           f'{op_name}: unexpected non-scalar result shape={value.shape}.'
       )
     values.append(value.item())
-  unique_values = set(values)
-  if len(unique_values) != 1:
-    raise RuntimeError(
-        f'{op_name}: workers disagreed on scalar result: '
-        f'{sorted(unique_values)} (sample={values[:8]})'
-    )
-  return values[0]
+  return values
+
+
+def array_result_values(result: jax.Array, *, op_name: str) -> list[np.ndarray]:
+  """Returns array values from workers."""
+  values = []
+  for shard in result.addressable_shards:
+    values.append(np.asarray(shard.data))
+  if not values:
+    values.append(np.asarray(result))
+  for value in values:
+    if value.ndim == 0:
+      raise ValueError(f'{op_name}: expected array shard value, got scalar.')
+  return values
+
+
+

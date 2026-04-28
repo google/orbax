@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Worker-side colocated checkpoint manager for Pathways SC."""
-from typing import Any, Optional
+from typing import Any
 
 from etils import epath
 import jax
@@ -44,7 +44,7 @@ class WorkerCheckpointManagerRaw:
       mesh_shape: tuple[int, ...],
       mesh_axis_names: tuple[str, ...],
       save_interval_steps: int,
-      mesh_axis_types: Optional[tuple[jax.sharding.AxisType, ...]] = None,
+      mesh_axis_types: tuple[jax.sharding.AxisType, ...] | None = None,
   ) -> None:
     colocated_transport.install_pathways_colocated_serialization_patch()
     signaling_client.mark_pathways_colocated_runtime_active()
@@ -112,11 +112,25 @@ class WorkerCheckpointManagerRaw:
     return result
 
   def latest_step(self, dummy_array: jax.Array) -> jax.Array:
-    """Returns latest_step_or_-1 as a scalar int32."""
+    """Returns latest_step_or_sentinel as a scalar int32."""
     step = self._rcm.latest_step()
-    val = step if step is not None else 0
+    val = step if step is not None else colocated_utils.NO_STEP_SENTINEL
     return colocated_utils.make_scalar_on_like(
         val, dummy_array, dtype=jnp.int32
+    )
+
+  def all_steps(self, dummy_array: jax.Array) -> jax.Array:
+    """Returns a fixed-size array of up to colocated_utils.MAX_TRACKED_STEPS local checkpoint steps."""
+    local_steps = sorted(self._rcm.all_steps())
+    # Keep only the latest MAX_TRACKED_STEPS steps if there are more.
+    local_steps = local_steps[-colocated_utils.MAX_TRACKED_STEPS:]
+    # Pad with NO_STEP_SENTINEL if fewer than MAX_TRACKED_STEPS.
+    padded_steps = local_steps + [colocated_utils.NO_STEP_SENTINEL] * (
+        colocated_utils.MAX_TRACKED_STEPS - len(local_steps)
+    )
+    return jax.device_put(
+        jnp.asarray(padded_steps, dtype=jnp.int32),
+        dummy_array.sharding,
     )
 
   def is_saving_in_progress(self, dummy_array: jax.Array) -> jax.Array:

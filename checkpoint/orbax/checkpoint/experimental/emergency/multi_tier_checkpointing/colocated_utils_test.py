@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
 from unittest import mock
 
 from absl.testing import absltest
@@ -43,8 +42,8 @@ class _FakeResult:
 class _FakeDevice:
   id: int
   process_index: int = 0
-  virtual_task_index: Optional[int] = None
-  slice_index: Optional[int] = None
+  virtual_task_index: int | None = None
+  slice_index: int | None = None
 
 
 class ColocatedUtilsTest(absltest.TestCase):
@@ -85,6 +84,43 @@ class ColocatedUtilsTest(absltest.TestCase):
     )
 
     self.assertTrue(value)
+
+  def test_scalar_result_values_returns_all_worker_values(self):
+    result = _FakeResult(
+        addressable_shards=[
+            _FakeShard(np.asarray(4, dtype=np.int32)),
+            _FakeShard(np.asarray(5, dtype=np.int32)),
+        ]
+    )
+
+    values = colocated_utils.scalar_result_values(result, op_name='test_op')  # pytype: disable=wrong-arg-types
+
+    self.assertEqual(values, [4, 5])
+
+  def test_array_result_values_returns_all_worker_arrays(self):
+    result = _FakeResult(
+        addressable_shards=[
+            _FakeShard(np.asarray([1, 2], dtype=np.int32)),
+            _FakeShard(np.asarray([3, 4], dtype=np.int32)),
+        ]
+    )
+
+    values = colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
+        result, op_name='test_op'
+    )
+
+    np.testing.assert_array_equal(values[0], np.asarray([1, 2]))
+    np.testing.assert_array_equal(values[1], np.asarray([3, 4]))
+
+  def test_array_result_values_raises_on_scalar_shard(self):
+    result = _FakeResult(
+        addressable_shards=[_FakeShard(np.asarray(4, dtype=np.int32))]
+    )
+
+    with self.assertRaisesRegex(ValueError, 'expected array shard value'):
+      colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
+          result, op_name='test_op'
+      )
 
   def test_require_unanimous_scalar_result_raises_on_disagreement(self):
     result = _FakeResult(

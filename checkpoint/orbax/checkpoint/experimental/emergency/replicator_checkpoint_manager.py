@@ -147,6 +147,7 @@ class ReplicatorCheckpointManagerOptions:
   step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None
   should_save_fn: Callable[[int, int | None], bool] | None = None
   preservation_policy: preservation_policy_lib.PreservationPolicy | None = None
+  use_colocated_python: bool = False
 
 
 def _get_checkpoint_manager_options(
@@ -252,13 +253,23 @@ class ReplicatorCheckpointManager(
         self._options,
         step_name_format=self._step_name_format,
     )
-    self._init_standard(
-        local_directory,
-        options,
-        multiprocessing_options,
-        persistent_directory,
-        handler_registry,
-    )
+    self._colocated_controller = None
+
+    if options.use_colocated_python:
+      self._init_colocated(
+          local_directory,
+          options,
+          persistent_directory,
+          handler_registry,
+      )
+    else:
+      self._init_standard(
+          local_directory,
+          options,
+          multiprocessing_options,
+          persistent_directory,
+          handler_registry,
+      )
 
   def _init_standard(
       self,
@@ -320,6 +331,7 @@ class ReplicatorCheckpointManager(
         options=replicator_options,
         handler_registry=self._local_handler_registry,
     )
+    self._colocated_controller = None
     non_replicated_multiprocessing_options = (
         checkpoint_manager.MultiprocessingOptions(
             barrier_sync_key_prefix='non_replicated',
@@ -339,6 +351,33 @@ class ReplicatorCheckpointManager(
       )
     self._run_initial_garbage_collection()
 
+  def _init_colocated(
+      self,
+      local_directory,
+      options,
+      persistent_directory,
+      handler_registry,
+  ):
+    """Initializes the Pathways single-controller transport wrapper."""
+    from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+        colocated_controller,
+    )
+
+    self._colocated_controller = colocated_controller.ColocatedController(
+        local_directory=local_directory,
+        global_mesh=self._global_mesh,
+        options=options,
+        persistent_directory=persistent_directory,
+        handler_registry=handler_registry,
+        checkpoint_manager_options_fn=lambda mp_options: (
+            _get_checkpoint_manager_options(options, mp_options)
+        ),
+    )
+    self._impl = None
+    self._local_handler_registry = None
+    self._process_metadata_handler = None
+    self._active_processes = None
+
   def _run_initial_garbage_collection(self):
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
@@ -349,39 +388,75 @@ class ReplicatorCheckpointManager(
       tmp_path.get().rmtree()
 
   @property
+  def _non_null_impl(self) -> checkpoint_manager.CheckpointManager:
+    """Returns self._impl, asserting it is not None.
+
+    This property helps satisfy pytype checks without adding asserts to every
+    method using self._impl.
+
+    Raises:
+      RuntimeError: If manager implementation is not initialized.
+    """
+    if self._impl is None:
+      raise RuntimeError('Manager implementation is not initialized.')
+    return self._impl
+
+  @property
   def directory(self) -> epath.Path:
-    return self._impl.directory
+    if self._colocated_controller is not None:
+      return self._colocated_controller.directory
+    return self._non_null_impl.directory
 
   @property
   def global_mesh(self) -> jax.sharding.Mesh:
     return self._global_mesh
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
-    return self._impl.all_steps(read=read)
+    if self._colocated_controller is not None:
+      raise NotImplementedError(
+          'all_steps is not supported in colocated mode.'
+      )
+    return self._non_null_impl.all_steps(read=read)
 
   def latest_step(self) -> int | None:
-    return self._impl.latest_step()
+    if self._colocated_controller is not None:
+      return self._colocated_controller.latest_step()
+    return self._non_null_impl.latest_step()
 
   def best_step(self) -> int | None:
     raise NotImplementedError()
 
   def reload(self):
-    return self._impl.reload()
+    if self._colocated_controller is not None:
+      raise NotImplementedError(
+          'reload is not supported in colocated mode.'
+      )
+    return self._non_null_impl.reload()
 
   def reached_preemption(self, step: int) -> bool:
-    return self._impl.reached_preemption(step)
+    if self._colocated_controller is not None:
+      return multihost.reached_preemption(step)
+    return self._non_null_impl.reached_preemption(step)
 
   def should_save(self, step: int) -> bool:
-    return self._impl.should_save(step)
+    if self._colocated_controller is not None:
+      return self._colocated_controller.should_save(step)
+    return self._non_null_impl.should_save(step)
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is currently in progress."""
-    return self._impl.is_saving_in_progress()
+    if self._colocated_controller is not None:
+      return self._colocated_controller.is_saving_in_progress()
+    return self._non_null_impl.is_saving_in_progress()
 
   def delete(self, step: int):
+    if self._colocated_controller is not None:
+      raise NotImplementedError(
+          'delete is not supported in colocated mode.'
+      )
     if self._persistent_checkpoint_manager is not None:
       self._persistent_checkpoint_manager.delete(step)
-    return self._impl.delete(step)
+    return self._non_null_impl.delete(step)
 
   def _validate_and_standardize_args(
       self,
@@ -401,6 +476,17 @@ class ReplicatorCheckpointManager(
           f'{_PROCESS_METADATA_NAME} is a reserved key and should not be'
           ' specified by the user.'
       )
+    if self._colocated_controller is not None:
+      unsupported_items = set(args.keys()) - {
+          _STATE_ITEM_NAME,
+          _DATASET_ITEM_NAME,
+      }
+      if unsupported_items:
+        raise ValueError(
+            'colocated mode only supports the following items: '
+            f'{sorted((_STATE_ITEM_NAME, _DATASET_ITEM_NAME))}. '
+            f'Found unsupported items: {sorted(unsupported_items)}.'
+        )
     for k, a in args.items():
       if not isinstance(a, args_lib.CheckpointArgs):
         raise TypeError(
@@ -427,6 +513,8 @@ class ReplicatorCheckpointManager(
       force: bool = False,
   ) -> bool:
     args = self._validate_and_standardize_args(args)
+    if self._colocated_controller is not None:
+      return self._colocated_controller.save(step, args, force=force)
     return self._standard_save(step, args, force=force)
 
   def _standard_save(
@@ -472,7 +560,7 @@ class ReplicatorCheckpointManager(
     args_dict[_PROCESS_METADATA_NAME] = process_metadata_args
     args_dict.pop(_DATASET_ITEM_NAME, None)
     args = args_lib.Composite(**args_dict)
-    return self._impl.save(step, args=args, force=force)
+    return self._non_null_impl.save(step, args=args, force=force)
 
   def _get_mesh_consistent_args(
       self,
@@ -628,6 +716,15 @@ class ReplicatorCheckpointManager(
         )
 
     args = self._validate_and_standardize_args(args)
+    if self._colocated_controller is not None:
+      default_item_mode = (
+          checkpoint_manager.determine_default_item_mode_from_args(args)
+      )
+      return self._colocated_controller.restore(
+          step,
+          args,
+          default_item_mode=default_item_mode,
+      )
     return self._standard_restore(step, args)
 
   def _standard_restore(
@@ -661,7 +758,7 @@ class ReplicatorCheckpointManager(
             )
         }
     )
-    process_metadata_restored = self._impl.restore(
+    process_metadata_restored = self._non_null_impl.restore(
         step, args=process_metadata_args
     )
     previous_distributed_to_device_ids, previous_device_ids = (
@@ -678,7 +775,7 @@ class ReplicatorCheckpointManager(
             args,
         )
     )
-    restored = self._impl.restore(
+    restored = self._non_null_impl.restore(
         step, args=consistent_args
     )
 
@@ -711,24 +808,40 @@ class ReplicatorCheckpointManager(
     )
 
   def item_metadata(self, step: int) -> Any:
-    return self._impl.item_metadata(step)
+    if self._impl is None:
+      raise NotImplementedError(
+          'item_metadata is not supported in colocated mode.'
+      )
+    return self._non_null_impl.item_metadata(step)
 
   def metadata(self, step: int | None = None) -> RootMetadata | StepMetadata:
-    return self._impl.metadata(step)
+    if self._impl is None:
+      raise NotImplementedError(
+          'metadata is not supported in colocated mode.'
+      )
+    return self._non_null_impl.metadata(step)
 
   def metrics(self, step: int) -> PyTree | None:
     raise NotImplementedError()
 
   def wait_until_finished(self):
-    return self._impl.wait_until_finished()
+    if self._colocated_controller is not None:
+      self._colocated_controller.wait_until_finished()
+      return
+    return self._non_null_impl.wait_until_finished()
 
   def check_for_errors(self):
-    return self._impl.check_for_errors()
+    if self._impl is None:
+      return
+    return self._non_null_impl.check_for_errors()
 
   def close(self):
+    if self._colocated_controller is not None:
+      self._colocated_controller.close()
+      return
     if self._persistent_checkpoint_manager is not None:
       self._persistent_checkpoint_manager.close()
-    return self._impl.close()
+    return self._non_null_impl.close()
 
   def __contextmanager__(
       self,
