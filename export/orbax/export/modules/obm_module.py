@@ -208,11 +208,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._checkpoint_path: str = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path()
-    self._load_all_checkpoint_weights = _get_shared_value(
-        self._jax2obm_options,
-        self._apply_fn_keys,
-        constants.LOAD_ALL_CHECKPOINT_WEIGHTS,
-    )
 
   def _jax2obm_kwargs_to_options(
       self, jax2obm_kwargs: Mapping[str, Any]
@@ -226,9 +221,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         weights_name=jax2obm_kwargs.get(constants.WEIGHTS_NAME),
         polymorphic_constraints=jax2obm_kwargs.get(
             constants.POLYMORPHIC_CONSTRAINTS
-        ),
-        load_all_checkpoint_weights=jax2obm_kwargs.get(
-            constants.LOAD_ALL_CHECKPOINT_WEIGHTS, False
         ),
         xla_flags_per_platform=jax2obm_kwargs.get(
             constants.XLA_FLAGS_PER_PLATFORM
