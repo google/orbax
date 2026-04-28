@@ -16,6 +16,7 @@
 
 import concurrent.futures
 import functools
+import os
 import shutil
 import socket
 import socketserver
@@ -29,6 +30,43 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.emergency.p2p import constants
 from orbax.checkpoint.experimental.emergency.p2p import protocol
 from orbax.checkpoint.experimental.emergency.p2p import utils
+
+
+def _safe_path_join(base: epath.Path, rel_path: str) -> epath.Path | None:
+  """Joins ``rel_path`` onto ``base`` iff the result stays within ``base``.
+
+  Rejects empty strings, absolute paths (including Windows drive-prefixed
+  paths), and any path whose resolved form escapes ``base`` via ``..``
+  components or symlinks. Returns ``None`` for unsafe inputs so callers can
+  fail closed.
+
+  Args:
+    base: The base directory that the resulting path must be contained within.
+    rel_path: A peer-supplied relative path. Treated as untrusted.
+
+  Returns:
+    ``base / rel_path`` on success, or ``None`` if ``rel_path`` is unsafe.
+  """
+  if not rel_path:
+    return None
+  # Reject absolute paths. ``os.path.isabs`` covers POSIX roots and (on
+  # Windows) drive-prefixed paths; ``splitdrive`` catches e.g. ``C:foo`` which
+  # is technically relative but still anchored off ``base``.
+  if os.path.isabs(rel_path) or os.path.splitdrive(rel_path)[0]:
+    return None
+  try:
+    base_real = os.path.realpath(str(base))
+    candidate_real = os.path.realpath(os.path.join(base_real, rel_path))
+  except OSError:
+    return None
+  try:
+    common = os.path.commonpath([base_real, candidate_real])
+  except ValueError:
+    # Different drives on Windows, or otherwise incomparable.
+    return None
+  if common != base_real:
+    return None
+  return base / rel_path
 
 
 class _ThreadingTCPServer(socketserver.ThreadingTCPServer):
@@ -206,12 +244,12 @@ class P2PNode:
     """
     rel_path_str = payload.get('rel_path')
 
-    if not rel_path_str or '..' in rel_path_str or rel_path_str.startswith('/'):
+    full_path = _safe_path_join(self.directory, rel_path_str) if rel_path_str else None
+    if full_path is None:
       logging.error('Blocked unsafe P2P path request: %s', rel_path_str)
       protocol.TCPMessage.send_file(sock, epath.Path('__INVALID__'))
       return
 
-    full_path = self.directory / rel_path_str
     if full_path.exists() and full_path.is_file():
       protocol.TCPMessage.send_file(sock, full_path)
     else:
@@ -268,7 +306,18 @@ class P2PNode:
         futures = []
         for f_meta in manifest:
           rel_path_str = f_meta['rel_path']
-          dest_path = stage_dir / rel_path_str
+          dest_path = _safe_path_join(stage_dir, rel_path_str)
+          if dest_path is None:
+            logging.error(
+                'Rejecting unsafe manifest entry from peer %s:%d for'
+                ' step=%d, process_index=%d: %r',
+                ip,
+                port,
+                step,
+                stored_process_index,
+                rel_path_str,
+            )
+            return False
           futures.append(
               exc.submit(
                   protocol.TCPClient.download, ip, port, rel_path_str, dest_path
