@@ -14,6 +14,7 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
+import asyncio
 import dataclasses
 import time
 from typing import Awaitable
@@ -21,6 +22,7 @@ from typing import Awaitable
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import utils as ocp_path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import global_registration  # pylint: disable=unused-import
@@ -358,6 +360,9 @@ def finalize(path: path_types.PathLike) -> None:
     if multihost.is_primary_host(context.multiprocessing_options.primary_host):
       try:
         await async_path.rename(partial_path, final_path)
+        await asyncio.to_thread(
+            ocp_path_utils.set_all_immutable_under, final_path
+        )
       except OSError as e:
         rename_failed = True
         rename_error = e

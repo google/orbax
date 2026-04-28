@@ -828,6 +828,7 @@ async def on_commit_callback(
     tmp_dir: atomicity_types.TemporaryPath,
     *,
     checkpoint_start_time: float,
+    set_immutable: bool = True,
 ):
   """To commit save operation, atomically finalizes step dir.
 
@@ -838,6 +839,8 @@ async def on_commit_callback(
       currently saved.
     checkpoint_start_time: The time at which checkpoint saving began. # BEGIN
     tree_verity_options: Options to configure checkpoint signing and integrity
+      verification using
+    set_immutable: Whether to mark all files as immutable. This is only
   """
   await tmp_dir.finalize(
   )
