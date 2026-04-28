@@ -18,6 +18,9 @@ processes:2:
 - orbax/checkpoint/_src/handlers:standard_checkpoint_handler_test
 - orbax/checkpoint/_src/serialization:local_type_handlers_test
 - orbax/checkpoint/_src/serialization:type_handlers_test
+- orbax/checkpoint/experimental/emergency/p2p:local_multiprocess_test
+- orbax/checkpoint/experimental/emergency/p2p:persistent_multiprocess_test
+- orbax/checkpoint/experimental/emergency/p2p:checkpoint_manager_multiprocess_test
 processes:4:
 - orbax/checkpoint/_src/multihost:multihost_test
 - orbax/checkpoint/_src/testing/tree_verity:checkpoint_manager_test
