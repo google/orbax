@@ -14,6 +14,7 @@
 
 """Defines free-function interface for partial saving and finalizing."""
 
+import asyncio
 import dataclasses
 import time
 from typing import Awaitable
@@ -21,6 +22,7 @@ from typing import Awaitable
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import utils as ocp_path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import global_registration  # pylint: disable=unused-import

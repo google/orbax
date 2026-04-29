@@ -98,6 +98,7 @@ class _SaveResponse(AsyncResponse[None]):
       custom_metadata: tree_types.JsonType | None,
       context: context_lib.Context,
       async_origin: bool,
+      partial_save: bool = False,
   ):
     self._operation_id = operation_id
     self._temporary_path = temporary_path
@@ -107,6 +108,7 @@ class _SaveResponse(AsyncResponse[None]):
     self._custom_metadata = custom_metadata
     self._context = context
     self._async_origin = async_origin
+    self._partial_save = partial_save
     self._thread_runner = thread_utils.BackgroundThreadRunner[None](
         self._finalize_save()
     )
@@ -122,6 +124,7 @@ class _SaveResponse(AsyncResponse[None]):
       context: context_lib.Context,
       custom_metadata: tree_types.JsonType | None,
       async_origin: bool,
+      partial_save: bool = False,
   ) -> _SaveResponse:
     """Creates and returns the final AsyncResponse for a save operation."""
     blocking_duration_secs = time.time() - start_time
@@ -147,6 +150,7 @@ class _SaveResponse(AsyncResponse[None]):
         custom_metadata=custom_metadata,
         context=context,
         async_origin=async_origin,
+        partial_save=partial_save,
     )
 
   async def _finalize_save(self):
@@ -415,4 +419,5 @@ def save_checkpointables_impl(
       context=context,
       custom_metadata=custom_metadata,
       async_origin=async_origin,
+      partial_save=partial_save,
   )

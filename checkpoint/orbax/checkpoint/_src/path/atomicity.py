@@ -838,6 +838,8 @@ async def on_commit_callback(
       currently saved.
     checkpoint_start_time: The time at which checkpoint saving began. # BEGIN
     tree_verity_options: Options to configure checkpoint signing and integrity
+      verification using
+    set_immutable: Whether to mark all files as immutable. This is only
   """
   await tmp_dir.finalize(
   )
