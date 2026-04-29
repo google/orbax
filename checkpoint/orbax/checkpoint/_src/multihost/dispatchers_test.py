@@ -23,6 +23,7 @@ import numpy as np
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 
 
 
@@ -157,7 +158,7 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
 
   def test_colocated_cpu_sharding_single_device_sharding(self):
     dispatcher = dispatchers.ColocatedPythonDispatcher()
-    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    sharding = make_single_device_sharding(jax.devices()[0])
     cpu_sharding = dispatcher._colocated_cpu_sharding(sharding)
     self.assertIsInstance(cpu_sharding, jax.sharding.SingleDeviceSharding)
     self.mock_cp_devices.assert_called_once_with(list(sharding.device_set))

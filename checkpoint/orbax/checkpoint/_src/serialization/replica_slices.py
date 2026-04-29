@@ -27,6 +27,7 @@ from orbax.checkpoint._src.arrays import fragments
 from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 
 
 Shape = types.Shape
@@ -449,7 +450,7 @@ def transfer_arrays_to_host(
       # If available, transfer to pinned host memory
       data = jax.device_put(
           data,
-          jax.sharding.SingleDeviceSharding(device, memory_kind='pinned_host'),
+          make_single_device_sharding(device, memory_kind='pinned_host'),
       )
     else:
       data.copy_to_host_async()

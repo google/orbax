@@ -18,6 +18,8 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
+
 
 to_shape_dtype_struct = abstract_arrays.to_shape_dtype_struct
 
@@ -29,7 +31,7 @@ class AbstractArraysTest(parameterized.TestCase):
     target_dtype = target_dtype or np.float32
     arr = jax.device_put(
         np.arange(4, dtype=np.float32),
-        jax.sharding.SingleDeviceSharding(jax.devices()[0]),
+        make_single_device_sharding(jax.devices()[0]),
     )
     self.assertIsInstance(arr, jax.Array)
     sds = to_shape_dtype_struct(arr, dtype=target_dtype)
@@ -37,7 +39,8 @@ class AbstractArraysTest(parameterized.TestCase):
     self.assertEqual(sds.shape, (4,))
     self.assertEqual(sds.dtype, target_dtype)
     self.assertEqual(
-        sds.sharding, jax.sharding.SingleDeviceSharding(jax.devices()[0])
+        sds.sharding,
+        make_single_device_sharding(jax.devices()[0]),
     )
 
   @parameterized.parameters((None,), (np.float64,))
@@ -46,14 +49,15 @@ class AbstractArraysTest(parameterized.TestCase):
     arr = jax.ShapeDtypeStruct(
         (4,),
         np.float32,
-        sharding=jax.sharding.SingleDeviceSharding(jax.devices()[0]),
+        sharding=make_single_device_sharding(jax.devices()[0]),
     )
     sds = to_shape_dtype_struct(arr, dtype=target_dtype)
     self.assertIsInstance(sds, jax.ShapeDtypeStruct)
     self.assertEqual(sds.shape, (4,))
     self.assertEqual(sds.dtype, target_dtype)
     self.assertEqual(
-        sds.sharding, jax.sharding.SingleDeviceSharding(jax.devices()[0])
+        sds.sharding,
+        make_single_device_sharding(jax.devices()[0]),
     )
 
   @parameterized.parameters((None,), (np.float64,))
@@ -62,14 +66,15 @@ class AbstractArraysTest(parameterized.TestCase):
     args = type_handlers.ArrayRestoreArgs(
         global_shape=(4,),
         dtype=np.float32,
-        sharding=jax.sharding.SingleDeviceSharding(jax.devices()[0]),
+        sharding=make_single_device_sharding(jax.devices()[0]),
     )
     sds = to_shape_dtype_struct(args, dtype=target_dtype)
     self.assertIsInstance(sds, jax.ShapeDtypeStruct)
     self.assertEqual(sds.shape, (4,))
     self.assertEqual(sds.dtype, target_dtype)
     self.assertEqual(
-        sds.sharding, jax.sharding.SingleDeviceSharding(jax.devices()[0])
+        sds.sharding,
+        make_single_device_sharding(jax.devices()[0]),
     )
 
   @parameterized.parameters((None,), (np.float64,))
