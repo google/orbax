@@ -318,6 +318,11 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     )
 
   async def _finalize(self, directory: path_types.Path):
+    # Keep non-finalized checkpoint state during partial saves to be merged
+    # later during partial save finalization.
+    if self._partial_save_mode:
+      return
+
     if multihost.is_primary_host(self._multiprocessing_options.primary_host):
       await self._handler_impl._finalize_async(directory)  # pylint: disable=protected-access
 

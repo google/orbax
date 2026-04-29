@@ -85,7 +85,7 @@ def add_internal_checkpointables(
 
 
 class _SaveResponse(AsyncResponse[None]):
-  """An :py:class:`.AsyncResponse` representing the result of:py:func:`.save_pytree_async`."""
+  """:py:class:`.AsyncResponse`, result of :py:func:`.save_pytree_async`."""
 
   def __init__(
       self,
@@ -389,17 +389,15 @@ def save_checkpointables_impl(
 
   path = context.file_options.path_class(path)
   _check_directory_consistency(path)
-  path_exists = path.exists() if partial_save else False
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
   checkpointables = add_internal_checkpointables(
       checkpointables, context=context
   )
-  subdirectories = [] if path_exists else checkpointables.keys()
-  snapshot_type = snapshot_lib.SnapshotType.IN_PLACE if path_exists else None
+  snapshot_type = snapshot_lib.SnapshotType.EMPTY if partial_save else None
   temporary_path = _TemporaryPathAwaitingCreation(
       path,
-      subdirectories=subdirectories,
+      subdirectories=checkpointables.keys(),
       snapshot_type=snapshot_type,
   )
   background_awaitable = asyncio_utils.run_sync(
