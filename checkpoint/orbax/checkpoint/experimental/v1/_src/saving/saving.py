@@ -136,7 +136,7 @@ def save_checkpointables(
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
   """
-  validation.validate_abstract_checkpointables(checkpointables)
+  validation.validate_save_checkpointables(checkpointables)
   execution.save_checkpointables_impl(
       path,
       checkpointables,
@@ -285,7 +285,7 @@ def save_checkpointables_async(
     An `AsyncResponse` that can be used to block until the save is complete.
     Blocking can be done using `response.result()`, which returns `None`.
   """
-  validation.validate_abstract_checkpointables(checkpointables)
+  validation.validate_save_checkpointables(checkpointables)
   return execution.save_checkpointables_impl(
       path,
       checkpointables,

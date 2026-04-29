@@ -189,11 +189,15 @@ class CheckpointableHandlerRegistry(Protocol):
 
 
 class AlreadyExistsError(ValueError):
-  """Raised when an entry already exists in the registry."""
+  """An entry already exists in the registry."""
 
 
 class NoEntryError(KeyError):
-  """Raised when no entry exists in the registry."""
+  """No entry exists in the registry."""
+
+
+class NotHandleableError(ValueError):
+  """A checkpointable is not handleable by a handler."""
 
 
 class _DefaultCheckpointableHandlerRegistry(CheckpointableHandlerRegistry):
@@ -515,7 +519,7 @@ def _construct_handler_instance(
 
 def _get_possible_handlers(
     registry: CheckpointableHandlerRegistry,
-    is_handleable_fn: Callable[[CheckpointableHandler, Any], bool],
+    is_handleable: Callable[[CheckpointableHandler, Any], bool],
     checkpointable: Any | None,
     name: str,
 ) -> Sequence[CheckpointableHandler]:
@@ -539,7 +543,7 @@ def _get_possible_handlers(
         handler
         for handler, checkpointable_name in registry_entries
         if checkpointable_name is None
-        and is_handleable_fn(handler, checkpointable)
+        and is_handleable(handler, checkpointable)
     ]
   if not possible_handlers:
     available_handlers = [
@@ -590,12 +594,13 @@ def resolve_handler_for_save(
     checkpointable: A checkpointable to resolve.
     name: The name of the checkpointable.
 
-  Raises:
-    NoEntryError: If no compatible
-    :py:class:`~.v1.handlers.CheckpointableHandler` can be found.
-
   Returns:
     A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
+
+  Raises:
+    ValueError: If the checkpointable is None.
+    NoEntryError: If no compatible
+      :py:class:`~.v1.handlers.CheckpointableHandler` can be found.
   """
   # If explicitly registered, use that first.
   if registry.has(name):
@@ -604,11 +609,11 @@ def resolve_handler_for_save(
   if checkpointable is None:
     raise ValueError('checkpointable must not be None for saving.')
 
-  def is_handleable_fn(handler: CheckpointableHandler, ckpt: Any) -> bool:
+  def is_handleable(handler: CheckpointableHandler, ckpt: Any) -> bool:
     return handler.is_handleable(ckpt)
 
   possible_handlers = _get_possible_handlers(
-      registry, is_handleable_fn, checkpointable, name
+      registry, is_handleable, checkpointable, name
   )
 
   # Prefer the last handler in the absence of any other information.
@@ -636,11 +641,6 @@ def resolve_handler_for_load(
       recently-registered handler, unless abstract_checkpointable is None, in
       which case raise a NoEntryError.
 
-  Raises:
-    NoEntryError: If no compatible
-    :py:class:`~.v1.handlers.CheckpointableHandler`
-    can be found.
-
   Args:
     registry: The
       :py:class:`~.v1.handlers.registration.CheckpointableHandlerRegistry` to
@@ -654,18 +654,21 @@ def resolve_handler_for_load(
 
   Returns:
     A :py:class:`~.v1.handlers.CheckpointableHandler` instance.
+
+  Raises:
+    NoEntryError: If no compatible
+    :py:class:`~.v1.handlers.CheckpointableHandler`
+    can be found.
   """
   # If explicitly registered, use that first.
   if registry.has(name):
     return _construct_handler_instance(name, registry.get(name))
 
-  def is_handleable_fn(
-      handler: CheckpointableHandler, ckpt: Any
-  ) -> bool | None:
+  def is_handleable(handler: CheckpointableHandler, ckpt: Any) -> bool | None:
     return handler.is_abstract_handleable(ckpt)
 
   possible_handlers = _get_possible_handlers(
-      registry, is_handleable_fn, abstract_checkpointable, name
+      registry, is_handleable, abstract_checkpointable, name
   )
   possible_handler_typestrs = [
       handler_types.typestr(type(handler)) for handler in possible_handlers

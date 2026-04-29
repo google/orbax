@@ -312,6 +312,76 @@ class SaveLoadTestBase:
         loaded = ocp.load_pytree(self.directory)
         test_utils.assert_tree_equal(self, [v], loaded)
 
+    @parameterized.parameters(
+        (np.arange(8),),
+        (2,),
+        (2.2,),
+        ('foo',),
+        (np.asarray(3.14),),
+    )
+    def test_standard_leaf_types_as_checkpointable(self, value):
+      with self.subTest('save_pytree'):
+        ocp.save_pytree(
+            self.directory / 'pytree', value, checkpointable_name='leaf'
+        )
+        loaded = ocp.load_pytree(
+            self.directory / 'pytree', checkpointable_name='leaf'
+        )
+        if isinstance(value, np.ndarray):
+          np.testing.assert_array_equal(loaded, value)
+        else:
+          self.assertEqual(loaded, value)
+      with self.subTest('save_checkpointables'):
+        ocp.save_checkpointables(
+            self.directory / 'checkpointables', {'foo': value}
+        )
+        loaded = ocp.load_checkpointables(self.directory / 'checkpointables')[
+            'foo'
+        ]
+        if isinstance(value, np.ndarray):
+          np.testing.assert_array_equal(loaded, value)
+        else:
+          self.assertEqual(loaded, value)
+
+    def test_jax_array_as_checkpointable(self):
+      value = jnp.arange(
+          16,
+          device=jax.sharding.NamedSharding(
+              jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',)),
+              jax.sharding.PartitionSpec(),
+          ),
+      )
+      with self.subTest('save_pytree'):
+        ocp.save_pytree(
+            self.directory / 'pytree', value, checkpointable_name='leaf'
+        )
+        loaded = ocp.load_pytree(
+            self.directory / 'pytree', checkpointable_name='leaf'
+        )
+        test_utils.assert_tree_equal(self, value, loaded)
+      with self.subTest('save_checkpointables'):
+        ocp.save_checkpointables(
+            self.directory / 'checkpointables', {'foo': value}
+        )
+        loaded = ocp.load_checkpointables(self.directory / 'checkpointables')[
+            'foo'
+        ]
+        test_utils.assert_tree_equal(self, value, loaded)
+
+    def test_save_unregistered_type_as_pytree(self):
+      with self.assertRaises(serialization_registry.UnregisteredTypeError):
+        ocp.save_pytree(self.directory, handler_utils.Foo(1, 'hi'))
+
+    @parameterized.parameters(
+        ({},),
+        ([],),
+        ('hello',),
+        (None,),
+    )
+    def test_save_checkpointables_invalid(self, checkpointables):
+      with self.assertRaises(ValueError):
+        ocp.save_checkpointables(self.directory, checkpointables)
+
     def test_leaf_change_type(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
       sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())

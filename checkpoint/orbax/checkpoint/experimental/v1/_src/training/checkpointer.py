@@ -550,7 +550,7 @@ class Checkpointer(epy.ContextManager):
       StepAlreadyExistsError: If `overwrite` is False and a checkpoint at the
         target `step` already exists.
     """
-    validation.validate_abstract_checkpointables(checkpointables)
+    validation.validate_save_checkpointables(checkpointables)
     if overwrite:
       logging.info(
           'Specified `overwrite`: deleting existing checkpoint %d if it'

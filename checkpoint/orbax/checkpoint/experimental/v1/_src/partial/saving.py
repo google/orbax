@@ -66,7 +66,7 @@ class _PartialSavePyTree(handler_types.StatefulCheckpointable):
     operation_id = f'{operation_id}.{directory.path.name}'
 
     # pylint: disable=protected-access
-    self.handler._validate_leaves_handleable(self.pytree)
+    self.handler.validate_leaves_handleable(self.pytree)
 
     v0_save_args = pytree_handler.create_v0_save_args(
         self.handler._context, self.pytree
