@@ -45,13 +45,6 @@ py_library(
     ],
 )
 
-py_library(
-    name = "repeating",
-    srcs = ["repeating.py"],
-    visibility = ["//third_party/py/tpu_kernel_testbench:__pkg__"],
-    deps = [":types"],
-)
-
 py_test(
     name = "fusing_test",
     srcs = ["fusing_test.py"],
@@ -75,10 +68,4 @@ py_test(
     name = "nesting_test",
     srcs = ["nesting_test.py"],
     deps = [":nesting"],
-)
-
-py_test(
-    name = "repeating_test",
-    srcs = ["repeating_test.py"],
-    deps = [":repeating"],
 )
