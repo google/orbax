@@ -28,6 +28,52 @@ def is_gcs_path(path: epath.Path) -> bool:
   return path.as_posix().startswith(_GCS_PATH_PREFIX)
 
 
+def to_gs_path(path: epath.PathLike) -> str:
+  """Converts a GCS path to a gs:// path string.
+
+  GCS paths can start with any of the prefixes in _GCS_PATH_PREFIX. This
+  function converts them to gs:// format.
+
+  Args:
+    path: A GCS path which can be a string or epath.Path.
+
+  Returns:
+    A GCS path string starting with gs://.
+
+  Raises:
+    ValueError: If path is not a GCS path.
+  """
+  path_str = str(path)
+  if path_str.startswith('gs://'):
+    return path_str
+  else:
+    raise ValueError(f'Path is not a GCS path: {path}')
+
+
+def to_gcsfuse_path(path: epath.PathLike) -> str:
+  """Converts a GCS path to a gcsfuse path string.
+
+  GCSfuse paths start with /gcs/ and are accessible via File API when gcsfuse
+  is enabled.
+
+  Args:
+    path: A GCS path which can be a string or epath.Path.
+
+  Returns:
+    A gcsfuse path string starting with /gcs/.
+
+  Raises:
+    ValueError: If path is not a GCS path.
+  """
+  path_str = str(path)
+  if path_str.startswith('gs://'):
+    return path_str.replace('gs://', '/gcs/', 1)
+  elif path_str.startswith('/gcs/'):
+    return path_str
+  else:
+    raise ValueError(f'Path is not a GCS path: {path}')
+
+
 def parse_gcs_path(path: epath.PathLike) -> tuple[str, str]:
   parsed = parse.urlparse(str(path))
   assert parsed.scheme == 'gs', f'Unsupported scheme for GCS: {parsed.scheme}'
