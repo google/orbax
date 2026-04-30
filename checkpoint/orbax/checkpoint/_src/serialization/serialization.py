@@ -19,8 +19,9 @@ import collections
 from collections.abc import Mapping
 import os
 import re
+import time
 from typing import Any, Dict, Optional, Sequence, Union
-
+from absl import logging
 import jax
 from jax.experimental import layout
 import jax.numpy as jnp
@@ -264,7 +265,12 @@ async def async_serialize_from_host(
       write_fragment(fragment)
       for fragment in rslices_on_host.to_fragments().fragments
   ]
+  start_time = time.time()
   await asyncio.gather(*write_coros)
+  logging.info(
+      'async_serialize_from_host: asyncio.gather took %f seconds',
+      time.time() - start_time,
+  )
 
 
 def estimate_write_memory_footprint(arr: np.ndarray) -> int:

@@ -865,6 +865,6 @@ def print_ts_debug_data(key: str | None, infos: Sequence[types.ParamInfo]):
   ]
 
   for metrics in ts_metrics:
-    logging.vlog(1, 'ts_metric: %s', metrics)
+    logging.info('ts_metric: %s', metrics)
 
   return json.dumps(ts_metrics)

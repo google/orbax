@@ -252,7 +252,11 @@ def unique_colocated_cpu_devices(
     devices: Sequence[jax.Device],
 ) -> tuple[jax.Device, ...]:
   """Returns one colocated CPU device per worker."""
+  logging.info('unique_colocated_cpu_devices: input devices=%s', devices)
   all_cpu = tuple(cp.colocated_cpu_devices(tuple(devices)))
+  logging.info(
+      'unique_colocated_cpu_devices: colocated_cpu_devices returned=%s', all_cpu
+  )
   unique_cpu = []
   seen_ids = set()
   for device in all_cpu:
@@ -260,6 +264,7 @@ def unique_colocated_cpu_devices(
       continue
     seen_ids.add(device.id)
     unique_cpu.append(device)
+  logging.info('unique_colocated_cpu_devices: unique_cpu=%s', unique_cpu)
   return tuple(unique_cpu)
 
 
@@ -267,16 +272,26 @@ def colocated_cpu_sharding(
     sharding: jax.sharding.Sharding,
 ) -> jax.sharding.Sharding:
   """Returns a CPU sharding colocated with the given sharding."""
+  logging.info('colocated_cpu_sharding: input sharding=%s', sharding)
   if isinstance(sharding, jax.sharding.SingleDeviceSharding):
     cpu_devices = cp.colocated_cpu_devices(list(sharding.device_set))
-    return jax.sharding.SingleDeviceSharding(
+    result = jax.sharding.SingleDeviceSharding(
         cpu_devices[0], memory_kind=sharding.memory_kind
     )
+    logging.info(
+        'colocated_cpu_sharding: returning SingleDeviceSharding=%s', result
+    )
+    return result
   if isinstance(sharding, jax.sharding.NamedSharding):
     cpu_mesh = cp.colocated_cpu_devices(sharding.mesh)
-    return jax.sharding.NamedSharding(
+    result = jax.sharding.NamedSharding(
         cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
     )
+    logging.info('colocated_cpu_sharding: returning NamedSharding=%s', result)
+    return result
+  logging.error(
+      'colocated_cpu_sharding: unsupported sharding type=%s', type(sharding)
+  )
   raise TypeError(
       f'Sharding type {type(sharding)} not supported in to_colocated_python.'
   )
@@ -284,12 +299,15 @@ def colocated_cpu_sharding(
 
 def to_colocated_python(input_tree: PyTree) -> PyTree:
   """Copies a pytree of arrays to colocated CPU devices."""
+  logging.info(
+      'to_colocated_python: starting with tree structure=%s',
+      jax.tree.structure(input_tree),
+  )
 
   def _get_sharding(x: Any) -> jax.sharding.Sharding | None:
     if isinstance(x, jax.Array):
       cpu_sharding = colocated_cpu_sharding(x.sharding)
-      logging.vlog(
-          1,
+      logging.info(
           'Staging array from %s to colocated CPU sharding %s',
           x.sharding,
           cpu_sharding,
@@ -298,7 +316,9 @@ def to_colocated_python(input_tree: PyTree) -> PyTree:
     return None
 
   cpu_sharding_tree = jax.tree.map(_get_sharding, input_tree)
-  return jax.device_put(input_tree, cpu_sharding_tree, may_alias=True)
+  result = jax.device_put(input_tree, cpu_sharding_tree, may_alias=True)
+  logging.info('to_colocated_python: finished device_put')
+  return result
 
 
 def make_scalar_array_like(
@@ -332,8 +352,7 @@ def convert_array_restore_args(
   """Converts ArrayRestoreArgs to use colocated CPU devices."""
   if restore_args.mesh is not None:
     cpu_mesh = cp.colocated_cpu_devices(restore_args.mesh)
-    logging.vlog(
-        1,
+    logging.info(
         'Converting restore mesh with axis names %s to colocated CPU mesh.',
         restore_args.mesh.axis_names,
     )
@@ -342,8 +361,7 @@ def convert_array_restore_args(
     return restore_args
   if isinstance(restore_args.sharding, jax.sharding.Sharding):
     cpu_sharding = colocated_cpu_sharding(restore_args.sharding)
-    logging.vlog(
-        1,
+    logging.info(
         'Converting restore sharding from %s to colocated CPU sharding %s',
         restore_args.sharding,
         cpu_sharding,
@@ -352,8 +370,7 @@ def convert_array_restore_args(
   if isinstance(restore_args.sharding, sharding_metadata.ShardingMetadata):
     sharding = restore_args.sharding.to_jax_sharding()
     cpu_sharding = colocated_cpu_sharding(sharding)
-    logging.vlog(
-        1,
+    logging.info(
         'Converting restore sharding metadata %s to colocated CPU sharding %s',
         type(restore_args.sharding).__name__,
         cpu_sharding,
@@ -388,24 +405,37 @@ def convert_single_replica_restore_args(
 
 def transform_tree_shardings(input_tree: PyTree) -> Any:
   """Converts shardings/specs/restore-args/arrays to colocated CPU devices."""
+  logging.info('transform_tree_shardings: starting mapping')
 
   def _transform_leaf_sharding(leaf: Any) -> Any:
     if isinstance(leaf, jax.sharding.Sharding):
+      logging.info('transform_tree_shardings: converting Sharding=%s', leaf)
       return colocated_cpu_sharding(leaf)
     if isinstance(leaf, jax.ShapeDtypeStruct) and hasattr(leaf, 'sharding'):
+      logging.info(
+          'transform_tree_shardings: ShapeDtypeStruct sharding=%s',
+          leaf.sharding,
+      )
       cpu_sharding = colocated_cpu_sharding(leaf.sharding)
       return jax.ShapeDtypeStruct(
           leaf.shape, leaf.dtype, sharding=cpu_sharding
       )
     if isinstance(leaf, jax_array_restore_args.SingleReplicaArrayRestoreArgs):
+      logging.info(
+          'transform_tree_shardings: SingleReplicaArrayRestoreArgs=%s', leaf
+      )
       return convert_single_replica_restore_args(leaf)
     if isinstance(leaf, jax_array_restore_args.ArrayRestoreArgs):
+      logging.info('transform_tree_shardings: ArrayRestoreArgs=%s', leaf)
       return convert_array_restore_args(leaf)
     if isinstance(leaf, jax.Array):
+      logging.info('transform_tree_shardings: Array of shape %s', leaf.shape)
       return to_colocated_python(leaf)
     return leaf
 
-  return jax.tree.map(_transform_leaf_sharding, input_tree)
+  result = jax.tree.map(_transform_leaf_sharding, input_tree)
+  logging.info('transform_tree_shardings: finished mapping')
+  return result
 
 
 def to_final_specs(
@@ -416,8 +446,7 @@ def to_final_specs(
 
   def _to_final_spec(leaf: Any, tpu_or_cpu_spec: Any) -> Any:
     if isinstance(leaf, jax.Array) and hasattr(tpu_or_cpu_spec, 'sharding'):
-      logging.vlog(
-          1,
+      logging.info(
           'Transferring array from %s to final sharding %s',
           leaf.sharding,
           tpu_or_cpu_spec.sharding,

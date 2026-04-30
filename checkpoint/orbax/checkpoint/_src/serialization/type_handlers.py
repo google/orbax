@@ -138,10 +138,10 @@ class NumpyHandler(types.TypeHandler):
           metadata_key=self._metadata_key,
       )
       tspec = array_write_spec.json
-      if logging.vlog_is_on(1):
-        logging.vlog(1, 'tspec = %s', tspec)
-        logging.vlog(1, 'infos = %s', info)
-        logging.vlog(1, 'args = %s', arg)
+      if True:  # pylint: disable=using-constant-test
+        logging.info('tspec = %s', tspec)
+        logging.info('infos = %s', info)
+        logging.info('args = %s', arg)
       if multihost.process_index() == 0:
         ts_context = info.ts_context
         write_coros.append(self._open_and_write(value, tspec, ts_context))
@@ -157,7 +157,7 @@ class NumpyHandler(types.TypeHandler):
     args = args or [types.SaveArgs()] * len(values)
     types.check_input_arguments(values, infos, args)
     check_array_values(values, infos)
-    if logging.vlog_is_on(1):
+    if True:  # pylint: disable=using-constant-test
       ts_utils.print_ts_debug_data(self._metadata_key, infos)
     copied_values = [copy.deepcopy(v) for v in values]
     return [
@@ -193,10 +193,10 @@ class NumpyHandler(types.TypeHandler):
       )
       tspec = array_read_spec.json
 
-      if logging.vlog_is_on(1):
-        logging.vlog(1, 'tspec = %s', tspec)
-        logging.vlog(1, 'infos = %s', infos)
-        logging.vlog(1, 'args = %s', args)
+      if True:  # pylint: disable=using-constant-test
+        logging.info('tspec = %s', tspec)
+        logging.info('infos = %s', infos)
+        logging.info('args = %s', args)
       open_futures += [
           ts.open(ts.Spec(tspec), open=True, context=info.ts_context)
       ]
@@ -204,10 +204,10 @@ class NumpyHandler(types.TypeHandler):
     read_ops = [t.read() for t in tensorstores]
     ret = await asyncio.gather(*read_ops)
 
-    if logging.vlog_is_on(1):
+    if True:  # pylint: disable=using-constant-test
       for a in ret:
-        logging.vlog(
-            1, 'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
+        logging.info(
+            'restored ndarray.shape = %s, array.dtype = %s', a.shape, a.dtype
         )
         ts_utils.print_ts_debug_data(self._metadata_key, infos)
 

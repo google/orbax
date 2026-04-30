@@ -110,8 +110,7 @@ def group_devices_by_worker(
   for d in devices:
     key = _get_device_worker_key(d)
     worker_devices[key].append(d)
-  logging.vlog(
-      1,
+  logging.info(
       'Grouped %d devices into %d Pathways workers: %s',
       len(devices),
       len(worker_devices),

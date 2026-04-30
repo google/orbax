@@ -684,6 +684,7 @@ def construct_workload_command(
   if enable_pathways:
     env_vars = [
         'export JAX_PLATFORMS=proxy',
+        'export JAX_BACKEND_TARGET=grpc://${PATHWAYS_HEAD}:29000',
         'export ENABLE_PATHWAYS_PERSISTENCE=1',
         'export ENABLE_PJRT_COMPATIBILITY=true',
     ]
@@ -732,8 +733,8 @@ def construct_workload_command(
     python_cmd += ' --jax_cpu_collectives_implementation=gloo'
   if enable_pathways:
     python_cmd = (
-        'python3 -c "import pathwaysutils;'
-        ' pathwaysutils.initialize()" && '
+        'python3 -c "import pathwaysutils; pathwaysutils.initialize();'
+        " print('Pathwaysutils initialized.')\" && "
         + python_cmd
     )
 
