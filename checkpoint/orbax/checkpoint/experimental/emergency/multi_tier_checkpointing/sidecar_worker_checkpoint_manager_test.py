@@ -20,7 +20,7 @@ from absl.testing import absltest
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import args as args_lib
-from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager as rcm_lib
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import replicator_checkpoint_manager as rcm_lib
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
     sidecar_worker_checkpoint_manager as sidecar_lib,
 )

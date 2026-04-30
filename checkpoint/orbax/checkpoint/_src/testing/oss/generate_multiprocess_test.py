@@ -34,7 +34,7 @@ EXCLUDED_PATHS = [
     'orbax/checkpoint/experimental/v1',
     'orbax/checkpoint/experimental/emergency/p2p',
     'orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py',
-    'orbax/checkpoint/experimental/emergency/replicator_checkpoint_manager_test.py',
+    'orbax/checkpoint/experimental/emergency/multi_tier_checkpointing/replicator_checkpoint_manager_test.py',
     'orbax/checkpoint/google',
 ]
 

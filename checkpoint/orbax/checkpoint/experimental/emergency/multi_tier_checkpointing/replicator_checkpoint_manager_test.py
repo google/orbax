@@ -34,7 +34,7 @@ from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.emergency import mesh_consistency
-from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import replicator_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity

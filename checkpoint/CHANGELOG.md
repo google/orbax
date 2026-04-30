@@ -18,6 +18,7 @@ merging.
 - Add Colocated Python Orchestration handling
 - #v1 Add `LeafHandler` as a `CheckpointableHandler`, so that ordinary PyTree
 leaves can also be saved as individual checkpointables.
+- Move MTC files to multi_tier_checkpointing and use local checkpoint engine
 
 ## [0.11.36] - 2026-04-14
 

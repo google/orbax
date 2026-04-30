@@ -23,8 +23,8 @@ import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.multihost import colocated_transport
-from orbax.checkpoint.experimental.emergency import replicator_checkpoint_manager as rcm_lib
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import colocated_utils
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import replicator_checkpoint_manager as rcm_lib
 
 
 PyTree = Any
