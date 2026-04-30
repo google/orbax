@@ -19,6 +19,9 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import jax
+from jax import sharding
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -29,6 +32,10 @@ from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_typ
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
+
+NamedSharding = sharding.NamedSharding
+Mesh = sharding.Mesh
+P = sharding.PartitionSpec
 np_save_file = safetensors.numpy.save_file
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 
@@ -247,6 +254,45 @@ class LayoutLoadingTest(parameterized.TestCase):
     test_utils.assert_tree_equal(
         self, custom_checkpointables['custom_state'], loaded
     )
+
+  def test_load_pytree_with_abstract_mesh(self):
+    # Tests that load_pytree works with abstract_pytree containing an
+    # AbstractMesh, similar to the pattern used whent loading NNX models.
+    # See:
+    # https://flax.readthedocs.io/en/stable/guides/checkpointing.html#restore-checkpoints
+    # """
+
+    # The functionality being tested depends on jax.sharding.get_mesh being
+    # available in the current JAX version.
+    if not hasattr(jax.sharding, 'get_mesh'):
+      self.skipTest('Current JAX version does not support get_mesh.')
+
+    data = {'w': np.ones((8, 8), dtype=np.float32)}
+    save_path = epath.Path(self.test_dir.full_path) / 'abstract_mesh_checkpoint'
+    saving.save_pytree(save_path, data)
+
+    # Construct an AbstractMesh and NamedSharding and an abstract_pytree that
+    # uses it, simulating the output of nnx.eval_shape().
+    abstract_mesh = jax.sharding.AbstractMesh(
+        axis_sizes=(1, 1), axis_names=('x', 'y')
+    )
+    abstract_mesh_sharding = NamedSharding(abstract_mesh, P('x', 'y'))
+    abstract_pytree = {
+        'w': jax.ShapeDtypeStruct(
+            (8, 8), jnp.float32, sharding=abstract_mesh_sharding
+        )
+    }
+
+    # Load with a concrete mesh context and validate.
+    concrete_mesh = Mesh(np.array(jax.devices()[:1]).reshape(1, 1), ('x', 'y'))
+    with jax.set_mesh(concrete_mesh):
+      loaded = loading.load_pytree(save_path, abstract_pytree=abstract_pytree)
+
+    # Convert to numpy for comparison with the original numpy 'data'
+    loaded_np = jax.tree.map(np.array, loaded)
+    test_utils.assert_tree_equal(self, data, loaded_np)
+    # Verify the loaded array has the concrete sharding/devices
+    self.assertEqual(loaded['w'].sharding.mesh, concrete_mesh)
 
 
 if __name__ == '__main__':
