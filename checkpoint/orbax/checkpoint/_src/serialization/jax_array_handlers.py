@@ -107,6 +107,24 @@ def any_jax_array_param_info(param_infos: Pytree) -> types.ParamInfo | None:
   )
 
 
+def _has_prng_key_dtype(arg: Any) -> bool:
+  """Returns True if the dtype of arg is a PRNG key dtype."""
+  return arg.dtype is not None and jax.dtypes.issubdtype(
+      arg.dtype, jax.dtypes.prng_key
+  )
+
+
+def _get_underlying_shape(
+    shape: tuple[int, ...] | None, dtype: Any
+) -> tuple[int, ...] | None:
+  """Returns the data shape for underlying data of PRNG keys."""
+  if shape is None:
+    return None
+  return jax.eval_shape(
+      jax.random.key_data, jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
+  ).shape
+
+
 @functools.lru_cache(maxsize=4096)
 def _is_replicated_sharding(sharding: jax.sharding.Sharding) -> bool:
   """Returns True if the sharding is replicated.
@@ -780,12 +798,15 @@ async def _deserialize_arrays(
       )
       tspec = array_read_spec.json
 
-      # set dtype=None to deserialize for random keys
-      dtype = (
-          None
-          if jax.dtypes.issubdtype(arg.dtype, jax.dtypes.prng_key)
-          else arg.dtype
-      )
+      base_shape = arg.global_shape if hasattr(arg, 'global_shape') else None
+      if _has_prng_key_dtype(arg):
+        # set dtype=None to deserialize for random keys
+        dtype = None
+        arg_global_shape = _get_underlying_shape(base_shape, arg.dtype)
+      else:
+        dtype = arg.dtype
+        arg_global_shape = base_shape
+
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'info = %s', info)
@@ -796,9 +817,7 @@ async def _deserialize_arrays(
           serialization.async_deserialize(
               sharding,
               tspec,
-              global_shape=arg.global_shape
-              if hasattr(arg, 'global_shape')
-              else None,
+              global_shape=arg_global_shape,
               dtype=dtype,
               byte_limiter=info.byte_limiter,
               context=info.ts_context,
@@ -1184,10 +1203,18 @@ class ArrayHandler(types.TypeHandler):
       for arg, meta in zip(args, metadatas):
         if not isinstance(arg, ArrayRestoreArgs):
           arg = ArrayRestoreArgs()
-        if arg.global_shape is None:
-          arg = dataclasses.replace(arg, global_shape=meta.shape)
-        if arg.dtype is None:
-          arg = dataclasses.replace(arg, dtype=meta.dtype)
+        if meta is not None:
+          physical_shape = getattr(meta, 'write_shape', None) or getattr(
+              meta, 'shape', None
+          )
+          dtype = getattr(meta, 'dtype', None)
+
+          if arg.global_shape is None:
+            arg = dataclasses.replace(
+                arg, global_shape=physical_shape, shape=physical_shape
+            )
+          if arg.dtype is None:
+            arg = dataclasses.replace(arg, dtype=dtype)
         result.append(arg)
       return result
     else:
@@ -1589,6 +1616,13 @@ class SingleReplicaArrayHandler(ArrayHandler):
       # implementation.
       ret = jax.tree.map(jax.device_put, ret, shardings)
       jax.block_until_ready(ret)
+
+      if self._array_metadata_store is not None:
+        array_metadatas = await self._array_metadata_store.read(
+            checkpoint_dir=infos[0].parent_dir,
+        )
+        if array_metadatas:
+          ret = _wrap_random_key_data(array_metadatas, infos, list(ret))
 
     return ret
 
