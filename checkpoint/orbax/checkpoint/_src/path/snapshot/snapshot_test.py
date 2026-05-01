@@ -23,6 +23,11 @@ from orbax.checkpoint._src.path.snapshot import snapshot
 
 
 
+DefaultSnapshot = snapshot._DefaultSnapshot
+EmptySnapshot = snapshot._EmptySnapshot
+PENDING_DIR_SUFFIX = snapshot.PENDING_DIR_SUFFIX
+
+
 class DefaultSnapshotTest(absltest.TestCase):
 
   def __init__(self, *args, **kwargs):
@@ -37,25 +42,21 @@ class DefaultSnapshotTest(absltest.TestCase):
     self.dest_path = self.root / 'path/to/dest'
 
   def test_create_snapshot(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     self.assertFalse(self.dest_path.exists())
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     self.assertEqual('data', (self.dest_path / 'data.txt').read_text())
 
   def test_release_snapshot(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     asyncio.run(default_snapshot.release_snapshot())
     self.assertFalse(self.dest_path.exists())
 
   def test_create_snapshot_with_relative_dest_path_fails(self):
-    default_snapshot = snapshot._DefaultSnapshot(
+    default_snapshot = DefaultSnapshot(
         self.source_path, epath.Path('relative/path')
     )
     with self.assertRaisesRegex(
@@ -66,24 +67,18 @@ class DefaultSnapshotTest(absltest.TestCase):
   def test_create_snapshot_with_non_existent_source_fails(self):
     non_existent_source = self.root / 'non/existent'
     self.assertFalse(non_existent_source.exists())
-    default_snapshot = snapshot._DefaultSnapshot(
-        non_existent_source, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(non_existent_source, self.dest_path)
     with self.assertRaisesRegex(ValueError, 'Snapshot source does not exist'):
       asyncio.run(default_snapshot.create_snapshot())
 
   def test_release_non_existent_snapshot(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     self.assertFalse(self.dest_path.exists())
     with self.assertRaises(FileNotFoundError):
       asyncio.run(default_snapshot.release_snapshot())
 
   def test_release_snapshot_fails_on_rmtree_error(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     mock_rmtree = mock.MagicMock()
@@ -94,9 +89,7 @@ class DefaultSnapshotTest(absltest.TestCase):
     mock_rmtree.assert_called_once()
 
   def test_replace_source(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     self.assertEqual('data', (self.dest_path / 'data.txt').read_text())
@@ -120,7 +113,7 @@ class DefaultSnapshotTest(absltest.TestCase):
     )
 
   def test_replace_source_with_relative_dest_path_fails(self):
-    default_snapshot = snapshot._DefaultSnapshot(
+    default_snapshot = DefaultSnapshot(
         self.source_path, epath.Path('relative/path')
     )
     with self.assertRaisesRegex(
@@ -129,16 +122,14 @@ class DefaultSnapshotTest(absltest.TestCase):
       asyncio.run(default_snapshot.replace_source())
 
   def test_replace_source_with_relative_source_path_fails(self):
-    default_snapshot = snapshot._DefaultSnapshot(
+    default_snapshot = DefaultSnapshot(
         epath.Path('relative/path'), self.dest_path
     )
     with self.assertRaisesRegex(ValueError, 'Snapshot source must be absolute'):
       asyncio.run(default_snapshot.replace_source())
 
   def test_replace_source_recovers_on_failure(self):
-    default_snapshot = snapshot._DefaultSnapshot(
-        self.source_path, self.dest_path
-    )
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
     asyncio.run(default_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
 
@@ -181,20 +172,20 @@ class EmptySnapshotTest(absltest.TestCase):
     self.dest_path = self.root / 'path/to/dest'
 
   def test_create_snapshot(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
     self.assertFalse(self.dest_path.exists())
     asyncio.run(empty_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
 
   def test_release_snapshot(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
     asyncio.run(empty_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     asyncio.run(empty_snapshot.release_snapshot())
     self.assertFalse(self.dest_path.exists())
 
   def test_create_snapshot_with_relative_dest_path_fails(self):
-    empty_snapshot = snapshot._EmptySnapshot(
+    empty_snapshot = EmptySnapshot(
         self.source_path, epath.Path('relative/path')
     )
     with self.assertRaisesRegex(
@@ -203,13 +194,13 @@ class EmptySnapshotTest(absltest.TestCase):
       asyncio.run(empty_snapshot.create_snapshot())
 
   def test_release_non_existent_snapshot(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
     self.assertFalse(self.dest_path.exists())
     # Should not raise any error
     asyncio.run(empty_snapshot.release_snapshot())
 
   def test_replace_source(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
     asyncio.run(empty_snapshot.create_snapshot())
     self.assertTrue(self.dest_path.exists())
     (self.dest_path / 'new_file.txt').write_text('new_file_data')
@@ -223,7 +214,7 @@ class EmptySnapshotTest(absltest.TestCase):
     pending_dirs = [
         p
         for p in self.source_path.iterdir()
-        if p.name.startswith(f'{self.source_path.name}.pending_')
+        if p.name.startswith(f'{self.source_path.name}{PENDING_DIR_SUFFIX}')
     ]
     self.assertLen(pending_dirs, 1)
     pending_dir = pending_dirs[0]
@@ -233,7 +224,7 @@ class EmptySnapshotTest(absltest.TestCase):
     )
 
   def test_replace_source_without_snapshot(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
     self.assertFalse(self.dest_path.exists())
     # Should raise FileNotFoundError
     with self.assertRaisesRegex(FileNotFoundError, 'Snapshot does not exist'):
@@ -241,7 +232,7 @@ class EmptySnapshotTest(absltest.TestCase):
     self.assertFalse(self.source_path.exists())
 
   def test_replace_source_with_existing_source(self):
-    empty_snapshot = snapshot._EmptySnapshot(self.source_path, self.dest_path)
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
 
     # Pre-populate the source directory with an existing file
     self.source_path.mkdir(parents=True)
@@ -264,7 +255,7 @@ class EmptySnapshotTest(absltest.TestCase):
     pending_dirs = [
         p
         for p in self.source_path.iterdir()
-        if p.name.startswith(f'{self.source_path.name}.pending_')
+        if p.name.startswith(f'{self.source_path.name}{PENDING_DIR_SUFFIX}')
     ]
     self.assertLen(pending_dirs, 1)
     pending_dir = pending_dirs[0]
@@ -275,8 +266,8 @@ class EmptySnapshotTest(absltest.TestCase):
     dest_path1 = self.root / 'path/to/dest1'
     dest_path2 = self.root / 'path/to/dest2'
 
-    snapshot1 = snapshot._EmptySnapshot(self.source_path, dest_path1)
-    snapshot2 = snapshot._EmptySnapshot(self.source_path, dest_path2)
+    snapshot1 = EmptySnapshot(self.source_path, dest_path1)
+    snapshot2 = EmptySnapshot(self.source_path, dest_path2)
 
     asyncio.run(snapshot1.create_snapshot())
     asyncio.run(snapshot2.create_snapshot())
@@ -294,7 +285,7 @@ class EmptySnapshotTest(absltest.TestCase):
     pending_dirs = [
         p
         for p in self.source_path.iterdir()
-        if p.name.startswith(f'{self.source_path.name}.pending_')
+        if p.name.startswith(f'{self.source_path.name}{PENDING_DIR_SUFFIX}')
     ]
     self.assertLen(pending_dirs, 2)
 
@@ -313,7 +304,7 @@ class EmptySnapshotTest(absltest.TestCase):
     self.assertTrue(found_data2)
 
   def test_replace_source_with_relative_dest_path_fails(self):
-    empty_snapshot = snapshot._EmptySnapshot(
+    empty_snapshot = EmptySnapshot(
         self.source_path, epath.Path('relative/path')
     )
     with self.assertRaisesRegex(
@@ -322,9 +313,7 @@ class EmptySnapshotTest(absltest.TestCase):
       asyncio.run(empty_snapshot.replace_source())
 
   def test_replace_source_with_relative_source_path_fails(self):
-    empty_snapshot = snapshot._EmptySnapshot(
-        epath.Path('relative/path'), self.dest_path
-    )
+    empty_snapshot = EmptySnapshot(epath.Path('relative/path'), self.dest_path)
     with self.assertRaisesRegex(ValueError, 'Snapshot source must be absolute'):
       asyncio.run(empty_snapshot.replace_source())
 

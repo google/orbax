@@ -26,6 +26,7 @@ from orbax.checkpoint._src.path import utils as ocp_path_utils
 
 
 SNAPSHOTTING_TIME = "snapshotting_time"
+PENDING_DIR_SUFFIX = ".pending_"
 
 
 class SnapshotType(enum.Enum):
@@ -164,7 +165,10 @@ class _EmptySnapshot(Snapshot):
       # Move files from inside the tmp snapshot into the original source
       # directory under a pending suffix. This is to avoid potentially wiping
       # out previous files.
-      pending_suffix = f".pending_{uuid.uuid4()}"
+      # Partial saving relies on this behavior to accumulate `pending_*`
+      # directories in the shared parent path before merging them sequentially
+      # upon finalization.
+      pending_suffix = f"{PENDING_DIR_SUFFIX}{uuid.uuid4()}"
       dst_path = self._source / f"{self._source.name}{pending_suffix}"
       self._snapshot.rename(dst_path)
 
