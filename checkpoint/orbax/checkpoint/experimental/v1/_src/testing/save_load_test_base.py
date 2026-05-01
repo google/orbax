@@ -250,67 +250,39 @@ class SaveLoadTestBase:
       else:
         self.assertEqual(loaded['k'], value)
 
-    @parameterized.named_parameters(
-        dict(
-            testcase_name='replicated_array',
-            spec=jax.sharding.PartitionSpec(),
-            size=12,
-        ),
-        dict(
-            testcase_name='sharded_array',
-            spec=jax.sharding.PartitionSpec(('devices',)),
-            size=32,
-        ),
-    )
-    def test_jax_array_leaf_types(self, spec, size):
+    def test_jax_array_leaf_types(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
-      sharding = jax.sharding.NamedSharding(mesh, spec)
-      v = jnp.arange(size, device=sharding)
-      ocp.save_pytree(self.directory, [v])
-      with self.subTest('with_abstract_pytree'):
-        loaded = ocp.load_pytree(self.directory, [as_abstract_type(v)])
-        test_utils.assert_tree_equal(self, [v], loaded)
-      with self.subTest('without_abstract_pytree'):
-        if multihost.is_pathways_backend():
-          self.skipTest('Must provide abstract_pytree for Pathways.')
-        loaded = ocp.load_pytree(self.directory)
-        test_utils.assert_tree_equal(self, [v], loaded)
-
-    @parameterized.named_parameters(
-        dict(
-            testcase_name='simple_array',
-            value_fn=lambda: jnp.arange(16),
-        ),
-        dict(
-            testcase_name='single_device_array',
-            value_fn=lambda: jnp.arange(8, device=jax.local_devices()[0]),
-        ),
-        dict(
-            testcase_name='single_device_cpu_array',
-            value_fn=lambda: jnp.arange(
-                24, device=jax.local_devices(backend='cpu')[0]
-            ),
-            skip_on_pathways=True,
-        ),
-    )
-    def test_jax_array_single_device_leaf_types(
-        self, value_fn, skip_on_pathways=False
-    ):
-      if skip_on_pathways and multihost.is_pathways_backend():
-        self.skipTest('Skip CPU array test on pathways.')
-      v = value_fn()
-      if jax.process_count() > 1 or multihost.is_pathways_backend():
-        with self.assertRaisesRegex(ValueError, 'with SingleDeviceSharding'):
-          ocp.save_pytree(self.directory, [v])
-        return
-
-      ocp.save_pytree(self.directory, [v])
-      with self.subTest('with_abstract_pytree'):
-        loaded = ocp.load_pytree(self.directory, [as_abstract_type(v)])
-        test_utils.assert_tree_equal(self, [v], loaded)
-      with self.subTest('without_abstract_pytree'):
-        loaded = ocp.load_pytree(self.directory)
-        test_utils.assert_tree_equal(self, [v], loaded)
+      # TODO(cpgaffney): Add support for missing arrays.
+      values = {
+          # 'simple_array': jnp.arange(16),
+          # 'single_device_array': jnp.arange(8, device=jax.local_devices()[0]),
+          'replicated_array': jnp.arange(
+              12,
+              device=jax.sharding.NamedSharding(
+                  mesh, jax.sharding.PartitionSpec()
+              ),
+          ),
+          'sharded_array': jnp.arange(
+              32,
+              device=jax.sharding.NamedSharding(
+                  mesh, jax.sharding.PartitionSpec(('devices',))
+              ),
+          ),
+          # 'single_device_cpu_array': jnp.arange(
+          #     24, device=jax.local_devices(backend='cpu')[0]
+          # ),
+      }
+      for k, v in values.items():
+        with self.subTest(k):
+          ocp.save_pytree(self.directory / k, [v])
+          with self.subTest('with_abstract_pytree'):
+            loaded = ocp.load_pytree(self.directory / k, [as_abstract_type(v)])
+            test_utils.assert_tree_equal(self, [v], loaded)
+          with self.subTest('without_abstract_pytree'):
+            if multihost.is_pathways_backend():
+              self.skipTest('Must provide abstract_pytree for Pathways.')
+            loaded = ocp.load_pytree(self.directory / k)
+            test_utils.assert_tree_equal(self, [v], loaded)
 
     @parameterized.parameters(
         (np.arange(8),),

@@ -136,7 +136,7 @@ def _is_replicated_sharding(sharding: jax.sharding.Sharding) -> bool:
     else:
       return False
   elif isinstance(sharding, jax.sharding.SingleDeviceSharding):
-    return False
+    return True
   else:
     logging.warning(
         'Unsupported sharding type, assuming not replicated: %s', sharding
@@ -1094,29 +1094,26 @@ class ArrayHandler(types.TypeHandler):
     self._ext_metadata = dict()
     arrays = []
     for v, info in zip(values, infos):
-      if isinstance(v, jax.Array):
-        if jax.process_count() > 1 or multihost.is_pathways_backend():
-          if isinstance(v.sharding, jax.sharding.SingleDeviceSharding):
-            raise ValueError(
-                'Orbax does not support saving arrays with'
-                ' SingleDeviceSharding in multi-host environments.'
-            )
-        if jax.process_count() > 1 and v.is_fully_addressable:
-          debug_param_info = (
-              f'ParamInfo=[name={info.name},value_typestr={info.value_typestr}]'
-          )
-          debug_array = (
-              f'jax.Array=[value={v},shape={v.shape},dtype={v.dtype},'
-              f'sharding={v.sharding},device={v.device}]'
-          )
-          raise ValueError(
-              f'Cannot serialize host local jax.Array ({debug_param_info},'
-              f' {debug_array}) in multi-host setting. Arrays like this are'
-              ' typically obtained using pmap. Consider using'
-              ' fully_replicated_host_local_array_to_global_array in'
-              ' orbax/checkpoint/utils.py to convert your arrays into'
-              f' serializable objects. Array.sharding: {v.sharding}'
-          )
+      if (
+          isinstance(v, jax.Array)
+          and jax.process_count() > 1
+          and v.is_fully_addressable
+      ):
+        debug_param_info = (
+            f'ParamInfo=[name={info.name},value_typestr={info.value_typestr}]'
+        )
+        debug_array = (
+            f'jax.Array=[value={v},shape={v.shape},dtype={v.dtype},'
+            f'sharding={v.sharding},device={v.device}]'
+        )
+        raise ValueError(
+            f'Cannot serialize host local jax.Array ({debug_param_info},'
+            f' {debug_array}) in multi-host setting. Arrays like this are'
+            ' typically obtained using pmap. Consider using'
+            ' fully_replicated_host_local_array_to_global_array in'
+            ' orbax/checkpoint/utils.py to convert your arrays into'
+            f' serializable objects. Array.sharding: {v.sharding}'
+        )
 
       if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
         # a JAX random key
