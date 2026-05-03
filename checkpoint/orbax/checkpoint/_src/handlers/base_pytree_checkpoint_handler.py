@@ -209,6 +209,10 @@ def batched_serialization_requests(
   ):
     nonlocal grouped
     tuple_key = tree_utils.tuple_path_from_keypath(keypath)
+
+    if info is None or arg is None or value is None:
+      return
+
     if info.skip_deserialize:
       return
 
@@ -261,6 +265,7 @@ def batched_serialization_requests(
       param_infos,
       tree,
       args,
+      is_leaf=lambda x: x is None,
   )
   return list(grouped.values())
 
