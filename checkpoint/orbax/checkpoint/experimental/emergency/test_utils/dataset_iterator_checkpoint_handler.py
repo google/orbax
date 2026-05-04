@@ -15,7 +15,7 @@
 """This module provides a PyGrain CheckpointHandler for integration with Orbax."""
 import dataclasses
 import json
-import logging
+from absl import logging
 from typing import Any, Optional
 from etils import epath
 import jax
