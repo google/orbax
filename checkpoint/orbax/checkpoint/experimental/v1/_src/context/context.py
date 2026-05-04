@@ -60,6 +60,12 @@ class Context(epy.ContextManager):
   that thread will not inherit the context and will fall back to default
   settings.
 
+  Note: When testing or mixing checkpointer instances and free functions,
+  explicitly wrap free functions inside their own `with ocp.Context(...)` block,
+  or pass explicit contexts to Checkpointer constructors, to ensure each actor
+  receives its correct active configuration independent of the surrounding
+  context.
+
   Example:
     Basic usage and explicit inheritance::
 
