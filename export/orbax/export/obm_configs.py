@@ -297,10 +297,6 @@ class Jax2ObmOptions:
       identify a specific set of weights that will be used by the exported JAX
       function.
     polymorphic_constraints: Input polymorphic constraints.
-    load_all_checkpoint_weights: If set to True, all weights from the checkpoint
-      will be loaded, including those not used by the exported function(s).
-      Defaults to False, which only loads necessary weights to save memory
-      during serving.
     xla_flags_per_platform: XLA flags per platform for the model.
     jax_mesh: Mesh for the model.
     persist_xla_flags: Whether to persist XLA flags in the exported model. If
@@ -321,9 +317,6 @@ class Jax2ObmOptions:
   polymorphic_constraints: (
       Mapping[str, Sequence[str]] | Sequence[str] | None
   ) = None
-  # TODO: b/448900820 - Remove this variable, we should always load necessary
-  # weights only.
-  load_all_checkpoint_weights: bool = False
   xla_flags_per_platform: Mapping[str, Sequence[str]] | None = None
   jax_mesh: jax.sharding.Mesh | None = None
   persist_xla_flags: bool = True
