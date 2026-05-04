@@ -145,6 +145,27 @@ class JaxDataProcessorTest(parameterized.TestCase):
     checkpoint_path = pathlib.Path(temp_dir) / 'processor' / 'add_params'
     self.assertTrue(checkpoint_path.exists())
 
+  def test_prepare_with_platforms_option(self):
+    def add(x: jax.Array) -> jax.Array:
+      return x + 1.0
+
+    processor = jax_data_processor.JaxDataProcessor(
+        add,
+        name='add',
+        options=obm_configs.Jax2ObmOptions(
+            native_serialization_platforms=['cpu', 'tpu']
+        ),
+    )
+    processor.prepare(
+        jax.ShapeDtypeStruct((2, 3), jnp.float32),
+    )
+
+    self.assertIsNotNone(processor.obm_function)
+    self.assertEqual(
+        processor.obm_function.lowering_platforms,  # pytype: disable=attribute-error
+        ('cpu', 'tpu'),
+    )
+
 
 if __name__ == '__main__':
   googletest.main()

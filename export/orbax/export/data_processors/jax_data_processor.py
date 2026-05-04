@@ -20,6 +20,7 @@ from typing import Any
 
 import jax
 import jaxtyping
+from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export.data_processors import data_processor_base
@@ -150,12 +151,26 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
         self._params,
     )
 
+    native_serialization_platforms = (
+        self._options.native_serialization_platforms
+    )
+    if native_serialization_platforms is None:
+      platforms = None
+    elif isinstance(native_serialization_platforms, str):
+      platforms = [native_serialization_platforms]
+    else:
+      platforms = native_serialization_platforms
+
+    if platforms is not None:
+      platforms = [manifest_pb2.Platform.Value(p.upper()) for p in platforms]
+
     # Convert the JAX function to an Orbax Model function using jax2obm,
     # making it compatible with the Orbax Export framework.
     self._obm_function = jax2obm.convert(
         fun_jax=self._processor_callable,
         args_spec=args_spec,
         kwargs_spec={},
+        platforms=platforms,
         native_serialization_disabled_checks=self._options.native_serialization_disabled_checks,
         model_param_names=jax.tree.leaves(param_names_tree),
         # TODO: b/485622993 - Add other options if needed.
