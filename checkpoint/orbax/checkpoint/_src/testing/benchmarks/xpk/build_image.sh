@@ -18,22 +18,28 @@ BASE_IMAGE=""
 DOCKERFILE_PATH=""
 NO_CACHE_FLAG=""
 LOCAL_REPO_PATH=""
+BUILD_SIDECAR="false"
+DOCKERFILE_SIDECAR_PATH=""
+BUILD_BENCHMARK="true"
 
 function print_usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
-  echo "  --project PROJECT_ID    GCP Project ID"
-  echo "  --pr PR_NUMBER          GitHub PR number"
-  echo "  --image IMAGE_NAME      Image name (default: orbax-benchmarks)"
-  echo "  --branch BRANCH         GitHub branch (default: main)"
-  echo "  --jax-version VERSION   JAX version: newest, nightly, or X.Y.Z (default: newest)"
-  echo "  --device DEVICE         Device type: tpu, gpu, cpu (default: tpu)"
-  echo "  --base-image IMAGE      Base Docker image (optional)"
-  echo "  --dockerfile FILE       Dockerfile path (optional)"
-  echo "  --tag TAG               Image tag"
-  echo "  --local-repo PATH       Path to local Orbax repository"
-  echo "  --no-cache              Disable Docker build cache"
-  echo "  --help                  Show this help"
+  echo "  --project PROJECT_ID        GCP Project ID"
+  echo "  --pr PR_NUMBER              GitHub PR number"
+  echo "  --image IMAGE_NAME          Image name (default: orbax-benchmarks)"
+  echo "  --branch BRANCH             GitHub branch (default: main)"
+  echo "  --jax-version VERSION       JAX version: newest, nightly, or X.Y.Z (default: newest)"
+  echo "  --device DEVICE             Device type: tpu, gpu, cpu (default: tpu)"
+  echo "  --base-image IMAGE          Base Docker image (optional)"
+  echo "  --build-benchmark BOOL      Build the main orbax benchmark image (default: true)"
+  echo "  --dockerfile-benchmark FILE Dockerfile path to build orbax benchmark (optional)"
+  echo "  --build-sidecar BOOL        Build the orbax sidecar image (default: false)"
+  echo "  --dockerfile-sidecar FILE   Dockerfile path for sidecar (optional)"
+  echo "  --tag TAG                   Image tag"
+  echo "  --local-repo PATH           Path to local Orbax repository"
+  echo "  --no-cache                  Disable Docker build cache"
+  echo "  --help                      Show this help"
 }
 
 function prepare_local_orbax() {
@@ -73,7 +79,10 @@ while [[ $# -gt 0 ]]; do
     --jax-version) JAX_VERSION="$2"; shift 2 ;;
     --device) DEVICE="$2"; shift 2 ;;
     --base-image) BASE_IMAGE="$2"; shift 2 ;;
-    --dockerfile) DOCKERFILE_PATH="$2"; shift 2 ;;
+    --dockerfile-benchmark) DOCKERFILE_PATH="$2"; shift 2 ;;
+    --build-benchmark) BUILD_BENCHMARK="$2"; shift 2 ;;
+    --build-sidecar) BUILD_SIDECAR="$2"; shift 2 ;;
+    --dockerfile-sidecar) DOCKERFILE_SIDECAR_PATH="$2"; shift 2 ;;
     --tag) USER_TAG_FLAG="$2"; shift 2 ;;
     --local-repo) LOCAL_REPO_PATH="$2"; shift 2 ;;
     --no-cache) NO_CACHE_FLAG="--no-cache"; shift 1 ;;
@@ -110,16 +119,31 @@ if [[ -z "$BASE_IMAGE" ]]; then
 fi
 
 if [[ -z "$DOCKERFILE_PATH" ]]; then
-  DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
+  DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile.orbax_benchmark"
 fi
 
 if [[ ! -f "$DOCKERFILE_PATH" ]]; then
   # Fallback: check if we are running in the source dir
-  if [[ -f "./Dockerfile" ]]; then
-    DOCKERFILE_PATH="./Dockerfile"
+  if [[ -f "./Dockerfile.orbax_benchmark" ]]; then
+    DOCKERFILE_PATH="./Dockerfile.orbax_benchmark"
   else
-    echo "Error: Dockerfile not found at ${DOCKERFILE_PATH} or ./Dockerfile"
+    echo "Error: Dockerfile not found at ${DOCKERFILE_PATH} or ./Dockerfile.orbax_benchmark"
     exit 1
+  fi
+fi
+
+if [[ "$BUILD_SIDECAR" == "true" ]]; then
+  if [[ -z "$DOCKERFILE_SIDECAR_PATH" ]]; then
+    DOCKERFILE_SIDECAR_PATH="${SCRIPT_DIR}/Dockerfile.sidecar"
+  fi
+
+  if [[ ! -f "$DOCKERFILE_SIDECAR_PATH" ]]; then
+    if [[ -f "./Dockerfile.sidecar" ]]; then
+      DOCKERFILE_SIDECAR_PATH="./Dockerfile.sidecar"
+    else
+      echo "Error: Dockerfile for sidecar not found at ${DOCKERFILE_SIDECAR_PATH} or ./Dockerfile.sidecar"
+      exit 1
+    fi
   fi
 fi
 
@@ -171,6 +195,9 @@ echo "Build context: ${BUILD_CONTEXT}"
 # Ensure the temporary directory is cleaned up when the script exits (success or fail)
 trap 'rm -rf "$BUILD_CONTEXT"' EXIT
 cp "${DOCKERFILE_PATH}" "$BUILD_CONTEXT/Dockerfile"
+if [[ "$BUILD_SIDECAR" == "true" ]]; then
+  cp "${DOCKERFILE_SIDECAR_PATH}" "$BUILD_CONTEXT/Dockerfile.sidecar"
+fi
 
 if [[ -n "$LOCAL_REPO_PATH" ]]; then
   USE_LOCAL_ORBAX="true"
@@ -181,35 +208,80 @@ fi
 
 cd "$BUILD_CONTEXT"
 
-# Build with local Docker
-echo "Building with previously installed Docker..."
-declare -a build_args=()
-if [[ -n "${NO_CACHE_FLAG}" ]]; then
-  build_args+=("${NO_CACHE_FLAG}")
-fi
-build_args+=(
-  "--build-arg" "BASE_IMAGE=${BASE_IMAGE}"
-  "--build-arg" "BRANCH=${BRANCH}"
-  "--build-arg" "JAX_VERSION=${JAX_VERSION}"
-  "--build-arg" "DEVICE=${DEVICE}"
-  "--build-arg" "PR_NUMBER=${PR_NUMBER}"
-  "--build-arg" "USE_LOCAL_ORBAX=${USE_LOCAL_ORBAX}"
-)
-build_args+=("${build_tag_args[@]}")
-build_args+=(
-  "-f" "Dockerfile"
-  "."
-)
-docker build "${build_args[@]}"
+if [[ "$BUILD_BENCHMARK" == "true" ]]; then
+  # Build with local Docker
+  echo "Building with previously installed Docker..."
+  declare -a build_args=()
+  if [[ -n "${NO_CACHE_FLAG}" ]]; then
+    build_args+=("${NO_CACHE_FLAG}")
+  fi
+  build_args+=(
+    "--build-arg" "BASE_IMAGE=${BASE_IMAGE}"
+    "--build-arg" "BRANCH=${BRANCH}"
+    "--build-arg" "JAX_VERSION=${JAX_VERSION}"
+    "--build-arg" "DEVICE=${DEVICE}"
+    "--build-arg" "PR_NUMBER=${PR_NUMBER}"
+    "--build-arg" "USE_LOCAL_ORBAX=${USE_LOCAL_ORBAX}"
+  )
+  build_args+=("${build_tag_args[@]}")
+  build_args+=(
+    "-f" "Dockerfile"
+    "."
+  )
+  docker build "${build_args[@]}"
 
-echo "Pushing image to registry..."
-for t in "${tags[@]}"; do
-  docker push "${IMAGE_REPO}:${t}"
-done
+  echo "Pushing image to registry..."
+  for t in "${tags[@]}"; do
+    docker push "${IMAGE_REPO}:${t}"
+  done
+fi
+
+if [[ "$BUILD_SIDECAR" == "true" ]]; then
+  echo "Building sidecar image..."
+  declare -a sidecar_tag_args=()
+  for t in "${tags[@]}"; do
+    sidecar_tag_args+=(-t "${IMAGE_REPO}/sidecar:${t}")
+  done
+
+  declare -a sidecar_build_args=()
+  if [[ -n "${NO_CACHE_FLAG}" ]]; then
+    sidecar_build_args+=("${NO_CACHE_FLAG}")
+  fi
+  sidecar_build_args+=(
+    "--build-arg" "BRANCH=${BRANCH}"
+    "--build-arg" "PR_NUMBER=${PR_NUMBER}"
+    "--build-arg" "USE_LOCAL_ORBAX=${USE_LOCAL_ORBAX}"
+  )
+  sidecar_build_args+=("${sidecar_tag_args[@]}")
+  sidecar_build_args+=(
+    "-f" "Dockerfile.sidecar"
+    "."
+  )
+  docker build "${sidecar_build_args[@]}"
+
+  echo "Pushing sidecar image to registry..."
+  for t in "${tags[@]}"; do
+    docker push "${IMAGE_REPO}/sidecar:${t}"
+  done
+fi
 
 echo "=========================================================="
 echo "Build Success!"
-echo "Image pushed to: ${IMAGE_REPO} with tags: ${tags[*]}"
+if [[ "$BUILD_BENCHMARK" == "true" ]]; then
+  echo "Benchmark image pushed to: ${IMAGE_REPO}:${tags[*]}"
+fi
+if [[ "$BUILD_SIDECAR" == "true" ]]; then
+  echo "Sidecar image pushed to:   ${IMAGE_REPO}/sidecar:${tags[*]}"
+fi
 echo "=========================================================="
 echo "You can now run benchmarks using:"
-echo "python3 launch_xpk.py --docker_image=${IMAGE_REPO}:${tags[0]} ..."
+declare -a run_cmd=("python3 launch_xpk.py")
+if [[ "$BUILD_BENCHMARK" == "true" ]]; then
+  run_cmd+=("--docker_image=${IMAGE_REPO}:${tags[0]}")
+else
+  run_cmd+=("--docker_image=<benchmark_image>")
+fi
+if [[ "$BUILD_SIDECAR" == "true" ]]; then
+  run_cmd+=("--colocated-python-sidecar-image=${IMAGE_REPO}/sidecar:${tags[0]}")
+fi
+echo "${run_cmd[*]} ..."

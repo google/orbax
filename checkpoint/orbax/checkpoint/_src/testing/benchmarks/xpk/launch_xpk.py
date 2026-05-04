@@ -296,13 +296,18 @@ _ENABLE_PATHWAYS = flags.DEFINE_boolean(
 )
 _PATHWAYS_SERVER_IMAGE = flags.DEFINE_string(
     'pathways_server_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/server:latest',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest',
     'Pathways server image (manages TPU chips).',
 )
 _PATHWAYS_PROXY_IMAGE = flags.DEFINE_string(
     'pathways_proxy_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/proxy_server:latest',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest',
     'Pathways proxy image (bridges user code to server).',
+)
+_PATHWAYS_SIDECAR_IMAGE = flags.DEFINE_string(
+    'pathways_sidecar_image',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/sidecar:20260423-python_3.12-jax_0.10.0',
+    'Pathways sidecar that runs colocated-python codes)',
 )
 
 
@@ -684,7 +689,7 @@ def construct_workload_command(
   if enable_pathways:
     env_vars = [
         'export JAX_PLATFORMS=proxy',
-        'export ENABLE_PATHWAYS_PERSISTENCE=1',
+        'export JAX_BACKEND_TARGET=grpc://${PATHWAYS_HEAD}:29000',
         'export ENABLE_PJRT_COMPATIBILITY=true',
     ]
   else:
@@ -732,8 +737,8 @@ def construct_workload_command(
     python_cmd += ' --jax_cpu_collectives_implementation=gloo'
   if enable_pathways:
     python_cmd = (
-        'python3 -c "import pathwaysutils;'
-        ' pathwaysutils.initialize()" && '
+        'python3 -c "import pathwaysutils; pathwaysutils.initialize();'
+        " print('Pathwaysutils initialized.')\" && "
         + python_cmd
     )
 
@@ -806,7 +811,10 @@ def construct_xpk_command(
     image_args = [
         f'--server-image={_PATHWAYS_SERVER_IMAGE.value}',
         f'--proxy-server-image={_PATHWAYS_PROXY_IMAGE.value}',
-        f'--docker-image={_DOCKER_IMAGE.value}'
+        f'--colocated-python-sidecar-image={_PATHWAYS_SIDECAR_IMAGE.value}',
+        f'--docker-image={_DOCKER_IMAGE.value}',
+        # required for colocated python
+        '--custom-pathways-proxy-server-args=--sidecar_name=external',
     ]
 
   else:

@@ -157,11 +157,16 @@ JAX on TPU.
 | `--project` | `gcloud config` | GCP Project ID for the Container Registry. | **Always**, unless your default gcloud config is correct. |
 | `--tag` | *(Auto)* | Image tag (e.g., `v1`, `pr-123`). | **Always**. Use unique tags to prevent GKE caching stale code. |
 | `--pr` | `None` | GitHub PR Number (e.g., `123`). | **CI/CD**. When verifying a specific PR before merging. |
+| `--image` | `orbax-benchmarks` | Image name. | **Rename**. To change image name from default. |
 | `--branch` | `main` | GitHub Branch name. | **Feature Dev**. When building from a feature branch. |
 | `--local-repo` | `None` | Use local repo to build. | **Feature Dev**. Build with local edited source codes. |
 | `--jax-version` | `newest` | `newest`, `nightly`, or `x.y.z`. | **Debugging**. Use `nightly` to test bleeding-edge JAX features. |
 | `--device` | `tpu` | `tpu`, `gpu`, `cpu`. | **Multi-Hardware**. When testing on GPU or CP/Local validation. |
-| `--base-image` | `python:3.11...` | Base Docker Image. | **Advanced**. If you need custom drivers or non-standard OS libs. |
+| `--build-benchmark` | `true` | Build the main orbax benchmark image. | **Control Flow**. Set to `false` to skip building benchmark image. |
+| `--dockerfile-benchmark` | *(Auto)* | Dockerfile path to build orbax benchmark. | **Advanced**. Path to custom Dockerfile.orbax_benchmark. |
+| `--build-sidecar` | `false` | Build the orbax sidecar image. | **Pathways**. Required for Pathways colocated Python testing. |
+| `--dockerfile-sidecar` | *(Auto)* | Dockerfile path for sidecar. | **Advanced**. Path to custom Dockerfile.sidecar. |
+| `--base-image` | `python:3.13...` | Base Docker Image. | **Advanced**. If you need custom drivers or non-standard OS libs. |
 | `--no-cache` | `N/A` | Disable Docker build cache for all layers. | **Debugging**. Force rebuild of all layers from scratch. |
 
 ---
@@ -302,6 +307,7 @@ Server (TPU Manager).*
 | `--enable_pathways` | `False` | Enable Pathways backend (Single-Controller). |
 | `--pathways_server_image` | `...:latest` | Pathways server image (manages TPU chips). |
 | `--pathways_proxy_image` | `...:latest` | Pathways proxy image (bridges user code to server). |
+| `--pathways_sidecar_image` | `...:20260423-python_3.12-jax_0.10.0` | Pathways sidecar image (runs colocated-python codes). |
 
 > NOTE: To run a Pathways benchmark, you must use `--enable_pathways`. If
 > cluster doesn't exist, `launch_xpk` will automatically create a
@@ -318,6 +324,7 @@ python3 launch_xpk.py \
   --zone us-west1-c \
   --config_file ... \
   --docker_image ... \
+  --pathways_sidecar_image ... \
   --output_directory... \
   --enable_pathways
 ```
