@@ -49,8 +49,8 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
-import tensorstore as ts
 
+import tensorstore as ts
 
 Pytree: TypeAlias = Any
 ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
@@ -206,18 +206,22 @@ def _get_replica_slices(
     use_replica_parallel: bool,
     min_slice_bytes_for_replica_parallel: int | None = None,
     max_replicas_for_replica_parallel: int | None = None,
+    precomputed_rslices: Sequence[replica_slices.ReplicaSlices] | None = None,
 ) -> Sequence[replica_slices.ReplicaSlices]:
   """Returns ReplicaSlices for arrays."""
-  rslices_per_array = [
-      replica_slices.get_replica_slices(
-          arr,
-          replica_id,
-          use_replica_parallel,
-          min_slice_bytes_for_replica_parallel,
-          max_replicas_for_replica_parallel,
-      )
-      for arr in arrays
-  ]
+  if precomputed_rslices is not None:
+    rslices_per_array = precomputed_rslices
+  else:
+    rslices_per_array = [
+        replica_slices.get_replica_slices(
+            arr,
+            replica_id,
+            use_replica_parallel,
+            min_slice_bytes_for_replica_parallel,
+            max_replicas_for_replica_parallel,
+        )
+        for arr in arrays
+    ]
   # D2H copy is performed automatically as part of dispatcher call, but
   # we must set properties correctly to pass later consistency checks.
   return [
@@ -250,6 +254,7 @@ def _worker_serialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
+    precomputed_rslices: Sequence[replica_slices.ReplicaSlices] | None = None,
 ):
   """Worker function to serialize arrays."""
   rslices_per_array = _get_replica_slices(
@@ -258,6 +263,12 @@ def _worker_serialize_arrays(
       use_replica_parallel,
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
+      precomputed_rslices=precomputed_rslices,
+  )
+  logging.info(
+      'use_replica_parallel: %s, rslices_per_array: %s',
+      use_replica_parallel,
+      rslices_per_array,
   )
 
   asyncio_utils.run_sync(
@@ -486,33 +497,55 @@ def _serialize_arrays(
         batch_infos: Sequence[types.ParamInfo],
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
+        precomputed_rslices: (
+            Sequence[replica_slices.ReplicaSlices] | None
+        ) = None,
     ):
-      ret = dispatcher.dispatch(
-          _worker_serialize_arrays,
-          input_arrays=batch_arrays,
-          func_kwargs={
-              'infos': batch_infos,
-              'args': batch_args,
-              'replica_id': replica_id,
-              'use_replica_parallel': use_replica_parallel,
-              'min_slice_bytes_for_replica_parallel': (
-                  min_slice_bytes_for_replica_parallel
-              ),
-              'max_replicas_for_replica_parallel': (
-                  max_replicas_for_replica_parallel
-              ),
-              'primary_host': primary_host,
-              'metadata_key': metadata_key,
-              'array_metadata_store': array_metadata_store,
-              'enable_replica_parallel_separate_folder': (
-                  enable_replica_parallel_separate_folder
-              ),
-              'ext_metadata': ext_metadata,
-          },
-      )
-      jax.block_until_ready(ret)
+      groups = {}
+      for idx, arr in enumerate(batch_arrays):
+        d_set = frozenset(arr.devices())
+        if d_set not in groups:
+          groups[d_set] = []
+        groups[d_set].append(idx)
+
+      for indices in groups.values():
+        sub_arrays = [batch_arrays[i] for i in indices]
+        sub_infos = [batch_infos[i] for i in indices]
+        sub_args = [batch_args[i] for i in indices]
+        sub_rslices = (
+            [precomputed_rslices[i] for i in indices]
+            if precomputed_rslices
+            else None
+        )
+
+        ret = dispatcher.dispatch(
+            _worker_serialize_arrays,
+            input_arrays=sub_arrays,
+            func_kwargs={
+                'infos': sub_infos,
+                'args': sub_args,
+                'replica_id': replica_id,
+                'use_replica_parallel': use_replica_parallel,
+                'min_slice_bytes_for_replica_parallel': (
+                    min_slice_bytes_for_replica_parallel
+                ),
+                'max_replicas_for_replica_parallel': (
+                    max_replicas_for_replica_parallel
+                ),
+                'primary_host': primary_host,
+                'metadata_key': metadata_key,
+                'array_metadata_store': array_metadata_store,
+                'enable_replica_parallel_separate_folder': (
+                    enable_replica_parallel_separate_folder
+                ),
+                'ext_metadata': ext_metadata,
+                'precomputed_rslices': sub_rslices,
+            },
+        )
+        jax.block_until_ready(ret)
 
     # Enqueue D2H operation for prioritized values.
+    prioritized_rslices = None
     if prioritized:
       logging.info(
           'Scheduling D2H of %d prioritized jax.Array.',
@@ -520,6 +553,17 @@ def _serialize_arrays(
       )
       prioritized_arrays, prioritized_infos, prioritized_args = zip(
           *prioritized
+      )
+      # Pre-filter to target replica's shards before D2H to avoid transferring
+      # replicated data
+      prioritized_arrays, prioritized_rslices = (
+          replica_slices.filter_arrays_to_replica(
+              prioritized_arrays,
+              replica_id,
+              use_replica_parallel,
+              min_slice_bytes_for_replica_parallel,
+              max_replicas_for_replica_parallel,
+          )
       )
       prioritized_arrays = dispatcher.device_to_host(prioritized_arrays)
       prioritized = [
@@ -535,12 +579,18 @@ def _serialize_arrays(
       )
 
     all_infos = infos
+
     async def _serialize():
       for info in all_infos:
         await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
-        _serialize_batch(infos, args, arrays)
+        _serialize_batch(
+            infos,
+            args,
+            arrays,
+            precomputed_rslices=prioritized_rslices,
+        )
       if deprioritized:
         assert device_host_max_bytes is not None
         for (
@@ -553,7 +603,20 @@ def _serialize_arrays(
             replica_id=replica_id,
             dispatcher=dispatcher,
         ):
-          _serialize_batch(b_infos, b_args, b_arrays)
+          b_arrays_list = list(b_arrays)
+          b_arrays_on_host, b_rslices = replica_slices.filter_arrays_to_replica(
+              b_arrays_list,
+              replica_id,
+              use_replica_parallel,
+              min_slice_bytes_for_replica_parallel,
+              max_replicas_for_replica_parallel,
+          )
+          _serialize_batch(
+              b_infos,
+              b_args,
+              b_arrays_on_host,
+              precomputed_rslices=b_rslices,
+          )
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(),
@@ -984,11 +1047,27 @@ class ArrayHandler(types.TypeHandler):
     self._primary_host = primary_host
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
-    self._use_replica_parallel = (
-        _get_default_use_replica_parallel()
-        if use_replica_parallel is None
-        else use_replica_parallel
+    if use_replica_parallel is None:
+      self._use_replica_parallel = _get_default_use_replica_parallel()
+      if self._use_replica_parallel and self._replica_id is None:
+        self._use_replica_parallel = False
+        logging.warning(
+            'use_replica_parallel=True overridden to False because replica_id'
+            ' is None.'
+        )
+      elif not self._use_replica_parallel:
+        logging.warning(
+            'use_replica_parallel=None and running on GPU, defaulting to'
+            ' use_replica_parallel=False.'
+        )
+    else:
+      self._use_replica_parallel = use_replica_parallel
+    print(
+        '>>> ArrayHandler initialized with'
+        f' use_replica_parallel={self._use_replica_parallel},'
+        f' dispatcher={type(dispatcher)} <<<'
     )
+
     self._min_slice_bytes_for_replica_parallel = (
         min_slice_bytes_for_replica_parallel
     )

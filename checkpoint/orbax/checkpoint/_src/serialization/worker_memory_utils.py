@@ -174,11 +174,8 @@ def next_memory_budgeted_batch(
     }
   else:
     device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
-    # NOTE: We only transfer save shards with replica_id == replica_id, but we
-    # are actually redundantly transferring all shards, thanks to remote python
-    # / colcoated python. So we set replica_id to None, to estimate memory usage
-    # for all replicas.
-    replica_id = None
+    # NOTE: With pre-fitlering, only the target replica's shards are transfrred
+    # to host. use the actual replica_id for accurate memory esitmation
 
   def _no_worker_memory_usage() -> dict[int, int]:
     return {id: 0 for id in set(device_to_worker_ids_map.values())}
