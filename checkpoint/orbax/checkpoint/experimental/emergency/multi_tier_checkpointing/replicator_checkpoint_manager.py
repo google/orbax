@@ -298,6 +298,8 @@ class _ReplicatorLocalCheckpointEngine:
     return self._impl.latest_step()
 
   def reload(self) -> None:
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.reload()
     return self._impl.reload()
 
   def reached_preemption(self, step: int) -> bool:
@@ -598,9 +600,13 @@ class _ReplicatorLocalCheckpointEngine:
     return self._impl.metadata(step)
 
   def wait_until_finished(self) -> None:
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.wait_until_finished()
     return self._impl.wait_until_finished()
 
   def check_for_errors(self) -> None:
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.check_for_errors()
     return self._impl.check_for_errors()
 
   def close(self) -> None:
