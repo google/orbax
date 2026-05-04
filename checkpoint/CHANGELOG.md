@@ -21,6 +21,7 @@ merging.
 - #v1 Add `LeafHandler` as a `CheckpointableHandler`, so that ordinary PyTree
 leaves can also be saved as individual checkpointables.
 - Move MTC files to multi_tier_checkpointing and use local checkpoint engine
+- #v1 Allow a context to be default-configured for all `Checkpointer` operations.
 
 ### Changed
 
