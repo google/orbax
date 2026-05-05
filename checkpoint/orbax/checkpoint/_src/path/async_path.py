@@ -134,6 +134,10 @@ async def unlink(path: epath.Path, missing_ok: bool = False):
   return await asyncio.to_thread(path.unlink, missing_ok=missing_ok)
 
 
+async def is_absolute(path: epath.Path):
+  return await asyncio.to_thread(path.is_absolute)
+
+
 class AsyncFile:
   """Async wrapper for file operations."""
 
