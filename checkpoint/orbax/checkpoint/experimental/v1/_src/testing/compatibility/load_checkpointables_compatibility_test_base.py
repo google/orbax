@@ -20,12 +20,14 @@ from absl.testing import parameterized
 from etils import epath
 import jax
 import jax.numpy as jnp
+import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
@@ -36,7 +38,8 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
+class LoadCheckpointablesCompatibilityTestBase(parameterized.TestCase):
+  """Tests for V1 load_checkpointables API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -177,11 +180,27 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
       has_pytree_metadata: bool,
       handler_registered: bool,
   ) -> None:
+    """Tests load_checkpointables compatibility with v0 and v1 checkpoints.
+
+    Args:
+      version: The version of the checkpoint to load.
+      checkpointable_names_provided: Whether to provide checkpointable_names to
+        load_checkpointables.
+      abstract_checkpointables_provided: Whether to provide
+        abstract_checkpointables to ocp.load_checkpointables.
+      names_registered: Whether to register all checkpointable names to a
+        handler.
+      metadata_present: Whether the checkpoint has metadata files.
+      is_direct_checkpoint: Whether the checkpoint is a direct checkpoint.
+      has_pytree_metadata: Whether the checkpoint has pytree metadata files.
+      handler_registered: Whether to register all handlers.
+    """
     path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, has_pytree_metadata
     )
     if path is None or not path.exists():
       self.skipTest('Checkpoint for combination does not exist.')
+
 
     if not checkpointable_names_provided and abstract_checkpointables_provided:
       self.skipTest(
@@ -252,6 +271,12 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
   def test_load_checkpointables_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests load_checkpointables with non-critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -261,7 +286,9 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
     loaded = ocp.load_checkpointables(
         path, abstract_checkpointables=self.abstract_checkpointables
     )
-    test_utils.assert_tree_equal(self, loaded, self.expected_checkpointables)
+    test_utils.assert_tree_equal(
+        self, loaded, self.expected_checkpointables
+    )
 
   @parameterized.product(
       version=['v0', 'v1'],
@@ -273,6 +300,12 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
   def test_load_checkpointables_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests load_checkpointables with critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',

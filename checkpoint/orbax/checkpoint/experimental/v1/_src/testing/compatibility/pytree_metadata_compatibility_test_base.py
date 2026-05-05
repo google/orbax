@@ -27,8 +27,8 @@ import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
-
 
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
@@ -37,7 +37,8 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class PytreeMetadataCompatibilityTest(parameterized.TestCase):
+class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
+  """Tests for V1 pytree_metadata API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -155,6 +156,17 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
       is_pytree: bool,
       handler_registered: bool,
   ) -> None:
+    """Tests pytree_metadata compatibility across V0 and V1 checkpoints.
+
+    Args:
+      version: The checkpoint version to test against.
+      checkpointable_name: The name of the checkpointable to load.
+      name_registered: Whether the checkpointable name is registered.
+      metadata_present: Whether the checkpoint metadata file is present.
+      is_direct_checkpoint: Whether the checkpoint is a direct checkpoint.
+      is_pytree: Whether the checkpointable is a pytree.
+      handler_registered: Whether the handler is registered.
+    """
     path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, is_pytree
     )
@@ -184,9 +196,9 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
             path,
             checkpointable_name=checkpointable_name,
         )
-        test_utils.assert_tree_equal(
-            self, self.expected_state_metadata, loaded.metadata
-        )
+        expected = self.expected_state_metadata
+        actual = loaded.metadata
+        test_utils.assert_tree_equal(self, expected, actual)
       else:
         with self.assertRaisesRegex(error_type, error_msg):
           ocp.pytree_metadata(
@@ -209,6 +221,12 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
   def test_pytree_metadata_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests pytree_metadata with non-critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -216,9 +234,9 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
         alteration,
     )
     loaded = ocp.pytree_metadata(path, checkpointable_name='state')
-    test_utils.assert_tree_equal(
-        self, self.expected_state_metadata, loaded.metadata
-    )
+    expected = self.expected_state_metadata
+    actual = loaded.metadata
+    test_utils.assert_tree_equal(self, expected, actual)
 
   @parameterized.product(
       version=['v0', 'v1'],
@@ -226,6 +244,11 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
   def test_pytree_metadata_missing_sharding_corruption(
       self, version: str
   ) -> None:
+    """Tests pytree_metadata with missing sharding corruption.
+
+    Args:
+      version: The checkpoint version to test against.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -247,6 +270,12 @@ class PytreeMetadataCompatibilityTest(parameterized.TestCase):
   def test_pytree_metadata_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests pytree_metadata with critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',

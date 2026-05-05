@@ -82,3 +82,5 @@ def create_value_metadata(value: Any) -> Any:
     return 0.0
   else:
     raise TypeError(f'Unsupported type: {type(value)}')
+
+
