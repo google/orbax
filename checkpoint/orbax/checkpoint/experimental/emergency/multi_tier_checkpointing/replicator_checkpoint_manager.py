@@ -1011,9 +1011,10 @@ class ReplicatorCheckpointManager(
     return self._non_null_local_engine.wait_until_finished()
 
   def check_for_errors(self) -> None:
-    if self._local_engine is None:
+    if self._colocated_controller is not None:
+      self._colocated_controller.check_for_errors()
       return None
-    return self._local_engine.check_for_errors()
+    return self._non_null_local_engine.check_for_errors()
 
   def close(self) -> None:
     if self._colocated_controller is not None:

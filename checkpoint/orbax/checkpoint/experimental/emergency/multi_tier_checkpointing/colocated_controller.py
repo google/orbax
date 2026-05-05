@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import colocated_transport
@@ -92,7 +93,7 @@ def _step_arr_on_state_devices(step: int, state: PyTree) -> jax.Array:
 def _scalar_on_dummy(
     value: Any, dummy: jax.Array, *, dtype: Any
 ) -> jax.Array:
-  return jax.device_put(jnp.asarray(value, dtype=dtype), dummy.sharding)
+  return colocated_utils.make_scalar_on_like(value, dummy, dtype=dtype)
 
 
 def _single_mapping_child(tree: PyTree) -> Any | None:
@@ -127,7 +128,7 @@ class ColocatedController:
     )
 
     self._local_directory = local_directory
-    colocated_transport.install_pathways_colocated_serialization_patch()
+    colocated_transport.install_pathways_colocated_cpu_device_lookup_patch()
     worker_manager_cls = (
         sidecar_worker_checkpoint_manager.WorkerCheckpointManager
     )
@@ -238,10 +239,10 @@ class ColocatedController:
     """Returns whether any worker still has async save work in flight."""
     result = self._worker_manager.is_saving_in_progress(self._dummy)
     jax.block_until_ready(result)
-    value = colocated_utils.require_unanimous_scalar_result(
+    values = colocated_utils.scalar_result_values(
         result, op_name='is_saving_in_progress'
     )
-    return bool(value)
+    return any(bool(value) for value in values)
 
   def save(
       self,
@@ -300,9 +301,6 @@ class ColocatedController:
       if resolved_step is None:
         raise FileNotFoundError(f'No steps found in {self.directory}.')
 
-    target_shardings = self._prepare_restore_target_shardings(
-        state_restore_args
-    )
     step_arr = _scalar_on_dummy(resolved_step, self._dummy, dtype=jnp.int32)
     # Restore is metadata-driven on the worker side. Avoid sending a large
     # synthetic restore-spec tree across colocated Python just to describe the
@@ -327,17 +325,16 @@ class ColocatedController:
     state = self._rebuild_restored_state(
         result, state_restore_args.item
     )
-    if jax.tree.structure(state) != jax.tree.structure(target_shardings):
+    effective_restore_args = self._prepare_effective_restore_args(
+        state_restore_args
+    )
+    if jax.tree.structure(state) != jax.tree.structure(effective_restore_args):
       raise ValueError(
           'colocated restore produced a pytree structure that does not match '
           'restore_args.'
       )
-    target_specs = jax.tree.map(
-        lambda leaf, sharding: jax.ShapeDtypeStruct(
-            leaf.shape, leaf.dtype, sharding=sharding
-        ),
-        state,
-        target_shardings,
+    target_specs = self._prepare_restore_target_specs(
+        state, effective_restore_args
     )
     state = colocated_transport.to_final_specs(state, target_specs)
     return self._finalize_restore_result(
@@ -351,6 +348,13 @@ class ColocatedController:
     """Blocks until worker-side async save work finishes."""
     result = self._worker_manager.wait_until_finished(self._dummy)
     jax.block_until_ready(result)
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.wait_until_finished()
+
+  def check_for_errors(self) -> None:
+    """Raises if colocated persistent save work has failed."""
+    if self._persistent_checkpoint_manager is not None:
+      self._persistent_checkpoint_manager.check_for_errors()
 
   def close(self) -> None:
     """Closes worker-side and persistent managers."""
@@ -479,7 +483,7 @@ class ColocatedController:
 
   def _prepare_restore_target_shardings(
       self,
-      state_restore_args: args_lib.PyTreeRestore,
+      restore_args: PyTree,
   ) -> PyTree:
     """Resolves target shardings for restore."""
     def _resolve_sharding(ra: Any) -> jax.sharding.Sharding:
@@ -510,7 +514,76 @@ class ColocatedController:
         )
       return sharding
 
-    return jax.tree.map(_resolve_sharding, state_restore_args.restore_args)
+    return jax.tree.map(_resolve_sharding, restore_args)
+
+  def _prepare_effective_restore_args(
+      self,
+      state_restore_args: args_lib.PyTreeRestore,
+  ) -> PyTree:
+    """Fills restore args from the caller template like PyTree restore does."""
+    restore_args = state_restore_args.restore_args
+    if restore_args is None:
+      raise ValueError('colocated restore requires explicit restore_args.')
+    if state_restore_args.item is None:
+      return restore_args
+    return base_pytree_checkpoint_handler._fill_missing_save_or_restore_args(  # pylint: disable=protected-access
+        state_restore_args.item,
+        restore_args,
+        mode='restore',
+    )
+
+  def _prepare_restore_target_specs(
+      self,
+      restored_state: PyTree,
+      restore_args: PyTree,
+  ) -> PyTree:
+    """Builds final restore specs and rejects unsupported restore transforms."""
+    target_shardings = self._prepare_restore_target_shardings(restore_args)
+
+    def _target_spec(
+        leaf: jax.Array,
+        restore_arg: type_handlers.ArrayRestoreArgs,
+        sharding: jax.sharding.Sharding,
+    ) -> jax.ShapeDtypeStruct:
+      requested_restore_type = restore_arg.restore_type
+      if requested_restore_type not in (None, jax.Array):
+        raise NotImplementedError(
+            'colocated restore only supports ArrayRestoreArgs restore_type '
+            f'jax.Array, got {requested_restore_type}.'
+        )
+
+      requested_shape = restore_arg.global_shape
+      if requested_shape is None:
+        requested_shape = restore_arg.shape
+      if requested_shape is not None and tuple(requested_shape) != tuple(
+          leaf.shape
+      ):
+        raise NotImplementedError(
+            'colocated restore does not support ArrayRestoreArgs shape '
+            'transforms. Worker-side restore inferred shape '
+            f'{leaf.shape}, but restore_args requested shape '
+            f'{tuple(requested_shape)}.'
+        )
+
+      requested_dtype = restore_arg.dtype
+      if requested_dtype is not None and jnp.dtype(
+          requested_dtype
+      ) != jnp.dtype(leaf.dtype):
+        raise NotImplementedError(
+            'colocated restore does not support ArrayRestoreArgs dtype '
+            'transforms. Worker-side restore inferred dtype '
+            f'{leaf.dtype}, but restore_args requested dtype '
+            f'{jnp.dtype(requested_dtype)}.'
+        )
+
+      return jax.ShapeDtypeStruct(leaf.shape, leaf.dtype, sharding=sharding)
+
+    return jax.tree.map(
+        _target_spec,
+        restored_state,
+        restore_args,
+        target_shardings,
+    )
 
   def _rebuild_restored_state(
       self,

@@ -113,6 +113,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
       result = self.manager.latest_step(dummy_array)
 
     self.assertIs(result, packed_result)
+    self.manager._rcm.reload.assert_called_once_with()
     self.manager._rcm.latest_step.assert_called_once_with()
     mock_make_scalar.assert_called_once_with(9, dummy_array, dtype=jnp.int32)
 
@@ -129,7 +130,12 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
       result = self.manager.latest_step(dummy_array)
 
     self.assertIs(result, packed_result)
-    mock_make_scalar.assert_called_once_with(0, dummy_array, dtype=jnp.int32)
+    self.manager._rcm.reload.assert_called_once_with()
+    mock_make_scalar.assert_called_once_with(
+        sidecar_lib.colocated_utils.NO_STEP_SENTINEL,
+        dummy_array,
+        dtype=jnp.int32,
+    )
 
   def test_all_steps_returns_sorted_fixed_size_array(self):
     dummy_array = jnp.asarray(0, dtype=jnp.int32)
@@ -141,11 +147,36 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     max_steps = sidecar_lib.colocated_utils.MAX_TRACKED_STEPS
     self.assertEqual(steps_array.shape, (max_steps,))
     self.assertEqual(steps_array.dtype, np.int32)
-    expected = [1, 4, 5] + [0] * (max_steps - 3)
+    expected = [1, 4, 5] + [sidecar_lib.colocated_utils.NO_STEP_SENTINEL] * (
+        max_steps - 3
+    )
     np.testing.assert_array_equal(
         steps_array, np.asarray(expected, dtype=np.int32)
     )
-    self.manager._rcm.all_steps.assert_called_once_with()
+    self.manager._rcm.reload.assert_called_once_with()
+    self.manager._rcm.all_steps.assert_called_once_with(read=True)
+
+  def test_all_steps_uses_callback_construction(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    self.manager._rcm.all_steps.return_value = [1]
+
+    with mock.patch.object(
+        sidecar_lib.jax,
+        'make_array_from_callback',
+        wraps=sidecar_lib.jax.make_array_from_callback,
+    ) as mock_make_array, mock.patch.object(
+        sidecar_lib.jax,
+        'device_put',
+        side_effect=AssertionError('device_put should not be used'),
+    ):
+      result = self.manager.all_steps(dummy_array)
+
+    np.testing.assert_array_equal(
+        np.asarray(result)[:1], np.asarray([1], dtype=np.int32)
+    )
+    self.manager._rcm.reload.assert_called_once_with()
+    self.manager._rcm.all_steps.assert_called_once_with(read=True)
+    mock_make_array.assert_called_once()
 
   def test_all_steps_limits_to_latest_max_steps(self):
     dummy_array = jnp.asarray(0, dtype=jnp.int32)
@@ -170,10 +201,12 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     steps_array = np.asarray(result)
     max_steps = sidecar_lib.colocated_utils.MAX_TRACKED_STEPS
     self.assertEqual(steps_array.shape, (max_steps,))
-    expected = [0] * max_steps
+    expected = [sidecar_lib.colocated_utils.NO_STEP_SENTINEL] * max_steps
     np.testing.assert_array_equal(
         steps_array, np.asarray(expected, dtype=np.int32)
     )
+    self.manager._rcm.reload.assert_called_once_with()
+    self.manager._rcm.all_steps.assert_called_once_with(read=True)
 
   def test_is_saving_in_progress_delegates_to_rcm_and_packs_result(self):
     dummy_array = jnp.asarray(True)
@@ -212,7 +245,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
 
     with mock.patch.object(
         sidecar_lib.colocated_transport,
-        'install_pathways_colocated_serialization_patch',
+        'install_pathways_colocated_cpu_device_lookup_patch',
     ) as mock_install_patch, mock.patch.object(
         sidecar_lib.signaling_client,
         'mark_pathways_colocated_runtime_active',

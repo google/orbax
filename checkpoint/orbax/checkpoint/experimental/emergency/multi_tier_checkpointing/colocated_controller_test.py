@@ -33,7 +33,7 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
 
 
 def _steps_array(steps: list[int]) -> np.ndarray:
-  padded = steps + [0] * (
+  padded = steps + [controller_lib.colocated_utils.NO_STEP_SENTINEL] * (
       controller_lib.colocated_utils.MAX_TRACKED_STEPS - len(steps)
   )
   return np.asarray(padded, dtype=np.int32)
@@ -67,7 +67,7 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         return_value=worker_manager,
     ) as mock_worker_manager, mock.patch.object(
         controller_lib.colocated_transport,
-        'install_pathways_colocated_serialization_patch',
+        'install_pathways_colocated_cpu_device_lookup_patch',
     ) as mock_install_patch, mock.patch.object(
         controller_lib.colocated_transport,
         'unique_colocated_cpu_devices',
@@ -112,7 +112,7 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         return_value=mock.Mock(),
     ), mock.patch.object(
         controller_lib.colocated_transport,
-        'install_pathways_colocated_serialization_patch',
+        'install_pathways_colocated_cpu_device_lookup_patch',
     ), mock.patch.object(
         controller_lib.colocated_transport,
         'unique_colocated_cpu_devices',
@@ -223,7 +223,7 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {'x': type_handlers.ArrayRestoreArgs(sharding=sharding)}
 
     target_shardings = controller._prepare_restore_target_shardings(
-        args_lib.PyTreeRestore(item=None, restore_args=restore_args),
+        restore_args,
     )
 
     self.assertEqual(target_shardings['x'], sharding)
@@ -294,10 +294,12 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     controller._worker_manager.all_steps.return_value = object()
 
     # Worker 1 has steps 1..MAX_TRACKED_STEPS
-    # Worker 2 has steps 1..MAX_TRACKED_STEPS-1 and padded with 0
+    # Worker 2 has steps 1..MAX_TRACKED_STEPS-1 and one sentinel.
     max_steps = controller_lib.colocated_utils.MAX_TRACKED_STEPS
     w1_steps = list(range(1, max_steps + 1))
-    w2_steps = list(range(1, max_steps)) + [0]
+    w2_steps = list(range(1, max_steps)) + [
+        controller_lib.colocated_utils.NO_STEP_SENTINEL
+    ]
 
     with mock.patch.object(
         controller_lib.colocated_utils,
@@ -370,16 +372,16 @@ class ColocatedControllerInternalTest(absltest.TestCase):
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'require_unanimous_scalar_result',
-        return_value=False,
-    ) as mock_unanimous:
+        'scalar_result_values',
+        return_value=[False, True],
+    ) as mock_values:
       in_progress = controller.is_saving_in_progress()
 
-    self.assertFalse(in_progress)
+    self.assertTrue(in_progress)
     controller._worker_manager.is_saving_in_progress.assert_called_once_with(
         controller._dummy
     )
-    mock_unanimous.assert_called_once()
+    mock_values.assert_called_once()
 
   def test_wait_until_finished_blocks_on_worker_result(self):
     controller, _ = self._make_controller_for_restore()
@@ -396,6 +398,31 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         controller._dummy
     )
     mock_block.assert_called_once_with(worker_result)
+
+  def test_wait_until_finished_waits_for_persistent_manager(self):
+    controller, _ = self._make_controller_for_restore()
+    worker_result = object()
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.wait_until_finished.return_value = worker_result
+    controller._persistent_checkpoint_manager = mock.Mock()
+
+    controller.wait_until_finished()
+
+    wait_until_finished = (
+        controller._persistent_checkpoint_manager.wait_until_finished
+    )
+    wait_until_finished.assert_called_once_with()
+
+  def test_check_for_errors_checks_persistent_manager(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._persistent_checkpoint_manager = mock.Mock()
+
+    controller.check_for_errors()
+
+    check_for_errors = (
+        controller._persistent_checkpoint_manager.check_for_errors
+    )
+    check_for_errors.assert_called_once_with()
 
   def test_close_shuts_down_persistent_and_worker_managers(self):
     controller, _ = self._make_controller_for_restore()
@@ -431,7 +458,9 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
     }
     restore_args = {
-        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+        'weights': type_handlers.ArrayRestoreArgs(
+            sharding=sharding, global_shape=(2,), dtype=jnp.float32
+        )
     }
     controller._worker_manager = mock.Mock()
     controller._worker_manager.restore_infer.return_value = restored_cpu_state
@@ -454,6 +483,110 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     np.testing.assert_array_equal(
         np.asarray(result['weights']), np.arange(2, dtype=np.float32)
     )
+
+  def test_restore_rejects_shape_transform(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32),
+            cpu_sharding,
+        )
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((3,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(
+            sharding=sharding, global_shape=(3,), strict=False
+        )
+    }
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+
+    with self.assertRaisesRegex(NotImplementedError, 'shape transforms'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_rejects_dtype_transform(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32),
+            cpu_sharding,
+        )
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.int32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+
+    with self.assertRaisesRegex(NotImplementedError, 'dtype transforms'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_rejects_non_array_restore_type(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32),
+            cpu_sharding,
+        )
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(
+            restore_type=np.ndarray,
+            sharding=sharding,
+        )
+    }
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+
+    with self.assertRaisesRegex(NotImplementedError, 'restore_type'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
 
   def test_restore_none_step_resolves_single_explicit_step(self):
     controller, sharding = self._make_controller_for_restore()

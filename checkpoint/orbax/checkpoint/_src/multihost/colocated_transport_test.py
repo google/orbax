@@ -268,46 +268,35 @@ class ColocatedTransportTest(absltest.TestCase):
     with self.assertRaises(TypeError):
       device_map[1] = cpu  # pytype: disable=unsupported-operands
 
-  def test_normalize_mesh_to_colocated_cpu_remaps_non_cpu_devices(self):
-    cpu0 = mock.Mock(platform='cpu')
-    cpu1 = mock.Mock(platform='cpu')
-    tpu0 = mock.Mock(platform='tpu')
-    tpu1 = mock.Mock(platform='tpu')
-
-    class _FakeMesh:
-      devices = np.array([tpu0, tpu1], dtype=object)
-      axis_names = ('d',)
-      axis_types = None
-
-    mesh = _FakeMesh()
-
-    with mock.patch.object(
-        colocated_transport,
-        '_to_serializable_cpu_device',
-        side_effect=[cpu0, cpu1],
-    ):
-      cpu_mesh = colocated_transport._normalize_mesh_to_colocated_cpu(  # pytype: disable=wrong-arg-types # pylint: disable=protected-access
-          mesh
-      )
-
-    self.assertEqual(cpu_mesh.axis_names, mesh.axis_names)
-    self.assertEqual(tuple(cpu_mesh.devices.flat), (cpu0, cpu1))
-
-  def test_install_pathways_colocated_serialization_patch_is_idempotent(self):
-    original_reduce_mesh = cp_serialization._reduce_mesh  # pylint: disable=protected-access
+  def test_install_pathways_colocated_cpu_device_lookup_patch_is_idempotent(
+      self,
+  ):
     original_get_cpu_device_map = cp_serialization._get_cpu_device_map  # pylint: disable=protected-access
-
-    colocated_transport.install_pathways_colocated_serialization_patch()
-    patched_reduce_mesh = cp_serialization._reduce_mesh  # pylint: disable=protected-access
-    patched_get_cpu_device_map = cp_serialization._get_cpu_device_map  # pylint: disable=protected-access
-    colocated_transport.install_pathways_colocated_serialization_patch()
-
-    self.assertIsNot(original_reduce_mesh, patched_reduce_mesh)
-    self.assertIs(
-        patched_reduce_mesh,
-        cp_serialization._reduce_mesh,  # pylint: disable=protected-access
+    original_installed = (
+        colocated_transport._PATHWAYS_CPU_DEVICE_LOOKUP_PATCH_INSTALLED  # pylint: disable=protected-access
     )
-    self.assertIsNot(original_get_cpu_device_map, patched_get_cpu_device_map)
+    self.addCleanup(
+        setattr,
+        cp_serialization,
+        '_get_cpu_device_map',
+        original_get_cpu_device_map,
+    )
+    self.addCleanup(
+        setattr,
+        colocated_transport,
+        '_PATHWAYS_CPU_DEVICE_LOOKUP_PATCH_INSTALLED',
+        original_installed,
+    )
+    colocated_transport._PATHWAYS_CPU_DEVICE_LOOKUP_PATCH_INSTALLED = False  # pylint: disable=protected-access
+
+    colocated_transport.install_pathways_colocated_cpu_device_lookup_patch()
+    patched_get_cpu_device_map = cp_serialization._get_cpu_device_map  # pylint: disable=protected-access
+    colocated_transport.install_pathways_colocated_cpu_device_lookup_patch()
+
+    self.assertIs(
+        patched_get_cpu_device_map,
+        colocated_transport._get_cpu_device_map,  # pylint: disable=protected-access
+    )
     self.assertIs(
         patched_get_cpu_device_map,
         cp_serialization._get_cpu_device_map,  # pylint: disable=protected-access

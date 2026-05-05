@@ -46,7 +46,7 @@ class WorkerCheckpointManagerRaw:
       save_interval_steps: int,
       mesh_axis_types: tuple[jax.sharding.AxisType, ...] | None = None,
   ) -> None:
-    colocated_transport.install_pathways_colocated_serialization_patch()
+    colocated_transport.install_pathways_colocated_cpu_device_lookup_patch()
     signaling_client.mark_pathways_colocated_runtime_active()
 
     cpu_mesh = jax.sharding.Mesh(
@@ -113,6 +113,7 @@ class WorkerCheckpointManagerRaw:
 
   def latest_step(self, dummy_array: jax.Array) -> jax.Array:
     """Returns latest_step_or_sentinel as a scalar int32."""
+    self._rcm.reload()
     step = self._rcm.latest_step()
     val = step if step is not None else colocated_utils.NO_STEP_SENTINEL
     return colocated_utils.make_scalar_on_like(
@@ -121,16 +122,21 @@ class WorkerCheckpointManagerRaw:
 
   def all_steps(self, dummy_array: jax.Array) -> jax.Array:
     """Returns a fixed-size array of up to colocated_utils.MAX_TRACKED_STEPS local checkpoint steps."""
-    local_steps = sorted(self._rcm.all_steps())
+    self._rcm.reload()
+    local_steps = sorted(self._rcm.all_steps(read=True))
     # Keep only the latest MAX_TRACKED_STEPS steps if there are more.
     local_steps = local_steps[-colocated_utils.MAX_TRACKED_STEPS:]
     # Pad with NO_STEP_SENTINEL if fewer than MAX_TRACKED_STEPS.
     padded_steps = local_steps + [colocated_utils.NO_STEP_SENTINEL] * (
         colocated_utils.MAX_TRACKED_STEPS - len(local_steps)
     )
-    return jax.device_put(
-        jnp.asarray(padded_steps, dtype=jnp.int32),
+    def callback(idx):
+      return np.asarray(padded_steps, dtype=np.int32)[idx]
+
+    return jax.make_array_from_callback(
+        (colocated_utils.MAX_TRACKED_STEPS,),
         dummy_array.sharding,
+        callback,
     )
 
   def is_saving_in_progress(self, dummy_array: jax.Array) -> jax.Array:
