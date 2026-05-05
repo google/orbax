@@ -16,11 +16,9 @@
 
 import asyncio
 import dataclasses
-import time
 from typing import Awaitable
 
 from orbax.checkpoint._src import asyncio_utils
-from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import utils as ocp_path_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -53,39 +51,12 @@ class _PartialSavePyTree(handler_types.StatefulCheckpointable):
   pytree: tree_types.PyTree
 
   def __post_init__(self):
-    self.handler = pytree_handler.PyTreeHandler()
+    self.handler = pytree_handler.PyTreeHandler(partial_save_mode=True)
 
   async def save(
       self, directory: path_types.PathAwaitingCreation
   ) -> Awaitable[None]:
-    start_time = time.time()
-
-    operation_id = (
-        synchronization.OperationIdGenerator.get_current_operation_id()
-    )
-    operation_id = f'{operation_id}.{directory.path.name}'
-
-    # pylint: disable=protected-access
-    self.handler.validate_leaves_handleable(self.pytree)
-
-    v0_save_args = pytree_handler.create_v0_save_args(
-        self.handler._context, self.pytree
-    )
-    v0_save_args = dataclasses.replace(v0_save_args, partial_save_mode=True)
-
-    commit_futures = await self.handler._handler_impl.async_save(
-        directory.path,
-        args=v0_save_args,
-    )
-    assert commit_futures
-
-    return self.handler._background_save(
-        directory,
-        commit_futures=commit_futures,
-        operation_id=operation_id,
-        start_time=start_time,
-    )
-    # pylint: enable=protected-access
+    return await self.handler.save(directory, self.pytree)
 
   async def load(self, directory: path_types.Path) -> Awaitable[None]:
     raise NotImplementedError('Partial load is not supported via this wrapper.')

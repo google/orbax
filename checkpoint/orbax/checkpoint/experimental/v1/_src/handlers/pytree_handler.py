@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 import typing
 from typing import Any, Awaitable, Sequence, get_args
@@ -292,10 +293,12 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
+      partial_save_mode: bool = False,
   ):
     context = context_lib.get_context(context)
     self._context = context
     self._multiprocessing_options = context.multiprocessing_options
+    self._partial_save_mode = partial_save_mode
 
     self._leaf_handler_registry = (
         self._context.pytree_options.leaf_handler_registry
@@ -387,9 +390,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     start_time = time.time()
     self.validate_leaves_handleable(checkpointable)
 
+    save_args = create_v0_save_args(self._context, checkpointable)
+    save_args = dataclasses.replace(
+        save_args, partial_save_mode=self._partial_save_mode
+    )
+
     commit_futures = await self._handler_impl.async_save(
         directory.path,
-        args=create_v0_save_args(self._context, checkpointable),
+        args=save_args,
     )
     assert commit_futures
 
