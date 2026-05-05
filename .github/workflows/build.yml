@@ -51,8 +51,9 @@ jobs:
       # Currently in place to override remote orbax import due to flax dependency.
       run: |
         pip install --no-cache-dir -e .
-        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
         pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install --no-cache-dir -e .[tiering_service]
+        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
         pip uninstall -y orbax
         pip install tensorboard
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then

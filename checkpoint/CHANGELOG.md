@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.38] - 2026-05-05
+
+### Fixed
+
+- moved grpcio-tools dep to project.optional-dependencies
+
 ## [0.11.37] - 2026-05-01
 
 ### Added
