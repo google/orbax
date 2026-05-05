@@ -252,10 +252,9 @@ class SaveLoadTestBase:
 
     def test_jax_array_leaf_types(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
-      # TODO(cpgaffney): Add support for missing arrays.
       values = {
-          # 'simple_array': jnp.arange(16),
-          # 'single_device_array': jnp.arange(8, device=jax.local_devices()[0]),
+          'simple_array': jnp.arange(16),
+          'single_device_array': jnp.arange(8, device=jax.local_devices()[0]),
           'replicated_array': jnp.arange(
               12,
               device=jax.sharding.NamedSharding(
@@ -268,21 +267,33 @@ class SaveLoadTestBase:
                   mesh, jax.sharding.PartitionSpec(('devices',))
               ),
           ),
-          # 'single_device_cpu_array': jnp.arange(
-          #     24, device=jax.local_devices(backend='cpu')[0]
-          # ),
       }
+      # Pathways does not support the CPU backend string.
+      if not multihost.is_pathways_backend():
+        values['single_device_cpu_array'] = jnp.arange(
+            24, device=jax.local_devices(backend='cpu')[0]
+        )
       for k, v in values.items():
         with self.subTest(k):
           ocp.save_pytree(self.directory / k, [v])
+
+          v_expected = v
+          # On Pathways, we cannot restore into SingleDeviceSharding.
+          # We must coerce the target structure.
+          if multihost.is_pathways_backend() and isinstance(
+              v.sharding, jax.sharding.SingleDeviceSharding
+          ):
+            # Coerce to a globally replicated sharding on the current mesh
+            replicated_sharding = jax.sharding.NamedSharding(
+                mesh, jax.sharding.PartitionSpec()
+            )
+            v_expected = jax.device_put(v, replicated_sharding)
+
           with self.subTest('with_abstract_pytree'):
-            loaded = ocp.load_pytree(self.directory / k, [as_abstract_type(v)])
-            test_utils.assert_tree_equal(self, [v], loaded)
-          with self.subTest('without_abstract_pytree'):
-            if multihost.is_pathways_backend():
-              self.skipTest('Must provide abstract_pytree for Pathways.')
-            loaded = ocp.load_pytree(self.directory / k)
-            test_utils.assert_tree_equal(self, [v], loaded)
+            loaded = ocp.load_pytree(
+                self.directory / k, [as_abstract_type(v_expected)]
+            )
+            test_utils.assert_tree_equal(self, [v_expected], loaded)
 
     @parameterized.parameters(
         (np.arange(8),),
