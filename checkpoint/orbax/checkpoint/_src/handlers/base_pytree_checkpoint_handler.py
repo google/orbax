@@ -376,6 +376,7 @@ class BasePyTreeCheckpointHandler(
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
+      use_non_atomic_file_io_locking: bool = True,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -420,6 +421,8 @@ class BasePyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      use_non_atomic_file_io_locking: If True, enables non-atomic file I/O
+        locking mode for TensorStore OCDBT data files.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -449,6 +452,7 @@ class BasePyTreeCheckpointHandler(
     self._use_ocdbt = use_ocdbt
     self._use_zarr3 = use_zarr3
     self._use_compression = use_compression
+    self._use_non_atomic_file_io_locking = use_non_atomic_file_io_locking
     self._primary_host = multiprocessing_options.primary_host
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
@@ -506,6 +510,7 @@ class BasePyTreeCheckpointHandler(
       byte_limiter: Optional[limits.ByteLimiter] = None,
       device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
       raise_array_data_missing_error: bool = True,
+      use_non_atomic_file_io_locking: bool = True,
   ) -> PyTree:
     """Returns parameter information for elements in `item`.
 
@@ -523,6 +528,8 @@ class BasePyTreeCheckpointHandler(
       byte_limiter: ByteLimiter object.
       device_host_byte_limiter: ByteLimiter object for device-to-host transfer.
       raise_array_data_missing_error: See documentation in ParamInfo.
+      use_non_atomic_file_io_locking: If True, enables non-atomic file I/O
+        locking mode for TensorStore OCDBT data files.
 
     Returns:
       A PyTree matching `item` of ParamInfo.
@@ -557,6 +564,7 @@ class BasePyTreeCheckpointHandler(
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
           is_prioritized_key_fn=self._is_prioritized_key_fn,
+          use_non_atomic_file_io_locking=use_non_atomic_file_io_locking,
       )
 
     return jax.tree.map_with_path(
@@ -718,6 +726,7 @@ class BasePyTreeCheckpointHandler(
         device_host_byte_limiter=device_host_byte_limiter,
         use_compression=self._use_compression,
         use_zarr3=self._use_zarr3,
+        use_non_atomic_file_io_locking=self._use_non_atomic_file_io_locking,
     )
     # TODO(b/425293362): Add validation for PathAwaitingCreation.
     if isinstance(directory, epath.Path):
@@ -1147,6 +1156,7 @@ class BasePyTreeCheckpointHandler(
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         raise_array_data_missing_error=raise_array_data_missing_error,
+        use_non_atomic_file_io_locking=self._use_non_atomic_file_io_locking,
     )
     # Begin restore.
     tree_memory_size, restored_item = asyncio_utils.run_sync(

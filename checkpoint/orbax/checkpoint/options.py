@@ -72,6 +72,7 @@ class FileOptions:
   """
 
   path_permission_mode: int | None = None
+  use_non_atomic_file_io_locking: bool = True
 
 
 @dataclasses.dataclass

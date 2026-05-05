@@ -522,6 +522,7 @@ class PyTreeCheckpointHandler(
       is_prioritized_key_fn: Optional[
           serialization_types.IsPrioritizedKeyFn
       ] = None,
+      use_non_atomic_file_io_locking: bool = True,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -576,6 +577,10 @@ class PyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      use_non_atomic_file_io_locking: If True, enables non-atomic file I/O
+        locking mode for TensorStore OCDBT data files. This can improve
+        performance on filesystems like GCSFuse by avoiding expensive renames.
+        Defaults to True.
     """
 
     self._aggregate_handler = MsgpackHandler(
@@ -612,6 +617,7 @@ class PyTreeCheckpointHandler(
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         is_prioritized_key_fn=is_prioritized_key_fn,
+        use_non_atomic_file_io_locking=use_non_atomic_file_io_locking,
     )
     self._pytree_metadata_options = pytree_metadata_options
 
