@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Initialization test for multi-tier checkpointing."""
 
 import tempfile
@@ -345,6 +359,13 @@ class MultiTierCheckpointingInitializationTest(
       # Verify standard multi-controller JAX init is bypassed
       mock_jax_distributed_initialize.assert_not_called()
 
+  def test_node_rank_input_array(self):
+    devices = tuple(jax.devices()[:1])
+
+    result = initialization._node_rank_input_array(devices)
+
+    np.testing.assert_array_equal(np.asarray(result), np.asarray([0]))
+
   @mock.patch.object(initialization.jax, "make_array_from_callback")
   @mock.patch.object(initialization.jax, "block_until_ready")
   @mock.patch.object(initialization, "_block_and_process_restore_dir")
@@ -385,11 +406,19 @@ class MultiTierCheckpointingInitializationTest(
     self.assertIsNotNone(mock_device_count)
 
     dummy_in = mock.Mock(shape=(), sharding="dummy-sharding")
-    mock_get_dummy_input_array.return_value = dummy_in
-    mock_devices.return_value = ["tpu0"]
-    mock_unique_colocated_cpu_devices.return_value = (
-        mock.Mock(id=7, process_index=0),
+    rank_in = mock.Mock(
+        addressable_shards=[
+            mock.Mock(data=np.asarray(0, dtype=np.int32)),
+        ]
     )
+    mock_get_dummy_input_array.return_value = dummy_in
+    mock_device = mock.Mock()
+    mock_device.id = 7
+    mock_device.virtual_task_index = 0
+    mock_device.slice_index = 0
+    mock_devices.return_value = [mock_device]
+    mock_cpu_device = mock.Mock(id=7, process_index=0)
+    mock_unique_colocated_cpu_devices.return_value = (mock_cpu_device,)
     mock_make_array_from_callback.return_value = np.asarray(True)
 
     def _wrap_setup(fn):
@@ -402,9 +431,16 @@ class MultiTierCheckpointingInitializationTest(
 
     mock_colocated_python.side_effect = _wrap_setup
 
-    with mock.patch(
-        "orbax.checkpoint._src.futures.signaling_client.mark_pathways_colocated_runtime_active"
-    ) as mock_mark_sidecar_runtime:
+    with (
+        mock.patch.object(
+            initialization,
+            "_node_rank_input_array",
+            return_value=rank_in,
+        ) as mock_node_rank_input,
+        mock.patch(
+            "orbax.checkpoint._src.futures.signaling_client.mark_pathways_colocated_runtime_active"
+        ) as mock_mark_sidecar_runtime,
+    ):
       initialization._initialize_mtc_colocated(
           local_checkpoint_directory=epath.Path("/tmp/mtc"),
           backup_interval_minutes=15,
@@ -415,12 +451,24 @@ class MultiTierCheckpointingInitializationTest(
       )
 
     mock_install_patch.assert_called_once_with()
-    mock_unique_colocated_cpu_devices.assert_called_once_with(("tpu0",))
+    mock_unique_colocated_cpu_devices.assert_called_once_with((mock_device,))
+    mock_get_dummy_input_array.assert_called_once_with((mock_cpu_device,))
+    mock_node_rank_input.assert_called_once_with((mock_cpu_device,))
     mock_mark_sidecar_runtime.assert_called_once_with()
-    mock_create_replicator_file.assert_called_once()
+    mock_create_replicator_file.assert_called_once_with(
+        epath.Path("/tmp/mtc"),
+        run_name="test-run",
+        num_nodes=1,
+        data_parallelism=1,
+        node_rank=0,
+        peer_ranks=[],
+        backup_interval_minutes=15,
+    )
     mock_wait_for_replicator_file_to_disappear.assert_called_once()
     mock_block_and_process_restore_dir.assert_called_once()
     mock_block_until_ready.assert_called_once()
+    mock_process_count.assert_not_called()
+    mock_process_index.assert_not_called()
 
   @mock.patch.object(
       initialization, "_wait_for_replicator_file_to_disappear", autospec=True

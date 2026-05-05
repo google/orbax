@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Tests for colocated utility helpers."""
 
 from __future__ import annotations
@@ -133,6 +147,28 @@ class ColocatedUtilsTest(absltest.TestCase):
     with self.assertRaisesRegex(RuntimeError, 'workers disagreed'):
       colocated_utils.require_unanimous_scalar_result(result, op_name='test_op')  # pytype: disable=wrong-arg-types
 
+  def test_require_single_local_scalar_result_success(self):
+    result = _FakeResult(
+        addressable_shards=[_FakeShard(np.asarray(4, dtype=np.int32))]
+    )
+
+    value = colocated_utils.require_single_local_scalar_result(  # pytype: disable=wrong-arg-types
+        result, op_name='test_op'
+    )
+
+    self.assertEqual(value, 4)
+
+  def test_require_single_local_scalar_result_raises_on_multiple_shards(self):
+    result = _FakeResult(
+        addressable_shards=[
+            _FakeShard(np.asarray(4, dtype=np.int32)),
+            _FakeShard(np.asarray(5, dtype=np.int32)),
+        ]
+    )
+
+    with self.assertRaisesRegex(ValueError, 'exactly one local scalar shard'):
+      colocated_utils.require_single_local_scalar_result(result, op_name='test_op')  # pytype: disable=wrong-arg-types
+
   def test_assert_arrays_on_platform(self):
     arr = self._replicated_array(jnp.array([1, 2], dtype=jnp.int32))
 
@@ -196,6 +232,51 @@ class ColocatedUtilsTest(absltest.TestCase):
     distributed = colocated_utils.compute_distributed_to_device_ids(devices)  # pytype: disable=wrong-arg-types
 
     self.assertEqual(distributed, [[0, 1], [2], [72], [74]])
+
+  def test_colocated_cpu_devices_by_worker_matches_worker_order(self):
+    devices = [
+        _FakeDevice(id=74, virtual_task_index=1, slice_index=1),
+        _FakeDevice(id=72, virtual_task_index=0, slice_index=1),
+        _FakeDevice(id=2, virtual_task_index=1, slice_index=0),
+        _FakeDevice(id=0, virtual_task_index=0, slice_index=0),
+        _FakeDevice(id=1, virtual_task_index=0, slice_index=0),
+    ]
+    cpu_devices = tuple(_FakeDevice(id=i) for i in [100, 102, 172, 174])
+
+    with mock.patch.object(
+        colocated_utils.colocated_transport,
+        'unique_colocated_cpu_devices',
+        return_value=cpu_devices,
+    ) as mock_unique:
+      result = colocated_utils.colocated_cpu_devices_by_worker(  # pytype: disable=wrong-arg-types
+          devices
+      )
+
+    self.assertEqual(result, cpu_devices)
+    mock_unique.assert_called_once_with((
+        _FakeDevice(id=0, virtual_task_index=0, slice_index=0),
+        _FakeDevice(id=2, virtual_task_index=1, slice_index=0),
+        _FakeDevice(id=72, virtual_task_index=0, slice_index=1),
+        _FakeDevice(id=74, virtual_task_index=1, slice_index=1),
+    ))
+
+  def test_colocated_cpu_devices_by_worker_raises_on_duplicate_cpu(self):
+    devices = [
+        _FakeDevice(id=0, virtual_task_index=0, slice_index=0),
+        _FakeDevice(id=2, virtual_task_index=1, slice_index=0),
+    ]
+
+    with mock.patch.object(
+        colocated_utils.colocated_transport,
+        'unique_colocated_cpu_devices',
+        return_value=(_FakeDevice(id=100),),
+    ):
+      with self.assertRaisesRegex(
+          ValueError, 'one unique colocated CPU device'
+      ):
+        colocated_utils.colocated_cpu_devices_by_worker(  # pytype: disable=wrong-arg-types
+            devices
+        )
 
 
 if __name__ == '__main__':

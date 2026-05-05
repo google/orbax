@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Initialization for multi-tier checkpointing."""
 # pylint: disable=logging-fstring-interpolation
 import os
@@ -30,6 +44,9 @@ from orbax.checkpoint._src.multihost import colocated_transport
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
+    colocated_utils,
+)
 
 
 _REPLICATOR_FILE = 'replicator.yaml'
@@ -89,6 +106,25 @@ def _create_replicator_file(
   logging.info('Replicator file written and renamed successfully.')
 
 
+def _node_rank_input_array(
+    colocated_cpu_devices: tuple[jax.Device, ...],
+) -> jax.Array:
+  """Builds a per-worker rank array over colocated CPU devices."""
+  node_ranks = np.arange(len(colocated_cpu_devices), dtype=np.int32)
+  mesh = jax.sharding.Mesh(
+      np.array(colocated_cpu_devices, dtype=object), ('worker',)
+  )
+  sharding = jax.sharding.NamedSharding(
+      mesh, jax.sharding.PartitionSpec('worker')
+  )
+  return jax.make_array_from_callback(
+      node_ranks.shape,
+      sharding,
+      lambda idx: node_ranks[idx],
+      dtype=jnp.int32,
+  )
+
+
 def _initialize_mtc_colocated(
     local_checkpoint_directory: epath.Path,
     backup_interval_minutes: int,
@@ -110,33 +146,39 @@ def _initialize_mtc_colocated(
   """
   logging.info(
       'Initializing colocated MTC setup: '
-      f'process_count={jax.process_count()}, device_count={jax.device_count()}'
+      f'controller_device_count={jax.device_count()}'
   )
   colocated_transport.install_pathways_colocated_serialization_patch()
   all_devices = jax.devices()
 
-  unique_cpu_devices = colocated_transport.unique_colocated_cpu_devices(
+  colocated_cpu_devices = colocated_utils.colocated_cpu_devices_by_worker(
       tuple(all_devices)
   )
+  num_nodes = len(colocated_cpu_devices)
+  if num_nodes == 0:
+    raise ValueError('No colocated CPU devices found for MTC initialization.')
   logging.info(
-      f'Dispatching MTC initialization to {len(unique_cpu_devices)} '
-      'colocated CPU devices.'
+      f'Dispatching MTC initialization to {num_nodes} colocated CPU devices.'
   )
 
-  dummy_in = dispatchers.get_dummy_input_array(unique_cpu_devices)
+  dummy_in = dispatchers.get_dummy_input_array(colocated_cpu_devices)
+  node_rank_in = _node_rank_input_array(colocated_cpu_devices)
 
   local_dir_str = str(local_checkpoint_directory)
 
-  def _setup(dummy_arg: jax.Array) -> jax.Array:
+  def _setup(dummy_arg: jax.Array, node_rank_arg: jax.Array) -> jax.Array:
     signaling_client.mark_pathways_colocated_runtime_active()
-    num_nodes = jax.process_count()
     if num_nodes % num_slices != 0:
       raise ValueError(
           'num_nodes must be divisible by num_slices, got '
           f'num_nodes={num_nodes}, num_slices={num_slices}.'
       )
     nodes_per_slice = num_nodes // num_slices
-    node_rank = jax.process_index()
+    node_rank = int(
+        colocated_utils.require_single_local_scalar_result(
+            node_rank_arg, op_name='mtc_node_rank'
+        )
+    )
     if not 0 <= node_rank < num_nodes:
       raise ValueError(
           f'Invalid node_rank={node_rank} for num_nodes={num_nodes}.'
@@ -181,10 +223,12 @@ def _initialize_mtc_colocated(
     )
 
   wrapped_setup_fn = colocated_python.colocated_python(_setup)
-  wrapped_setup_fn = wrapped_setup_fn.specialize(out_specs_fn=lambda x: x)
+  wrapped_setup_fn = wrapped_setup_fn.specialize(
+      out_specs_fn=lambda dummy_arg, _node_rank_arg: dummy_arg
+  )
 
   dispatch_start = time.time()
-  result = wrapped_setup_fn(dummy_in)
+  result = wrapped_setup_fn(dummy_in, node_rank_in)
   jax.block_until_ready(result)
   logging.info(
       'All shards ready (%.1fs total). Setup complete on all hosts.',
