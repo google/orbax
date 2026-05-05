@@ -580,11 +580,14 @@ def resolve_handler_for_save(
 ) -> CheckpointableHandler:
   """Resolves a :py:class:`~.v1.handlers.CheckpointableHandler` for saving.
 
-    1. If a name matching the provided checkpointable name is explicitly
+    1. If the checkpointable is a StatefulCheckpointable, prefer to use a
+       handler that supports it (e.g. StatefulCheckpointableHandler), bypassing
+       explicit name registration.
+    2. If a name matching the provided checkpointable name is explicitly
        registered, return the corresponding handler.
-    2. Resolve based on the `checkpointable` (using
+    3. Resolve based on the `checkpointable` (using
       :py:meth:`~.v1._src.handlers.types.CheckpointableHandler.is_handleable`).
-    3. If multiple handlers are usable, return the *last* usable handler. This
+    4. If multiple handlers are usable, return the *last* usable handler. This
        allows us to resolve the most recently-registered handler.
 
   Args:
@@ -602,9 +605,6 @@ def resolve_handler_for_save(
     NoEntryError: If no compatible
       :py:class:`~.v1.handlers.CheckpointableHandler` can be found.
   """
-  # If explicitly registered, use that first.
-  if registry.has(name):
-    return _construct_handler_instance(name, registry.get(name))
 
   if checkpointable is None:
     raise ValueError('checkpointable must not be None for saving.')
@@ -612,12 +612,26 @@ def resolve_handler_for_save(
   def is_handleable(handler: CheckpointableHandler, ckpt: Any) -> bool:
     return handler.is_handleable(ckpt)
 
-  possible_handlers = _get_possible_handlers(
-      registry, is_handleable, checkpointable, name
-  )
+  explicit_handler = None
+  if registry.has(name):
+    explicit_handler = _construct_handler_instance(name, registry.get(name))
 
-  # Prefer the last handler in the absence of any other information.
-  return possible_handlers[-1]
+  # Prefer the explicit handler unless it is an explicitly registered handler
+  # that does not support the StatefulCheckpointable.
+  if explicit_handler and (
+      not isinstance(checkpointable, handler_types.StatefulCheckpointable)
+      or is_handleable(explicit_handler, checkpointable)
+  ):
+    return explicit_handler
+
+  try:
+    return _get_possible_handlers(
+        registry, is_handleable, checkpointable, name
+    )[-1]
+  except NoEntryError:
+    if explicit_handler:
+      return explicit_handler
+    raise
 
 
 def resolve_handler_for_load(
