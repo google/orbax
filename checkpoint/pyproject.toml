@@ -76,7 +76,11 @@ testing = [
     'grain',
 ]
 tiering_service = [
+    'aiosqlite',
+    'greenlet',
     'grpcio-tools>=1.80.0',
+    'pysqlite3',
+    'sqlalchemy>=1.4.0',
 ]
 
 [tool.flit.sdist]
