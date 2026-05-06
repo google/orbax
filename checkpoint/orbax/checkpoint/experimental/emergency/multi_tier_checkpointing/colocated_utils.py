@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Helper utilities for colocated emergency checkpointing."""
 
 from collections.abc import Sequence
@@ -40,11 +54,7 @@ def compute_distributed_to_device_ids(
     devices: Sequence[jax.Device],
 ) -> list[list[int]]:
   """Returns per-worker device ids in slice-major order."""
-  worker_groups = pathways.group_devices_by_worker(devices)
-  sorted_worker_groups = sorted(
-      worker_groups.items(),
-      key=lambda item: _worker_key_sort_key(item[0]),
-  )
+  sorted_worker_groups = _sorted_worker_groups(devices)
   distributed_to_device_ids = [
       sorted(d.id for d in worker_devices)
       for _, worker_devices in sorted_worker_groups
@@ -56,6 +66,50 @@ def compute_distributed_to_device_ids(
       distributed_to_device_ids,
   )
   return distributed_to_device_ids
+
+
+def colocated_cpu_devices_by_worker(
+    devices: Sequence[jax.Device],
+) -> tuple[jax.Device, ...]:
+  """Returns one colocated CPU device per Pathways worker.
+
+  The ordering matches `compute_distributed_to_device_ids`, so controller-routed
+  per-worker metadata can use the returned device position as the MTC node rank.
+
+  Args:
+    devices: A sequence of JAX devices representing all available TPU devices.
+  """
+  sorted_worker_groups = _sorted_worker_groups(devices)
+  representative_devices = tuple(
+      min(worker_devices, key=lambda d: d.id)
+      for _, worker_devices in sorted_worker_groups
+  )
+  cpu_devices = colocated_transport.unique_colocated_cpu_devices(
+      representative_devices
+  )
+  if len(cpu_devices) != len(representative_devices):
+    raise ValueError(
+        'Expected one unique colocated CPU device per Pathways worker, got '
+        f'{len(cpu_devices)} CPU devices for {len(representative_devices)} '
+        'workers.'
+    )
+  logging.vlog(
+      1,
+      'Resolved %d colocated CPU devices in Pathways worker order: %s',
+      len(cpu_devices),
+      cpu_devices,
+  )
+  return cpu_devices
+
+
+def _sorted_worker_groups(
+    devices: Sequence[jax.Device],
+) -> list[tuple[tuple[int, ...], list[jax.Device]]]:
+  worker_groups = pathways.group_devices_by_worker(devices)
+  return sorted(
+      worker_groups.items(),
+      key=lambda item: _worker_key_sort_key(item[0]),
+  )
 
 
 def _worker_key_sort_key(worker_key: tuple[int, ...]) -> tuple[int, ...]:
@@ -172,6 +226,19 @@ def require_unanimous_scalar_result(
   return values[0]
 
 
+def require_single_local_scalar_result(
+    result: jax.Array, *, op_name: str
+) -> Any:
+  """Returns the single local scalar shard value or raises."""
+  values = scalar_result_values(result, op_name=op_name)
+  if len(values) != 1:
+    raise ValueError(
+        f'{op_name}: expected exactly one local scalar shard, got '
+        f'{len(values)} values: {values[:8]}.'
+    )
+  return values[0]
+
+
 def scalar_result_values(result: jax.Array, *, op_name: str) -> list[Any]:
   """Returns scalar values from workers."""
   values = []
@@ -203,6 +270,3 @@ def array_result_values(result: jax.Array, *, op_name: str) -> list[np.ndarray]:
     if value.ndim == 0:
       raise ValueError(f'{op_name}: expected array shard value, got scalar.')
   return values
-
-
-

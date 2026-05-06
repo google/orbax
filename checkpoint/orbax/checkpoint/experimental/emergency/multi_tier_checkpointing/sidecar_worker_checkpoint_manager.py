@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Worker-side colocated checkpoint manager for Pathways SC."""
 from typing import Any
 
@@ -128,9 +142,13 @@ class WorkerCheckpointManagerRaw:
     padded_steps = local_steps + [colocated_utils.NO_STEP_SENTINEL] * (
         colocated_utils.MAX_TRACKED_STEPS - len(local_steps)
     )
-    return jax.device_put(
-        jnp.asarray(padded_steps, dtype=jnp.int32),
+    def callback(idx):
+      return np.asarray(padded_steps, dtype=np.int32)[idx]
+
+    return jax.make_array_from_callback(
+        (colocated_utils.MAX_TRACKED_STEPS,),
         dummy_array.sharding,
+        callback,
     )
 
   def is_saving_in_progress(self, dummy_array: jax.Array) -> jax.Array:

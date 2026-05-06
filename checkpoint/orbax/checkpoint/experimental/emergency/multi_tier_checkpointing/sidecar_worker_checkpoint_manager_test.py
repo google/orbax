@@ -12,6 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for the worker-side colocated checkpoint manager."""
 
 from unittest import mock
@@ -146,6 +160,26 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
         steps_array, np.asarray(expected, dtype=np.int32)
     )
     self.manager._rcm.all_steps.assert_called_once_with()
+
+  def test_all_steps_uses_callback_construction(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    self.manager._rcm.all_steps.return_value = [1]
+
+    with mock.patch.object(
+        sidecar_lib.jax,
+        'make_array_from_callback',
+        wraps=sidecar_lib.jax.make_array_from_callback,
+    ) as mock_make_array, mock.patch.object(
+        sidecar_lib.jax,
+        'device_put',
+        side_effect=AssertionError('device_put should not be used'),
+    ):
+      result = self.manager.all_steps(dummy_array)
+
+    np.testing.assert_array_equal(
+        np.asarray(result)[:1], np.asarray([1], dtype=np.int32)
+    )
+    mock_make_array.assert_called_once()
 
   def test_all_steps_limits_to_latest_max_steps(self):
     dummy_array = jnp.asarray(0, dtype=jnp.int32)
