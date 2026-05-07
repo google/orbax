@@ -264,6 +264,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       self.enter_context(checkpointer)
       saved_0 = checkpointer.save_pytree_async(0, self.pytree)
+      self.assertIsNotNone(saved_0)
       saved_1 = checkpointer.save_pytree(1, self.pytree)
       self.assertTrue(saved_0.result())
       self.assertFalse(saved_1)
@@ -291,6 +292,7 @@ class CheckpointerTestBase:
 
       step = 0
       response = checkpointer.save_pytree_async(step, self.pytree)
+      self.assertIsNotNone(response)
       initial_d_files_mtimes = tree_test_utils.get_d_files_mtimes(
           self.directory / str(step)
       )
@@ -312,6 +314,71 @@ class CheckpointerTestBase:
               self.directory / str(step)
           )
       )
+
+    def test_save_pytree_async_on_complete(self):
+      save_policy = save_decision_policies.FixedIntervalPolicy(100)
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=save_policy
+      )
+      self.enter_context(checkpointer)
+
+      results = []
+      condition = threading.Condition()
+
+      def callback(saved):
+        with condition:
+          results.append(saved)
+          condition.notify_all()
+
+      # Step 0 should save
+      response = checkpointer.save_pytree_async(0, self.pytree)
+      self.assertIsNotNone(response)
+      response.on_complete(callback)
+
+      with condition:
+        while not results:
+          if not condition.wait(timeout=10):
+            self.fail('Timed out waiting for callback.')
+
+      self.assertEqual(results, [True])
+      self.assertTrue(response.result())
+      results.clear()
+
+      # Step 1 should not save
+      response = checkpointer.save_pytree_async(1, self.pytree)
+      self.assertIsNone(response)
+
+    def test_save_pytree_async_result(self):
+      save_policy = save_decision_policies.FixedIntervalPolicy(100)
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=save_policy
+      )
+      self.enter_context(checkpointer)
+
+      # Step 0 should save
+      response = checkpointer.save_pytree_async(0, self.pytree)
+      self.assertIsNotNone(response)
+      self.assertTrue(response.result())
+
+      # Save step 1 (should be skipped by FixedIntervalPolicy(100))
+      response2 = checkpointer.save_pytree_async(1, self.pytree)
+      self.assertIsNone(response2)
+
+    def test_save_pytree_async_raises_on_background_failure(self):
+      checkpointer = Checkpointer(self.directory)
+      self.enter_context(checkpointer)
+
+      with mock.patch.object(
+          checkpointer._manager,
+          'wait_until_finished',
+          side_effect=[None, RuntimeError('Mocked background save error')],
+      ):
+        response = checkpointer.save_pytree_async(0, self.pytree)
+        self.assertIsNotNone(response)
+        with self.assertRaisesRegex(
+            RuntimeError, 'Mocked background save error'
+        ):
+          response.result()
 
     def test_close(self):
       checkpointer = Checkpointer(self.directory)
