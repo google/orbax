@@ -1,0 +1,17 @@
+uuid: "c29218c5-cc67-4e65-9384-3fbb6119ec28"
+build_data {
+  timestamp {
+    seconds: 1778139795
+  }
+  user: "angelmau"
+  hostname: "otbfg4.prod.google.com"
+  path: "/google/src/cloud/buildrabbit-username/buildrabbit-client/"
+  target: "//orbax/checkpoint/experimental/v1/_src/testing/compatibility:generate_v0_checkpoint_manager_checkpoints"
+  invocation_id: "a580b822-1e3a-4824-b47a-9bd884c066c7"
+  changelist: 911781978
+  baseline_cl: 911781978
+  workspace_id: "angelmau/345866"
+  citc_snapshot: 679
+  client_status: BUILD_CLIENT_STATUS_UNSPECIFIED
+  verifiable: NON_VERIFIABLE
+}
