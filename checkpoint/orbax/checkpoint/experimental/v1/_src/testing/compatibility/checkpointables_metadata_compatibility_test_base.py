@@ -26,6 +26,7 @@ import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
@@ -36,7 +37,8 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
+class CheckpointablesMetadataCompatibilityTestBase(parameterized.TestCase):
+  """Tests for V1 checkpointables_metadata API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -94,6 +96,14 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
       is_direct_checkpoint: bool,
       is_pytree: bool,
   ) -> None:
+    """Tests checkpointables_metadata against various checkpoint formats.
+
+    Args:
+      version: v0 or v1.
+      metadata_present: Whether the checkpoint has metadata files.
+      is_direct_checkpoint: Whether the checkpoint is a direct checkpoint.
+      is_pytree: Whether the checkpoint is a pytree checkpoint.
+    """
     path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, is_pytree
     )
@@ -133,7 +143,11 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
         else:
           expected = self.expected_checkpointables_metadata
 
-        test_utils.assert_tree_equal(self, expected, loaded.metadata)
+        actual = loaded.metadata
+        if multihost.is_pathways_backend() or jax.process_count() > 1:
+          expected = compatibility_test_utils.strip_sharding_metadata(expected)
+          actual = compatibility_test_utils.strip_sharding_metadata(actual)
+        test_utils.assert_tree_equal(self, expected, actual)
       else:
         with self.assertRaisesRegex(error_type, expected_error_msg):
           ocp.checkpointables_metadata(path)
@@ -153,6 +167,12 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
   def test_checkpointables_metadata_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests checkpointables_metadata against non-critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -162,9 +182,12 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
     # Missing sharding metadata results in a pytree identical to expected
     # values except sharding metadata is None.
     loaded = ocp.checkpointables_metadata(path)
-    test_utils.assert_tree_equal(
-        self, self.expected_checkpointables_metadata, loaded.metadata
-    )
+    expected = self.expected_checkpointables_metadata
+    actual = loaded.metadata
+    if multihost.is_pathways_backend() or jax.process_count() > 1:
+      expected = compatibility_test_utils.strip_sharding_metadata(expected)
+      actual = compatibility_test_utils.strip_sharding_metadata(actual)
+    test_utils.assert_tree_equal(self, expected, actual)
 
   @parameterized.product(
       version=['v0', 'v1'],
@@ -172,6 +195,11 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
   def test_checkpointables_metadata_missing_sharding_corruption(
       self, version: str
   ) -> None:
+    """Tests checkpointables_metadata against missing sharding corruption.
+
+    Args:
+      version: The checkpoint version to test against.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -193,6 +221,12 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
   def test_checkpointables_metadata_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests checkpointables_metadata against critical corruptions.
+
+    Args:
+      version: The checkpoint version to test against.
+      alteration: The alteration to apply to the checkpoint.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
