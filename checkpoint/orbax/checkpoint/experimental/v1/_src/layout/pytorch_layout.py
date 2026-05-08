@@ -62,6 +62,41 @@ _TORCH_TO_NP_DTYPE = {
     "torch.qint32": np.int32,
 }
 
+# Allowlist of (module, name) pairs that are safe to unpickle.
+# This prevents arbitrary code execution via malicious checkpoint files
+# that embed dangerous classes (e.g., os.system, subprocess.Popen).
+_SAFE_UNPICKLE_CLASSES = {
+    # PyTorch tensor reconstruction
+    ("torch._utils", "_rebuild_tensor_v2"),
+    ("torch", "_rebuild_tensor"),
+    # NumPy array reconstruction
+    ("numpy._core.multiarray", "_reconstruct"),
+    ("numpy.core.multiarray", "_reconstruct"),
+    ("numpy", "ndarray"),
+    ("numpy", "dtype"),
+    # PyTorch storage types
+    ("torch", "BFloat16Storage"),
+    ("torch", "FloatStorage"),
+    ("torch", "HalfStorage"),
+    ("torch", "DoubleStorage"),
+    ("torch", "CharStorage"),
+    ("torch", "ShortStorage"),
+    ("torch", "IntStorage"),
+    ("torch", "LongStorage"),
+    ("torch", "ByteStorage"),
+    ("torch", "BoolStorage"),
+    ("torch", "ComplexFloatStorage"),
+    ("torch", "ComplexDoubleStorage"),
+    ("torch", "QInt8Storage"),
+    ("torch", "QUInt8Storage"),
+    ("torch", "QInt32Storage"),
+    ("torch", "TypedStorage"),
+    ("torch", "UntypedStorage"),
+    # Python builtins used in state dict structure
+    ("collections", "OrderedDict"),
+    ("_codecs", "encode"),
+}
+
 
 # The format of persistent_id for torch.Storage objects in torch pickle files:
 # ('storage', torch.LongStorage, '0', 'cpu', 8)
@@ -100,6 +135,9 @@ class CustomTorchUnpickler(pickle.Unpickler):
   """An unpickler that can handle PyTorch's 'storage' persistent IDs.
 
   by looking up data in an externally provided dictionary of bytes.
+
+  Class loading is restricted to a known-safe allowlist to prevent
+  arbitrary code execution from malicious checkpoint files.
   """
 
   def __init__(
@@ -109,6 +147,17 @@ class CustomTorchUnpickler(pickle.Unpickler):
   ):
     super().__init__(file)
     self._storage_data = storage_data
+
+  def find_class(self, module: str, name: str) -> Any:
+    """Restricts class loading to known-safe PyTorch checkpoint classes."""
+    if (module, name) in _SAFE_UNPICKLE_CLASSES:
+      return super().find_class(module, name)
+    raise pickle.UnpicklingError(
+        f"Refusing to unpickle class '{module}.{name}': not in the "
+        "safe allowlist. This may indicate a malicious checkpoint file. "
+        "If this is a legitimate class needed for your checkpoint, "
+        "please file an issue at https://github.com/google/orbax/issues"
+    )
 
   def persistent_load(self, pid: StoragePID) -> Any:
     """Handles persistent loads by returning a torch.Storage object for `pid`."""
@@ -156,9 +205,6 @@ def _rebuild_tensor_as_sds(
   """Pickle reduction function to rebuild a tensor as a `ShapeDtypeStruct`."""
   del storage_offset, stride, requires_grad, backward_hooks  # Unused.
   if not isinstance(storage, _StorageMetadata):
-    # This error indicates that the unpickler's persistent_load did not return
-    # the expected placeholder. This can happen with unsupported PyTorch
-    # versions or corrupted files.
     raise pickle.UnpicklingError(
         "Expected to find _StorageMetadata, but got"
         f" {type(storage).__name__}. This may indicate an unsupported PyTorch"
@@ -183,10 +229,19 @@ def _rebuild_numpy_as_sds(
 
 
 class MetadataUnpickler(pickle.Unpickler):
-  """An unpickler that reconstructs tensors as ShapeDtypeStructs."""
+  """An unpickler that reconstructs tensors as ShapeDtypeStructs.
+
+  Class loading is restricted to a known-safe allowlist to prevent
+  arbitrary code execution from malicious checkpoint files.
+  """
 
   def find_class(self, module: str, name: str) -> Any:
-    """Overrides class lookup to intercept tensor creation."""
+    """Overrides class lookup to intercept tensor creation.
+
+    Only allows classes from a known-safe allowlist. Falls back to the
+    allowlist check instead of unrestricted super().find_class() to
+    prevent arbitrary code execution via crafted checkpoint files.
+    """
     if (module == "torch._utils" and name == "_rebuild_tensor_v2") or (
         module == "torch" and name == "_rebuild_tensor"
     ):
@@ -196,12 +251,18 @@ class MetadataUnpickler(pickle.Unpickler):
         and name == "_reconstruct"
     ):
       return _rebuild_numpy_as_sds
-    return super().find_class(module, name)
+    elif (module, name) in _SAFE_UNPICKLE_CLASSES:
+      return super().find_class(module, name)
+    raise pickle.UnpicklingError(
+        f"Refusing to unpickle class '{module}.{name}': not in the "
+        "safe allowlist. This may indicate a malicious checkpoint file. "
+        "If this is a legitimate class needed for your checkpoint, "
+        "please file an issue at https://github.com/google/orbax/issues"
+    )
 
   def persistent_load(self, pid: StoragePID) -> _StorageMetadata:
     """Handles persistent load calls for torch.Storage."""
     storage_type, _ = _parse_storage_pid(pid)
-    # For metadata, we only need the dtype from the storage type.
     return _StorageMetadata(dtype=str(storage_type.dtype))
 
 
