@@ -237,8 +237,9 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
           local_directory='/tmp/local',
           mesh_shape=(2,),
           mesh_axis_names=('x',),
-          mesh_axis_types=None,
           save_interval_steps=3,
+          mesh_device_ids=(1, 2),
+          mesh_axis_types=None,
       )
 
     mock_install_patch.assert_called_once_with()

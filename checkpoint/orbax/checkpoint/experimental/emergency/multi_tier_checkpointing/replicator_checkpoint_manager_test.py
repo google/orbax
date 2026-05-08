@@ -52,6 +52,11 @@ ReplicatorCheckpointManager = (
 ReplicatorCheckpointManagerOptions = (
     replicator_checkpoint_manager.ReplicatorCheckpointManagerOptions
 )
+# pylint: disable=protected-access
+_ReplicatorLocalCheckpointEngine = (
+    replicator_checkpoint_manager._ReplicatorLocalCheckpointEngine
+)
+# pylint: enable=protected-access
 DatasetIteratorCheckpointSave = (
     dataset_iterator_checkpoint_handler.DatasetIteratorCheckpointSave
 )
@@ -66,6 +71,68 @@ assert_tree_equal = test_utils.assert_tree_equal
 get_fake_global_mesh_for_slices = test_utils.get_fake_global_mesh_for_slices
 swap_slices_in_mesh = emergency_test_utils.swap_slices_in_mesh
 STATE = 'state'
+
+
+# pylint: disable=protected-access
+class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
+
+  def test_sidecar_restore_skips_result_mesh_remap(self):
+    engine = object.__new__(_ReplicatorLocalCheckpointEngine)
+    engine._impl = mock.Mock()
+    engine._persistent_checkpoint_manager = None
+    engine._skip_result_mesh_remap = True
+    restored = args_lib.Composite(state={'x': np.asarray([1, 2])})
+    engine._impl.restore.side_effect = [
+        args_lib.Composite(process_metadata=([[0]], [0])),
+        restored,
+    ]
+    engine._materialize_restore_args_from_metadata = mock.Mock(
+        side_effect=lambda _step, restore_args: restore_args
+    )
+    engine._get_mesh_consistent_args = mock.Mock(
+        return_value=(args_lib.Composite(state=PyTreeRestoreArgs()), restored)
+    )
+    engine._get_mesh_consistent_result = mock.Mock()
+
+    result = engine._restore_single_step(
+        7,
+        args_lib.Composite(state=PyTreeRestoreArgs()),
+        default_item_mode=True,
+    )
+
+    self.assertEqual(result, restored[STATE])
+    engine._get_mesh_consistent_result.assert_not_called()
+
+  def test_standard_restore_uses_result_mesh_remap(self):
+    engine = object.__new__(_ReplicatorLocalCheckpointEngine)
+    engine._impl = mock.Mock()
+    engine._persistent_checkpoint_manager = None
+    engine._skip_result_mesh_remap = False
+    restored = args_lib.Composite(state={'x': np.asarray([1, 2])})
+    remapped = args_lib.Composite(state={'x': np.asarray([3, 4])})
+    engine._impl.restore.side_effect = [
+        args_lib.Composite(process_metadata=([[0]], [0])),
+        restored,
+    ]
+    engine._materialize_restore_args_from_metadata = mock.Mock(
+        side_effect=lambda _step, restore_args: restore_args
+    )
+    engine._get_mesh_consistent_args = mock.Mock(
+        return_value=(args_lib.Composite(state=PyTreeRestoreArgs()), restored)
+    )
+    engine._get_mesh_consistent_result = mock.Mock(
+        return_value=remapped
+    )
+
+    result = engine._restore_single_step(
+        7,
+        args_lib.Composite(state=PyTreeRestoreArgs()),
+        default_item_mode=False,
+    )
+
+    self.assertIs(result, remapped)
+    engine._get_mesh_consistent_result.assert_called_once()
+# pylint: enable=protected-access
 
 
 def get_composite_save_args(
