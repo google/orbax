@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Tests for V1 load_pytree API against generated V0 and V1 Checkpoints."""
+
 import os
 from typing import Tuple, Type
 
@@ -21,12 +22,14 @@ from absl.testing import parameterized
 from etils import epath
 import jax
 import jax.numpy as jnp
+import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as checkpoint_layout_lib
+from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
@@ -37,7 +40,8 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class LoadPytreeCompatibilityTest(parameterized.TestCase):
+class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
+  """Tests for V1 load_pytree API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -47,6 +51,12 @@ class LoadPytreeCompatibilityTest(parameterized.TestCase):
         'b': {'c': jnp.array([1, 2, 3], dtype=jnp.int32)},
     }
     sharding = make_single_device_sharding(jax.devices()[0])
+    if multihost.is_pathways_backend() or jax.process_count() > 1:
+      self.expected_state = compatibility_test_utils.replicate_on_mesh(
+          self.expected_state
+      )
+      mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
+      sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
     self.abstract_state = jax.tree.map(
         lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=sharding),
         self.expected_state
@@ -194,11 +204,32 @@ class LoadPytreeCompatibilityTest(parameterized.TestCase):
       handler_registered: bool,
       pytree_registered: bool,
   ) -> None:
+    """Tests load_pytree against various checkpoint configurations.
+
+    Args:
+      version: The checkpoint version to test against.
+      checkpointable_name: The name of the checkpointable to load.
+      abstract_pytree_provided: Whether an abstract pytree is provided to
+        ocp.load_pytree.
+      name_registered: Whether a handler is registered for the
+        checkpointable_name.
+      metadata_present: Whether the checkpoint has metadata.
+      is_direct_checkpoint: Whether the checkpoint is a direct checkpoint.
+      is_pytree: Whether the checkpoint is a pytree checkpoint.
+      handler_registered: Whether a handler is registered for the handler
+        typestr derived from checkpoint metadata.
+      pytree_registered: Whether a handler is registered for the 'pytree' scope.
+    """
     path = compatibility_test_utils.get_checkpoint_path(
         version, metadata_present, is_direct_checkpoint, is_pytree
     )
     if path is None or not path.exists():
       self.skipTest('Checkpoint for combination does not exist.')
+
+    if (
+        multihost.is_pathways_backend() or jax.process_count() > 1
+    ) and not abstract_pytree_provided:
+      self.skipTest('Sharding metadata not matching in Pathways/Multiprocess.')
 
     registry = self.setup_registry(
         path,
@@ -262,7 +293,12 @@ class LoadPytreeCompatibilityTest(parameterized.TestCase):
   def test_load_pytree_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests load_pytree against checkpoints with non-critical corruptions.
 
+    Args:
+      version: The version of the checkpoint to load.
+      alteration: The non-critical corruption alteration to apply.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -284,6 +320,12 @@ class LoadPytreeCompatibilityTest(parameterized.TestCase):
   def test_load_pytree_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
+    """Tests load_pytree against checkpoints with critical corruptions.
+
+    Args:
+      version: The version of the checkpoint to load.
+      alteration: The critical corruption alteration to apply.
+    """
     path = self.base_dir.joinpath(
         f'{version}_checkpoints',
         'composite_checkpoint',
@@ -303,6 +345,11 @@ class LoadPytreeCompatibilityTest(parameterized.TestCase):
       version=['v0', 'v1'],
   )
   def test_load_incorrect_path(self, version: str) -> None:
+    """Tests load_pytree against checkpoints with incorrect paths.
+
+    Args:
+      version: The version of the checkpoint to test against.
+    """
     checkpoint_path = (
         self.base_dir
         / f'{version}_checkpoints'

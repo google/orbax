@@ -82,3 +82,31 @@ def create_value_metadata(value: Any) -> Any:
     return 0.0
   else:
     raise TypeError(f'Unsupported type: {type(value)}')
+
+
+def strip_sharding_metadata(tree: Any) -> Any:
+  """Strips concrete sharding_metadata from Metadata to decouple from topologies."""
+  def _strip(x):
+    return array_leaf_handler.ArrayMetadata(
+        shape=x.shape,
+        dtype=x.dtype,
+        sharding_metadata=None,
+        storage_metadata=x.storage_metadata,
+    )
+  return jax.tree.map(
+      _strip,
+      tree,
+      is_leaf=lambda leaf: hasattr(leaf, 'sharding_metadata'),
+  )
+
+
+def replicate_on_mesh(tree: Any) -> Any:
+  """Replicates a PyTree of arrays across all devices in the current mesh."""
+  mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
+  sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+  return jax.tree.map(
+      lambda x: jax.device_put(x, sharding)
+      if isinstance(x, (jax.Array, np.ndarray))
+      else x,
+      tree,
+  )
