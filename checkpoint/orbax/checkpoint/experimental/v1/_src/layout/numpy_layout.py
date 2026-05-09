@@ -58,13 +58,22 @@ def _get_npy_info(fp: IO[bytes]) -> tuple[tuple[int, ...], np.dtype]:
 
 
 def _reconstruct_npz_contents(npz_file: Any) -> tree_types.PyTreeOf[np.ndarray]:
-  """Reconstructs nested PyTree from npz file contents."""
+  """Reconstructs nested PyTree from npz file contents.
+
+  Note: Object arrays are not supported as they require pickle
+  deserialization, which poses a security risk (CVE-2019-6446).
+  """
   result = {}
   for k in npz_file.files:
-    if npz_file[k].ndim == 0 and npz_file[k].dtype == object:
-      result[k] = npz_file[k].item()
-    else:
-      result[k] = npz_file[k]
+    arr = npz_file[k]
+    if arr.dtype == object:
+      raise ValueError(
+          f"Array '{k}' has dtype=object, which requires pickle "
+          "deserialization and is not supported due to security concerns "
+          "(CVE-2019-6446). Checkpoint files should only contain arrays "
+          "with concrete numeric or string dtypes."
+      )
+    result[k] = arr
   return result
 
 
@@ -100,7 +109,7 @@ async def _load_numpy(
     abstract_pytree: tree_types.PyTreeOf[jax.ShapeDtypeStruct] | None = None,
 ) -> Any:
   """Loads numpy checkpoint as numpy arrays or sharded jax arrays."""
-  npz_file = await asyncio.to_thread(np.load, path, allow_pickle=True)
+  npz_file = await asyncio.to_thread(np.load, path)
   try:
     numpy_pytree = _reconstruct_npz_contents(npz_file)
     if abstract_pytree is None:
