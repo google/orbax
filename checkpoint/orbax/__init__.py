@@ -32,6 +32,8 @@ from orbax.checkpoint import metadata
 from orbax.checkpoint import msgpack_utils
 from orbax.checkpoint import options
 from orbax.checkpoint import path
+import os
+from orbax.checkpoint import monitoring as _orbax_monitoring
 from orbax.checkpoint import pathways
 from orbax.checkpoint import serialization
 from orbax.checkpoint import transform_utils
@@ -90,3 +92,13 @@ from orbax.checkpoint._src.serialization.type_handlers import PLACEHOLDER
 __version__ = version.__version__
 del version
 
+
+# Autostart Prometheus metrics server if not disabled.
+# Default port is 8000. Use environment variable to override or set to 0 to
+# disable.
+try:
+  _prometheus_port = int(os.environ.get('ORBAX_PROMETHEUS_PORT', 8000))
+except ValueError:
+  _prometheus_port = 8000
+if _prometheus_port > 0:
+  _orbax_monitoring.initialize(port=_prometheus_port)
