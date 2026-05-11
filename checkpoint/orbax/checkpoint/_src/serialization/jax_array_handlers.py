@@ -803,19 +803,36 @@ async def _deserialize_arrays(
         # set dtype=None to deserialize for random keys
         dtype = None
         arg_global_shape = _get_underlying_shape(base_shape, arg.dtype)
+        if isinstance(sharding, jax.sharding.NamedSharding):
+          # Extend PartitionSpec with None dims for key trailing shape
+          # instead of forcing replicated, so local-mode reads work.
+          key_trailing_ndim = (
+              len(arg_global_shape) - len(base_shape)
+              if arg_global_shape and base_shape
+              else 0
+          )
+          physical_spec = jax.sharding.PartitionSpec(
+              *sharding.spec, *([None] * key_trailing_ndim)
+          )
+          sharding_for_read = jax.sharding.NamedSharding(
+              sharding.mesh, physical_spec
+          )
+        else:
+          sharding_for_read = sharding
       else:
         dtype = arg.dtype
         arg_global_shape = base_shape
+        sharding_for_read = sharding
 
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
         logging.vlog(1, 'info = %s', info)
         logging.vlog(1, 'arg = %s', arg)
         logging.vlog(1, 'dtype = %s', dtype)
-        logging.vlog(1, 'sharding = %s', sharding)
+        logging.vlog(1, 'sharding = %s', sharding_for_read)
       deserialize_ops.append(
           serialization.async_deserialize(
-              sharding,
+              sharding_for_read,
               tspec,
               global_shape=arg_global_shape,
               dtype=dtype,
@@ -913,22 +930,96 @@ def _sync_deserialize_arrays(
   )
 
 
-def _get_abstract_arrays(
+async def _get_abstract_arrays(
     args: Sequence[types.RestoreArgs],
     shardings: Sequence[jax.sharding.Sharding],
+    array_metadata_store: array_metadata_store_lib.Store | None = None,
+    infos: Sequence[types.ParamInfo] | None = None,
 ) -> Sequence[jax.ShapeDtypeStruct]:
-  """Returns result specs for the given restore args."""
-  abstract_arrays = []
-  for arg, sharding in zip(args, shardings):
+  """Returns result specs for dispatchers.
+
+  Computes ShapeDtypeStruct specs that describe the expected output of the
+  dispatched worker function. For PRNG key parameters (detected via
+  array_metadata_store), the specs use PRNG key dtypes and logical shapes.
+  The colocated_python framework handles the PRNG key <-> physical
+  conversion at the IFRT boundary.
+
+  Args:
+    args: ArrayRestoreArgs for each parameter.
+    shardings: Shardings for each parameter.
+    array_metadata_store: Store to read PRNG key impl metadata from.
+    infos: ParamInfo for each parameter.
+
+  Returns:
+    Sequence of ShapeDtypeStruct result specs for the dispatcher.
+  """
+  metadatas_cache: dict[str, Any] = {}
+  if array_metadata_store is not None and infos:
+    array_metadatas = await array_metadata_store.read(
+        checkpoint_dir=infos[0].parent_dir,
+    )
+    if array_metadatas:
+      if isinstance(array_metadatas, dict):
+        target_list = next(iter(array_metadatas.values()))
+      else:
+        target_list = array_metadatas
+      metadatas_cache = {meta.param_name: meta for meta in target_list}
+
+  abstract_arrays: list[jax.ShapeDtypeStruct] = []
+  for i, (arg, sharding) in enumerate(zip(args, shardings)):
     assert isinstance(arg, ArrayRestoreArgs)
     assert arg.global_shape is not None
     assert arg.dtype is not None
     if sharding is None:
       raise ValueError('Sharding of jax.Array cannot be None.')
+
+    shape = arg.global_shape
+    dtype = arg.dtype
+
+    if infos and (meta := metadatas_cache.get(infos[i].name)) is not None:
+      if meta.ext_metadata and isinstance(meta.ext_metadata, dict):
+        if (
+            impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL)
+        ) is not None:
+          prng_key_dtype = jax.random.key(0, impl=impl).dtype
+
+          if jax.dtypes.issubdtype(dtype, jax.dtypes.prng_key):
+            # arg.dtype is already a PRNG key dtype, so arg.global_shape
+            # is already the logical shape. Use it as-is.
+            dtype = prng_key_dtype
+          else:
+            # arg.dtype is physical (e.g. uint32), so arg.global_shape
+            # is the physical shape. Convert to logical shape.
+            dtype = prng_key_dtype
+            key_trailing_shape = jax.eval_shape(
+                jax.random.key_data,
+                jax.ShapeDtypeStruct(shape=(), dtype=prng_key_dtype),
+            ).shape
+            key_trailing_ndim = len(key_trailing_shape)
+            shape = shape[:-key_trailing_ndim] if key_trailing_ndim else shape
+
+          # Fix rank mismatch between logical shape and physical sharding.
+          if isinstance(sharding, jax.sharding.NamedSharding):
+            original_spec = sharding.spec
+            # Drop trailing dims to match the rank of the logical shape.
+            logical_spec = jax.sharding.PartitionSpec(
+                *original_spec[: len(shape)]
+            )
+            sharding = jax.sharding.NamedSharding(sharding.mesh, logical_spec)
+
+          logging.vlog(
+              1,
+              '_get_abstract_arrays: PRNG key parameter %s: impl=%s,'
+              ' logical shape=%s, dtype=%s, sharding=%s',
+              infos[i].name,
+              impl,
+              shape,
+              dtype,
+              sharding,
+          )
+
     abstract_arrays.append(
-        jax.ShapeDtypeStruct(
-            shape=arg.global_shape, dtype=arg.dtype, sharding=sharding
-        )
+        jax.ShapeDtypeStruct(shape=shape, dtype=dtype, sharding=sharding)
     )
   return abstract_arrays
 
@@ -1134,9 +1225,32 @@ class ArrayHandler(types.TypeHandler):
             f' serializable objects. Array.sharding: {v.sharding}'
         )
 
+      logging.vlog(
+          1,
+          'serialize: param %s, dtype=%s, shape=%s, sharding=%s',
+          info.name,
+          v.dtype,
+          v.shape,
+          getattr(v, 'sharding', None),
+      )
       if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
         # a JAX random key
-        arrays.append(jax.random.key_data(v))
+        logging.vlog(
+            1,
+            'serialize: PRNG key param %s, logical shape=%s, sharding=%s',
+            info.name,
+            v.shape,
+            v.sharding,
+        )
+        key_data = jax.random.key_data(v)
+        logging.vlog(
+            1,
+            'serialize: PRNG key param %s, physical shape=%s, sharding=%s',
+            info.name,
+            key_data.shape,
+            key_data.sharding,
+        )
+        arrays.append(key_data)
         self._ext_metadata[info.name] = {
             array_metadata_lib.RANDOM_KEY_IMPL: str(jax.random.key_impl(v))
         }
@@ -1261,9 +1375,12 @@ class ArrayHandler(types.TypeHandler):
       args = await self._maybe_read_metadata_and_update_restore_args(
           infos, args
       )
+      result_specs = await _get_abstract_arrays(
+          args, shardings, self._array_metadata_store, infos
+      )
       ret = self._dispatcher.dispatch(
           _sync_deserialize_arrays,
-          result_specs=_get_abstract_arrays(args, shardings),
+          result_specs=result_specs,
           func_kwargs={
               'infos': infos,
               'args': args,
@@ -1602,7 +1719,12 @@ class SingleReplicaArrayHandler(ArrayHandler):
       ret = self._dispatcher.dispatch(
           _single_replica_deserialize_on_worker,
           input_arrays=dummy_input_array,
-          result_specs=_get_abstract_arrays(args, single_replica_shardings),
+          result_specs=await _get_abstract_arrays(
+              args,
+              single_replica_shardings,
+              self._array_metadata_store,
+              infos,
+          ),
           func_kwargs={
               'infos': infos,
               'args': args,
