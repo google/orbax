@@ -43,6 +43,37 @@ class ContextTest(absltest.TestCase):
       ctx = fake_checkpoint_operation()
       self.assertEqual(ctx.array_options, ArrayOptions())
 
+  def test_get_context_with_default(self):
+    default_ctx = ocp.Context(
+        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_ocdbt=False))
+    )
+    custom_ctx = ocp.Context(
+        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
+    )
+
+    with self.subTest("no context set, no default provided"):
+      ctx = context_lib.get_context()
+      self.assertEqual(ctx.array_options, ArrayOptions())
+
+    with self.subTest("no context set, default provided"):
+      ctx = context_lib.get_context(default=default_ctx)
+      self.assertIs(ctx, default_ctx)
+
+    with self.subTest("context IS set, no default provided"):
+      with custom_ctx:
+        ctx = context_lib.get_context()
+        self.assertIs(ctx, custom_ctx)
+
+    with self.subTest("context IS set, default provided"):
+      with custom_ctx:
+        ctx = context_lib.get_context(default=default_ctx)
+        self.assertIs(ctx, custom_ctx)
+        self.assertIsNot(ctx, default_ctx)
+
+    with self.subTest("no context set, default=None provided"):
+      ctx = context_lib.get_context(default=None)
+      self.assertEqual(ctx.array_options, ArrayOptions())
+
   def test_custom_context(self):
     with ocp.Context(
         array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))

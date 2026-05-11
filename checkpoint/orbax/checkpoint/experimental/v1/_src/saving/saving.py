@@ -299,7 +299,6 @@ def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Any],
     *,
     metrics: tree_types.JsonType | None = None,
-    context: context_lib.Context,
 ) -> tuple[
     async_checkpointer.AsyncCheckpointer,
     composite_checkpoint_handler.CompositeArgs,
@@ -309,11 +308,11 @@ def get_v0_checkpointer_and_args(
   Args:
     checkpointables: A dictionary of checkpointables.
     metrics: Optional metrics to add to the checkpointables.
-    context: The Orbax context.
 
   Returns:
     A tuple containing the V0 Checkpointer and Args.
   """
+  context = context_lib.get_context()
   checkpointables = execution.add_internal_checkpointables(
       checkpointables, context=context, metrics=metrics
   )
