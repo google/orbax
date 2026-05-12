@@ -51,7 +51,6 @@ from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
-
 Pytree: TypeAlias = Any
 ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
 SingleReplicaArrayRestoreArgs = (
@@ -535,6 +534,7 @@ def _serialize_arrays(
       )
 
     all_infos = infos
+
     async def _serialize():
       for info in all_infos:
         await info.await_path_creation()
@@ -1525,7 +1525,15 @@ async def _single_replica_deserialize_and_broadcast(
     shape_dtype = [
         jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
     ]
-    deserialized = create_zeros(tuple(shape_dtype))
+    local_mesh = cast(
+        jax.sharding.NamedSharding, single_replica_shardings[0]
+    ).mesh
+    if hasattr(jax, 'set_mesh'):
+      with jax.set_mesh(local_mesh):
+        deserialized = create_zeros(tuple(shape_dtype))
+    else:
+      with local_mesh:
+        deserialized = create_zeros(tuple(shape_dtype))
 
   deserialized = tuple(deserialized)
   start_broadcast = time.time()

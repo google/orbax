@@ -45,7 +45,6 @@ from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 from orbax.checkpoint._src.testing import multiprocess_test
 import tensorstore as ts
 
-
 mock = unittest.mock
 PyTree = Any
 ParamInfo = type_handlers.ParamInfo
@@ -746,6 +745,7 @@ class SingleReplicaTestConfig:
   use_replica_parallel: bool = True
   enable_write_sharding_file: bool = True
   array_metadata_store: array_metadata_store_lib.Store | None = None
+  active_mesh_on_restore: bool = False
 
   @property
   def arrays(self) -> list[jax.Array]:
@@ -885,7 +885,11 @@ class SingleReplicaArrayHandlerTest(
     with mock.patch.object(
         multislice, 'slice_count', return_value=num_replicas
     ):
-      restored = await handler.deserialize(param_infos, restore_args)
+      if config.active_mesh_on_restore:
+        with mesh:
+          restored = await handler.deserialize(param_infos, restore_args)
+      else:
+        restored = await handler.deserialize(param_infos, restore_args)
     test_utils.sync_global_processes(
         'SingleReplicaArrayHandlerTest:deserialization_complete'
     )
@@ -1006,6 +1010,25 @@ class SingleReplicaArrayHandlerTest(
         partition_specs=mesh_axes,
         primary_replica_id=primary_replica_id,
         replica_axis_index=1,
+    )
+    await self.single_replica_serialize_deserialize(config)
+
+  async def test_single_replica_deserialize_under_active_mesh(self):
+    if len(jax.devices()) < 2:
+      self.skipTest('Need at least 2 devices for this test')
+
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape(2, len(jax.devices()) // 2),
+        ('x', 'y'),
+    )
+    arrays = [np.arange(64).reshape(8, 8)]
+    mesh_axes = [jax.sharding.PartitionSpec(None, 'y')]
+    config = SingleReplicaTestConfig(
+        mesh=mesh,
+        np_arrays=arrays,
+        partition_specs=mesh_axes,
+        is_ocdbt=False,
+        active_mesh_on_restore=True,
     )
     await self.single_replica_serialize_deserialize(config)
 
