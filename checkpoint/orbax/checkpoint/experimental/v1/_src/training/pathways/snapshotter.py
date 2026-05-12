@@ -47,7 +47,9 @@ class Snapshotter:
     self._snapshots.append((pinned_state, step))
 
   def load_pytree(
-      self, abstract_state: tree_types.PyTreeOf[jax.Array]
+      self, abstract_state: tree_types.PyTreeOf[jax.Array],
+      *,
+      reset_snapshot_state: bool = True,
   ) -> tuple[tree_types.PyTree, int]:
     """Move arrays from workers onto TPU devices.
 
@@ -56,6 +58,8 @@ class Snapshotter:
     Args:
       abstract_state: An abstract representation of the state, used to provide
         the target shardings for the restored arrays on the TPU devices.
+      reset_snapshot_state: If True, clears snapshot history and resets it to
+        contain only the returned restored state (in host-pinned memory).
 
     Returns:
       The restored array state, and the training step of the snapshot.
@@ -113,6 +117,10 @@ class Snapshotter:
         host_target_state, jax.tree.map(lambda x: x.sharding, abstract_state)
     )
     jax.block_until_ready(restored_state)
+
+    if reset_snapshot_state:
+      self._snapshots.clear()
+      self._snapshots.append((host_target_state, step))
 
     return restored_state, step
 
