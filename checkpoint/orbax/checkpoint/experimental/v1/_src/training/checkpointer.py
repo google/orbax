@@ -588,6 +588,8 @@ class Checkpointer(epy.ContextManager):
       abstract_pytree: (
           tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
       ) = None,
+      *,
+      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
   ) -> tree_types.PyTreeOf[tree_types.LeafType]:
     """Loads a PyTree checkpoint at the given step.
 
@@ -639,13 +641,15 @@ class Checkpointer(epy.ContextManager):
         the checkpointer will attempt to resolve and load the latest existing
         checkpoint.
       abstract_pytree: The abstract PyTree to load.
+      checkpointable_name: The name of the checkpointable to load a pytree
+        under. Defaults to 'pytree'.
 
     Returns:
       The loaded PyTree.
     """
     return self.load_checkpointables(
-        step, {PYTREE_CHECKPOINTABLE_KEY: abstract_pytree}
-    )[PYTREE_CHECKPOINTABLE_KEY]
+        step, {checkpointable_name: abstract_pytree}
+    )[checkpointable_name]
 
   def load_checkpointables(
       self,
