@@ -61,25 +61,25 @@ def _get_asset(
   """Retrieves an asset. Return None if it's not found.
 
   Args:
-    request: A request containing either a UUID or a unique path.
+    request: A request containing either a UUID or a path.
 
   Returns:
     The matching Asset if found, or None.
   """
   if request.HasField("uuid"):
     return _assets_by_uuid.get(request.uuid)
-  elif request.HasField("unique_path"):
+  elif request.HasField("path"):
     for asset in _assets_by_uuid.values():
-      if asset.unique_path == request.unique_path:
+      if asset.path == request.path:
         return asset
   return None
 
 
 def _verify_gcs_permissions(
-    token: str | None, unique_path: str, permissions: Sequence[str]
+    token: str | None, path: str, permissions: Sequence[str]
 ) -> bool:
   """Verifies if the caller has necessary permissions on GCS."""
-  logging.info("Verifying GCS permissions for path: %s", unique_path)
+  logging.info("Verifying GCS permissions for path: %s", path)
   logging.debug("Requested permissions: %s", permissions)
   # TODO: b/503445654 - Implement actual IAM permission verification
   # For now, return True if a token is provided, and False otherwise,
@@ -97,31 +97,31 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       context: grpc.ServicerContext,
   ) -> tiering_service_pb2.ReserveResponse:
     """Reserves a new asset or looks up an existing one."""
-    logging.info("Reserve requested for unique_path: %s", request.unique_path)
+    logging.info("Reserve requested for path: %s", request.path)
     token = _get_oauth_token(context)
 
     # Verify write permission to the target GCS path/managed folder
     if not _verify_gcs_permissions(
-        token, request.unique_path, ["storage.objects.create"]
+        token, request.path, ["storage.objects.create"]
     ):
-      logging.warning(
-          "Permission denied for Reserve on path: %s", request.unique_path
-      )
+      logging.warning("Permission denied for Reserve on path: %s", request.path)
       context.abort(
           grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
       )
       # context.abort raises an exception.
 
-    # TODO: b/503445654 - Ensure unique_path is unique.
+    # TODO: b/503445654 - Ensure path is unique.
 
     # TODO: b/503445654 - Fake a TierPath for now
     asset_uuid = str(uuid.uuid4())
-    gcs_path = f"gs://checkpoint-tiering/{request.user}/{request.unique_path}/{asset_uuid}"
+    gcs_path = (
+        f"gs://checkpoint-tiering/{request.user}/{request.path}/{asset_uuid}"
+    )
 
     if not request.HasField("zone") and not request.HasField("region"):
       logging.error(
           "Reserve: No location specified for path: %s, user: %s",
-          request.unique_path,
+          request.path,
           request.user,
       )
       context.abort(
@@ -135,7 +135,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
 
     asset = tiering_service_pb2.Asset(
         uuid=asset_uuid,
-        unique_path=request.unique_path,
+        path=request.path,
         user=request.user,
         tags=request.tags,
         state=tiering_service_pb2.ASSET_STATE_ACTIVE_WRITE,
@@ -144,14 +144,16 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     )
 
     tp = asset.tier_paths.add(
-        level=1,
-        backend_type=tiering_service_pb2.BACKEND_TYPE_GCS,
         path=gcs_path,
+        storage_backend=tiering_service_pb2.StorageBackend(
+            level=1,
+            backend_type=tiering_service_pb2.BACKEND_TYPE_GCS,
+        ),
     )
     if request.HasField("zone"):
-      tp.zone = request.zone
+      tp.storage_backend.zone = request.zone
     elif request.HasField("region"):
-      tp.region = request.region
+      tp.storage_backend.region = request.region
 
     _assets_by_uuid[asset_uuid] = asset
     logging.info("Reserved asset with UUID: %s", asset_uuid)
@@ -196,11 +198,9 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
 
     # Verify write permission before finalizing
     if not _verify_gcs_permissions(
-        token, asset.unique_path, ["storage.objects.create"]
+        token, asset.path, ["storage.objects.create"]
     ):
-      logging.warning(
-          "Permission denied for Finalize on path: %s", asset.unique_path
-      )
+      logging.warning("Permission denied for Finalize on path: %s", asset.path)
       context.abort(
           grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
       )
@@ -230,9 +230,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       context: grpc.ServicerContext,
   ) -> tiering_service_pb2.PrefetchResponse:
     """Signals CTS to copy an asset to Tier 0 storage."""
-    identifier = (
-        request.uuid if request.HasField("uuid") else request.unique_path
-    )
+    identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Prefetch requested for identifier: %s", identifier)
 
     asset = _get_asset(request)
@@ -275,9 +273,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       context: grpc.ServicerContext,
   ) -> tiering_service_pb2.DeleteResponse:
     """Deletes an asset from CTS tracking."""
-    identifier = (
-        request.uuid if request.HasField("uuid") else request.unique_path
-    )
+    identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Delete requested for identifier: %s", identifier)
 
     asset = _get_asset(request)
@@ -294,9 +290,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       context: grpc.ServicerContext,
   ) -> tiering_service_pb2.InfoResponse:
     """Returns metadata about an asset."""
-    identifier = (
-        request.uuid if request.HasField("uuid") else request.unique_path
-    )
+    identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Info requested for identifier: %s", identifier)
 
     asset = _get_asset(request)

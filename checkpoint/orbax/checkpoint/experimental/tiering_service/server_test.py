@@ -37,14 +37,14 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_reserve_success(self):
     request = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path",
+        path="test/path",
         user="test-user",
         zone="us-central1-a",
         tags=["tag1"],
     )
     response = self.servicer.Reserve(request, self.context)
 
-    self.assertEqual(response.asset.unique_path, "test/path")
+    self.assertEqual(response.asset.path, "test/path")
     self.assertEqual(response.asset.user, "test-user")
     self.assertEqual(
         response.asset.state, tiering_service_pb2.ASSET_STATE_ACTIVE_WRITE
@@ -62,7 +62,7 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_reserve_invalid_argument(self):
     request = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path",
+        path="test/path",
         user="test-user",
     )
     self.servicer.Reserve(request, self.context)
@@ -74,7 +74,7 @@ class TieringServiceTest(absltest.TestCase):
   def test_finalize_success(self):
     # First reserve
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -90,7 +90,7 @@ class TieringServiceTest(absltest.TestCase):
   def test_finalize_failed_precondition(self):
     # Reserve and then finalize once
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -108,7 +108,7 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_delete_success(self):
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -120,7 +120,7 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_info_success(self):
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -132,7 +132,7 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_prefetch_success(self):
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -146,7 +146,7 @@ class TieringServiceTest(absltest.TestCase):
 
   def test_prefetch_invalid_argument(self):
     reserve_req = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path", user="test-user", zone="us-central1-a"
+        path="test/path", user="test-user", zone="us-central1-a"
     )
     reserve_res = self.servicer.Reserve(reserve_req, self.context)
     asset_uuid = reserve_res.asset.uuid
@@ -176,7 +176,7 @@ class TieringServiceTest(absltest.TestCase):
     self.context.invocation_metadata.return_value = ()
 
     request = tiering_service_pb2.ReserveRequest(
-        unique_path="test/path",
+        path="test/path",
         user="test-user",
         zone="us-central1-a",
     )

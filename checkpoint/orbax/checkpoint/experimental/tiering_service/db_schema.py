@@ -123,7 +123,7 @@ class Asset(Base):
       # Enforce path only for live assets (ACTIVE_WRITE, STORED).
       # Duplicates are allowed for DELETED or INCOMPLETE states.
       sqlalchemy.Index(
-          "idx_assets_unique_path_active_stored",
+          "idx_assets_path_active_stored",
           "path",
           unique=True,
           sqlite_where=sqlalchemy.column("state").in_([

@@ -2,9 +2,10 @@ edition = "2023";
 
 package orbax.checkpoint.tiering;
 
+import "google/protobuf/timestamp.proto";
+
 option java_outer_classname = "TieringServiceOuterClass";
 option java_multiple_files = true;
-import "google/protobuf/timestamp.proto";
 
 
 
@@ -26,31 +27,38 @@ message MultipleRegions {
   repeated string regions = 1;
 }
 
-message TierPath {
-  // To describe the locations for an asset
-  int32 level = 1;
+message StorageBackend {
+  int32 id = 1;
+  int32 level = 2;
   oneof location {
-    string zone = 2;
-    string region = 3;
-    MultipleRegions multi_region = 4;  // e.g. GCS could be multi-regional.
+    string zone = 3;
+    string region = 4;
+    MultipleRegions multi_regions = 5;  // e.g. GCS (dual/multi-regions)
   }
-  BackendType backend_type = 5;
-  string path = 6;
+  BackendType backend_type = 6;
+}
+
+message TierPath {
+  int32 id = 1;
+  StorageBackend storage_backend = 2;
+
+  // The absolute path to the asset in the specified storage backend.
+  string path = 3;
 
   // If specified, the asset is ready to read. The asset can be in a pending
   // state and not ready to read yet, in which case ready_at will not be set.
-  google.protobuf.Timestamp ready_at = 7;
+  google.protobuf.Timestamp ready_at = 4;
 
   // If specified, the checkpoint could be removed from this location after it
   // expires. This indicates users shouldn't read after expiration and should
   // call prefetch again. When this field is absent, indicating it won't expire
   // (e.g., in GCS, the asset path won't expire).
-  google.protobuf.Timestamp expires_at = 8;
+  google.protobuf.Timestamp expires_at = 5;
 }
 
 message Asset {
   string uuid = 1;
-  string unique_path = 2;
+  string path = 2;
   string user = 3;
   repeated string tags = 4;
   AssetState state = 5;
@@ -62,7 +70,7 @@ message Asset {
 }
 
 message ReserveRequest {
-  string unique_path = 1;
+  string path = 1;
   repeated string tags = 2;
   string user = 3;
   oneof location {
@@ -96,7 +104,7 @@ message FinalizeResponse {
 message PrefetchRequest {
   oneof identifier {
     string uuid = 1;
-    string unique_path = 2;
+    string path = 2;
   }
   oneof location {
     string zone = 3;
@@ -121,7 +129,7 @@ message PrefetchKeepAliveResponse {
 message DeleteRequest {
   oneof identifier {
     string uuid = 1;
-    string unique_path = 2;
+    string path = 2;
   }
 }
 
@@ -130,7 +138,7 @@ message DeleteResponse {}
 message InfoRequest {
   oneof identifier {
     string uuid = 1;
-    string unique_path = 2;
+    string path = 2;
   }
 }
 
@@ -150,7 +158,8 @@ service TieringService {
   // ReserveKeepAliveResponse. The interval indicates that clients must send
   // ReserveKeepAlive to extend the writing timeout or finalize before it
   // expires.
-  rpc ReserveKeepAlive(ReserveKeepAliveRequest) returns (ReserveKeepAliveResponse);
+  rpc ReserveKeepAlive(ReserveKeepAliveRequest)
+      returns (ReserveKeepAliveResponse);
 
   // Indicates a checkpoint is saved and completed. Assets will enter into the
   // "STORED" state from "ACTIVE_WRITE". Successive "finalize" requests will be
@@ -163,7 +172,8 @@ service TieringService {
 
   // Signals to CTS to extend the timeout of a promoted asset. This call also
   // returns the state and LustrePath when it's available.
-  rpc PrefetchKeepAlive(PrefetchKeepAliveRequest) returns (PrefetchKeepAliveResponse);
+  rpc PrefetchKeepAlive(PrefetchKeepAliveRequest)
+      returns (PrefetchKeepAliveResponse);
 
   // Removes an asset from all tiers.
   rpc Delete(DeleteRequest) returns (DeleteResponse);
