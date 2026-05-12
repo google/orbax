@@ -104,7 +104,13 @@ html_static_path = ['images']
 
 # -- Options for myst -------------------------------------------------------
 
-jupyter_execute_notebooks = 'force'
+# To skip running colabs during doc build (which can be expensive),
+# set the environment variable ORBAX_SKIP_COLABS=true before running the build.
+# Example: export ORBAX_SKIP_COLABS=true; ./serve_docs.sh
+if os.environ.get('ORBAX_SKIP_COLABS') == 'true':
+  jupyter_execute_notebooks = 'off'
+else:
+  jupyter_execute_notebooks = 'force'
 execution_allow_errors = True
 
 # -- Options for katex ------------------------------------------------------

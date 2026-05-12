@@ -8,6 +8,7 @@
 
 Types
 ------------------------------------------------------------
+.. autodata:: PyTree
 .. autodata:: PyTreeOf
 .. autodata:: PyTreeKey
 .. autodata:: PyTreeKeyPath
