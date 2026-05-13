@@ -226,12 +226,17 @@ class SaveLoadTestBase:
         (tuple([]),),
         (dict(),),
         (list(),),
-        (None,),
         (optax.EmptyState(),),
     )
     def test_empty_tree(self, tree):
-      with self.assertRaisesRegex(ValueError, 'empty'):
+      with self.assertRaisesRegex(ValueError, 'Found empty item'):
         ocp.save_pytree(self.directory, tree)
+
+    def test_none_tree(self):
+      with self.assertRaisesRegex(
+          ValueError, 'checkpointable must not be None for saving'
+      ):
+        ocp.save_pytree(self.directory, None)
 
     # Note the ommission of jax.Array, since this is covered in
     # several other tests.

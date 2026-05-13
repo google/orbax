@@ -16,6 +16,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint.experimental.v1._src.handlers import registration
+from orbax.checkpoint.experimental.v1._src.handlers import stateful_checkpointable_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 
@@ -172,6 +173,24 @@ class ResolveHandlerForSaveTest(RegistrationTestBase):
       registration.resolve_handler_for_save(
           local_registry, handler_utils.AbstractFoo(), name='foo'
       )
+
+  def test_resolve_handler_for_save_stateful_checkpointable_priority(self):
+    local_registry = registration.local_registry()
+    local_registry.add(
+        handler_utils.FooHandler, checkpointable_name='custom_name'
+    )
+    local_registry.add(
+        stateful_checkpointable_handler.StatefulCheckpointableHandler,
+    )
+    resolved_handler = registration.resolve_handler_for_save(
+        local_registry,
+        handler_utils.Point(1, 2),
+        name='custom_name',
+    )
+    self.assertIsInstance(
+        resolved_handler,
+        stateful_checkpointable_handler.StatefulCheckpointableHandler,
+    )
 
 
 class ResolveHandlerForLoadTest(RegistrationTestBase):
@@ -373,6 +392,27 @@ class ResolveHandlerForLoadTest(RegistrationTestBase):
           name='unregistered_name',
           handler_typestr=None,
       )
+
+  def test_resolve_handler_for_load_stateful_checkpointable_priority(self):
+    local_registry = registration.local_registry()
+    local_registry.add(
+        handler_utils.FooHandler, checkpointable_name='custom_name'
+    )
+    local_registry.add(
+        stateful_checkpointable_handler.StatefulCheckpointableHandler,
+    )
+    resolved_handler = registration.resolve_handler_for_load(
+        local_registry,
+        handler_utils.Point(1, 2),
+        name='custom_name',
+        handler_typestr=handler_types.typestr(
+            stateful_checkpointable_handler.StatefulCheckpointableHandler
+        ),
+    )
+    self.assertIsInstance(
+        resolved_handler,
+        stateful_checkpointable_handler.StatefulCheckpointableHandler,
+    )
 
 
 if __name__ == '__main__':
