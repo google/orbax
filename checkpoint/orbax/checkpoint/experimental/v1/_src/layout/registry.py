@@ -22,10 +22,8 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
-from orbax.checkpoint.experimental.v1._src.layout import numpy_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
-from orbax.checkpoint.experimental.v1._src.layout import pytorch_layout
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
@@ -72,10 +70,6 @@ async def get_layout_class(
         return orbax_v0_layout.OrbaxV0Layout
     case CheckpointLayoutEnum.SAFETENSORS:
       return safetensors_layout.SafetensorsLayout
-    case CheckpointLayoutEnum.NUMPY:
-      return numpy_layout.NumpyLayout
-    case CheckpointLayoutEnum.PYTORCH:
-      return pytorch_layout.PyTorchLayout
     case _:
       raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 

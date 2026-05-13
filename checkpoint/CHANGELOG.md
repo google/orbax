@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- #v1 Remove numpy and pytorch layouts, as these are insecure and not worth the
+effort in maintaining. Safetensors is instead the recommended conversion case.
+
 ### Added
 
 - #v1 Allow a context to be default-configured for all `Checkpointer`
