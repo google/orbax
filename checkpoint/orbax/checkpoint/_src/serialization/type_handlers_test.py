@@ -36,6 +36,7 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import jax_array_handlers
+from orbax.checkpoint._src.serialization import jax_array_transfer_tracker
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
