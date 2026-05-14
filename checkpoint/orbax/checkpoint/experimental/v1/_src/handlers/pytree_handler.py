@@ -319,7 +319,15 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
   async def _finalize(self, directory: path_types.Path):
     if multihost.is_primary_host(self._multiprocessing_options.primary_host):
-      await self._handler_impl._finalize_async(directory)  # pylint: disable=protected-access
+      impl = self._handler_impl
+      await impl._metadata_manager.finalize_async(  # pylint: disable=protected-access
+          directory,
+          array_metadata_store=impl._array_metadata_store,  # pylint: disable=protected-access
+          primary_host=impl._primary_host,  # pylint: disable=protected-access
+          array_metadata_validator=impl._array_metadata_validator,  # pylint: disable=protected-access
+          use_zarr3=impl._use_zarr3,  # pylint: disable=protected-access
+          enable_post_merge_validation=impl._enable_post_merge_validation,  # pylint: disable=protected-access
+      )
 
   async def _background_save(
       self,
