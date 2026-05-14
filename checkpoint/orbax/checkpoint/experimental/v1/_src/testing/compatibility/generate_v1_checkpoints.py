@@ -90,7 +90,11 @@ def generate_v1_checkpoint(path: epath.Path) -> None:
           registry=registry
       )
   ):
-    ocp.save_checkpointables(path, checkpointables)
+    ocp.save_checkpointables(
+        path,
+        checkpointables,
+        custom_metadata={'custom': 'meta'},
+    )
     (path / 'descriptor').rmtree()  # GOOGLE_INTERNAL
 
 

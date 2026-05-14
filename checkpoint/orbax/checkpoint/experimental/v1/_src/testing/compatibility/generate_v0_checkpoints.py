@@ -80,7 +80,7 @@ def _standard_checkpointer_save_pytree(path: epath.Path) -> None:
   if _OVERWRITE.value:
     path.rmtree(missing_ok=True)
   with standard_checkpointer.StandardCheckpointer() as checkpointer:
-    checkpointer.save(path, pytree)
+    checkpointer.save(path, pytree, custom_metadata={'custom': 'meta'})
 
 
 def _checkpointer_save_composite_mixed(path: epath.Path) -> None:
@@ -96,7 +96,7 @@ def _checkpointer_save_composite_mixed(path: epath.Path) -> None:
   with v0_checkpointer.Checkpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler()
   ) as checkpointer:
-    checkpointer.save(path, checkpoint_args)
+    checkpointer.save(path, checkpoint_args, custom_metadata={'custom': 'meta'})
 
 
 def generate_v0_checkpoint(
