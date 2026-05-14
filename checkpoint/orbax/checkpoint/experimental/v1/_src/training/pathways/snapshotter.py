@@ -14,7 +14,9 @@
 
 """Manages asynchronous backups of JAX array states to pinned host memory."""
 
-import collections
+import logging
+import queue
+import threading
 
 from etils import epath
 import jax
@@ -27,30 +29,46 @@ from pathwaysutils.experimental import split_by_mesh_axis
 class Snapshotter:
   """Manages asynchronous backups of JAX array states to pinned host memory."""
 
-  _snapshots: collections.deque[tuple[tree_types.PyTree, int]]
-
   def __init__(self, *, replica_axis_index: int = 0):
-    self._snapshots = collections.deque(maxlen=2)
+    self._latest_snapshot: tuple[tree_types.PyTree, int] | None = None
+    self._lock = threading.Lock()
+    self._queue = queue.Queue(maxsize=1)
     self.replica_axis_index = replica_axis_index
+    self._worker_thread = threading.Thread(target=self._worker, daemon=True)
+    self._worker_thread.start()
+
+  def _worker(self):
+    while True:
+      pinned_state, step = self._queue.get()
+      try:
+        jax.block_until_ready(pinned_state)
+        with self._lock:
+          self._latest_snapshot = (pinned_state, step)
+      finally:
+        self._queue.task_done()
 
   def save_pytree(
       self, step: int, state: tree_types.PyTreeOf[jax.Array]
   ) -> None:
     """Move arrays onto CPU worker devices."""
+    if self._queue.full():
+      logging.warning("Snapshotter busy. Skipping snapshot for step %d", step)
+      return
+
     pinned_shardings = jax.tree.map(
         lambda x: x.sharding.with_memory_kind("pinned_host"), state
     )
 
     pinned_state = jax.device_put(state, pinned_shardings)
-    jax.block_until_ready(pinned_state)
 
-    self._snapshots.append((pinned_state, step))
+    self._queue.put((pinned_state, step))
 
   def load_pytree(
-      self, abstract_state: tree_types.PyTreeOf[jax.Array],
+      self,
+      abstract_state: tree_types.PyTreeOf[jax.Array],
       *,
       reset_snapshot_state: bool = True,
-  ) -> tuple[tree_types.PyTree, int]:
+  ) -> tree_types.PyTree:
     """Move arrays from workers onto TPU devices.
 
     Uses `abstract_state.sharding` to properly re-partition onto the new mesh.
@@ -62,15 +80,15 @@ class Snapshotter:
         contain only the returned restored state (in host-pinned memory).
 
     Returns:
-      The restored array state, and the training step of the snapshot.
+      The restored array state.
 
     Raises:
       RuntimeError: If no snapshots are available to restore from.
     """
-    if not self._snapshots:
-      raise RuntimeError("No snapshots available to restore from.")
-
-    pinned_state, step = self._snapshots[-1]
+    with self._lock:
+      if self._latest_snapshot is None:
+        raise RuntimeError("No snapshots available to restore from.")
+      pinned_state, step = self._latest_snapshot
 
     def is_replica_active(arr):
       try:
@@ -119,18 +137,20 @@ class Snapshotter:
     jax.block_until_ready(restored_state)
 
     if reset_snapshot_state:
-      self._snapshots.clear()
-      self._snapshots.append((host_target_state, step))
+      with self._lock:
+        self._latest_snapshot = (host_target_state, step)
 
-    return restored_state, step
+    return restored_state
 
   @property
   def latest(self) -> training.CheckpointMetadata[None] | None:
     """Returns the training step of the most recently pinned backup."""
-    if not self._snapshots:
-      return None
+    with self._lock:
+      if self._latest_snapshot is None:
+        return None
+      _, step = self._latest_snapshot
     return training.CheckpointMetadata(
-        step=self._snapshots[-1][1],
+        step=step,
         path=epath.Path(),
         metadata=None,
     )
