@@ -77,7 +77,9 @@ def _create_v0_savearg(
   return type_handlers_v0.SaveArgs(
       dtype=np.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
+      shard_axes=storage_options.shard_axes
+      if storage_options.shard_axes is not None
+      else tuple(),
   )
 
 
@@ -142,7 +144,9 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
       *,
       context: context_lib.Context | None = None,
   ):
-    self._context = context_lib.get_context(context)
+    self._context = (
+        context if context is not None else context_lib.get_context()
+    )
     self._handler_impl = _create_v0_scalar_handler()
 
     logging.vlog(1, "ScalarLeafHandler created.")

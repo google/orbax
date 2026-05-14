@@ -63,14 +63,14 @@ class ProtoHandler(
       # Assuming MyProtoMessage is your compiled protobuf class
       my_proto_msg = MyProtoMessage(config_field="value")
 
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              proto_config=ocp.handlers.ProtoHandler(
-                  filename="model_config.pbtxt"
-              )
-          )
+      registry = ocp.handlers.local_registry()
+      registry.add(
+          ocp.handlers.ProtoHandler(filename="model_config.pbtxt"),
+          checkpointable_name="proto_config",
       )
-      with ocp.Context(checkpointables_options=checkpointables_options):
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      with ctx:
           ocp.save_checkpointables(path, dict(proto_config=my_proto_msg))
 
   Attributes:

@@ -26,7 +26,6 @@ import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 import safetensors.numpy
 
@@ -185,11 +184,9 @@ class ShardedSafetensorsLayoutTest(
     }
 
     layout = SafetensorsLayout()
-    with context_lib.Context(
-        safetensors_options=options_lib.SafetensorsOptions(
-            ignore_load_sharding=True
-        )
-    ):
+    ctx = context_lib.Context()
+    ctx.safetensors.ignore_load_sharding = True
+    with ctx:
       restore_fn = await layout.load_pytree(
           st_path, abstract_pytree=abstract_state
       )
@@ -229,11 +226,9 @@ class ShardedSafetensorsLayoutTest(
     }
 
     layout = SafetensorsLayout()
-    with context_lib.Context(
-        safetensors_options=options_lib.SafetensorsOptions(
-            ignore_load_sharding=True
-        )
-    ):
+    ctx = context_lib.Context()
+    ctx.safetensors.ignore_load_sharding = True
+    with ctx:
       restore_fn = await layout.load_pytree(
           st_path, abstract_pytree=abstract_state
       )
@@ -343,11 +338,9 @@ class ShardedSafetensorsLayoutTest(
 
     tracemalloc.start()
 
-    with context_lib.Context(
-        safetensors_options=options_lib.SafetensorsOptions(
-            ignore_load_sharding=True
-        )
-    ):
+    ctx = context_lib.Context()
+    ctx.safetensors.ignore_load_sharding = True
+    with ctx:
       restore_fn = await layout.load_pytree(
           file_path,
           abstract_pytree=abstract_pytree,

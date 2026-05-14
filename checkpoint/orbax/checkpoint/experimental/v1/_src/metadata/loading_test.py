@@ -146,9 +146,9 @@ class PyTreeMetadataTest(absltest.TestCase):
         'y': jax.ShapeDtypeStruct(shape=(3,), dtype=np.int64),
     }
 
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
       ckpt_metadata = ocp.pytree_metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
@@ -165,9 +165,9 @@ class PyTreeMetadataTest(absltest.TestCase):
 
     # Test invalid path
     with self.assertRaises(ocp.errors.InvalidLayoutError):
-      with context_lib.Context(
-          checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-      ):
+      ctx = context_lib.Context()
+      ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+      with ctx:
         ocp.pytree_metadata(self.directory)
 
 
@@ -193,15 +193,12 @@ class CheckpointablesMetadataTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
-    checkpointables_options = (
-        options_lib.CheckpointablesOptions.create_with_handlers(
-            handler_utils.FooHandler,
-            handler_utils.BarHandler,
-        )
-    )
-    self.enter_context(
-        context_lib.Context(checkpointables_options=checkpointables_options)
-    )
+    registry = ocp.handlers.local_registry()
+    registry.add(handler_utils.FooHandler)
+    registry.add(handler_utils.BarHandler)
+    ctx = context_lib.Context()
+    ctx.checkpointables.registry = registry
+    self.enter_context(ctx)
     checkpointables = {
         'foo': Foo(1, 'foo'),
         'bar': Bar(2, 'bar'),
@@ -247,9 +244,9 @@ class CheckpointablesMetadataTest(absltest.TestCase):
         'item2': jax.ShapeDtypeStruct(shape=(1,), dtype=np.int32),
     }
 
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
       ckpt_metadata = ocp.checkpointables_metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
@@ -268,9 +265,9 @@ class CheckpointablesMetadataTest(absltest.TestCase):
 
     # Test invalid path
     with self.assertRaises(ocp.errors.InvalidLayoutError):
-      with context_lib.Context(
-          checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-      ):
+      ctx = context_lib.Context()
+      ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+      with ctx:
         ocp.checkpointables_metadata(self.directory)
 
 
