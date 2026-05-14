@@ -30,6 +30,18 @@ SNAPSHOTTING_TIME = "snapshotting_time"
 PENDING_DIR_SUFFIX = ".pending_"
 
 
+def get_pending_dir_name(source_name: str) -> str:
+  return f"{source_name}{PENDING_DIR_SUFFIX}{uuid.uuid4().hex}"
+
+
+def get_uuid_from_pending_dir_name(pending_dir_name: str) -> str:
+  return pending_dir_name.split("_")[-1]
+
+
+async def list_pending_dirs(path: epath.Path) -> list[epath.Path]:
+  return list(await async_path.glob(path, f"*{PENDING_DIR_SUFFIX}*"))
+
+
 class SnapshotType(enum.Enum):
   IN_PLACE = "in_place"
   EMPTY = "empty"
@@ -165,8 +177,8 @@ class _EmptySnapshot(Snapshot):
     # Partial saving relies on this behavior to accumulate `pending_*`
     # directories in the shared parent path before merging them sequentially
     # upon finalization.
-    pending_suffix = f"{PENDING_DIR_SUFFIX}{uuid.uuid4()}"
-    dst_path = self._source / f"{self._source.name}{pending_suffix}"
+    pending_dir_name = get_pending_dir_name(self._source.name)
+    dst_path = self._source / pending_dir_name
     await async_path.rename(self._snapshot, dst_path)
 
 
