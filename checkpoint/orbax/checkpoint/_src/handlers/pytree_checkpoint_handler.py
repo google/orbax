@@ -1000,8 +1000,11 @@ class PyTreeCheckpointHandler(
     """
     # Try reading metadata file.
     try:
+      impl = self._handler_impl
       internal_tree_metadata = asyncio_utils.run_sync(
-          self._handler_impl._read_metadata_file(directory)  # pylint: disable=protected-access
+          impl._metadata_manager.read_metadata_file(  # pylint: disable=protected-access
+              directory, pytree_metadata_options=impl._pytree_metadata_options  # pylint: disable=protected-access
+          )
       )
       use_zarr3 = internal_tree_metadata.use_zarr3
       value_metadata_tree = internal_tree_metadata.as_nested_tree()
