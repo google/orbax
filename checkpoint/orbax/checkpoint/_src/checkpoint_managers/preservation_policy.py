@@ -149,6 +149,7 @@ class EveryNSteps(PreservationPolicy):
 
   interval_steps: int
   exact_interval: bool = True
+  max_to_keep: int | None = None
 
   def should_preserve(
       self,
@@ -172,10 +173,18 @@ class EveryNSteps(PreservationPolicy):
           previous_step = ckpt.step
         else:
           result.append(False)
+
+    if self.max_to_keep is not None:
+      true_indices = [i for i, val in enumerate(result) if val]
+      if len(true_indices) > self.max_to_keep:
+        for i in true_indices[: -self.max_to_keep]:
+          result[i] = False
+
     _log_preservation_decision(
-        f"EveryNSteps (interval_steps={self.interval_steps})",
+        f"EveryNSteps (interval_steps={self.interval_steps},"
+        f" max_to_keep={self.max_to_keep})",
         checkpoints,
-        result
+        result,
     )
     return result
 
