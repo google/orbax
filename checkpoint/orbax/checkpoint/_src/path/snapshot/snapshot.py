@@ -138,7 +138,7 @@ class _EmptySnapshot(Snapshot):
       raise ValueError(
           f"Snapshot destination must be absolute, but was '{self._snapshot}'."
       )
-    await async_path.mkdir(self._snapshot, parents=True, exist_ok=True)
+    await async_path.get_or_create_dir(self._snapshot)
 
   async def release_snapshot(self) -> None:
     if not await async_path.exists(self._snapshot):
@@ -157,8 +157,7 @@ class _EmptySnapshot(Snapshot):
 
     if not await async_path.exists(self._snapshot):
       raise FileNotFoundError(f"Snapshot does not exist: {self._snapshot}")
-    if not await async_path.exists(self._source):
-      await async_path.mkdir(self._source, parents=True, exist_ok=True)
+    await async_path.get_or_create_dir(self._source)
     # Move files from inside the tmp snapshot into the original source
     # directory under a pending suffix. This is to avoid potentially wiping
     # out previous files.

@@ -151,7 +151,7 @@ class Store:
     """Primary host creates the base directory, rest of the hosts wait."""
     if multihost.is_primary_host(self._primary_host):
       # primary host creates, rest of the hosts wait.
-      return await async_path.mkdir(base_dir, parents=True, exist_ok=True)
+      return await async_path.get_or_create_dir(base_dir)
 
     # non-primary host waits for primary host to create the base dir/folder.
     async def wait_for_base_dir_creation():

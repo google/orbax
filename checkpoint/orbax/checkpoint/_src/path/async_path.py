@@ -118,6 +118,13 @@ async def is_file(path: epath.Path):
   return await asyncio.to_thread(path.is_file)
 
 
+async def get_or_create_dir(path: epath.Path) -> epath.Path:
+  """Creates a directory if it doesn't exist and returns the path."""
+  if not await exists(path):
+    await mkdir(path, parents=True, exist_ok=True)
+  return path
+
+
 async def is_link(path: epath.Path):
   return await asyncio.to_thread(os.path.islink, path)
 
