@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import datetime
 import multiprocessing
 import unittest
@@ -116,11 +115,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           zone="us-east5-a",
           backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/lustre",
       )
       backend1 = db_schema.StorageBackend(
           level=1,
           multi_regions=["us-central1", "us-east1"],
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       tier_path0 = db_schema.TierPath(
           asset_uuid="uuid-789",
@@ -130,7 +131,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       tier_path1 = db_schema.TierPath(
           asset_uuid="uuid-789",
           storage_backend=backend1,
-          path="/gcs/path/2",
+          path="gs://gcs-bucket/path/2",
       )
       session.add(asset)
       session.add(backend0)
@@ -158,7 +159,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       )
       self.assertEqual(tp0.path, "/lustre/path/1")
       self.assertEqual(tp0.storage_backend.zone, "us-east5-a")
-      self.assertEqual(tp1.path, "/gcs/path/2")
+      self.assertEqual(tp1.path, "gs://gcs-bucket/path/2")
       self.assertEqual(
           tp1.storage_backend.multi_regions,
           ["us-central1", "us-east1"],
@@ -170,6 +171,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           zone="us-central1-a",
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       session.add(backend)
       await session.commit()
@@ -212,11 +214,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           zone="us-central1-a",
           backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/lustre",
       )
       b2 = db_schema.StorageBackend(
           level=0,
           zone="us-central1-a",
           backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/lustre",
       )
       tp1 = db_schema.TierPath(storage_backend=b1, path="/path1")
       tp2 = db_schema.TierPath(storage_backend=b2, path="/path2")
@@ -236,11 +240,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           region="us-central1",
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       b2 = db_schema.StorageBackend(
           level=0,
           region="us-central1",
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       tp1 = db_schema.TierPath(storage_backend=b1, path="/path1")
       tp2 = db_schema.TierPath(storage_backend=b2, path="/path2")
@@ -262,12 +268,14 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           multi_regions=["us-central1", "us-east1"],
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       # Order of regions shouldn't matter
       b2 = db_schema.StorageBackend(
           level=0,
           multi_regions=["us-east1", "us-central1"],
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       tp1 = db_schema.TierPath(storage_backend=b1, path="/path1")
       tp2 = db_schema.TierPath(storage_backend=b2, path="/path2")
@@ -283,6 +291,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       ):
         invalid_backend_empty = db_schema.StorageBackend(
             level=0,
+            prefix="test-empty",
         )
         session.add(invalid_backend_empty)
         await session.commit()
@@ -298,6 +307,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           level=0,
           zone="us-central1-a",
           backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
       )
       tier_path = db_schema.TierPath(
           asset_uuid="uuid-queue", storage_backend=backend, path="/path1"
@@ -395,11 +405,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
               level=1,
               zone="us-central1-a",
               backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+              prefix="/lustre",
           ),
           backend2=db_schema.StorageBackend(
               level=1,
               zone="us-central1-b",
               backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+              prefix="gs://gcs-bucket",
           ),
           expected_exception=ValueError,
           expected_regex="same backend_type",
@@ -410,11 +422,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
               level=1,
               zone="us-central1-a",
               backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+              prefix="/lustre",
           ),
           backend2=db_schema.StorageBackend(
               level=1,
               zone="us-central1-a",
               backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+              prefix="/lustre",
           ),
           expected_exception=ValueError,
           expected_regex="Duplicate zone",
@@ -425,11 +439,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
               level=1,
               region="us-central1",
               backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+              prefix="gs://gcs-bucket",
           ),
           backend2=db_schema.StorageBackend(
               level=1,
               region="us-central1",
               backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+              prefix="gs://gcs-bucket",
           ),
           expected_exception=ValueError,
           expected_regex="Duplicate region",
@@ -440,11 +456,13 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
               level=1,
               multi_regions=["us-central1", "us-east1"],
               backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+              prefix="gs://gcs-bucket",
           ),
           backend2=db_schema.StorageBackend(
               level=1,
               multi_regions=["us-east1", "us-central1"],
               backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+              prefix="gs://gcs-bucket",
           ),
           expected_exception=ValueError,
           expected_regex="Duplicate multi_regions",
@@ -528,6 +546,7 @@ class DbSchemaMultiprocessTest(
     self.session_maker = sessionmaker(
         self.engine, expire_on_commit=False, class_=AsyncSession
     )
+    await self.engine.dispose()
 
   async def asyncTearDown(self) -> None:
     async with self.engine.begin() as conn:
@@ -535,23 +554,24 @@ class DbSchemaMultiprocessTest(
     await self.engine.dispose()
     await super().asyncTearDown()
 
-  def test_asset_job_queue_multiprocess(self) -> None:
-    async def _setup():
-      async with self.session_maker() as session:
-        asset = db_schema.Asset(
-            asset_uuid="uuid-queue-multi",
-            path="/experiment/queue-multi",
-            user="testuser",
-        )
-        sb = db_schema.StorageBackend(level=0, zone="us-central1-a")
-        tp = db_schema.TierPath(
-            asset_uuid="uuid-queue-multi", storage_backend=sb, path="/path1"
-        )
-        session.add_all([asset, sb, tp])
-        await session.commit()
-        return tp.id
+  async def test_asset_job_queue_multiprocess(self) -> None:
+    async with self.session_maker() as session:
+      asset = db_schema.Asset(
+          asset_uuid="uuid-queue-multi",
+          path="/experiment/queue-multi",
+          user="testuser",
+      )
+      sb = db_schema.StorageBackend(
+          level=0, zone="us-central1-a", prefix="gs://gcs-bucket"
+      )
+      tp = db_schema.TierPath(
+          asset_uuid="uuid-queue-multi", storage_backend=sb, path="/path1"
+      )
+      session.add_all([asset, sb, tp])
+      await session.commit()
+      tp_id = tp.id
 
-    tp_id = asyncio.run(_setup())
+    await self.engine.dispose()
 
     job_types = [
         (int(db_schema.RequestType.REQUEST_TYPE_COPY), tp_id),
@@ -569,25 +589,22 @@ class DbSchemaMultiprocessTest(
       with self.subTest(request_type=request_type_val):
         self.assertTrue(success)
 
-    async def _verify():
-      async with self.session_maker() as session:
-        result = await session.execute(
-            select(db_schema.AssetJob).filter_by(asset_uuid="uuid-queue-multi")
-        )
-        jobs = result.scalars().all()
-        self.assertLen(jobs, 3)
+    async with self.session_maker() as session:
+      result = await session.execute(
+          select(db_schema.AssetJob).filter_by(asset_uuid="uuid-queue-multi")
+      )
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 3)
 
-        found_types = [j.request_type for j in jobs]
-        expected_types = [
-            db_schema.RequestType.REQUEST_TYPE_COPY,
-            db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
-            db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
-        ]
-        self.assertCountEqual(found_types, expected_types)
+      found_types = [j.request_type for j in jobs]
+      expected_types = [
+          db_schema.RequestType.REQUEST_TYPE_COPY,
+          db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
+          db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      ]
+      self.assertCountEqual(found_types, expected_types)
 
-    asyncio.run(_verify())
-
-  def test_create_asset_multiprocess(self) -> None:
+  async def test_create_asset_multiprocess(self) -> None:
     with multiprocessing.Pool(processes=5) as pool:
       results = pool.map(_worker_create_asset, [self.db_path] * 5)
 
