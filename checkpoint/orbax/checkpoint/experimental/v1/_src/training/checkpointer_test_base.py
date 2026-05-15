@@ -90,8 +90,13 @@ class CheckpointerTestBase:
         metrics: tree_types.JsonType | None = None,
         custom_metadata: tree_types.JsonType | None = None,
     ) -> bool:
-      """Saves pytree with v0 CheckpointManager or v1 Checkpointer."""
-      raise NotImplementedError()
+      """Saves pytree with v1 Checkpointer."""
+      return checkpointer.save_pytree(
+          step,
+          pytree,
+          metrics=metrics,
+          custom_metadata=custom_metadata,
+      )
 
     def save_checkpointables(
         self,
@@ -101,8 +106,13 @@ class CheckpointerTestBase:
         metrics: tree_types.JsonType | None = None,
         custom_metadata: tree_types.JsonType | None = None,
     ) -> bool:
-      """Saves checkpointables with v0 CheckpointManager or v1 Checkpointer."""
-      raise NotImplementedError()
+      """Saves checkpointables with v1 Checkpointer."""
+      return checkpointer.save_checkpointables(
+          step,
+          checkpointables,
+          metrics=metrics,
+          custom_metadata=custom_metadata,
+      )
 
     def test_properties(self):
       checkpointer = Checkpointer(self.directory)
@@ -125,6 +135,24 @@ class CheckpointerTestBase:
           self.skipTest('Must provide abstract_pytree for Pathways.')
         loaded = checkpointer.load_pytree(0)
         test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+    def test_save_load_pytree_with_specific_name(self):
+      checkpointer = Checkpointer(self.directory)
+      self.enter_context(checkpointer)
+      checkpointer.save_pytree(0, self.pytree, checkpointable_name='state')
+      loaded = checkpointer.load_pytree(
+          0, abstract_pytree=self.abstract_pytree, checkpointable_name='state'
+      )
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+    def test_save_checkpointables_load_pytree(self):
+      checkpointer = Checkpointer(self.directory)
+      self.enter_context(checkpointer)
+      checkpointer.save_checkpointables(0, {'state': self.pytree})
+      loaded = checkpointer.load_pytree(
+          0, abstract_pytree=self.abstract_pytree, checkpointable_name='state'
+      )
+      test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     @parameterized.parameters((True,), (False,))
     def test_load_latest_pytree(self, latest_arg_is_none):
@@ -313,6 +341,46 @@ class CheckpointerTestBase:
           )
       )
 
+    def test_save_pytree_async_on_complete(self):
+      save_policy = save_decision_policies.FixedIntervalPolicy(100)
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=save_policy
+      )
+      self.enter_context(checkpointer)
+
+      results = []
+      condition = threading.Condition()
+
+      def callback(saved):
+        with condition:
+          results.append(saved)
+          condition.notify_all()
+
+      # Step 0 should save
+      response = checkpointer.save_pytree_async(0, self.pytree)
+      response.on_complete(callback)
+
+      with condition:
+        while not results:
+          if not condition.wait(timeout=10):
+            self.fail('Timed out waiting for callback.')
+
+      self.assertEqual(results, [True])
+      self.assertTrue(response.result())
+      results.clear()
+
+      # Step 1 should not save
+      response = checkpointer.save_pytree_async(1, self.pytree)
+      response.on_complete(callback)
+
+      with condition:
+        while not results:
+          if not condition.wait(timeout=10):
+            self.fail('Timed out waiting for callback.')
+
+      self.assertEqual(results, [False])
+      self.assertFalse(response.result())
+
     def test_close(self):
       checkpointer = Checkpointer(self.directory)
       step_path = self.directory / '0'
@@ -423,10 +491,16 @@ class CheckpointerTestBase:
       )
 
     def test_custom_checkpointables(self):
-      """Test custom checkpointables are saved and loaded.
-
-      Subclasses must call it within custom `checkpointables_options` Context.
-      """
+      """Test custom checkpointables are saved and loaded."""
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              handler_utils.FooHandler,
+              handler_utils.BarHandler,
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
       checkpointables = {
           'pytree': self.pytree,
           'foo': Foo(123, 'hi'),
@@ -498,10 +572,16 @@ class CheckpointerTestBase:
         self.assertEqual(checkpointables['foo'], loaded['foo'])
 
     def test_load_with_switched_abstract_checkpointables(self):
-      """Test load with switched abstract checkpointables.
-
-      Subclasses must call it within custom `checkpointables_options` Context.
-      """
+      """Test load with switched abstract checkpointables."""
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              handler_utils.FooHandler,
+              handler_utils.BarHandler,
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
       checkpointables = {
           'pytree': self.pytree,
           'foo': Foo(123, 'hi'),
@@ -521,10 +601,16 @@ class CheckpointerTestBase:
       self.assertEqual(Foo(456, 'bye'), loaded['bar'])
 
     def test_different_custom_checkpointables(self):
-      """Test different custom checkpointables are saved and loaded.
-
-      Subclasses must call it within custom `checkpointables_options` Context.
-      """
+      """Test different custom checkpointables are saved and loaded."""
+      checkpointables_options = (
+          ocp.options.CheckpointablesOptions.create_with_handlers(
+              handler_utils.FooHandler,
+              handler_utils.BarHandler,
+          )
+      )
+      self.enter_context(
+          ocp.Context(checkpointables_options=checkpointables_options)
+      )
       checkpointer = Checkpointer(self.directory)
       self.enter_context(checkpointer)
       self.save_checkpointables(checkpointer, 0, {'foo': Foo(123, 'hi')})
