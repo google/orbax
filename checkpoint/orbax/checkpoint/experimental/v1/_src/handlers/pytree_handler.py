@@ -293,6 +293,9 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       array_metadata_validator: array_metadata_store_lib.Validator = (
           array_metadata_store_lib.Validator()
       ),
+      leaf_handler_registry: (
+          serialization_types.LeafHandlerRegistry | None
+      ) = None,
       partial_save_mode: bool = False,
   ):
     context = context_lib.get_context(context)
@@ -301,9 +304,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     self._partial_save_mode = partial_save_mode
 
     self._leaf_handler_registry = (
-        self._context.pytree_options.leaf_handler_registry
-        if self._context.pytree_options.leaf_handler_registry is not None
-        else registry.StandardLeafHandlerRegistry()
+        leaf_handler_registry or registry.StandardLeafHandlerRegistry()
     )
 
     type_handler_registry = compatibility.get_v0_type_handler_registry(
@@ -437,13 +438,10 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       abstract_checkpointable: The abstract checkpointable to load into. If
         None, the handler will attempt to load the entire checkpoint using the
         recorded metadata. Otherwise, the `abstract_checkpointable` is expected
-        to be a PyTree of abstract leaves. See
-        :py:class:`~.v1.serialization.LeafHandler` for more details. The
-        abstract leaf may be a value of type `AbstractLeaf`,
-        `Type[AbstractLeaf]`, or `None`. E.g. if the `AbstractLeaf` is
-        `AbstractFoo`, it is always valid to pass `AbstractFoo()` or
-        `AbstractFoo` or `None`. Passing the latter two indicates that metadata
-        should be used to restore the leaf.
+        to be a PyTree of abstract leaves. The abstract leaf may be a value of
+        type :py:class:`~.v1.tree.AbstractLeaf`,
+        `Type[AbstractLeaf]`, or `None`. Passing the latter two indicates that
+        the metadata should be used to restore the leaf.
 
     Returns:
       A awaitable which can be awaited to complete the load operation and

@@ -182,13 +182,9 @@ class PyTreeOptions:
   This dataclass defines the configuration parameters for creating and managing
   PyTree saving and loading on disk.
 
-  # TODO: Include an example of registering a custom LeafHandler.
-
   Attributes:
     saving: Options for saving PyTrees.
     loading: Options for loading PyTrees.
-    leaf_handler_registry: Optional Leaf Handler Registry. If provided, it will
-      override the default Leaf Handler Registry.
   """
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -214,7 +210,6 @@ class PyTreeOptions:
 
   saving: Saving = dataclasses.field(default_factory=Saving)
   loading: Loading = dataclasses.field(default_factory=Loading)
-  leaf_handler_registry: serialization_types.LeafHandlerRegistry | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

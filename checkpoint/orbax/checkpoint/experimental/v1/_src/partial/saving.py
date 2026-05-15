@@ -198,10 +198,10 @@ def save_pytree_async(
   Args:
     path: The path to save the checkpoint to.
     pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types. Default
-      supported leaf types include `jax.Array`, `np.ndarray`, simple types like
-      `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
-      possible by implementing a :py:class:`.LeafHandler`.
+      objects registered as PyTrees) consisting of supported leaf types (see
+      :py:class:`~.v1.tree.Leaf`). Default supported leaf types include
+      `jax.Array`, `np.ndarray`, simple types like
+      `int`, `float`, `str`, and empty nodes.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.

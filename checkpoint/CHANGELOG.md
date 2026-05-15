@@ -17,6 +17,10 @@ effort in maintaining. Safetensors is instead the recommended conversion case.
 - #v1 Allow a context to be default-configured for all `Checkpointer`
 operations.
 
+### Removed
+
+- #v1 Remove `LeafHandler` as a user-exposed layer (it remains as an internal layer).
+
 ## [0.11.39] - 2026-05-06
 
 ### Added

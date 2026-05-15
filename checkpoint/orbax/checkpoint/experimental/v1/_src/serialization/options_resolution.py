@@ -74,4 +74,3 @@ def resolve_storage_options(
       chunk_byte_size=resolved_chunk_byte_size,
       shard_axes=resolved_shard_axes if resolved_shard_axes is not None else (),
   )
-

@@ -17,13 +17,10 @@
 import dataclasses
 from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
 
-import jax
-import jax.experimental.layout as jax_layout
-import numpy as np
-from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.tree import utils as tree_utils
+from orbax.checkpoint.experimental.v1._src.arrays import types as array_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 import tensorstore as ts
@@ -32,66 +29,34 @@ import tensorstore as ts
 Leaf = TypeVar('Leaf')
 AbstractLeaf = TypeVar('AbstractLeaf')
 
-Shape = arrays_types.Shape
-DType = arrays_types.DType
+Shape = array_types.Shape
+DType = array_types.DType
 
 PLACEHOLDER = ...
 
 IsPrioritizedKeyFn = serialization_types.IsPrioritizedKeyFn
 
-Scalar = int | float | np.number
+### STANDARD PYTREE LEAF TYPES
+
+### SCALAR
+Scalar = array_types.Scalar
 # Optional type hint for a scalar leaf handler. If provided, the restored scalar
 # will be cast to this type.  Only casting to int or float is supported.
 AbstractScalar = Scalar
+
+### STRING
+# str
 AbstractString = str
 
-if jax.__version_info__ >= (0, 6, 2):
-  Format = jax_layout.Format
-else:
-  Format = jax_layout.Layout
+### ARRAY
+# np.ndarray
+AbstractArray = array_types.AbstractArray
 
+### SHARDED ARRAY
+# jax.Array
+AbstractShardedArray = array_types.AbstractShardedArray
 
-class AbstractArray(Protocol):
-  """Abstract representation of an array.
-
-  This is a protocol for an abstract array that can be used to represent
-  the metadata belonging to an array.
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  """
-
-  shape: Shape | None
-  dtype: DType | None
-
-
-class AbstractShardedArray(Protocol):
-  """Abstract representation of an array.
-
-  This is a protocol for an abstract array that can be used to represent various
-  metadata types such as :py:class:`jax.ShapeDtypeStruct` and
-  :py:class:`~orbax.checkpoint.metadata.ArrayMetadata`.
-
-  #TODO(dnlng): All attributes are made optional to support the case where
-  # the ArrayMetadata is passed into the metadata() call to pass only the
-  # `write_shape`.  Optional attributes are not needed once write_shape is
-  # refactored.
-
-
-  shape:
-    Tuple of integers describing the array shape.
-  dtype:
-    Dtype of array elements.
-  Sharding:
-    Sharding to indicate how the array is sharded. This can be jax's Sharding or
-    Layout or None.
-  """
-
-  shape: Shape | None
-  dtype: DType | None
-  sharding: jax.sharding.Sharding | Format | None = None  # pytype: disable=invalid-annotation
+###
 
 
 def is_placeholder(value: Any) -> bool:

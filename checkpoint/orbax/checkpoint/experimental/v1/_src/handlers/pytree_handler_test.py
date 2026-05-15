@@ -300,12 +300,13 @@ def handler_with_options(
           loading=options_lib.PyTreeOptions.Loading(
               partial_load=partial_load,
           ),
-          leaf_handler_registry=leaf_handler_registry,
       ),
   )
 
   handler = handler_test_utils.create_test_handler(
-      pytree_handler.PyTreeHandler, context=context
+      pytree_handler.PyTreeHandler,
+      context=context,
+      leaf_handler_registry=leaf_handler_registry,
   )
 
   try:
@@ -2287,6 +2288,63 @@ class PyTreeHandlerTest(
           pytree_metadata_options=self.pytree_metadata_options,
           array_metadata_store=array_metadata_store,
       )
+
+  def test_custom_array_type(self):
+    # Set up local context with custom registry.
+    custom_registry = registry.StandardLeafHandlerRegistry()
+    custom_registry.add(
+        handler_test_utils.LazyArray,
+        handler_test_utils.AbstractLazyArray,
+        handler_test_utils.LazyArrayHandler,
+    )
+
+    mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+    lazy_arr = handler_test_utils.LazyArray(
+        create_sharded_array(np.arange(16), sharding)
+    )
+    pytree = {'a': lazy_arr}
+
+    with handler_with_options(
+        use_ocdbt=False, leaf_handler_registry=custom_registry
+    ) as handler:
+      handler.save(self.directory, pytree)
+
+    # Attempt to load without context (using global default registry), which
+    # should fail
+    with handler_with_options(use_ocdbt=False) as handler:
+      with self.assertRaisesRegex(ValueError, 'TypeHandler lookup failed'):
+        handler.load(self.directory)
+
+    # Load with the custom registry context
+    with handler_with_options(
+        use_ocdbt=False, leaf_handler_registry=custom_registry
+    ) as handler:
+      loaded = handler.load(self.directory)
+      self.assertEqual(loaded['a'].array.shape, lazy_arr.array.shape)
+      np.testing.assert_array_equal(loaded['a'].array, lazy_arr.array)
+
+    # Load custom array directly as jax.Array by mapping secondary_typestr
+    custom_registry2 = registry.StandardLeafHandlerRegistry()
+    # Override the default jax.Array handler with LazyArray typestr,
+    # ensuring that the serialized jax.array annotated with original LazyArray
+    # typestr is loaded as a jax.Array.
+    custom_registry2.add(
+        jax.Array,
+        serialization_types.AbstractShardedArray,
+        array_leaf_handler.ArrayLeafHandler,
+        secondary_typestrs=[
+            serialization_types.typestr(handler_test_utils.LazyArrayHandler)
+        ],
+        override=True,
+    )
+
+    with handler_with_options(
+        use_ocdbt=False, leaf_handler_registry=custom_registry2
+    ) as handler:
+      loaded_as_jax_array = handler.load(self.directory)
+      self.assertIsInstance(loaded_as_jax_array['a'], jax.Array)
+      np.testing.assert_array_equal(loaded_as_jax_array['a'], lazy_arr.array)
 
   def test_abstract_array_loading(self):
     replicated_sharding = jax.sharding.NamedSharding(
