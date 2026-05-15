@@ -14,7 +14,6 @@
 
 from absl import flags
 from absl.testing import absltest
-from absl.testing import parameterized
 import jax
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import checkpointables_metadata_compatibility_test_base
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import load_checkpointables_compatibility_test_base
@@ -29,28 +28,24 @@ jax.config.update('jax_enable_x64', True)
 
 class CheckpointablesMetadataTest(
     checkpointables_metadata_compatibility_test_base.CheckpointablesMetadataCompatibilityTestBase,
-    parameterized.TestCase,
 ):
   pass
 
 
 class LoadCheckpointablesTest(
     load_checkpointables_compatibility_test_base.LoadCheckpointablesCompatibilityTestBase,
-    parameterized.TestCase,
 ):
   pass
 
 
 class LoadPytreeTest(
     load_pytree_compatibility_test_base.LoadPytreeCompatibilityTestBase,
-    parameterized.TestCase,
 ):
   pass
 
 
 class PytreeMetadataTest(
     pytree_metadata_compatibility_test_base.PytreeMetadataCompatibilityTestBase,
-    parameterized.TestCase,
 ):
   pass
 
