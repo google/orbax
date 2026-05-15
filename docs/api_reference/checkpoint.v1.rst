@@ -25,6 +25,12 @@ Submodules
 Top-level Symbols
 -----------------
 
+Types
+~~~~~~~
+.. autotype:: Checkpointable
+.. autotype:: AbstractCheckpointable
+.. autodata:: PLACEHOLDER
+
 Loading
 ~~~~~~~
 .. autofunction:: load_pytree
@@ -49,10 +55,6 @@ Metadata
 Path Utilities
 ~~~~~~~~~~~~~~
 .. autofunction:: is_orbax_checkpoint
-
-Constants
-~~~~~~~~~
-.. autodata:: PLACEHOLDER
 
 Synchronization
 ~~~~~~~~~~~~~~~

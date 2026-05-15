@@ -12,7 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public symbols for tree module."""
+"""Public symbols for tree module.
+
+Standard supported leaf types are described by the table below.
+See
+https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointing_pytrees.html#standard-leaf-types
+for more information.
+
+| `Leaf` Type | `AbstractLeaf` Type | Properties |
+:------- | :-------- | :-------- |
+|`jax.Array`|`ocp.arrays.AbstractShardedArray` (`jax.ShapeDtypeStruct`)
+|`shape`, `dtype`,
+`sharding`|
+|`np.ndarray`|`ocp.arrays.AbstractArray` (`np.ndarray`) |`shape`, `dtype`|
+|`int`|`int`|  |
+|`float`|`float`| |
+|`bytes`|`bytes`| |
+|`str`|`str`| |
+"""
 
 # pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
 
@@ -25,4 +42,8 @@ from orbax.checkpoint.experimental.v1._src.tree.types import (
     PyTreeKey,
     PyTreeKeyPath,
     JsonType,
+)
+from orbax.checkpoint.experimental.v1._src.tree.types import (
+    Leaf,
+    AbstractLeaf,
 )

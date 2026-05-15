@@ -282,7 +282,7 @@ class Checkpointer(epy.ContextManager):
   def save_pytree(
       self,
       step: int,
-      pytree: tree_types.PyTreeOf[tree_types.LeafType],
+      pytree: tree_types.PyTreeOf[tree_types.Leaf],
       *,
       checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
       force: bool = False,
@@ -465,7 +465,7 @@ class Checkpointer(epy.ContextManager):
   def save_pytree_async(
       self,
       step: int,
-      pytree: tree_types.PyTreeOf[tree_types.LeafType],
+      pytree: tree_types.PyTreeOf[tree_types.Leaf],
       *,
       checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
       force: bool = False,
@@ -586,11 +586,11 @@ class Checkpointer(epy.ContextManager):
       self,
       step: int | CheckpointMetadata | None = None,
       abstract_pytree: (
-          tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
       *,
       checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
-  ) -> tree_types.PyTreeOf[tree_types.LeafType]:
+  ) -> tree_types.PyTreeOf[tree_types.Leaf]:
     """Loads a PyTree checkpoint at the given step.
 
     This method behaves similarly to the standalone free function
@@ -772,9 +772,9 @@ class Checkpointer(epy.ContextManager):
       self,
       step: int | CheckpointMetadata | None = None,
       abstract_pytree: (
-          tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
-  ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.LeafType]]:
+  ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
     """Not yet supported."""
     raise NotImplementedError()
 

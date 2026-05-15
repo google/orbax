@@ -18,6 +18,8 @@
 
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration
 from orbax.checkpoint.experimental.v1._src.handlers.types import (
+    Checkpointable,
+    AbstractCheckpointable,
     CheckpointableHandler,
     StatefulCheckpointable,
 )
@@ -31,7 +33,6 @@ from orbax.checkpoint.experimental.v1._src.handlers.proto_handler import (
 from orbax.checkpoint.experimental.v1._src.handlers.json_handler import (
     JsonHandler,
 )
-
 
 from orbax.checkpoint.experimental.v1._src.handlers.registration import (
     CheckpointableHandlerRegistry,

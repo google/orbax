@@ -26,6 +26,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
@@ -40,9 +41,12 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 AUTO_CHECKPOINTABLE_KEY = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY
-AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeafType]
+AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeaf]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = ...
+
+Checkpointable = handler_types.Checkpointable
+AbstractCheckpointable = handler_types.AbstractCheckpointable
 
 AsyncResponse = async_types.AsyncResponse
 
@@ -105,7 +109,7 @@ def load_pytree(
     ) = None,
     *,
     checkpointable_name: str | None = AUTO_CHECKPOINTABLE_KEY,
-) -> tree_types.PyTreeOf[tree_types.LeafType]:
+) -> tree_types.PyTreeOf[tree_types.Leaf]:
   """Loads a PyTree.
 
   Loads from a `PyTree` checkpoint. A `PyTree` checkpoint must be a path
@@ -135,8 +139,9 @@ def load_pytree(
   2. The leaves of the restored tree will be restored with the properties
   indicated by the abstract leaves. For example, if a leaf in `abstract_pytree`
   is a `jax.ShapeDtypeStruct`, the restored leaf will be a `jax.Array` with the
-  same shape and `dtype`. Each `AbstractLeafType` has a corresponding `LeafType`
-  that is restored.
+  same shape and `dtype`. Each `AbstractLeaf` has a corresponding `Leaf`
+  that is restored. See `orbax.checkpoint.v1.tree` for a table
+  of standard supported leaf types.
 
   Example Usage:
 
@@ -175,8 +180,8 @@ def load_pytree(
       dynamically discovers and resolves a pytree checkpointable. It prioritizes
       the standard 'pytree' checkpointable name if present, then sorts any other
       valid pytree checkpointable names alphabetically and returns the first
-      valid one, and ultimately falls back to interpreting the path as a flat
-      V0 root layout if no standard pytree exists.
+      valid one, and ultimately falls back to interpreting the path as a flat V0
+      root layout if no standard pytree exists.
 
   Returns:
     The restored `PyTree`.
@@ -216,9 +221,11 @@ def load_pytree(
 def load_checkpointables(
     path: path_types.PathLike,
     abstract_checkpointables: (
-        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
+        dict[str, AbstractCheckpointable]
+        | CheckpointMetadata[dict[str, AbstractCheckpointable]]
+        | None
     ) = None,
-) -> dict[str, Any]:
+) -> dict[str, Checkpointable]:
   """Loads checkpointables.
 
   See documentation for :py:func:`.save_checkpointables` for more context on
@@ -352,7 +359,7 @@ def _load_impl(
     path: path_types.Path,
     load_fn: LoadFn,
     start_time: float,
-) -> dict[str, Any] | tree_types.PyTreeOf[tree_types.LeafType]:
+) -> dict[str, Checkpointable] | tree_types.PyTreeOf[tree_types.Leaf]:
   """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load_pytree`.
 
   Args:
@@ -370,7 +377,7 @@ def _load_impl(
 
   ctx = context_lib.get_context()
 
-  async def _load() -> Any:
+  async def _load() -> Checkpointable:
     load_awaitable = await load_fn()
     event_tracking.OperationRecorder(
         path,
@@ -399,16 +406,14 @@ def _load_impl(
   return result
 
 
-class _LoadPyTreeResponse(
-    AsyncResponse[tree_types.PyTreeOf[tree_types.LeafType]]
-):
+class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
   """An :py:class:`.AsyncResponse` for :py:func:`.load_pytree_async`."""
 
   def __init__(
       self,
       operation_id: str,
       path: path_types.Path,
-      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.LeafType]],
+      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],
       *,
       start_time: float,
       context: context_lib.Context,
@@ -419,13 +424,13 @@ class _LoadPyTreeResponse(
     self._start_time = start_time
     self._context = context
     self._thread_runner = thread_utils.BackgroundThreadRunner[
-        tree_types.PyTreeOf[tree_types.LeafType]
+        tree_types.PyTreeOf[tree_types.Leaf]
     ](self._finalize_load())
 
   @classmethod
   def create(
       cls,
-      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.LeafType]],
+      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],
       path: path_types.Path,
       start_time: float,
       *,
@@ -446,7 +451,7 @@ class _LoadPyTreeResponse(
         context=context,
     )
 
-  async def _finalize_load(self) -> tree_types.PyTreeOf[tree_types.LeafType]:
+  async def _finalize_load(self) -> tree_types.PyTreeOf[tree_types.Leaf]:
     logging.info(
         '[process=%s] Waiting for background load operations',
         multihost.process_index(),
@@ -478,7 +483,7 @@ class _LoadPyTreeResponse(
 
   def result(
       self, timeout: float | None = None
-  ) -> tree_types.PyTreeOf[tree_types.LeafType]:
+  ) -> tree_types.PyTreeOf[tree_types.Leaf]:
     return self._thread_runner.result(timeout=timeout)
 
 
@@ -489,7 +494,7 @@ def load_pytree_async(
     ) = None,
     *,
     checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
-) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.LeafType]]:
+) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
   """Loads a PyTree asynchronously. Currently has limited support."""
   start_time = time.time()
   event_tracking.OperationRecorder(
@@ -532,9 +537,11 @@ def load_pytree_async(
 def load_checkpointables_async(
     path: path_types.PathLike,
     abstract_checkpointables: (
-        dict[str, Any] | CheckpointMetadata[dict[str, Any]] | None
+        dict[str, AbstractCheckpointable]
+        | CheckpointMetadata[dict[str, AbstractCheckpointable]]
+        | None
     ) = None,
-) -> async_types.AsyncResponse[dict[str, Any]]:
+) -> async_types.AsyncResponse[dict[str, Checkpointable]]:
   """Loads checkpointables asynchronously. Not yet implemented."""
   del path, abstract_checkpointables
   raise NotImplementedError('Asynchronous loading is not yet supported.')

@@ -7,3 +7,7 @@
 
 .. autofunction:: to_shape_dtype_struct
 .. autodata:: ArrayLike
+.. autoclass:: AbstractArray
+.. autoclass:: AbstractShardedArray
+.. autotype:: Scalar
+.. autotype:: AbstractScalar

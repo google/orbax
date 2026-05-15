@@ -18,9 +18,10 @@ import typing
 from typing import Any, Generic, TypeVar
 import jax
 import numpy as np
-from orbax.checkpoint._src.tree import types
+from orbax.checkpoint._src.tree import types as tree_types
+from orbax.checkpoint.experimental.v1._src.arrays import types as array_types
 
-JsonType = types.JsonType
+JsonType = tree_types.JsonType
 
 T = TypeVar("T")
 
@@ -59,13 +60,17 @@ else:
     pass
 
 
-PyTreeKey = types.PyTreeKey
-PyTreeKeyPath = types.PyTreePath
+PyTreeKey = tree_types.PyTreeKey
+PyTreeKeyPath = tree_types.PyTreePath
 
-ScalarType = int | float | bool
-LeafType = jax.Array | np.ndarray | str | ScalarType | Any
-AbstractLeafType = Any  # TODO(cpgaffney): Add a type for abstract leaves.
+Leaf = jax.Array | np.ndarray | array_types.Scalar | str
+AbstractLeaf = (
+    array_types.AbstractArray
+    | array_types.AbstractShardedArray
+    | array_types.AbstractScalar
+    | str
+)
 
-JsonType = types.JsonType
+JsonType = tree_types.JsonType
 
 PLACEHOLDER = ...

@@ -16,6 +16,4 @@
 
 from orbax.checkpoint._src.arrays import abstract_arrays
 
-ArrayLike = abstract_arrays.ArrayLike
-
 to_shape_dtype_struct = abstract_arrays.to_shape_dtype_struct

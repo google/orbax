@@ -62,7 +62,7 @@ class _PartialSavePyTree(handler_types.StatefulCheckpointable):
 
 def save_pytree(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.LeafType],
+    pytree: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ):
@@ -133,7 +133,7 @@ def save_pytree(
 
 def save_pytree_async(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.LeafType],
+    pytree: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
@@ -201,7 +201,7 @@ def save_pytree_async(
       objects registered as PyTrees) consisting of supported leaf types. Default
       supported leaf types include `jax.Array`, `np.ndarray`, simple types like
       `int`, `float`, `str`, and empty nodes. Support for custom leaves is also
-      possible by implementing a :py:class:`.LeafTypeHandler`.
+      possible by implementing a :py:class:`.LeafHandler`.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.

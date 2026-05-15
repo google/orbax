@@ -14,12 +14,59 @@
 
 """Defines types for `CheckpointableHandler`."""
 
+import typing
 from typing import Any, Awaitable, Protocol, Type, TypeVar, runtime_checkable
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
 
-T = TypeVar('T')
-AbstractT = TypeVar('AbstractT')
+if typing.TYPE_CHECKING:
+  Checkpointable = Any
+  AbstractCheckpointable = Any
+else:
+
+  class Checkpointable:
+    """A logical piece of a checkpoint that is separable and distinct from other pieces.
+
+    For example, model state ('params', 'opt_state') vs. dataset_iterator vs.
+    embeddings vs. other custom states. Each is handled differently in training
+    code and is often represented by a distinct container or object type. Each
+    is also used (or not used) in different contexts (training,
+    evaluations, inference).
+
+    See also :py:type:`.AbstractCheckpointable`.
+
+    Checkpointables are typically:
+
+    (1) separable; they may or may not be loaded
+    concurrently and some may be omitted from the checkpoint entirely (e.g. the
+    dataset
+    iterator checkpointable is not needed for evals);
+
+    (2) different types, with correspondingly different on-disk representations
+    (e.g. the dataset
+    iterator checkpointable is a lightweight index, while model weights are
+    large distributed arrays).
+    """
+
+    pass
+
+  class AbstractCheckpointable:
+    """An "abstract checkpointable" is the abstract form of a :py:type:`.Checkpointable`.
+
+    The abstract form is used to:
+
+    (1) Customize properties of a loaded checkpointable (e.g. specify a tree of
+    `jax.ShapeDtypeStruct` to
+    load a tree of `jax.Array` with desired shardings).
+
+    (2) Represent metadata returned by metadata accessor functions.
+    """
+
+    pass
+
+
+_Checkpointable = TypeVar('_Checkpointable')
+_AbstractCheckpointable = TypeVar('_AbstractCheckpointable')
 
 
 @runtime_checkable
@@ -37,20 +84,12 @@ class StatefulCheckpointable(Protocol):
     ...
 
 
-class CheckpointableHandler(Protocol[T, AbstractT]):
+class CheckpointableHandler(Protocol[_Checkpointable, _AbstractCheckpointable]):
   """An interface that defines save/load logic for a `checkpointable` object.
 
   NOTE: Prefer to use
   :py:class:`.StatefulCheckpointable`
   interface when possible.
-
-  A "checkpointable" is a fundamental concept in Orbax. A “checkpointable”
-  refers to a logical piece of the checkpoint that is distinct in some way from
-  other pieces. Checkpointables are separable; they may or may not be loaded
-  concurrently and some may be omitted from the checkpoint entirely.
-  Checkpointables are often represented by different types, and have different
-  representations on disk. The quintessential example is model params vs.
-  dataset.
 
   A PyTree of arrays, representing model parameters, is the most basic
   "checkpointable". A singular array is also a checkpointable.
@@ -92,8 +131,9 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
 
   To create a custom handler, you must define a class that implements the
   methods defined in this Protocol. The class should be generic over the
-  concrete type `T` (the object being saved/loaded) and the abstract type
-  `AbstractT` (the lightweight metadata representation).
+  concrete type `Checkpointable` (the object being saved/loaded) and the
+  abstract type
+  `AbstractCheckpointable` (the lightweight metadata representation).
 
   Crucially, once implemented, the handler must be registered with the
   global registry or a context-local registry so that `save_checkpointables`
@@ -143,7 +183,7 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
         )
 
   In many cases, no information is needed for loading. In this case,
-  `AbstractT` may be defined as `None`. For example::
+  `AbstractCheckpointable` may be defined as `None`. For example::
 
     class FooHandler(CheckpointableHandler[Foo, None]):
 
@@ -155,7 +195,9 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
   """
 
   async def save(
-      self, directory: path_types.PathAwaitingCreation, checkpointable: T
+      self,
+      directory: path_types.PathAwaitingCreation,
+      checkpointable: _Checkpointable,
   ) -> Awaitable[None]:
     """Saves the given `checkpointable` to the given `directory`.
 
@@ -204,8 +246,8 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
   async def load(
       self,
       directory: path_types.Path,
-      abstract_checkpointable: AbstractT | None = None,
-  ) -> Awaitable[T]:
+      abstract_checkpointable: _AbstractCheckpointable | None = None,
+  ) -> Awaitable[_Checkpointable]:
     """Loads the checkpointable from the given `directory`.
 
     Args:
@@ -214,9 +256,9 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
         checkpointable to load. If provided, this is used to provide properties
         to guide the restoration logic of the checkpoint. In the case of arrays,
         for example, this conveys properties like shape and dtype, for casting
-        and reshaping. In some cases, no information is needed, and `AbstractT`
-        may always be None. In other cases, the abstract representation may be a
-        hard requirement for loading.
+        and reshaping. In some cases, no information is needed, and
+        `AbstractCheckpointable` may always be None. In other cases, the
+        abstract representation may be a hard requirement for loading.
 
     Returns:
       An `Awaitable` that continues to load the checkpointable in the background
@@ -224,21 +266,25 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     """
     ...
 
-  async def metadata(self, directory: path_types.Path) -> AbstractT:
+  async def metadata(
+      self, directory: path_types.Path
+  ) -> _AbstractCheckpointable:
     """Returns the metadata for the given `directory`.
 
     The logic in this method must be executed fully in the main thread; metadata
     access is expected to be cheap and fast.
 
     In many cases it is desirable to return additional metadata properties
-    beyond the limited set in `AbstractT`. In this case, `AbstractT` should
+    beyond the limited set in `AbstractCheckpointable`. In this case,
+    `AbstractCheckpointable` should
     be subclasses, and this subclass can be returned from `metadata`.
 
     Args:
       directory: The directory where the checkpoint is located.
 
     Returns:
-      AbstractT: The metadata is an `AbstractT`, which is the abstract
+      AbstractT: The metadata is an `AbstractCheckpointable`, which is the
+      abstract
       representation of the checkpointable.
     """
     ...
@@ -262,10 +308,12 @@ class CheckpointableHandler(Protocol[T, AbstractT]):
     """Returns whether the handler can handle the abstract checkpointable.
 
     The method should return `True` if it is possible to use the given
-    `abstract_checkpointable` for loading a concrete `T`. Note that `None` is
+    `abstract_checkpointable` for loading a concrete `Checkpointable`. Note that
+    `None` is
     always considered handleable for loading, so this method does not need to
     check for it. If an implementation defines
-    `AbstractT` as `None`, then this method should only return True for values
+    `AbstractCheckpointable` as `None`, then this method should only return True
+    for values
     of `None`.
 
     See class docstring for more details.

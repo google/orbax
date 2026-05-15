@@ -376,7 +376,7 @@ class OrbaxLayout(CheckpointLayout):
       path: Path,
       checkpointable_name: str | None = None,
       abstract_pytree: (
-          tree_types.PyTreeOf[tree_types.AbstractLeafType] | None
+          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
   ) -> Awaitable[Any]:
     """Loads pytree specified by `checkpointable_name`.

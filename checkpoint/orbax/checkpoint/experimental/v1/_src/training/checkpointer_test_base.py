@@ -86,7 +86,7 @@ class CheckpointerTestBase:
         self,
         checkpointer: Checkpointer,
         step: int,
-        pytree: tree_types.PyTreeOf[tree_types.LeafType],
+        pytree: tree_types.PyTreeOf[tree_types.Leaf],
         metrics: tree_types.JsonType | None = None,
         custom_metadata: tree_types.JsonType | None = None,
     ) -> bool:

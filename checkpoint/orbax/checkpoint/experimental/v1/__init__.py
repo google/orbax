@@ -34,6 +34,8 @@ from orbax.checkpoint.experimental.v1._src.synchronization.types import (
 )
 from orbax.checkpoint.experimental.v1 import multihost
 from orbax.checkpoint.experimental.v1.handlers import (
+    Checkpointable,
+    AbstractCheckpointable,
     CheckpointableHandler,
     StatefulCheckpointable,
 )

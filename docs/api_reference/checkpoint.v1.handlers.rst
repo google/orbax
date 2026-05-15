@@ -8,6 +8,8 @@
 
 Types
 ------------------------------------------------------------
+.. autotype:: Checkpointable
+.. autotype:: AbstractCheckpointable
 .. autoclass:: CheckpointableHandler
 .. autoclass:: StatefulCheckpointable
 

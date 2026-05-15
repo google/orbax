@@ -10,6 +10,8 @@ Types
 ------------------------------------------------------------
 .. autodata:: PyTree
 .. autodata:: PyTreeOf
+.. autodata:: Leaf
+.. autodata:: AbstractLeaf
 .. autodata:: PyTreeKey
 .. autodata:: PyTreeKeyPath
 .. autodata:: JsonType

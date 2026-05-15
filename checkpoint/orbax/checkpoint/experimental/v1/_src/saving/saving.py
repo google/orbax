@@ -14,14 +14,13 @@
 
 """Defines free-function interface for saving."""
 
-from typing import Any
-
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -31,11 +30,12 @@ from orbax.checkpoint.experimental.v1._src.synchronization import types as async
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+Checkpointable = handler_types.Checkpointable
 
 
 def save_pytree(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.LeafType],
+    pytree: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
@@ -62,10 +62,9 @@ def save_pytree(
   Args:
     path: The path to save the checkpoint to.
     pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
-      objects registered as `PyTrees`) consisting of supported leaf types.
-      Default supported leaf types include `jax.Array`, `np.ndarray`, simple
-      types like `int`, `float`, `str`, and empty nodes. Support for custom
-      leaves is also possible by implementing a `LeafTypeHandler`.
+      objects registered as `PyTrees`) consisting of supported leaf types. See
+      `orbax.checkpoint.experimental.v1.tree` for a table of standard supported
+      leaf types.
     checkpointable_name: The name of the checkpointable to save a pytree under.
       Defaults to 'pytree'.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
@@ -85,7 +84,7 @@ def save_pytree(
 
 def save_checkpointables(
     path: path_types.PathLike,
-    checkpointables: dict[str, Any],
+    checkpointables: dict[str, Checkpointable],
     *,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
@@ -150,7 +149,7 @@ def save_checkpointables(
 # save operation is scheduled.
 def save_pytree_async(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.LeafType],
+    pytree: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
@@ -193,10 +192,8 @@ def save_pytree_async(
   Args:
     path: The path to save the checkpoint to.
     pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
-      objects registered as `PyTrees`) consisting of supported leaf types.
-      Default supported leaf types include `jax.Array`, `np.ndarray`, simple
-      types like `int`, `float`, `str`, and empty nodes. Support for custom
-      leaves is also possible by implementing a `LeafTypeHandler`.
+      objects registered as `PyTrees`) consisting of supported leaf types. See
+      `orbax.checkpoint.v1.tree` for a table of standard supported leaf types.
     checkpointable_name: The name of the checkpointable to save a pytree under.
       Defaults to 'pytree'.
     overwrite: If True, fully overwrites an existing checkpoint in `path`.
@@ -220,7 +217,7 @@ def save_pytree_async(
 
 def save_checkpointables_async(
     path: path_types.PathLike,
-    checkpointables: dict[str, Any],
+    checkpointables: dict[str, Checkpointable],
     *,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
@@ -296,7 +293,7 @@ def save_checkpointables_async(
 
 
 def get_v0_checkpointer_and_args(
-    checkpointables: dict[str, Any],
+    checkpointables: dict[str, Checkpointable],
     *,
     metrics: tree_types.JsonType | None = None,
 ) -> tuple[

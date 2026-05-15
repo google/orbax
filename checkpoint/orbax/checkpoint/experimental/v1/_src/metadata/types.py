@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime
 import pprint
 import typing
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import Any, Generic, TypeVar
 
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -29,8 +29,8 @@ CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
 
-PyTreeMetadata: TypeAlias = tree_types.PyTreeOf[tree_types.AbstractLeafType]
-PyTreeMetadata.__doc__ = """
+PyTreeMetadata = tree_types.PyTreeOf[tree_types.AbstractLeaf]
+"""
 Metadata describing a `PyTree` checkpoint.
 
 A serialized `PyTree` structure with the same structure as the checkpointed
@@ -53,7 +53,7 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
 
   Note that this class has a generic type `CheckpointableMetadataT`. This
   will typically be either :py:data:`.PyTreeMetadata` (see above), or
-  `dict[str, Any]`.
+  `dict[str, AbstractCheckpointable]`.
 
   `CheckpointMetadata` can be accessed via one of two metadata methods. Please
   see :py:func:`.pytree_metadata` and :py:func:`.checkpointables_metadata` for

@@ -14,11 +14,10 @@
 
 """Functions for loading metadata from a checkpoint."""
 
-from typing import Any
-
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry as layout_registry
@@ -32,6 +31,8 @@ InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
 PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
+
+AbstractCheckpointable = handler_types.AbstractCheckpointable
 
 
 def pytree_metadata(
@@ -124,7 +125,7 @@ def pytree_metadata(
 
 def checkpointables_metadata(
     path: path_types.PathLike,
-) -> CheckpointMetadata[dict[str, Any]]:
+) -> CheckpointMetadata[dict[str, AbstractCheckpointable]]:
   """Loads all checkpointables metadata from a checkpoint.
 
   This function is a more general version of `pytree_metadata`. The same
@@ -160,11 +161,11 @@ def checkpointables_metadata(
 def _checkpointables_metadata_impl(
     layout: checkpoint_layout.CheckpointLayout,
     path: path_types.Path,
-) -> CheckpointMetadata[dict[str, Any]]:
+) -> CheckpointMetadata[dict[str, AbstractCheckpointable]]:
   """Shared implementation for checkpointables_metadata."""
 
   async def _load_metadata() -> (
-      metadata_types.CheckpointMetadata[dict[str, Any]]
+      metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]
   ):
     return await layout.metadata(path)
 
