@@ -13,8 +13,6 @@ processes:1:
 - orbax/checkpoint/experimental/emergency/multi_tier_checkpointing:pathways_replicator_checkpoint_manager_test
 - orbax/checkpoint:single_host_test
 processes:2:
-- orbax/checkpoint/_src/checkpointers:async_checkpointer_test
-- orbax/checkpoint/_src/checkpointers:checkpointer_test
 - orbax/checkpoint/_src/handlers:array_checkpoint_handler_test
 - orbax/checkpoint/_src/handlers:pytree_checkpoint_handler_test
 - orbax/checkpoint/_src/handlers:standard_checkpoint_handler_test

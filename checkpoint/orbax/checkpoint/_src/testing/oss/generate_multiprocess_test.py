@@ -32,10 +32,13 @@ TEST_RULES = [
 ]
 EXCLUDED_PATHS = [
     'orbax/checkpoint/experimental/model_surgery',
-    'orbax/checkpoint/experimental/v1',
     'orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py',
     'orbax/checkpoint/experimental/emergency/multi_tier_checkpointing/replicator_checkpoint_manager_test.py',
     'orbax/checkpoint/google',
+]
+EXCLUDED_PATHS_FOR_PRESUBMIT = [
+    'orbax/checkpoint/experimental/v1',
+    'orbax/checkpoint/_src/checkpointers',
 ]
 
 
@@ -111,13 +114,14 @@ def get_build_targets(build_file_path):
           yield name, tags, srcs, args
 
 
-def run(root_dir, output_file):
+def run(root_dir, output_file, extra_excluded_paths=None):
   """Runs the script to generate tagged tests file."""
   tests_by_tag = collections.defaultdict(list)
+  all_excluded_paths = EXCLUDED_PATHS + (extra_excluded_paths or [])
 
   count = 0
   for dirpath, dirnames, filenames in os.walk(root_dir):
-    if any(dirpath.startswith(p) for p in EXCLUDED_PATHS):
+    if any(dirpath.startswith(p) for p in all_excluded_paths):
       dirnames[:] = []
       continue
 
@@ -125,7 +129,7 @@ def run(root_dir, output_file):
     dirnames[:] = []
     for d in original_dirs:
       if not any(
-          os.path.join(dirpath, d).startswith(p) for p in EXCLUDED_PATHS
+          os.path.join(dirpath, d).startswith(p) for p in all_excluded_paths
       ):
         dirnames.append(d)
 
@@ -137,7 +141,8 @@ def run(root_dir, output_file):
         if not any(tag in TAG_MAPPING for tag in tags):
           continue
         if srcs and any(
-            os.path.join(dirpath, srcs[0]).startswith(p) for p in EXCLUDED_PATHS
+            os.path.join(dirpath, srcs[0]).startswith(p)
+            for p in all_excluded_paths
         ):
           continue
         target_path = f'{package_path}:{name}'
@@ -167,5 +172,15 @@ if __name__ == '__main__':
   if 'BUILD_WORKING_DIRECTORY' in os.environ:
     os.chdir(os.environ['BUILD_WORKING_DIRECTORY'])
   orbax_dir = 'orbax/checkpoint'
-  output = 'orbax/checkpoint/_src/testing/oss/tagged_tests.yaml'
-  run(orbax_dir, output)
+
+  # Generate whole suite file
+  output_whole = 'orbax/checkpoint/_src/testing/oss/tagged_tests_whole_suite.yaml'
+  run(orbax_dir, output_whole)
+
+  # Generate presubmit file
+  output_presubmit = 'orbax/checkpoint/_src/testing/oss/tagged_tests_presubmit.yaml'
+  run(
+      orbax_dir,
+      output_presubmit,
+      extra_excluded_paths=EXCLUDED_PATHS_FOR_PRESUBMIT,
+  )
