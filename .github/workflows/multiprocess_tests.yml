@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   actions: write  # to cancel previous workflows
+  issues: write   # to create failure alerts
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -77,6 +78,46 @@ jobs:
     # cd orbax/checkpoint/_src/testing/benchmarks && python run_benchmarks.py --config_file=configs/pytree_checkpoint_benchmark.yaml --output_directory=$GCS_BUCKET_PATH
     # The below step just reports the success or failure of tests as a "commit status".
     # This is needed for copybara integration.
+    - name: Create Issue on Continuous Failure
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const runs = await github.rest.actions.listWorkflowRuns({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            workflow_id: 'multiprocess_tests.yml',
+            per_page: 5
+          });
+          const previousRuns = runs.data.workflow_runs.filter(run => run.id !== context.runId).slice(0, 2);
+          console.log(`Previous runs conclusions: ${previousRuns.map(r => r.conclusion).join(', ')}`);
+          const allFailed = previousRuns.every(run => run.conclusion === 'failure');
+
+          if (allFailed && previousRuns.length === 2) {
+            // Search for existing open issues with the same title
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'continuous-integration',
+              state: 'open'
+            });
+
+            const duplicate = issues.data.find(issue => issue.title === `🚨 Continuous Failure: ${context.workflow}`);
+            if (duplicate) {
+              console.log("An open issue already exists for this failure. Skipping creation.");
+            } else {
+              console.log("Previous 2 runs also failed and no open issue found. Creating issue.");
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Continuous Failure: ${context.workflow}`,
+                body: `The workflow has failed 3 times consecutively. \n\nLatest failing run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                labels: ['bug', 'continuous-integration']
+              });
+            }
+          } else {
+            console.log("Did not meet continuous failure criteria.");
+          }
     - name: Report success or failure as github status
       if: always()
       shell: bash
@@ -136,6 +177,47 @@ jobs:
     - name: Run single process tests
       run: |
         python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=1 --tpu_chips_per_process=8 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests_whole_suite.yaml --processes=1
+    - name: Create Issue on Continuous Failure
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const runs = await github.rest.actions.listWorkflowRuns({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            workflow_id: 'multiprocess_tests.yml',
+            per_page: 5
+          });
+          const previousRuns = runs.data.workflow_runs.filter(run => run.id !== context.runId).slice(0, 2);
+          console.log(`Previous runs conclusions: ${previousRuns.map(r => r.conclusion).join(', ')}`);
+          const allFailed = previousRuns.every(run => run.conclusion === 'failure');
+
+          if (allFailed && previousRuns.length === 2) {
+            // Search for existing open issues with the same title
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'continuous-integration',
+              state: 'open'
+            });
+
+            const duplicate = issues.data.find(issue => issue.title === `🚨 Continuous Failure: ${context.workflow}`);
+            if (duplicate) {
+              console.log("An open issue already exists for this failure. Skipping creation.");
+            } else {
+              console.log("Previous 2 runs also failed and no open issue found. Creating issue.");
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Continuous Failure: ${context.workflow}`,
+                body: `The workflow has failed 3 times consecutively. \n\nLatest failing run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                labels: ['bug', 'continuous-integration']
+              });
+            }
+          } else {
+            console.log("Did not meet continuous failure criteria.");
+          }
+
     - name: Report success or failure as github status
       if: always()
       shell: bash
