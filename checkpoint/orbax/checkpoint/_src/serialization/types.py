@@ -19,6 +19,7 @@ from __future__ import annotations
 import abc
 import copy
 import dataclasses
+import enum
 from typing import Any, Callable, Optional, Protocol, Sequence, Tuple
 
 from absl import logging
@@ -416,17 +417,28 @@ class TypeHandlerRegistry(Protocol):
     ...
 
 
+class Prioritization(enum.Enum):
+  """Prioritization of arrays for saving."""
+  PRIORITIZED = 0
+  PRIORITIZED_ASYNC = 1
+  DEPRIORITIZED = 2
+  UNKNOWN = 3
+
+
 class IsPrioritizedKeyFn(Protocol):
-  """Protocol for checking if a key is prioritized.
+  """Protocol for checking the prioritization of a key.
 
   The function accepts a PyTree keypath (obtained
-  using jax.tree.map_with_path) and returns True if the D2H transfer should be
-  scheduled during the blocking part of the save (defaults to True in all places
-  unless False is returned by this function).
+  using jax.tree.map_with_path) and returns a Prioritization enum value
+  indicating how the D2H transfer should be scheduled.
 
-  The D2H transfer is scheduled before returning
+  For PRIORITIZED keys, the D2H transfer is scheduled before returning
   to the caller, so the values will never be corrupted by a concurrent update
-  or donation. Keys that are not prioritized will not
+  or donation.
+
+  For the rest of the keys, the D2H transfer is scheduled asynchronously and
+  the function returns immediately. PRIORITIZED_ASYNC keys will be scheduled
+  before DEPRIORITIZED keys. Keys that are not prioritized will not
   be scheduled for transfer until all prioritized keys have been fully
   written to the checkpoint. This means that these values may be altered
   if the values are updated concurrently.
@@ -438,5 +450,5 @@ class IsPrioritizedKeyFn(Protocol):
   `save_device_host_concurrent_gb` will be ignored for them.
   """
 
-  def __call__(self, keypath: Tuple[Any, ...]) -> bool:
-    """Returns true if the key is prioritized."""
+  def __call__(self, keypath: Tuple[Any, ...]) -> Prioritization:
+    """Returns the prioritization of the key."""

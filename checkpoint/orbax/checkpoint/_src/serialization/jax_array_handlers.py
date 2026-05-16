@@ -21,7 +21,7 @@ import dataclasses
 import functools
 import os
 import time
-from typing import Any, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
+from typing import Any, cast, Dict, Sequence, Set, Tuple, TypeAlias, Union
 import warnings
 
 from absl import logging
@@ -41,6 +41,7 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint._src.serialization import jax_array_restore_args
+from orbax.checkpoint._src.serialization import jax_array_transfer_tracker
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import replica_slices
@@ -50,6 +51,7 @@ from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
+
 
 Pytree: TypeAlias = Any
 ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
@@ -274,23 +276,23 @@ def _worker_serialize_arrays(
   )
 
 
-def _is_prioritized_for_saving(info: types.ParamInfo) -> bool:
-  """Identifies prioritized keys.
+def _is_prioritized_for_saving(info: types.ParamInfo) -> types.Prioritization:
+  """Identifies key priority for saving.
 
   A prioritized key is one that is scheduled for D2H transfer synchronously,
-  otherwise it may be scheduled from a background thread. Defaults to True,
-  since async D2H is likely to result in errors if the arrays are donated by
-  the training step.
+  otherwise it may be scheduled from a background thread. Defaults to
+  PRIORITIZED since async D2H is likely to result in errors if the arrays are
+  donated by the training step.
 
   Args:
     info: The ParamInfo to check.
 
   Returns:
-    True if the key is prioritized for saving.
+    The prioritization of the key for saving.
   """
   is_prioritized_key_fn = info.is_prioritized_key_fn
   if is_prioritized_key_fn is None:
-    return True
+    return types.Prioritization.PRIORITIZED
   return is_prioritized_key_fn(info.keypath)
 
 
@@ -350,6 +352,7 @@ def _serialize_arrays_batches_without_dispatcher(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
+    transfer_tracker: jax_array_transfer_tracker.TransferTracker,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
@@ -382,6 +385,8 @@ def _serialize_arrays_batches_without_dispatcher(
     prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
         prioritized_arrays
     )
+    for info in prioritized_infos:
+      transfer_tracker.finish_transfer(info.keypath)
   else:
     logging.warning(
         'No prioritized params found for saving. D2H for all values will be'
@@ -411,6 +416,8 @@ def _serialize_arrays_batches_without_dispatcher(
           dispatcher=None,
       ):
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        for info in b_infos:
+          transfer_tracker.finish_transfer(info.keypath)
         await async_serialize_replica_slices_batch(
             b_arrays_on_host,
             b_infos,
@@ -437,6 +444,7 @@ def _serialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
+    transfer_tracker: jax_array_transfer_tracker.TransferTracker,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
 
@@ -446,22 +454,32 @@ def _serialize_arrays(
       device_host_max_bytes = byte_limiter.max_bytes
 
   prioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
+  prioritized_async: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = (
+      []
+  )
   deprioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
-  for info, arg, value in zip(infos, args, arrays):
-    if device_host_max_bytes is None:
+  transfer_tracker.register_batch(
+      [info.keypath for info in infos]
+  )
+  if device_host_max_bytes is None:
+    for info, arg, value in zip(infos, args, arrays):
       prioritized.append((value, info, arg))
-    elif _is_prioritized_for_saving(info):
-      logging.info(
-          'Key prioritized for saving: %s',
-          tree_utils.str_keypath(info.keypath),
-      )
-      prioritized.append((value, info, arg))
-    else:
-      logging.info(
-          'Key not prioritized for saving: %s',
-          tree_utils.str_keypath(info.keypath),
-      )
-      deprioritized.append((value, info, arg))
+  else:
+    for info, arg, value in zip(infos, args, arrays):
+      prioritization = _is_prioritized_for_saving(info)
+      if prioritization == types.Prioritization.PRIORITIZED:
+        prioritized.append((value, info, arg))
+      elif prioritization == types.Prioritization.PRIORITIZED_ASYNC:
+        prioritized_async.append((value, info, arg))
+      elif prioritization == types.Prioritization.DEPRIORITIZED:
+        deprioritized.append((value, info, arg))
+      elif prioritization == types.Prioritization.UNKNOWN:
+        raise ValueError(
+            f'Prioritization is unknown for key {info.keypath}.'
+        )
+
+  # Combine async lists, placing prioritized async first.
+  deprioritized = prioritized_async + deprioritized
 
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
@@ -478,6 +496,7 @@ def _serialize_arrays(
         enable_replica_parallel_separate_folder,
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
+        transfer_tracker,
     )
   else:
 
@@ -541,6 +560,8 @@ def _serialize_arrays(
       if prioritized:
         arrays, infos, args = zip(*prioritized)
         _serialize_batch(infos, args, arrays)
+        for info in infos:
+          transfer_tracker.finish_transfer(info.keypath)
       if deprioritized:
         assert device_host_max_bytes is not None
         for (
@@ -554,6 +575,8 @@ def _serialize_arrays(
             dispatcher=dispatcher,
         ):
           _serialize_batch(b_infos, b_args, b_arrays)
+          for info in b_infos:
+            transfer_tracker.finish_transfer(info.keypath)
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(),
@@ -1090,6 +1113,7 @@ class ArrayHandler(types.TypeHandler):
     )
     self._ext_metadata = dict()
     self._dispatcher = dispatcher
+    self._transfer_tracker = jax_array_transfer_tracker.TransferTracker()
 
     logging.vlog(
         1,
@@ -1289,10 +1313,15 @@ class ArrayHandler(types.TypeHandler):
             metadata_key=self._metadata_key,
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
+            transfer_tracker=self._transfer_tracker,
         )
     )
 
     return future_list
+
+  def wait_for_transfer(self, prefix_tuple: tuple[Any, ...]):
+    """Waits for outstanding D2H transfers with given prefix to complete."""
+    self._transfer_tracker.wait_for_transfer(prefix_tuple)
 
   async def _maybe_read_metadata_and_update_restore_args(
       self,
