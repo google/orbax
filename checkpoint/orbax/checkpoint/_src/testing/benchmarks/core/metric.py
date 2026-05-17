@@ -93,6 +93,33 @@ class RssMetric(BaseMetric):
     return process.memory_info().rss / (1024 * 1024)
 
 
+class NetworkBytesMetric(BaseMetric):
+  """Measures system-wide network throughput (Proxy for CNS/gfile I/O)."""
+
+  def start(self):
+    super().start()
+    # pernic=False gives total system traffic
+    self._start_net = psutil.net_io_counters()
+
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    results = super().stop()
+    end_net = psutil.net_io_counters()
+    duration = time.perf_counter() - self._start_time
+
+    # bytes_recv is 'Read' from CNS, bytes_sent is 'Write' to CNS
+    read_bytes = end_net.bytes_recv - self._start_net.bytes_recv
+    write_bytes = end_net.bytes_sent - self._start_net.bytes_sent
+
+    results["net_read_bytes"] = (read_bytes, "bytes")
+    results["net_write_bytes"] = (write_bytes, "bytes")
+
+    if duration > 0:
+      results["read_throughput"] = (read_bytes / (1024**2) / duration, "MB/s")
+      results["write_throughput"] = (write_bytes / (1024**2) / duration, "MB/s")
+
+    return results
+
+
 class IOBytesMetric(BaseMetric):
   """Measures process I/O read/write bytes and throughput."""
 
@@ -377,6 +404,7 @@ METRIC_REGISTRY: dict[str, type[BaseMetric]] = {
     "time": TimeMetric,
     "rss": RssMetric,
     "io": IOBytesMetric,
+    "network": NetworkBytesMetric,
     "tracemalloc": TracemallocMetric,
     "tensorstore": TensorstoreMetric,
 }
