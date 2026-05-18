@@ -64,6 +64,7 @@ class OperationRecorder:
     self._operation_type = operation_type
     self._async_origin = async_origin
     self._primary_host = primary_host
+    self._storage_type = path_utils.get_storage_type(self._path)
 
   def record_start(self):
     """Records the start of an operation."""
@@ -120,6 +121,7 @@ class OperationRecorder:
       jax.monitoring.record_event_duration_secs(
           event_name,
           duration_secs,
+          storage_type=self._storage_type,
       )
 
     logging.info(
@@ -164,4 +166,5 @@ class OperationRecorder:
       jax.monitoring.record_event_duration_secs(
           duration_event_name,
           duration_secs,
+          storage_type=self._storage_type,
       )
