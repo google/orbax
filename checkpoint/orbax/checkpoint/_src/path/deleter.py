@@ -112,7 +112,13 @@ class StandardCheckpointDeleter:
     """
     start = time.time()
     try:
-      if not multihost.is_primary_host(self._primary_host):
+      if multihost.is_primary_host(self._primary_host):
+        logging.info(
+            'Primary host(%s), attempting deletion of step %d.',
+            self._primary_host,
+            step,
+        )
+      else:
         logging.info(
             'Not primary host(%s), skipping deletion of step %d.',
             self._primary_host,
