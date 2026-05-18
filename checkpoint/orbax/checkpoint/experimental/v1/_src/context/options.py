@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import contextvars
+import copy
 import dataclasses
 import enum
+import typing
 from typing import Any, Callable, Protocol, Type
 
 from etils import epath
@@ -35,8 +38,100 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class AsyncOptions:
+# Define `__all__` to explicitly declare the public API of this module.
+# This controls what is exported by `import orbax.checkpoint.v1.options`.
+__all__ = [
+    'AsyncOptions',
+    'MultiprocessingOptions',
+    'FileOptions',
+    'PyTreeOptions',
+    'ArrayOptions',
+    'CheckpointablesOptions',
+    'PathwaysOptions',
+    'DeletionOptions',
+    'MemoryOptions',
+    'SafetensorsOptions',
+    'CheckpointLayout',
+]
+
+
+_FROZEN_IDS: contextvars.ContextVar[frozenset[int]] = contextvars.ContextVar(
+    'orbax_frozen_option_ids', default=frozenset()
+)
+
+
+class _ActiveContextGuard:
+  """Base class to guard against mutating options attached to an active context.
+
+  In Orbax, `Context` objects and their child option dataclasses (e.g.,
+  `ArrayOptions`, `AsyncOptions`) serve two distinct roles: standalone
+  configuration templates (buildable/mutable in memory) and active execution
+  policies when bound to a context manager (`with ctx:`).
+
+  This base class ensures that once a `Context` enters a `with` block, its
+  entire tree of option dataclasses is frozen against mutation. By checking
+  `_FROZEN_IDS` (which tracks the memory IDs of all active context components
+  in the current thread/coroutine), it prevents mid-execution side effects or
+  race conditions while allowing independent, non-active `Context` templates
+  to be configured freely.
+  """
+
+  def __setattr__(self, name: str, value: Any) -> None:
+    """Intercepts attribute assignment to enforce context immutability.
+
+    Checks if the memory ID of this option instance is currently registered in
+    the thread-local `_FROZEN_IDS` set. A match indicates that this instance
+    belongs to an active `Context` currently in use by an ongoing checkpointing
+    operation; mutating configuration values during active execution is strictly
+    prohibited.
+
+    Args:
+      name: The name of the attribute being assigned.
+      value: The new value to assign to the attribute.
+
+    Raises:
+      RuntimeError: If this option instance belongs to an active context.
+    """
+    if id(self) in _FROZEN_IDS.get():
+      raise RuntimeError(
+          'Cannot mutate options of an active context. '
+          'Configure before entering the `with` block.'
+      )
+    object.__setattr__(self, name, value)
+
+  def __deepcopy__(self, memo):
+    """Creates a deep copy of the option dataclass bypassing the active guard.
+
+    When creating a child `Context` from a parent `Context` (e.g., `ctx2 =
+    ocp.Context(ctx1)`), Orbax performs a deep copy of the parent's option tree.
+    If the parent `Context` is currently active/frozen, standard attribute
+    assignments during `deepcopy` would trigger `__setattr__` and raise a
+    `RuntimeError`.
+
+    This custom `__deepcopy__` implementation avoids that by using
+    `object.__setattr__` directly to populate the copied fields. This allows
+    users to inherit from an active parent context and safely produce a new,
+    unfrozen child context template that can be mutated independently.
+
+    Args:
+      memo: A dictionary of objects already copied during the current deepcopy
+        pass to prevent infinite recursion.
+
+    Returns:
+      A newly allocated, unfrozen deep copy of this option dataclass.
+    """
+    cls = type(self)
+    result = cls.__new__(cls)
+    memo[id(self)] = result
+    for f in dataclasses.fields(typing.cast(Any, self)):
+      object.__setattr__(
+          result, f.name, copy.deepcopy(getattr(self, f.name), memo)
+      )
+    return result
+
+
+@dataclasses.dataclass(kw_only=True)
+class AsyncOptions(_ActiveContextGuard):
   """Options used to configure async behavior.
 
   This dataclass defines the configuration parameters for asynchronous 
@@ -76,8 +171,8 @@ class AsyncOptions:
     )
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class MultiprocessingOptions:
+@dataclasses.dataclass(kw_only=True)
+class MultiprocessingOptions(_ActiveContextGuard):
   """Options used to configure multiprocessing behavior.
 
   NOTE: These options are generally dangerous to mess with unless you know what
@@ -129,8 +224,8 @@ class MultiprocessingOptions:
 
 
 # pyformat: disable
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class FileOptions:
+@dataclasses.dataclass(kw_only=True)
+class FileOptions(_ActiveContextGuard):
   """Options used to configure checkpoint directories and files.
 
   This dataclass defines the configuration parameters for creating and managing
@@ -175,8 +270,8 @@ class FileOptions:
 # pyformat: enable
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class PyTreeOptions:
+@dataclasses.dataclass(kw_only=True)
+class PyTreeOptions(_ActiveContextGuard):
   """Options used to configure PyTree saving and loading.
 
   This dataclass defines the configuration parameters for creating and managing
@@ -187,8 +282,8 @@ class PyTreeOptions:
     loading: Options for loading PyTrees.
   """
 
-  @dataclasses.dataclass(frozen=True, kw_only=True)
-  class Saving:
+  @dataclasses.dataclass(kw_only=True)
+  class Saving(_ActiveContextGuard):
     """Options for saving PyTrees.
 
     pytree_metadata_options: Options for managing PyTree metadata.
@@ -198,8 +293,8 @@ class PyTreeOptions:
         dataclasses.field(default_factory=tree_metadata.PyTreeMetadataOptions)
     )
 
-  @dataclasses.dataclass(frozen=True, kw_only=True)
-  class Loading:
+  @dataclasses.dataclass(kw_only=True)
+  class Loading(_ActiveContextGuard):
     """Options for loading PyTrees.
 
     partial_load: If True, only restore the parameters that are specified
@@ -212,37 +307,31 @@ class PyTreeOptions:
   loading: Loading = dataclasses.field(default_factory=Loading)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class ArrayOptions:
+@dataclasses.dataclass(kw_only=True)
+class ArrayOptions(_ActiveContextGuard):
   """Options used to configure array saving and loading.
 
   This dataclass defines the high-level configuration parameters for array
   checkpointing operations within the Orbax framework. Because it is defined
-  as a frozen, keyword-only dataclass, instances are strictly immutable once
-  created, and all parameters must be explicitly specified by their keyword
-  names during initialization.
+  as a keyword-only dataclass, instances map mutable option dimensions.
 
   Example:
     To configure array options with specific saving formats and loading
     behaviors we can do so like this::
 
-      from orbax.checkpoint.v1.options import ArrayOptions
+      from orbax.checkpoint import v1 as ocp
 
-      options = ArrayOptions(
-          saving=ArrayOptions.Saving(
-              use_zarr3=True,
-              use_compression=False,
-          ),
-          loading=ArrayOptions.Loading(
-              enable_padding_and_truncation=True
-      )
+      ctx = ocp.Context()
+      ctx.array.saving.use_zarr3 = True
+      ctx.array.saving.use_compression = False
+      ctx.array.loading.enable_padding_and_truncation = True
 
     To save certain leaves in float16, while others in float32, we can use
     `scoped_storage_options_creator` like so::
 
       import jax
       import jax.numpy as jnp
-      from orbax.checkpoint.v1 import options as ocp_options
+      from orbax.checkpoint import v1 as ocp
 
       def create_opts_fn(keypath, value):
         if 'small' in jax.tree_util.keystr(keypath):
@@ -251,28 +340,22 @@ class ArrayOptions:
           )
         return None  # Fall back to global `storage_options`
 
-      array_options = ocp_options.ArrayOptions(
-          saving=ocp_options.ArrayOptions.Saving(
-              storage_options=ocp_options.ArrayOptions.Saving.StorageOptions(
-                  dtype=jnp.float32
-              ),
-              scoped_storage_options_creator=create_opts_fn
-          )
-
-      )
+      ctx = ocp.Context()
+      ctx.array.saving.storage_options.dtype = jnp.float32
+      ctx.array.saving.scoped_storage_options_creator = create_opts_fn
 
   Attributes:
     saving: Options for saving arrays.
     loading: Options for loading arrays.
   """
 
-  @dataclasses.dataclass(frozen=True, kw_only=True)
-  class Saving:
+  @dataclasses.dataclass(kw_only=True)
+  class Saving(_ActiveContextGuard):
     """Options for saving arrays.
 
     Attributes:
-      storage_options: Options used to customize array storage behavior for
-        all leaves at a global level. See below.
+      storage_options: Options used to customize array storage behavior for all
+        leaves at a global level. See below.
       use_ocdbt: Enables OCDBT format.
       use_zarr3: If True, use Zarr3 format.
       use_compression: If True, use ZSTD compression.
@@ -317,8 +400,8 @@ class ArrayOptions:
       ) -> ArrayOptions.Saving.StorageOptions | None:
         ...
 
-    @dataclasses.dataclass(frozen=True, kw_only=True)
-    class StorageOptions:
+    @dataclasses.dataclass(kw_only=True)
+    class StorageOptions(_ActiveContextGuard):
       """Options used to customize array storage behavior for individual leaves.
 
       dtype:
@@ -361,8 +444,8 @@ class ArrayOptions:
     )
     scoped_storage_options_creator: ScopedStorageOptionsCreator | None = None
 
-  @dataclasses.dataclass(frozen=True, kw_only=True)
-  class Loading:
+  @dataclasses.dataclass(kw_only=True)
+  class Loading(_ActiveContextGuard):
     """Options for loading arrays.
 
     enable_padding_and_truncation:
@@ -383,8 +466,8 @@ class ArrayOptions:
       replicas.
     """
 
-    @dataclasses.dataclass(frozen=True, kw_only=True)
-    class LoadAndBroadcastOptions:
+    @dataclasses.dataclass(kw_only=True)
+    class LoadAndBroadcastOptions(_ActiveContextGuard):
       """Used to configure load-and-broadcast behavior in multi-replica loading.
 
       replica_axis_index: Defines the axis of the global mesh along which
@@ -414,37 +497,12 @@ class ArrayOptions:
   loading: Loading = dataclasses.field(default_factory=Loading)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class CheckpointablesOptions:
+@dataclasses.dataclass(kw_only=True)
+class CheckpointablesOptions(_ActiveContextGuard):
   """Options used to configure `checkpointables` save/load behavior.
 
   Primarily intended for registering custom :py:class:`.CheckpointableHandler`
-  classes. You can specify a registry directly, or use `create_with_handlers`.
-  For example::
-
-    checkpointables_options = (
-      ocp.options.CheckpointablesOptions.create_with_handlers(
-          FooHandler(),
-          bar=BarHandler(),
-      )
-    )
-    with ocp.Context(checkpointables_options=checkpointables_options)):
-      ocp.save_checkpointables(directory, dict(foo=Foo(...), bar=Bar(...)))
-
-  In this example, `FooHandler` is registered generically, which means that any
-  checkpointable that is handleable by `FooHandler` can be saved/loaded (a
-  `Foo` object in this case). In contrast, `BarHandler` is explicitly tied to
-  the name `bar`, which means that only a checkpointable that is both handleable
-  by `BarHandler` and has the name `bar` can handled by this `BarHandler`.
-
-  Recall that a global registry also exists, containing core handlers like
-  :py:class:`.PyTreeHandler` and :py:class:`.JsonHandler`. Use
-  `ocp.handlers.register_handler` to register a handler globally.
-
-  Note that registration order matters. For example, if saving a dict containing
-  only strings, both :py:class:`.JsonHandler` and :py:class:`.PyTreeHandler` are
-  capable of handling this object, but :py:class:`.JsonHandler` will be selected
-  first because it is registered first.
+  classes via direct registry binding.
 
   Attributes:
     registry: A :py:class:`.CheckpointableHandlerRegistry` that is used to
@@ -472,8 +530,8 @@ class CheckpointablesOptions:
     return cls(registry=registry)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class PathwaysOptions:
+@dataclasses.dataclass(kw_only=True)
+class PathwaysOptions(_ActiveContextGuard):
   """Options used to configure Pathways saving and loading.
 
   Attributes:
@@ -483,16 +541,16 @@ class PathwaysOptions:
   checkpointing_impl: pathways_types.CheckpointingImpl | None = None
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class DeletionOptions:
+@dataclasses.dataclass(kw_only=True)
+class DeletionOptions(_ActiveContextGuard):
   """Options used to configure checkpoint deletion behavior.
 
   Attributes:
     gcs_deletion_options: Deletion options specific to GCS.
   """
 
-  @dataclasses.dataclass(frozen=True, kw_only=True)
-  class GcsDeletionOptions:
+  @dataclasses.dataclass(kw_only=True)
+  class GcsDeletionOptions(_ActiveContextGuard):
     """Deletion options specific to GCS.
 
     Attributes:
@@ -521,8 +579,8 @@ class DeletionOptions:
 
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class MemoryOptions:
+@dataclasses.dataclass(kw_only=True)
+class MemoryOptions(_ActiveContextGuard):
   """Options for configuring memory limits for save / load.
 
   Can help to reduce the possibility of OOM's when large checkpoints are
@@ -569,8 +627,8 @@ class MemoryOptions:
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class SafetensorsOptions:
+@dataclasses.dataclass(kw_only=True)
+class SafetensorsOptions(_ActiveContextGuard):
   """Options for configuring Safetensors loading.
 
   Attributes:
