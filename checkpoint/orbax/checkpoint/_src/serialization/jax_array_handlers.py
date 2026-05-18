@@ -21,7 +21,7 @@ import dataclasses
 import functools
 import os
 import time
-from typing import Any, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
+from typing import Any, Callable, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
 
 from absl import logging
@@ -274,26 +274,6 @@ def _worker_serialize_arrays(
   )
 
 
-def _is_prioritized_for_saving(info: types.ParamInfo) -> bool:
-  """Identifies prioritized keys.
-
-  A prioritized key is one that is scheduled for D2H transfer synchronously,
-  otherwise it may be scheduled from a background thread. Defaults to True,
-  since async D2H is likely to result in errors if the arrays are donated by
-  the training step.
-
-  Args:
-    info: The ParamInfo to check.
-
-  Returns:
-    True if the key is prioritized for saving.
-  """
-  is_prioritized_key_fn = info.is_prioritized_key_fn
-  if is_prioritized_key_fn is None:
-    return True
-  return is_prioritized_key_fn(info.keypath)
-
-
 def _get_deprioritized_batches_to_serialize(
     deprioritized_params: Sequence[
         tuple[jax.Array, types.ParamInfo, types.SaveArgs]
@@ -336,6 +316,15 @@ def _get_deprioritized_batches_to_serialize(
     assert arrays_saved_count == len(deprioritized_params)
 
 
+def _on_batch_callback(
+    infos: Sequence[types.ParamInfo],
+    callback_fn: Callable[..., None],
+) -> None:
+  """Launches callback for each info."""
+  for info in infos:
+    callback_fn(info.keypath)
+
+
 def _serialize_arrays_batches_without_dispatcher(
     prioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
     deprioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
@@ -350,6 +339,7 @@ def _serialize_arrays_batches_without_dispatcher(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
+    callback: types.HandlerCallback,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
@@ -382,6 +372,7 @@ def _serialize_arrays_batches_without_dispatcher(
     prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
         prioritized_arrays
     )
+    _on_batch_callback(prioritized_infos, callback.on_transfer_end)
   else:
     logging.warning(
         'No prioritized params found for saving. D2H for all values will be'
@@ -395,6 +386,7 @@ def _serialize_arrays_batches_without_dispatcher(
           prioritized_infos,
           prioritized_args,
       )
+      _on_batch_callback(prioritized_infos, callback.on_write_end)
     if deprioritized:
       assert device_host_max_bytes is not None
       for (
@@ -411,11 +403,13 @@ def _serialize_arrays_batches_without_dispatcher(
           dispatcher=None,
       ):
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        _on_batch_callback(b_infos, callback.on_transfer_end)
         await async_serialize_replica_slices_batch(
             b_arrays_on_host,
             b_infos,
             b_args,
         )
+        _on_batch_callback(b_infos, callback.on_write_end)
 
   return future.CommitFutureAwaitingContractedSignals(
       _serialize_without_dispatcher(),
@@ -437,6 +431,7 @@ def _serialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
+    callback: types.HandlerCallback,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
 
@@ -446,22 +441,29 @@ def _serialize_arrays(
       device_host_max_bytes = byte_limiter.max_bytes
 
   prioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
+  prioritized_async: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = (
+      []
+  )
   deprioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
-  for info, arg, value in zip(infos, args, arrays):
-    if device_host_max_bytes is None:
+
+  if device_host_max_bytes is None:
+    for info, arg, value in zip(infos, args, arrays):
       prioritized.append((value, info, arg))
-    elif _is_prioritized_for_saving(info):
-      logging.info(
-          'Key prioritized for saving: %s',
-          tree_utils.str_keypath(info.keypath),
-      )
-      prioritized.append((value, info, arg))
-    else:
-      logging.info(
-          'Key not prioritized for saving: %s',
-          tree_utils.str_keypath(info.keypath),
-      )
-      deprioritized.append((value, info, arg))
+  else:
+    for info, arg, value in zip(infos, args, arrays):
+      prioritization = callback.on_priority_registration(info.keypath)
+      if prioritization == types.Priority.PRIORITIZED:
+        prioritized.append((value, info, arg))
+      elif prioritization == types.Priority.PRIORITIZED_ASYNC:
+        prioritized_async.append((value, info, arg))
+      elif prioritization == types.Priority.DEPRIORITIZED:
+        deprioritized.append((value, info, arg))
+      elif prioritization == types.Priority.UNKNOWN:
+        raise ValueError(
+            f'Prioritization is unknown for key {info.keypath}.'
+        )
+
+  deprioritized = prioritized_async + deprioritized
 
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
@@ -478,6 +480,7 @@ def _serialize_arrays(
         enable_replica_parallel_separate_folder,
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
+        callback,
     )
   else:
 
@@ -509,7 +512,11 @@ def _serialize_arrays(
               'ext_metadata': ext_metadata,
           },
       )
+      _on_batch_callback(batch_infos, callback.on_transfer_end)
+
       jax.block_until_ready(ret)
+
+      _on_batch_callback(batch_infos, callback.on_write_end)
 
     # Enqueue D2H operation for prioritized values.
     if prioritized:
@@ -1046,6 +1053,7 @@ class ArrayHandler(types.TypeHandler):
       array_metadata_store: array_metadata_store_lib.Store | None = None,
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
+      callback: types.HandlerCallback | None = None,
   ):
     """Constructor.
 
@@ -1070,6 +1078,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: If True, save replica and sharded
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
+      callback: The callback to use for executing operations in handlers.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -1090,6 +1099,9 @@ class ArrayHandler(types.TypeHandler):
     )
     self._ext_metadata = dict()
     self._dispatcher = dispatcher
+    self._callback = (
+        callback if callback is not None else types.HandlerCallback()
+    )
 
     logging.vlog(
         1,
@@ -1289,6 +1301,7 @@ class ArrayHandler(types.TypeHandler):
             metadata_key=self._metadata_key,
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
+            callback=self._callback,
         )
     )
 

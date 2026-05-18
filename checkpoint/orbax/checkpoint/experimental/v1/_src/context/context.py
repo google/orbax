@@ -22,6 +22,7 @@ import typing
 
 from absl import logging
 from etils import epy
+from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
@@ -137,6 +138,7 @@ class Context(epy.ContextManager):
       deletion_options: options_lib.DeletionOptions | None = None,
       memory_options: options_lib.MemoryOptions | None = None,
       safetensors_options: options_lib.SafetensorsOptions | None = None,
+      serialization_callback: serialization_types.HandlerCallback | None = None,
   ):
     self._pytree_options = pytree_options or (
         context.pytree_options if context else options_lib.PyTreeOptions()
@@ -178,6 +180,9 @@ class Context(epy.ContextManager):
         context.safetensors_options
         if context
         else options_lib.SafetensorsOptions()
+    )
+    self._serialization_callback = serialization_callback or (
+        context.serialization_callback if context else None
     )
 
   @property
@@ -223,6 +228,12 @@ class Context(epy.ContextManager):
   @property
   def safetensors_options(self) -> options_lib.SafetensorsOptions:
     return self._safetensors_options
+
+  @property
+  def serialization_callback(
+      self,
+  ) -> serialization_types.HandlerCallback | None:
+    return self._serialization_callback
 
   def operation_id(self) -> str:
     return synchronization.OperationIdGenerator.get_current_operation_id()

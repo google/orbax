@@ -28,6 +28,10 @@ from orbax.checkpoint.experimental.v1 import partial
 from orbax.checkpoint.experimental.v1 import path
 from orbax.checkpoint.experimental.v1 import training
 from orbax.checkpoint.experimental.v1 import tree
+from orbax.checkpoint._src.serialization.types import (
+    HandlerCallback,
+    Priority,
+)
 from orbax.checkpoint.experimental.v1._src.synchronization.types import (
     AsyncResponse,
 )

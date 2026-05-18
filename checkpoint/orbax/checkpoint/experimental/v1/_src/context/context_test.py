@@ -19,6 +19,7 @@ from absl.testing import absltest
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.serialization import registration
 
 ArrayOptions = options_lib.ArrayOptions
 FileOptions = options_lib.FileOptions
@@ -218,6 +219,21 @@ class ContextTest(absltest.TestCase):
           ctx.file_options,
           FileOptions(path_permission_mode=0o750),
       )
+
+  def test_serialization_callback_propagation(self):
+    class MyCallback(ocp.HandlerCallback):
+      pass
+
+    my_cb = MyCallback()
+    context = ocp.Context(serialization_callback=my_cb)
+    with context:
+      # ocp.Context correctly resolves parameters.
+      ctx = fake_checkpoint_operation()
+      self.assertIs(ctx.serialization_callback, my_cb)
+
+      # Checks if get_array_handler integrates context callback options.
+      handler = registration.get_array_handler(ctx)
+      self.assertIs(handler._callback, my_cb)
 
 
 if __name__ == "__main__":
