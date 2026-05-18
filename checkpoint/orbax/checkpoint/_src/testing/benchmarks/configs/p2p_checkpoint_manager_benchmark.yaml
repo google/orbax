@@ -13,10 +13,10 @@ mesh_configs:
     dcn_parallelism: {"data": 4, "model": 1}
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
     ici_parallelism: {"data": 1, "model": 16}
-    dcn_parallelism: {"data": 2, "model": 1}
+    dcn_parallelism: {"data": 2, "model": 2}
     allow_split_physical_axes: true
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
-    ici_parallelism: {"data": 2, "model": 8}
+    ici_parallelism: {"data": 1, "model": 16}
     dcn_parallelism: {"data": 2, "model": 1}
     allow_split_physical_axes: true
   - mesh_axes: ["data", "model", "tensor", "fsdp"]
@@ -24,20 +24,25 @@ mesh_configs:
     dcn_parallelism: {"data": 2, "model": 1}
     allow_split_physical_axes: true
 
+# checkpoint_config:
+#   spec:
+#     a_1d: {dtype: "float32", shape: [32], sharding: [null]}
+#     b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
+#     c_2d: {dtype: "float32", shape: [32, 32], sharding: [null, "tensor"]}
+#     d_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", null]}
+#     e_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", "fsdp"]}
+#     f_2d: {dtype: "float32", shape: [32, 32], sharding: ["fsdp", "tensor"]}
+#     g_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
+#     h_3d: {dtype: "float32", shape: [32, 32, 32], sharding: ["tensor", null, "fsdp"]}
+#     i_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "tensor"]}
+#     j_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "fsdp"]}
+#     k_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, null]}
+#     custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
+
 checkpoint_config:
-  spec:
-    a_1d: {dtype: "float32", shape: [32], sharding: [null]}
-    b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
-    c_2d: {dtype: "float32", shape: [32, 32], sharding: [null, "tensor"]}
-    d_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", null]}
-    e_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", "fsdp"]}
-    f_2d: {dtype: "float32", shape: [32, 32], sharding: ["fsdp", "tensor"]}
-    g_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
-    h_3d: {dtype: "float32", shape: [32, 32, 32], sharding: ["tensor", null, "fsdp"]}
-    i_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "tensor"]}
-    j_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "fsdp"]}
-    k_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, null]}
-    custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
+  # path: "gs://safetensor-kimi-central/test_model_orbax/llama-3.1-70B-checkpoints/0/items/items"
+  # path: "gs://orbax-benchmarks/checkpoints/llama-8b_generate_1-4-1/pytree"
+  path: "gs://orbax-benchmarks/checkpoints/llama-3.1-8B-checkpoints/0/items"
 
 benchmarks:
   - generator: "orbax.checkpoint._src.testing.benchmarks.p2p_checkpoint_manager_benchmark.P2pCheckpointManagerBenchmark"
@@ -45,6 +50,7 @@ benchmarks:
       persistent_save_interval_steps: [2]
       persistent_max_to_keep: [5]
       local_save_interval_steps: [2]
-      local_max_to_keep: 2
+      local_max_to_keep: 1
       replica_axis_index: 0
-      train_steps: 5
+      train_steps: 3
+      tests_to_run: ["test_local_restore"]

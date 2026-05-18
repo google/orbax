@@ -26,8 +26,8 @@ from typing import Any
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_utils
-from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import mesh_utils
@@ -64,6 +64,11 @@ class P2pBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   local_max_to_keep: int | Sequence[int] = 2
   replica_axis_index: int | Sequence[int] = 0
   train_steps: int | Sequence[int] = 10
+  tests_to_run: Sequence[str] = (
+      'test_local_restore',
+      'test_p2p_restore',
+      'test_gcs_restore',
+  )
 
 
 # ==============================================================================
@@ -71,7 +76,7 @@ class P2pBenchmarkOptions(benchmarks_core.BenchmarkOptions):
 # ==============================================================================
 def _create_checkpoint_manager(
     local_directory: epath.Path,
-    persistent_directory: epath.Path,
+    persistent_directory: epath.Path,  # pylint: disable=unused-argument
     global_mesh: jax.sharding.Mesh,
     abstract_state: Any,
     options: P2pBenchmarkOptions,
@@ -79,7 +84,7 @@ def _create_checkpoint_manager(
   """Creates a P2P CheckpointManager."""
   return p2p_checkpoint_manager.CheckpointManager(
       local_directory=local_directory,
-      persistent_directory=persistent_directory,
+      persistent_directory=None,
       global_mesh=global_mesh,
       abstract_state=abstract_state,
       options=p2p_options.CheckpointManagerOptions(
@@ -105,9 +110,9 @@ def _delete_checkpoints(
   """Deletes checkpoints from the CheckpointManager."""
   step_dir = local_directory / str(step)
   if delete_before_restore == 'local_p0':
-    if multihost.process_index() == 0 and step_dir.exists():
+    if multihost.process_index() == 1 and step_dir.exists():
       logging.info(
-          'Process 0: removing local checkpoint to trigger P2P restore.'
+          'Process 1: removing local checkpoint to trigger P2P restore.'
       )
       step_dir.rmtree()
       manager.reload()
@@ -145,7 +150,7 @@ def _restore_and_validate(
     restored = manager.restore(
         step,
         args=p2p_args_lib.Composite(
-            state=pytree_checkpoint_handler.PyTreeRestoreArgs(
+            state=args_lib.PyTreeRestore(
                 restore_args=restore_args,
                 item=abstract_pytree,
             )
@@ -226,7 +231,7 @@ class P2pCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
           manager.save(
               step,
               args=p2p_args_lib.Composite(
-                  state=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
+                  state=args_lib.PyTreeSave(pytree)
               ),
           )
         with metrics.measure(f'{test_name}_wait_until_finished_{step}'):
@@ -336,6 +341,7 @@ class P2pCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         tests_to_run.append(method)
 
     for test in tests_to_run:
-      test(context, metrics, abstract_pytree, restore_args)
+      if test.__name__ in options.tests_to_run:
+        test(context, metrics, abstract_pytree, restore_args)
 
     return benchmarks_core.TestResult(metrics=metrics)

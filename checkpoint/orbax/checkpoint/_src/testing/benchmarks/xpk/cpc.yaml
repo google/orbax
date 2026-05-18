@@ -11,7 +11,7 @@ spec:
   - key: "google.com/tpu"
     operator: "Exists"
     effect: "NoSchedule"
-  inMemoryVolumeSize: 64Mi
+  inMemoryVolumeSize: 60Gi
   gcsFuseMountOptions:
   - implicit-dirs
   - metadata-cache:negative-ttl-secs:0
