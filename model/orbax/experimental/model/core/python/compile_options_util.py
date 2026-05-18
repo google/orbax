@@ -98,6 +98,13 @@ def _generate_compilation_options(
   """Generates the compilation options for the given compilation environment."""
   compile_options = compile_options_pb2.CompileOptionsProto()
   executable_build_options = compile_options_pb2.ExecutableBuildOptionsProto()
+  default_opts = jax.jaxlib.xla_client.CompileOptions()
+  default_opts_proto = compile_options_pb2.CompileOptionsProto.FromString(
+      default_opts.SerializeAsString()
+  )
+  executable_build_options.debug_options.CopyFrom(
+      default_opts_proto.executable_build_options.debug_options
+  )
   if compile_environment is not None:
     executable_build_options.comp_envs.CopyFrom(compile_environment)
   if populate_xla_build_options:

@@ -262,6 +262,11 @@ class CompileOptionsUtilTest(parameterized.TestCase):
       self.assertIn(platform, compile_options_map.map)
       compile_options = compile_options_map.map[platform]
 
+      # Verify that default debug_options are populated.
+      self.assertTrue(
+          compile_options.executable_build_options.HasField('debug_options')
+      )
+
       if platform != 'tpu' or not persist_xla_flags:
         self.assertEmpty(
             compile_options.executable_build_options.comp_envs.environments
@@ -462,13 +467,23 @@ class CompileOptionsUtilTest(parameterized.TestCase):
           mesh_axis_names=('x', 'y', 'z'),
       ),
   )
-  def test_generate_xla_compile_options_with_jax_mesh(
+  # This test is prefixed with `test_00_` so that it runs first in the test suite.
+  # C++ XLA flag parsing uses `absl::call_once`, meaning XLA flags are permanently
+  # cached the first time XLA is initialized. By running this test first and passing
+  # `--xla_flags_reset=true`, we ensure clean flag initialization for the mesh creation
+  # without being affected by earlier tests.
+  def test_00_generate_xla_compile_options_with_jax_mesh(
       self, mesh_shape, mesh_axis_names
   ):
     self.enter_context(
         mock.patch.dict(
             os.environ,
-            {'XLA_FLAGS': '--xla_force_host_platform_device_count=8'},
+            {
+                'XLA_FLAGS': (
+                    '--xla_force_host_platform_device_count=8'
+                    ' --xla_flags_reset=true'
+                )
+            },
         )
     )
     mesh = jax.sharding.Mesh(
@@ -492,6 +507,24 @@ class CompileOptionsUtilTest(parameterized.TestCase):
     self.assertLen(device_assignment.computation_devices, mesh.size)
     for i, device in enumerate(device_assignment.computation_devices):
       self.assertEqual(device.replica_device_ids, [i])
+
+  def test_generate_xla_compile_options_snapshots_xla_flags(self):
+    self.enter_context(
+        mock.patch.dict(
+            os.environ,
+            {'XLA_FLAGS': '--xla_gpu_autotune_level=4 --xla_flags_reset=true'},
+        )
+    )
+    compile_options_map = compile_options_util.generate_xla_compile_options(
+        native_serialization_platforms=['cuda'],
+    )
+    self.assertIn('cuda', compile_options_map.map)
+    compile_options = compile_options_map.map['cuda']
+    self.assertEqual(
+        compile_options.executable_build_options.debug_options
+        .xla_gpu_autotune_level,
+        4,
+    )
 
 
 if __name__ == '__main__':
