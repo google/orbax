@@ -47,9 +47,8 @@ params, state = restored['params'], restored['state']
 import orbax.checkpoint.v1 as ocp
 
 # 1. Environment/IO settings go in Context.
-context = ocp.Context(
-    async_options=ocp.options.AsyncOptions(timeout_secs=60),
-)
+context = ocp.Context()
+context.asynchronous.timeout_secs = 60
 
 # 2. Logic & Lifecycle settings passed to Checkpointer constructor.
 with context:

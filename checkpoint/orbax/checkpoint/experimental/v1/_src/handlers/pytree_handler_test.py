@@ -248,8 +248,8 @@ def handler_with_options(
         options_lib.ArrayOptions.Saving.ScopedStorageOptionsCreator | None
     ) = None,
     array_storage_options: (
-        options_lib.ArrayOptions.Saving.StorageOptions
-    ) = options_lib.ArrayOptions.Saving.StorageOptions(),
+        options_lib.ArrayOptions.Saving.StorageOptions | None
+    ) = None,
     save_concurrent_bytes: int | None = None,
     restore_concurrent_bytes: int | None = None,
     use_ocdbt: bool = True,
@@ -271,37 +271,36 @@ def handler_with_options(
     ) = None,
 ):
   """Registers handlers with OCDBT support and resets when done."""
-  context = context_lib.Context(
-      array_options=options_lib.ArrayOptions(
-          saving=options_lib.ArrayOptions.Saving(
-              use_ocdbt=use_ocdbt,
-              use_zarr3=use_zarr3,
-              use_compression=use_compression,
-              ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-              enable_pinned_host_transfer=enable_pinned_host_transfer,
-              array_metadata_store=array_metadata_store,
-              enable_write_sharding_file=enable_write_sharding_file,
-              use_replica_parallel=not utils.is_pathways_backend(),
-              storage_options=array_storage_options,
-              scoped_storage_options_creator=scoped_storage_options_creator,
-          ),
-          loading=options_lib.ArrayOptions.Loading(
-              enable_padding_and_truncation=enable_padding_and_truncation,
-          ),
-      ),
-      memory_options=options_lib.MemoryOptions(
-          write_concurrent_bytes=save_concurrent_bytes,
-          read_concurrent_bytes=restore_concurrent_bytes,
-      ),
-      pytree_options=options_lib.PyTreeOptions(
-          saving=options_lib.PyTreeOptions.Saving(
-              pytree_metadata_options=pytree_metadata_options,
-          ),
-          loading=options_lib.PyTreeOptions.Loading(
-              partial_load=partial_load,
-          ),
-      ),
+  context = context_lib.Context()
+
+  context.array.saving.use_ocdbt = use_ocdbt
+  context.array.saving.use_zarr3 = use_zarr3
+  context.array.saving.use_compression = use_compression
+  context.array.saving.ocdbt_target_data_file_size = ocdbt_target_data_file_size
+  context.array.saving.enable_pinned_host_transfer = enable_pinned_host_transfer
+  context.array.saving.array_metadata_store = array_metadata_store
+  context.array.saving.enable_write_sharding_file = enable_write_sharding_file
+  context.array.saving.use_replica_parallel = not utils.is_pathways_backend()
+  if array_storage_options is not None:
+    context.array.saving.storage_options.dtype = array_storage_options.dtype
+    context.array.saving.storage_options.chunk_byte_size = (
+        array_storage_options.chunk_byte_size
+    )
+    context.array.saving.storage_options.shard_axes = (
+        array_storage_options.shard_axes
+    )
+  context.array.saving.scoped_storage_options_creator = (
+      scoped_storage_options_creator
   )
+  context.array.loading.enable_padding_and_truncation = (
+      enable_padding_and_truncation
+  )
+
+  context.memory.write_concurrent_bytes = save_concurrent_bytes
+  context.memory.read_concurrent_bytes = restore_concurrent_bytes
+
+  context.pytree.saving.pytree_metadata_options = pytree_metadata_options
+  context.pytree.loading.partial_load = partial_load
 
   handler = handler_test_utils.create_test_handler(
       pytree_handler.PyTreeHandler,
@@ -309,10 +308,8 @@ def handler_with_options(
       leaf_handler_registry=leaf_handler_registry,
   )
 
-  try:
+  with context:
     yield handler
-  finally:
-    pass
 
 
 class PyTreeHandlerTest(
@@ -752,8 +749,8 @@ class PyTreeHandlerTest(
 
     with handler_with_options(
         use_ocdbt=False,
-        scoped_storage_options_creator=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-            dtype=save_dtype
+        scoped_storage_options_creator=lambda k, v, storage: setattr(
+            storage, 'dtype', save_dtype
         ),
     ) as checkpoint_handler:
       checkpoint_handler.save(self.directory, pytree)
@@ -781,16 +778,16 @@ class PyTreeHandlerTest(
         dtype=np.int16
     )
 
-    # Callback returns empty options for some fields
-    def my_callback(k, v):
-      # For 'sharded.a' and 'sharded.c.e', return specific dtype.
-      # For others, return None, which should fall back to global_opts (int16).
+    # Callback mutates storage options for some fields
+    def my_callback(k, v, storage):
+      # For 'sharded.a' and 'sharded.c.e', set specific dtype.
+      # For others, do nothing, which should fall back to global_opts (int16).
       del v
       key_path_tuple = tuple(getattr(p, 'key', None) for p in k)
       if key_path_tuple == ('sharded', 'a'):
-        return options_lib.ArrayOptions.Saving.StorageOptions(dtype=np.int32)
+        storage.dtype = np.int32
       elif key_path_tuple == ('sharded', 'c', 'e'):
-        return options_lib.ArrayOptions.Saving.StorageOptions(dtype=np.float32)
+        storage.dtype = np.float32
       return None
 
     with handler_with_options(
@@ -1401,8 +1398,8 @@ class PyTreeHandlerTest(
 
     if use_per_key_options:
       scoped_storage_options_creator = (
-          lambda key, value: options_lib.ArrayOptions.Saving.StorageOptions(
-              chunk_byte_size=chunk_byte_size
+          lambda key, value, storage: setattr(
+              storage, 'chunk_byte_size', chunk_byte_size
           )
       )
       array_storage_options = None

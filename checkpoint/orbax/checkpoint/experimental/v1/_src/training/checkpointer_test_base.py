@@ -492,15 +492,12 @@ class CheckpointerTestBase:
 
     def test_custom_checkpointables(self):
       """Test custom checkpointables are saved and loaded."""
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      registry.add(handler_utils.BarHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       checkpointables = {
           'pytree': self.pytree,
           'foo': Foo(123, 'hi'),
@@ -523,13 +520,12 @@ class CheckpointerTestBase:
       with self.subTest('load_with_free_function'):
         if multihost.is_pathways_backend():
           self.skipTest('Sharding metadata not present in Pathways.')
-        checkpointables_options = (
-            ocp.options.CheckpointablesOptions.create_with_handlers(
-                foo=handler_utils.FooHandler,
-                bar=handler_utils.BarHandler,
-            )
-        )
-        with ocp.Context(checkpointables_options=checkpointables_options):
+        registry = ocp.handlers.local_registry()
+        registry.add(handler_utils.FooHandler, checkpointable_name='foo')
+        registry.add(handler_utils.BarHandler, checkpointable_name='bar')
+        ctx = ocp.Context()
+        ctx.checkpointables.registry = registry
+        with ctx:
           loaded = ocp.load_checkpointables(self.directory / '0')
         self.assertSameElements(loaded.keys(), ['pytree', 'foo', 'bar'])
         test_utils.assert_tree_equal(
@@ -573,15 +569,12 @@ class CheckpointerTestBase:
 
     def test_load_with_switched_abstract_checkpointables(self):
       """Test load with switched abstract checkpointables."""
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      registry.add(handler_utils.BarHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       checkpointables = {
           'pytree': self.pytree,
           'foo': Foo(123, 'hi'),
@@ -602,15 +595,12 @@ class CheckpointerTestBase:
 
     def test_different_custom_checkpointables(self):
       """Test different custom checkpointables are saved and loaded."""
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      registry.add(handler_utils.BarHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       checkpointer = Checkpointer(self.directory)
       self.enter_context(checkpointer)
       self.save_checkpointables(checkpointer, 0, {'foo': Foo(123, 'hi')})
@@ -772,12 +762,9 @@ class CheckpointerTestBase:
       checkpointer.close()
 
     def test_gcs_deletion_options(self):
-      deletion_options = ocp.options.DeletionOptions(
-          gcs_deletion_options=ocp.options.DeletionOptions.GcsDeletionOptions(
-              todelete_full_path='trash'
-          )
-      )
-      with ocp.Context(deletion_options=deletion_options):
+      ctx = ocp.Context()
+      ctx.deletion.gcs_deletion_options.todelete_full_path = 'trash'
+      with ctx:
         checkpointer = Checkpointer(self.directory)
         self.assertEqual(
             checkpointer._manager._options.todelete_full_path, 'trash'
@@ -785,14 +772,9 @@ class CheckpointerTestBase:
 
 
     def test_context_constructor_override(self):
-      ctx1 = ocp.Context(
-          array_options=ocp.options.ArrayOptions(
-              saving=ocp.options.ArrayOptions.Saving(use_ocdbt=False)
-          ),
-          pytree_options=ocp.options.PyTreeOptions(
-              loading=ocp.options.PyTreeOptions.Loading(partial_load=True)
-          ),
-      )
+      ctx1 = ocp.Context()
+      ctx1.array.saving.use_ocdbt = False
+      ctx1.pytree.loading.partial_load = True
       checkpointer = Checkpointer(self.directory, context=ctx1)
       self.enter_context(checkpointer)
       self.save_pytree(checkpointer, 0, self.pytree)
@@ -818,11 +800,8 @@ class CheckpointerTestBase:
 
       with self.subTest('local_context_override'):
         # Override with local context setting use_ocdbt=True
-        ctx2 = ocp.Context(
-            array_options=ocp.options.ArrayOptions(
-                saving=ocp.options.ArrayOptions.Saving(use_ocdbt=True)
-            )
-        )
+        ctx2 = ocp.Context()
+        ctx2.array.saving.use_ocdbt = True
         with ctx2:
           self.save_pytree(checkpointer, 1, self.pytree)
 

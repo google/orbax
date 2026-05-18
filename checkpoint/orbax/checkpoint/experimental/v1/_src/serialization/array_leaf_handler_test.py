@@ -26,7 +26,6 @@ from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
@@ -126,27 +125,27 @@ class ArrayLeafHandlerTest(
         self.create_tempdir(f'tmp_{self._testMethodName}').full_path
     )
 
-    init_context = context_lib.Context(
-        array_options=options_lib.ArrayOptions(
-            saving=options_lib.ArrayOptions.Saving(
-                use_ocdbt=use_ocdbt,
-                use_zarr3=use_zarr3,
-                use_replica_parallel=use_replica_parallel,
-                enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
-                enable_pinned_host_transfer=enable_pinned_host_transfer,
-                use_compression=use_compression,
-                min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
-                max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
-            ),
-            loading=options_lib.ArrayOptions.Loading(),
-        ),
-        memory_options=options_lib.MemoryOptions(
-            write_concurrent_bytes=save_concurrent_bytes,
-            read_concurrent_bytes=load_concurrent_bytes,
-        ),
+    context = context_lib.Context()
+    context.array.saving.use_ocdbt = use_ocdbt
+    context.array.saving.use_zarr3 = use_zarr3
+    context.array.saving.use_replica_parallel = use_replica_parallel
+    context.array.saving.enable_replica_parallel_separate_folder = (
+        enable_replica_parallel_separate_folder
     )
+    context.array.saving.enable_pinned_host_transfer = (
+        enable_pinned_host_transfer
+    )
+    context.array.saving.use_compression = use_compression
+    context.array.saving.min_slice_bytes_for_replica_parallel = (
+        min_slice_bytes_for_replica_parallel
+    )
+    context.array.saving.max_replicas_for_replica_parallel = (
+        max_replicas_for_replica_parallel
+    )
+    context.memory.write_concurrent_bytes = save_concurrent_bytes
+    context.memory.read_concurrent_bytes = load_concurrent_bytes
 
-    with context_lib.get_context(init_context) as context:
+    with context:
 
       handler = array_leaf_handler.ArrayLeafHandler()
 

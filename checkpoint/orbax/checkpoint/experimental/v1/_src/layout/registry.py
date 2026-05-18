@@ -105,7 +105,8 @@ async def get_checkpoint_layout(
         f"Could not recognize the checkpoint at {path} as a valid"
         f" {layout_enum.value} checkpoint. If you are trying to load a"
         " checkpoint that does not conform to the standard Orbax format, use"
-        " `ocp.Context(layout=...)` to specify the expected checkpoint layout."
+        " `ctx.checkpoint_layout = ...` to specify the expected checkpoint"
+        " layout."
     ) from e
 
 

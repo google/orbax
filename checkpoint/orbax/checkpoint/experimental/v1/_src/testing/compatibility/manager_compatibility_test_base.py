@@ -292,11 +292,8 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
         name_format=name_format,
     )
     registry = self.setup_registry()
-    context = ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    )
+    context = ocp.Context()
+    context.checkpointables.registry = registry
     self.enter_context(context)
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)
@@ -346,11 +343,8 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
         name_format=name_format,
     )
     registry = self.setup_registry()
-    context = ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    )
+    context = ocp.Context()
+    context.checkpointables.registry = registry
     self.enter_context(context)
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)
@@ -403,11 +397,8 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
         name_format=name_format,
     )
     registry = self.setup_registry()
-    context = ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    )
+    context = ocp.Context()
+    context.checkpointables.registry = registry
     self.enter_context(context)
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)
@@ -447,11 +438,8 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
         name_format=name_format,
     )
     registry = self.setup_registry()
-    context = ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    )
+    context = ocp.Context()
+    context.checkpointables.registry = registry
     self.enter_context(context)
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)

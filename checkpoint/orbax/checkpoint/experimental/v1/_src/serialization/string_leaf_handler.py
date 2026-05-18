@@ -53,7 +53,9 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
     Args:
       context: Context that will be used for this leaf handler.
     """
-    self._context = context_lib.get_context(context)
+    self._context = (
+        context if context is not None else context_lib.get_context()
+    )
     self._filename = '_strings.json'
     logging.vlog(1, 'StringLeafHandler created.')
 
