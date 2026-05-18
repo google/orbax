@@ -541,9 +541,7 @@ class SaveLoadTestBase:
       }
 
       scoped_storage_options_creator = (
-          lambda k, v: ocp.options.ArrayOptions.Saving.StorageOptions(
-              dtype=save_dtype
-          )
+          lambda k, v, storage: setattr(storage, 'dtype', save_dtype)
       )
       with ocp.Context(
           array_options=ocp.options.ArrayOptions(
@@ -1176,15 +1174,12 @@ class SaveLoadTestBase:
 
       with self.subTest('per_key_setting'):
 
-        def scoped_storage_options_creator(key, value):
+        def scoped_storage_options_creator(key, value, storage):
           del value
           if 'a' in tree_utils.str_keypath(key):
-            return ocp.options.ArrayOptions.Saving.StorageOptions(
-                chunk_byte_size=4,  # force divide in 4 subchunks
-            )
-          return ocp.options.ArrayOptions.Saving.StorageOptions(
-              chunk_byte_size=8,  # force divide in 2 subchunks
-          )
+            storage.chunk_byte_size = 4  # force divide in 4 subchunks
+          else:
+            storage.chunk_byte_size = 8  # force divide in 2 subchunks
 
         with ocp.Context(
             array_options=ocp.options.ArrayOptions(

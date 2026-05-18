@@ -19,9 +19,26 @@ from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.serialization import options_resolution
+
+
+def cb_overriding_global(k, v, s):
+  s.dtype = np.int16
+
+
+def cb_overriding_all(k, v, s):
+  s.dtype = np.float32
+  s.chunk_byte_size = 32_000_000
+  s.shard_axes = (1,)
+
+
+def cb_jnp_converter(k, v, s):
+  s.dtype = jnp.bfloat16
+
+
+def cb_empty_axes(k, v, s):
+  s.shard_axes = ()
 
 
 class OptionsResolutionTest(parameterized.TestCase):
@@ -29,9 +46,7 @@ class OptionsResolutionTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='callback_overriding_global',
-          callback=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-              dtype=np.int16
-          ),
+          callback=cb_overriding_global,
           expected_storage_options=options_lib.ArrayOptions.Saving.StorageOptions(
               dtype=np.int16,
               chunk_byte_size=16_000_000,
@@ -40,11 +55,7 @@ class OptionsResolutionTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='callback_overriding_all',
-          callback=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-              dtype=np.float32,
-              chunk_byte_size=32_000_000,
-              shard_axes=(1,),
-          ),
+          callback=cb_overriding_all,
           expected_storage_options=options_lib.ArrayOptions.Saving.StorageOptions(
               dtype=np.float32,
               chunk_byte_size=32_000_000,
@@ -62,9 +73,7 @@ class OptionsResolutionTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='jnp_dtype_converter',
-          callback=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-              dtype=jnp.bfloat16,
-          ),
+          callback=cb_jnp_converter,
           expected_storage_options=options_lib.ArrayOptions.Saving.StorageOptions(
               dtype=jnp.bfloat16,
               chunk_byte_size=16_000_000,
@@ -73,9 +82,7 @@ class OptionsResolutionTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='empty_shard_axes_overrides_to_empty',
-          callback=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-              shard_axes=(),
-          ),
+          callback=cb_empty_axes,
           expected_storage_options=options_lib.ArrayOptions.Saving.StorageOptions(
               dtype=np.int32,
               chunk_byte_size=16_000_000,
@@ -95,21 +102,16 @@ class OptionsResolutionTest(parameterized.TestCase):
         shard_axes=(0,),
     )
 
-    context = context_lib.Context(
-        array_options=options_lib.ArrayOptions(
-            saving=options_lib.ArrayOptions.Saving(
-                storage_options=global_storage,
-                scoped_storage_options_creator=callback,
-            )
-        ),
+    saving_options = options_lib.ArrayOptions.Saving(
+        storage_options=global_storage,
+        scoped_storage_options_creator=callback,
     )
 
-    # Dummy param
     keypath = (jax.tree_util.DictKey(key='foo'),)
     value = np.ones((2, 2))
 
     resolved_options = options_resolution.resolve_storage_options(
-        keypath, value, context.array_options.saving
+        keypath, value, saving_options
     )
 
     self.assertEqual(resolved_options, expected_storage_options)
