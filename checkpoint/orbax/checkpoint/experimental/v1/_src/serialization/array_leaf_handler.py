@@ -119,7 +119,9 @@ def _create_v0_savearg(
   return type_handlers_v0.SaveArgs(
       dtype=jnp.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
+      shard_axes=storage_options.shard_axes
+      if storage_options.shard_axes is not None
+      else tuple(),
   )
 
 

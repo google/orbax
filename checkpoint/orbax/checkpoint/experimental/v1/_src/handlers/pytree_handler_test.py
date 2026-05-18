@@ -752,8 +752,8 @@ class PyTreeHandlerTest(
 
     with handler_with_options(
         use_ocdbt=False,
-        scoped_storage_options_creator=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
-            dtype=save_dtype
+        scoped_storage_options_creator=lambda k, v, storage: setattr(
+            storage, 'dtype', save_dtype
         ),
     ) as checkpoint_handler:
       checkpoint_handler.save(self.directory, pytree)
@@ -781,16 +781,16 @@ class PyTreeHandlerTest(
         dtype=np.int16
     )
 
-    # Callback returns empty options for some fields
-    def my_callback(k, v):
-      # For 'sharded.a' and 'sharded.c.e', return specific dtype.
-      # For others, return None, which should fall back to global_opts (int16).
+    # Callback mutates storage options for some fields
+    def my_callback(k, v, storage):
+      # For 'sharded.a' and 'sharded.c.e', set specific dtype.
+      # For others, do nothing, which should fall back to global_opts (int16).
       del v
       key_path_tuple = tuple(getattr(p, 'key', None) for p in k)
       if key_path_tuple == ('sharded', 'a'):
-        return options_lib.ArrayOptions.Saving.StorageOptions(dtype=np.int32)
+        storage.dtype = np.int32
       elif key_path_tuple == ('sharded', 'c', 'e'):
-        return options_lib.ArrayOptions.Saving.StorageOptions(dtype=np.float32)
+        storage.dtype = np.float32
       return None
 
     with handler_with_options(
@@ -1401,8 +1401,8 @@ class PyTreeHandlerTest(
 
     if use_per_key_options:
       scoped_storage_options_creator = (
-          lambda key, value: options_lib.ArrayOptions.Saving.StorageOptions(
-              chunk_byte_size=chunk_byte_size
+          lambda key, value, storage: setattr(
+              storage, 'chunk_byte_size', chunk_byte_size
           )
       )
       array_storage_options = None

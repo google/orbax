@@ -244,12 +244,9 @@ class ArrayOptions:
       import jax.numpy as jnp
       from orbax.checkpoint.v1 import options as ocp_options
 
-      def create_opts_fn(keypath, value):
+      def create_opts_fn(keypath, value, storage):
         if 'small' in jax.tree_util.keystr(keypath):
-          return ocp_options.ArrayOptions.Saving.StorageOptions(
-              dtype=jnp.float16
-          )
-        return None  # Fall back to global `storage_options`
+          storage.dtype = jnp.float16
 
       array_options = ocp_options.ArrayOptions(
           saving=ocp_options.ArrayOptions.Saving(
@@ -301,23 +298,10 @@ class ArrayOptions:
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
         ArrayMetadata persistence, set it to None.
       scoped_storage_options_creator: A function that, when dealing with
-        PyTrees, is applied to every leaf. If it returns an
-        :py:class:`ArrayOptions.Saving.StorageOptions`, its fields take
-        precedence when merging if they are set to non-None or non-default
-        values with respect to `storage_options`. If it returns `None`,
-        `storage_options` is used as a default for all fields. It is called
-        similar to: `jax.tree.map_with_path(scoped_storage_options_creator,
-        pytree_to_save)`.
+        PyTrees, is applied to every leaf to mutate storage options in-place.
     """
 
-    class ScopedStorageOptionsCreator(Protocol):
-
-      def __call__(
-          self, key: tree_types.PyTreeKeyPath, value: Any
-      ) -> ArrayOptions.Saving.StorageOptions | None:
-        ...
-
-    @dataclasses.dataclass(frozen=True, kw_only=True)
+    @dataclasses.dataclass(kw_only=True)
     class StorageOptions:
       """Options used to customize array storage behavior for individual leaves.
 
@@ -341,6 +325,27 @@ class ArrayOptions:
       dtype: np.typing.DTypeLike | None = None
       chunk_byte_size: int | None = None
       shard_axes: tuple[int, ...] | None = None
+
+    class ScopedStorageOptionsCreator(Protocol):
+      """A function that mutates storage options in-place based on the key and value."""
+
+      def __call__(
+          self,
+          key: tree_types.PyTreeKeyPath,
+          value: Any,
+          storage: ArrayOptions.Saving.StorageOptions,
+      ) -> None:
+        """Mutates storage options in-place based on the key and value.
+
+        Args:
+          key: The PyTreeKeyPath of the current leaf.
+          value: The value of the current leaf.
+          storage: The StorageOptions to be mutated.
+        Returns:
+          None. The mutation of StorageOptions is intended to be done in-place
+          through its attributes.
+        """
+        ...
 
     storage_options: StorageOptions = dataclasses.field(
         default_factory=StorageOptions
