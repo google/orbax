@@ -93,7 +93,7 @@ def get_key_name(key: Any) -> Union[int, str]:
   if isinstance(key, jax.tree_util.SequenceKey):
     return key.idx
   elif isinstance(key, jax.tree_util.DictKey):
-    return str(key.key)
+    return key.key
   elif isinstance(key, jax.tree_util.GetAttrKey):
     return key.name
   elif isinstance(key, jax.tree_util.FlattenedIndexKey):
