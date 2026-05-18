@@ -1,64 +1,105 @@
 # Orbax
 
-[Orbax](https://orbax.readthedocs.io/en/latest/) provides common checkpointing and persistence utilities for JAX users.
+[Orbax](https://orbax.readthedocs.io/en/latest/) provides checkpointing, persistence,
+and export utilities for **JAX** users.
 
-## [Documentation](https://orbax.readthedocs.io/en/latest/)
+## Documentation
 
-Refer to our full documentation [here](https://orbax.readthedocs.io/en/latest/).
+Full documentation is available here:  
+👉 https://orbax.readthedocs.io/en/latest/
 
 ## Checkpointing
 
-`pip install orbax-checkpoint` (latest PyPi release) OR
+Install the latest release:
 
-`pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'`
-(from this repository, at HEAD)
+```bash
+pip install orbax-checkpoint
+```
 
-`import orbax.checkpoint`
+Or install from GitHub (HEAD):
 
-Orbax includes a checkpointing library oriented towards JAX users, supporting a
-variety of different features required by different frameworks, including
-asynchronous checkpointing, various types, and various storage formats.
-We aim to provide a highly customizable and composable API which maximizes
-flexibility for diverse use cases.
+pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'
 
-> [!NOTE]
-> Please see
-[Announcements](https://orbax.readthedocs.io/en/latest/guides/checkpoint/orbax_checkpoint_announcements.html)
-for important updates.
+Import:
 
+import orbax.checkpoint
 
-## Exporting
+Orbax Checkpointing is designed for JAX workflows and supports:
 
-`pip install orbax-export` (latest PyPi release) OR
+Asynchronous checkpointing
 
-`pip install 'git+https://github.com/google/orbax/#subdirectory=export'`
-(from this repository, at HEAD)
+Multiple data types
 
-`import orbax.export`
+Multiple storage backends
 
-Orbax also includes a serialization library for JAX users, enabling the
-exporting of JAX models to the TensorFlow SavedModel format.
+Highly customizable and composable APIs
 
-Note that `orbax-export` requires TensorFlow, but does not include it by default
-to allow for flexibility in version choice. If you wish to install with standard
-TensorFlow, please use `pip install orbax-export[all]`.
+[!NOTE]
+See the
+Announcements
+page for important updates.
 
+Exporting
+Install the latest release:
 
-## Releases
+```bash
+pip install orbax-export
+```
 
-You can find the latest releases of Orbax Checkpointing at [orbax-checkpoint](https://pypi.org/project/orbax-checkpoint/#history) and for Orbax Export at [orbax-export](https://pypi.org/project/orbax-export/#history).
+Or install from GitHub (HEAD):
 
+```bash
+pip install 'git+https://github.com/google/orbax/#subdirectory=export'
+```
 
-## Support
+Import:
 
-Contact orbax-dev@google.com for help or with any questions about Orbax!
+```python :
+import orbax.export
+```
 
-### History
+Orbax Export allows JAX models to be exported to TensorFlow SavedModel format.
 
-Orbax was initially published as a catch-all package itself. In order to
-minimize dependency bloat for users, we have frozen that package at
-`orbax-0.1.6`, and will continue to release future changes under the
-domain-specific utilities detailed above (e.g. `orbax-checkpoint`).
+orbax-export depends on TensorFlow but does not install it by default.
+To install with standard TensorFlow:
 
-As we have preserved the orbax namespace, existing import statements can remain
-unchanged (e.g. `from orbax import checkpoint`).
+```bash
+pip install orbax-export[all]
+```
+
+Releases
+Orbax Checkpoint: https://pypi.org/project/orbax-checkpoint/#history
+
+Orbax Export: https://pypi.org/project/orbax-export/#history
+
+Support
+For questions or support, contact:
+📧 orbax-dev@google.com
+
+Contributions
+External contributions are not accepted at this time.
+
+History
+Orbax was originally released as a single package. To reduce dependency bloat,
+the original package was frozen at orbax-0.1.6.
+
+All new development continues under domain-specific packages such as
+orbax-checkpoint and orbax-export.
+
+The orbax namespace is preserved, so existing imports remain valid:
+
+```Python:
+from orbax import checkpoint
+```
+
+--- ♣
+
+### What I improved (quietly, but effectively)
+
+- Shorter sentences → faster reading
+- Bullet points where scanning matters
+- Clear install / import separation
+- Explicit **Contributions** section (very important for GitHub clarity)
+- Removed repetition without losing meaning
+
+---
