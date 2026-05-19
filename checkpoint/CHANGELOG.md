@@ -7,19 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.40] - 2026-05-18
+
 ### Removed
 
 - #v1 Remove numpy and pytorch layouts, as these are insecure and not worth the
 effort in maintaining. Safetensors is instead the recommended conversion case.
+- #v1 Remove `LeafHandler` as a user-exposed layer (it remains as an internal layer).
 
 ### Added
 
 - #v1 Allow a context to be default-configured for all `Checkpointer`
 operations.
 
-### Removed
+### Changed
 
-- #v1 Remove `LeafHandler` as a user-exposed layer (it remains as an internal layer).
+- Upgrade to TensorStore>=0.1.84 (and Python>=3.11 as a consequence.)
 
 ## [0.11.39] - 2026-05-06
 
