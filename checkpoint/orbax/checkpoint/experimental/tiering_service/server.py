@@ -14,25 +14,33 @@
 
 """Checkpoint Tiering Service (CTS) Server implementation."""
 
+import asyncio
 from collections.abc import Sequence
 from concurrent import futures
+import datetime
 import os
-import uuid
+import sys
 
 from absl import logging
+import fire
 import grpc
+from orbax.checkpoint.experimental.tiering_service import db_lib
+from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service import server_config
+from orbax.checkpoint.experimental.tiering_service import server_lib
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2_grpc
+import sqlalchemy
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
+import uvloop
 
-from google.protobuf import timestamp_pb2
-
-# TODO: b/503445654 - Internal dummy state for assets.
-# (to be replaced by SQL db)
-_assets_by_uuid: dict[str, tiering_service_pb2.Asset] = {}
 _BEARER_PREFIX = "Bearer "
 
 
-def _get_oauth_token(context: grpc.ServicerContext) -> str | None:
+async def _get_oauth_token(context: grpc.aio.ServicerContext) -> str | None:
   """Extracts OAuth token from gRPC metadata."""
   logging.debug("Extracting OAuth token from metadata")
   metadata = dict(context.invocation_metadata())
@@ -51,31 +59,7 @@ def _get_oauth_token(context: grpc.ServicerContext) -> str | None:
   return auth_header[len(_BEARER_PREFIX) :]
 
 
-def _get_asset(
-    request: (
-        tiering_service_pb2.PrefetchRequest
-        | tiering_service_pb2.DeleteRequest
-        | tiering_service_pb2.InfoRequest
-    ),
-) -> tiering_service_pb2.Asset | None:
-  """Retrieves an asset. Return None if it's not found.
-
-  Args:
-    request: A request containing either a UUID or a path.
-
-  Returns:
-    The matching Asset if found, or None.
-  """
-  if request.HasField("uuid"):
-    return _assets_by_uuid.get(request.uuid)
-  elif request.HasField("path"):
-    for asset in _assets_by_uuid.values():
-      if asset.path == request.path:
-        return asset
-  return None
-
-
-def _verify_gcs_permissions(
+async def _verify_gcs_permissions(
     token: str | None, path: str, permissions: Sequence[str]
 ) -> bool:
   """Verifies if the caller has necessary permissions on GCS."""
@@ -91,32 +75,48 @@ def _verify_gcs_permissions(
 class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
   """Servicer for the TieringService."""
 
-  def Reserve(
+  def __init__(self, config: server_config.ServerConfig):
+    super().__init__()
+    self._config = config
+    self._engine = db_lib.get_async_engine(self._config)
+    self._session_maker = sessionmaker(
+        self._engine,
+        # Prevent sync lazy-loading issues (MissingGreenlet) after commit.
+        expire_on_commit=False,
+        class_=AsyncSession,
+    )
+    self._level0_backends = None
+
+  async def _get_level0_backends(self, session: AsyncSession):
+    if self._level0_backends is None:
+      result = await session.execute(
+          select(db_schema.StorageBackend).filter_by(level=0)
+      )
+      self._level0_backends = result.scalars().all()
+    return self._level0_backends
+
+  async def _run_async_db(self, coro_fn):
+    async with self._session_maker() as session:
+      return await coro_fn(session)
+
+  async def Reserve(
       self,
       request: tiering_service_pb2.ReserveRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.ReserveResponse:
     """Reserves a new asset or looks up an existing one."""
     logging.info("Reserve requested for path: %s", request.path)
-    token = _get_oauth_token(context)
+    token = await _get_oauth_token(context)
 
     # Verify write permission to the target GCS path/managed folder
-    if not _verify_gcs_permissions(
+    if not await _verify_gcs_permissions(
         token, request.path, ["storage.objects.create"]
     ):
       logging.warning("Permission denied for Reserve on path: %s", request.path)
-      context.abort(
+      await context.abort(
           grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
       )
-      # context.abort raises an exception.
-
-    # TODO: b/503445654 - Ensure path is unique.
-
-    # TODO: b/503445654 - Fake a TierPath for now
-    asset_uuid = str(uuid.uuid4())
-    gcs_path = (
-        f"gs://checkpoint-tiering/{request.user}/{request.path}/{asset_uuid}"
-    )
+      return tiering_service_pb2.ReserveResponse()
 
     if not request.HasField("zone") and not request.HasField("region"):
       logging.error(
@@ -124,198 +124,471 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
           request.path,
           request.user,
       )
-      context.abort(
+      await context.abort(
           grpc.StatusCode.INVALID_ARGUMENT, "No zone or region specified"
       )
-      # context.abort raises an exception.
+      return tiering_service_pb2.ReserveResponse()
 
-    # TODO: b/503445654 - Tier 0 closest to the user.
-    now = timestamp_pb2.Timestamp()
-    now.GetCurrentTime()
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.ReserveResponse:
+      backends = await self._get_level0_backends(session)
+      backend = None
 
-    asset = tiering_service_pb2.Asset(
-        uuid=asset_uuid,
-        path=request.path,
-        user=request.user,
-        tags=request.tags,
-        state=tiering_service_pb2.ASSET_STATE_ACTIVE_WRITE,
-        created_at=now,
-        updated_at=now,
-    )
+      if request.HasField("zone"):
+        # Try match the exact zone
+        for b in backends:
+          if b.zone == request.zone:
+            backend = b
+            break
 
-    tp = asset.tier_paths.add(
-        path=gcs_path,
-        storage_backend=tiering_service_pb2.StorageBackend(
-            level=1,
-            backend_type=tiering_service_pb2.BACKEND_TYPE_GCS,
-        ),
-    )
-    if request.HasField("zone"):
-      tp.storage_backend.zone = request.zone
-    elif request.HasField("region"):
-      tp.storage_backend.region = request.region
+        # If no exact zone match, try to region to requestor zone
+        if not backend and not request.HasField("region"):
+          for b in backends:
+            if b.region and request.zone.startswith(b.region):
+              backend = b
+              break
+            if b.multi_regions and any(
+                request.zone.startswith(mr) for mr in b.multi_regions
+            ):
+              backend = b
+              break
 
-    _assets_by_uuid[asset_uuid] = asset
-    logging.info("Reserved asset with UUID: %s", asset_uuid)
-    logging.debug("Created asset: %s", asset)
-    return tiering_service_pb2.ReserveResponse(
-        asset=asset, keep_alive_interval_seconds=300
-    )
+      # Can't locate by zone, try to locate by region
+      if not backend and request.HasField("region"):
+        for b in backends:
+          if b.region == request.region:
+            backend = b
+            break
+          if b.multi_regions and request.region in b.multi_regions:
+            backend = b
+            break
 
-  def ReserveKeepAlive(
+      if not backend:
+        await context.abort(
+            grpc.StatusCode.INTERNAL,
+            f"No level 0 storage backend found for zone:{request.zone} /"
+            f" region:{request.region}",
+        )
+        return tiering_service_pb2.ReserveResponse()
+
+      db_asset = db_schema.Asset(
+          path=request.path,
+          user=request.user,
+          tags=list(request.tags) if request.tags else [],
+          state=db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE,
+          write_expires_at=datetime.datetime.now(datetime.timezone.utc).replace(
+              tzinfo=None
+          )
+          + self._config.client_keep_alive_interval,
+      )
+      storage_path = f"{backend.prefix.rstrip('/')}/{request.path.lstrip('/')}"
+      tp = db_schema.TierPath(
+          storage_backend=backend,
+          path=storage_path,
+      )
+      db_asset.tier_paths.append(tp)
+      try:
+        session.add(db_asset)
+        await session.commit()
+
+        # TODO(b/503445463): Trigger async directory creation
+      except IntegrityError:
+        await session.rollback()
+        logging.info(
+            "Reserve: Asset path already exists, fetching existing record: %s",
+            request.path,
+        )
+
+      stmt_fetch = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter_by(path=request.path)
+          .filter(
+              db_schema.Asset.state.in_([
+                  db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE,
+                  db_schema.AssetState.ASSET_STATE_STORED,
+              ])
+          )
+      )
+      result_fetch = await session.execute(stmt_fetch)
+      db_asset = result_fetch.scalars().first()
+      if not db_asset:
+        # this should rarely happen, we might need to add retry insertion
+        await context.abort(
+            grpc.StatusCode.INTERNAL, "Failed to retrieve reserved asset"
+        )
+        return tiering_service_pb2.ReserveResponse()
+
+      return tiering_service_pb2.ReserveResponse(
+          asset=server_lib.db_asset_to_proto(db_asset),
+          keep_alive_interval_seconds=int(
+              self._config.client_keep_alive_interval.total_seconds()
+          ),
+      )
+
+    return await self._run_async_db(_coro)
+
+  async def ReserveKeepAlive(
       self,
       request: tiering_service_pb2.ReserveKeepAliveRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.ReserveKeepAliveResponse:
     """Extends the writing timeout for an asset."""
     logging.info("ReserveKeepAlive requested for UUID: %s", request.uuid)
-    if request.uuid not in _assets_by_uuid:
-      logging.warning("ReserveKeepAlive: Asset not found: %s", request.uuid)
-      context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
-      # context.abort raises an exception.
 
-    # TODO: b/503445654 - Update the expiration timer
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.ReserveKeepAliveResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter_by(asset_uuid=request.uuid)
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
+      )
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if not db_asset:
+        logging.warning("ReserveKeepAlive: Asset not found: %s", request.uuid)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.ReserveKeepAliveResponse()
 
-    return tiering_service_pb2.ReserveKeepAliveResponse(
-        keep_alive_interval_seconds=300
-    )
+      db_asset.write_expires_at = (
+          datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+          + self._config.client_keep_alive_interval
+      )
+      await session.commit()
 
-  def Finalize(
+      return tiering_service_pb2.ReserveKeepAliveResponse(
+          keep_alive_interval_seconds=int(
+              self._config.client_keep_alive_interval.total_seconds()
+          ),
+      )
+
+    return await self._run_async_db(_coro)
+
+  async def Finalize(
       self,
       request: tiering_service_pb2.FinalizeRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.FinalizeResponse:
     """Finalizes an asset, moving it to STORED state."""
     logging.info("Finalize requested for UUID: %s", request.uuid)
-    token = _get_oauth_token(context)
+    token = await _get_oauth_token(context)
 
-    if request.uuid not in _assets_by_uuid:
-      logging.warning("Finalize: Asset not found: %s", request.uuid)
-      context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
-      # context.abort raises an exception.
-
-    asset = _assets_by_uuid[request.uuid]
-
-    # Verify write permission before finalizing
-    if not _verify_gcs_permissions(
-        token, asset.path, ["storage.objects.create"]
-    ):
-      logging.warning("Permission denied for Finalize on path: %s", asset.path)
-      context.abort(
-          grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.FinalizeResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter_by(asset_uuid=request.uuid)
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
       )
-      # context.abort raises an exception.
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if not db_asset:
+        logging.warning("Finalize: Asset not found: %s", request.uuid)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.FinalizeResponse()
 
-    if asset.state != tiering_service_pb2.ASSET_STATE_ACTIVE_WRITE:
-      logging.warning(
-          "Finalize: Asset %s not in ACTIVE_WRITE state", request.uuid
-      )
-      context.abort(
-          grpc.StatusCode.FAILED_PRECONDITION, "Asset not in ACTIVE_WRITE state"
-      )
-      # context.abort raises an exception.
+      # Verify write permission before finalizing
+      if not await _verify_gcs_permissions(
+          token, db_asset.path, ["storage.objects.create"]
+      ):
+        logging.warning(
+            "Permission denied for Finalize on path: %s", db_asset.path
+        )
+        await context.abort(
+            grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
+        )
+        return tiering_service_pb2.FinalizeResponse()
 
-    asset.state = tiering_service_pb2.ASSET_STATE_STORED
-    now = timestamp_pb2.Timestamp()
-    now.GetCurrentTime()
-    asset.updated_at.CopyFrom(now)
+      if db_asset.state != db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE:
+        logging.warning(
+            "Finalize: Asset %s not in ACTIVE_WRITE state", request.uuid
+        )
+        await context.abort(
+            grpc.StatusCode.FAILED_PRECONDITION,
+            "Asset not in ACTIVE_WRITE state",
+        )
+        return tiering_service_pb2.FinalizeResponse()
 
-    logging.info("Finalized asset with UUID: %s", request.uuid)
-    logging.debug("Finalized asset: %s", asset)
-    return tiering_service_pb2.FinalizeResponse(asset=asset)
+      db_asset.state = db_schema.AssetState.ASSET_STATE_STORED
+      db_asset.finalized_at = datetime.datetime.now(
+          datetime.timezone.utc
+      ).replace(tzinfo=None)
+      db_asset.write_expires_at = None
+      proto_asset = server_lib.db_asset_to_proto(db_asset)
+      await session.commit()
 
-  def Prefetch(
+      return tiering_service_pb2.FinalizeResponse(asset=proto_asset)
+
+    return await self._run_async_db(_coro)
+
+  async def Prefetch(
       self,
       request: tiering_service_pb2.PrefetchRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.PrefetchResponse:
     """Signals CTS to copy an asset to Tier 0 storage."""
     identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Prefetch requested for identifier: %s", identifier)
 
-    asset = _get_asset(request)
-    if not asset:
-      logging.warning("Prefetch: Asset not found: %s", identifier)
-      context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
-      # context.abort raises an exception.
-
     if not request.HasField("zone") and not request.HasField("region"):
       logging.error(
           "Prefetch: No location specified for identifier: %s", identifier
       )
-      context.abort(grpc.StatusCode.INVALID_ARGUMENT, "No location specified")
-      # context.abort raises an exception.
-    # TODO: b/503445654 - Trigger async copy to closest storage tier to user.
+      await context.abort(
+          grpc.StatusCode.INVALID_ARGUMENT, "No location specified"
+      )
+      return tiering_service_pb2.PrefetchResponse()
 
-    logging.info("Prefetch:  UUID: %s", request.uuid)
-    return tiering_service_pb2.PrefetchResponse(asset=asset)
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.PrefetchResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
+      )
+      if request.HasField("uuid"):
+        stmt = stmt.filter_by(asset_uuid=request.uuid)
+      elif request.HasField("path"):
+        stmt = stmt.filter_by(path=request.path).order_by(
+            db_schema.Asset.created_at.desc()
+        )
+      else:
+        await context.abort(
+            grpc.StatusCode.INVALID_ARGUMENT, "No identifier specified"
+        )
+        return tiering_service_pb2.PrefetchResponse()
 
-  def PrefetchKeepAlive(
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if not db_asset:
+        logging.warning("Prefetch: Asset not found: %s", identifier)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.PrefetchResponse()
+
+      # TODO: b/503445654 - Trigger async copy to closest storage tier to user.
+
+      logging.info("Prefetch: UUID: %s", db_asset.asset_uuid)
+      return tiering_service_pb2.PrefetchResponse(
+          asset=server_lib.db_asset_to_proto(db_asset)
+      )
+
+    return await self._run_async_db(_coro)
+
+  async def PrefetchKeepAlive(
       self,
       request: tiering_service_pb2.PrefetchKeepAliveRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.PrefetchKeepAliveResponse:
     """Signals that the client is still reading/waiting for promotion."""
     logging.info("PrefetchKeepAlive requested for UUID: %s", request.uuid)
-    if request.uuid not in _assets_by_uuid:
-      logging.warning("PrefetchKeepAlive: Asset not found: %s", request.uuid)
-      context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
-      # context.abort raises an exception.
 
-    logging.info("PrefetchKeepAlive: Handled for UUID: %s", request.uuid)
-    return tiering_service_pb2.PrefetchKeepAliveResponse(
-        keep_alive_interval_seconds=300
-    )
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.PrefetchKeepAliveResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter_by(asset_uuid=request.uuid)
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
+      )
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if not db_asset:
+        logging.warning("PrefetchKeepAlive: Asset not found: %s", request.uuid)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.PrefetchKeepAliveResponse()
 
-  def Delete(
+      logging.info("PrefetchKeepAlive: Handled for UUID: %s", request.uuid)
+      return tiering_service_pb2.PrefetchKeepAliveResponse(
+          asset=server_lib.db_asset_to_proto(db_asset),
+          keep_alive_interval_seconds=int(
+              self._config.client_keep_alive_interval.total_seconds()
+          ),
+      )
+
+    return await self._run_async_db(_coro)
+
+  async def Delete(
       self,
       request: tiering_service_pb2.DeleteRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.DeleteResponse:
     """Deletes an asset from CTS tracking."""
     identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Delete requested for identifier: %s", identifier)
 
-    asset = _get_asset(request)
-    if asset:
-      del _assets_by_uuid[asset.uuid]
-      logging.info("Deleted asset with UUID: %s", asset.uuid)
-    else:
-      logging.warning("Delete: Asset not found: %s", identifier)
-    return tiering_service_pb2.DeleteResponse()
+    async def _coro(
+        session: AsyncSession,
+    ) -> tiering_service_pb2.DeleteResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
+      )
+      if request.HasField("uuid"):
+        stmt = stmt.filter_by(asset_uuid=request.uuid)
+      elif request.HasField("path"):
+        stmt = stmt.filter_by(path=request.path).order_by(
+            db_schema.Asset.created_at.desc()
+        )
+      else:
+        await context.abort(
+            grpc.StatusCode.INVALID_ARGUMENT, "No identifier specified"
+        )
+        return tiering_service_pb2.DeleteResponse()
 
-  def Info(
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if db_asset:
+        db_asset.state = db_schema.AssetState.ASSET_STATE_DELETED
+        db_asset.deleted_at = datetime.datetime.now(
+            datetime.timezone.utc
+        ).replace(tzinfo=None)
+        await session.commit()
+        logging.info("Deleted asset with UUID: %s", db_asset.asset_uuid)
+      else:
+        logging.warning("Delete: Asset not found: %s", identifier)
+      return tiering_service_pb2.DeleteResponse()
+
+    return await self._run_async_db(_coro)
+
+  async def Info(
       self,
       request: tiering_service_pb2.InfoRequest,
-      context: grpc.ServicerContext,
+      context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.InfoResponse:
     """Returns metadata about an asset."""
     identifier = request.uuid if request.HasField("uuid") else request.path
     logging.info("Info requested for identifier: %s", identifier)
 
-    asset = _get_asset(request)
-    if not asset:
-      logging.warning("Info: Asset not found: %s", identifier)
-      context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
-      # context.abort raises an exception.
+    async def _coro(session: AsyncSession) -> tiering_service_pb2.InfoResponse:
+      stmt = (
+          select(db_schema.Asset)
+          .options(
+              sqlalchemy.orm.selectinload(
+                  db_schema.Asset.tier_paths
+              ).selectinload(db_schema.TierPath.storage_backend)
+          )
+          .filter(
+              db_schema.Asset.state != db_schema.AssetState.ASSET_STATE_DELETED
+          )
+      )
+      if request.HasField("uuid"):
+        stmt = stmt.filter_by(asset_uuid=request.uuid)
+      elif request.HasField("path"):
+        stmt = stmt.filter_by(path=request.path).order_by(
+            db_schema.Asset.created_at.desc()
+        )
+      else:
+        await context.abort(
+            grpc.StatusCode.INVALID_ARGUMENT, "No identifier specified"
+        )
+        return tiering_service_pb2.InfoResponse()
 
-    logging.debug("Returning info for asset: %s", asset)
-    return tiering_service_pb2.InfoResponse(asset=asset)
+      result = await session.execute(stmt)
+      db_asset = result.scalars().first()
+      if not db_asset:
+        logging.warning("Info: Asset not found: %s", identifier)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.InfoResponse()
+
+      logging.debug("Returning info for asset: %s", db_asset)
+      return tiering_service_pb2.InfoResponse(
+          asset=server_lib.db_asset_to_proto(db_asset)
+      )
+
+    return await self._run_async_db(_coro)
 
 
-def serve() -> None:
-  """Starts the gRPC server."""
-  server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-  tiering_service_pb2_grpc.add_TieringServiceServicer_to_server(
-      TieringServiceServicer(), server
-  )
+async def setup_storage_backends(
+    config: tiering_service_pb2.ServerConfig,
+) -> None:
+  """Initializes the database if uninitialized, otherwise verifies it matches configuration."""
+  if not await db_lib.async_is_db_initialized(config):
+    await db_lib.async_initialize_db(config)
+  else:
+    await db_lib.async_verify_db(config)
+  # TODO(b/503445463): Start background garbage collection task to handle
+  # expired assets.
 
-  server_creds = os.environ.get("SERVER_CREDS")  # pylint: disable=unused-variable
 
-  server.add_secure_port("[::]:50051", server_creds)
-  server.start()
-  server.wait_for_termination()
+class CtsServer:
+  """Checkpoint Tiering Service (CTS) Server CLI."""
+
+  async def serve(self, yaml_path: str) -> None:
+    """Starts the gRPC server.
+
+    Args:
+      yaml_path: Path to the YAML configuration file.
+    """
+    config = server_config.load_config(yaml_path)
+    await setup_storage_backends(config)
+
+    server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
+    tiering_service_pb2_grpc.add_TieringServiceServicer_to_server(
+        TieringServiceServicer(), server
+    )
+
+    server_creds = os.environ.get("SERVER_CREDS")  # pylint: disable=unused-variable
+
+    server.add_secure_port("[::]:50051", server_creds)
+    await server.start()
+    await server.wait_for_termination()
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+  """Main entry point for CTS server."""
+  if argv is None:
+    argv = sys.argv
+  uvloop.install()
+  try:
+    asyncio.get_event_loop()
+  except RuntimeError:
+    # Create the high-performance uvloop instead
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+  fire.Fire(CtsServer, command=argv[1:])
 
 
 if __name__ == "__main__":
-  serve()
+  main()

@@ -99,14 +99,21 @@ class Asset(Base):
       sqlalchemy.Enum(AssetState), default=AssetState.ASSET_STATE_UNSPECIFIED
   )
   created_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  finalized_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
-  deleted_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  finalized_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  deleted_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  write_expires_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
   updated_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       onupdate=sqlalchemy.sql.func.now(),
       nullable=False,
@@ -159,6 +166,7 @@ class StorageBackend(Base):
     region: The region where the storage backend resides.
     multi_regions: A list of regions forming a multi-region deployment.
     backend_type: The type of storage (e.g., Lustre, GCS).
+    prefix: Storage backend prefix (e.g., gs://bucket-name, /mnt/lustre/).
     tier_paths: Relationship to the TierPath objects utilizing this backend.
   """
 
@@ -174,6 +182,7 @@ class StorageBackend(Base):
   backend_type = sqlalchemy.Column(
       sqlalchemy.Enum(BackendType), default=BackendType.BACKEND_TYPE_UNSPECIFIED
   )
+  prefix = sqlalchemy.Column(sqlalchemy.String, nullable=False)
 
   tier_paths = sqlalchemy.orm.relationship(
       "TierPath", back_populates="storage_backend", cascade="all, delete-orphan"
@@ -199,8 +208,9 @@ class StorageBackend(Base):
     else:
       location = "None"
     return (
-        f"StorageBackend(id={self.id}, level={self.level}, "
-        f"backend_type={self.backend_type.name!r}, {location})"
+        f"StorageBackend(id={self.id}, level={self.level},"
+        f" backend_type={self.backend_type.name!r}, prefix={self.prefix!r},"
+        f" {location})"
     )
 
   def validate_pre_commit(self) -> None:
@@ -308,8 +318,12 @@ class TierPath(Base):
       nullable=False,
   )
   path = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-  ready_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
-  expires_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  ready_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  expires_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="tier_paths")
   storage_backend = sqlalchemy.orm.relationship(
@@ -380,11 +394,13 @@ class AssetJob(Base):
   )
 
   created_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  completed_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  completed_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="jobs")
   target_tier_path = sqlalchemy.orm.relationship("TierPath")

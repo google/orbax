@@ -36,6 +36,7 @@ message StorageBackend {
     MultipleRegions multi_regions = 5;  // e.g. GCS (dual/multi-regions)
   }
   BackendType backend_type = 6;
+  string prefix = 7;  // GCS bucket name or Lustre mount point.
 }
 
 message TierPath {
@@ -73,10 +74,8 @@ message ReserveRequest {
   string path = 1;
   repeated string tags = 2;
   string user = 3;
-  oneof location {
-    string zone = 4;
-    string region = 5;
-  }
+  string zone = 4;
+  string region = 5;
 }
 
 message ReserveResponse {
@@ -106,10 +105,8 @@ message PrefetchRequest {
     string uuid = 1;
     string path = 2;
   }
-  oneof location {
-    string zone = 3;
-    string region = 4;
-  }
+  string zone = 3;
+  string region = 4;
 }
 
 message PrefetchResponse {
@@ -144,6 +141,12 @@ message InfoRequest {
 
 message InfoResponse {
   Asset asset = 1;
+}
+
+message ServerConfig {
+  int64 client_keep_alive_interval_seconds = 1 [default = 1800];
+  string db_connection_str = 2 [default = "sqlite+aiosqlite:///:memory:"];
+  repeated StorageBackend storage_backends = 3;
 }
 
 service TieringService {
