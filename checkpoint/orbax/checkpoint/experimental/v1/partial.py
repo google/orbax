@@ -17,7 +17,7 @@
 # pylint: disable=g-importing-member, unused-import, g-multiple-import
 
 from orbax.checkpoint.experimental.v1._src.partial.saving import (
-    save_pytree,
-    save_pytree_async,
+    save,
+    save_async,
     finalize,
 )

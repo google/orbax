@@ -8,6 +8,6 @@
 
 Saving
 ------------------------------------------------------------
-.. autofunction:: save_pytree
-.. autofunction:: save_pytree_async
+.. autofunction:: save
+.. autofunction:: save_async
 .. autofunction:: finalize

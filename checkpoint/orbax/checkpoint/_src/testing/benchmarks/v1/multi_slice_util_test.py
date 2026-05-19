@@ -56,7 +56,7 @@ class MultiSliceUtilTest(parameterized.TestCase):
     # Setup real checkpoint and sharding config
     pytree = {'a': jnp.arange(32), 'b': {'c': jnp.ones((8, 8))}}
     ref_ckpt_path = self.directory / 'ref_ckpt'
-    ocp.save_pytree(ref_ckpt_path, pytree)
+    ocp.save(ref_ckpt_path, pytree)
 
     sharding_config = {
         'a': {

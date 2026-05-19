@@ -27,6 +27,7 @@ from orbax.checkpoint.experimental.v1._src.path import types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 SafetensorsLayout = safetensors_layout.SafetensorsLayout
 np_save_file = safetensors.numpy.save_file
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
@@ -55,7 +56,7 @@ class SafetensorsLayoutTest(
         self.safetensors_path,
         metadata=self.custom_metadata,
     )
-    saving.save_pytree(self.orbax_path, self.object_to_save)
+    saving.save(self.orbax_path, self.object_to_save)
 
   async def test_valid_safetensors_checkpoint(self):
     layout = SafetensorsLayout()
@@ -103,7 +104,7 @@ class SafetensorsLayoutTest(
 
     # Load the checkpoint
     layout = SafetensorsLayout()
-    restore_fn = await layout.load_pytree(test_path)
+    restore_fn = await layout.load(test_path)
     pytree = await restore_fn
 
     # Verify restored data
@@ -129,7 +130,7 @@ class SafetensorsLayoutTest(
           return_value=incomplete_dtypes,
           spec=True,
       ):
-        awaitable_fn = await layout.load_pytree(self.safetensors_path)
+        awaitable_fn = await layout.load(self.safetensors_path)
         _ = await awaitable_fn
 
   async def test_metadata(self):
@@ -139,7 +140,7 @@ class SafetensorsLayoutTest(
     self.assertEqual(
         metadata.metadata,
         {
-            checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: {
+            STATE_CHECKPOINTABLE_KEY: {
                 'b': jax.ShapeDtypeStruct(shape=(3,), dtype=np.float32),
                 'a': jax.ShapeDtypeStruct(shape=(9,), dtype=np.int32),
             }
@@ -194,7 +195,7 @@ class SafetensorsLayoutDirectoryTest(
 
   async def test_load_directory(self):
     layout = SafetensorsLayout()
-    restore_fn = await layout.load_pytree(self.checkpoint_dir)
+    restore_fn = await layout.load(self.checkpoint_dir)
     pytree = await restore_fn
     np.testing.assert_array_equal(pytree['a'], self.data1['a'])
     np.testing.assert_array_equal(pytree['b'], self.data2['b'])
@@ -204,7 +205,7 @@ class SafetensorsLayoutDirectoryTest(
   async def test_metadata_directory(self):
     layout = SafetensorsLayout()
     metadata = await layout.metadata(self.checkpoint_dir)
-    pytree_meta = metadata.metadata[checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+    pytree_meta = metadata.metadata[STATE_CHECKPOINTABLE_KEY]
     self.assertIn('a', pytree_meta)
     self.assertIn('b', pytree_meta)
     self.assertIn('c', pytree_meta)
@@ -226,9 +227,7 @@ class SafetensorsLayoutDirectoryTest(
         'c': jax.ShapeDtypeStruct(shape=(2,), dtype=np.int32),
         'd': jax.ShapeDtypeStruct(shape=(2,), dtype=np.float32),
     }
-    restore_fn = await layout.load_pytree(
-        self.checkpoint_dir, abstract_pytree=tree
-    )
+    restore_fn = await layout.load(self.checkpoint_dir, abstract_state=tree)
     pytree = await restore_fn
     self.assertLen(pytree, 4)
     np.testing.assert_array_equal(pytree['a'], self.data1['a'])
@@ -252,9 +251,7 @@ class SafetensorsLayoutDirectoryTest(
             shape=(2,), dtype=np.int32, sharding=sharding
         ),
     }
-    restore_fn = await layout.load_pytree(
-        self.checkpoint_dir, abstract_pytree=tree
-    )
+    restore_fn = await layout.load(self.checkpoint_dir, abstract_state=tree)
     pytree = await restore_fn
     self.assertLen(pytree, 2)
     np.testing.assert_array_equal(
@@ -270,9 +267,7 @@ class SafetensorsLayoutDirectoryTest(
         'a': jax.ShapeDtypeStruct(shape=(2,), dtype=np.int32),
         'c': jax.ShapeDtypeStruct(shape=(2,), dtype=np.int32),
     }
-    restore_fn = await layout.load_pytree(
-        self.checkpoint_dir, abstract_pytree=tree
-    )
+    restore_fn = await layout.load(self.checkpoint_dir, abstract_state=tree)
     pytree = await restore_fn
     self.assertLen(pytree, 2)
     self.assertIn('a', pytree)
@@ -286,9 +281,7 @@ class SafetensorsLayoutDirectoryTest(
         'a': jax.ShapeDtypeStruct(shape=(2,), dtype=np.int32),
         'b': jax.ShapeDtypeStruct(shape=(2,), dtype=np.float32),
     }
-    restore_fn = await layout.load_pytree(
-        self.checkpoint_dir, abstract_pytree=tree
-    )
+    restore_fn = await layout.load(self.checkpoint_dir, abstract_state=tree)
     pytree = await restore_fn
     self.assertLen(pytree, 2)
     self.assertIn('a', pytree)
@@ -301,9 +294,7 @@ class SafetensorsLayoutDirectoryTest(
     tree = {
         'e': jax.ShapeDtypeStruct(shape=(2,), dtype=np.int32),
     }
-    restore_fn = await layout.load_pytree(
-        self.checkpoint_dir, abstract_pytree=tree
-    )
+    restore_fn = await layout.load(self.checkpoint_dir, abstract_state=tree)
     with self.assertRaisesRegex(KeyError, "Tensor 'e' not found"):
       await restore_fn
 

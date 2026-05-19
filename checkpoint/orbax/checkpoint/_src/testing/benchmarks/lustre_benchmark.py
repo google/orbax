@@ -126,12 +126,12 @@ class LustreBenchmark(benchmarks_core.BenchmarksGenerator):
       resolved_path: str = self._client.resolve(self._xid, step)
       assert resolved_path.startswith(LUSTRE_PATH_PREFIX), resolved_path
     with metrics.measure("save_cache", metrics_to_measure):
-      ocp.save_pytree(resolved_path, context.pytree)
+      ocp.save(resolved_path, context.pytree)
     with metrics.measure("finalize_cache", metrics_to_measure):
       self._client.finalize(self._xid, step)
 
     with metrics.measure("save", metrics_to_measure):
-      ocp.save_pytree(context.path / str(step), context.pytree)
+      ocp.save(context.path / str(step), context.pytree)
 
     abstract_pytree = jax.tree.map(
         ocp.arrays.to_shape_dtype_struct, context.pytree
@@ -148,12 +148,14 @@ class LustreBenchmark(benchmarks_core.BenchmarksGenerator):
       with metrics.measure("wait_prefetch_cache", metrics_to_measure):
         self._client.await_transfer(self._xid, step - 1)
       with metrics.measure("restore_cache", metrics_to_measure):
-        restored_pytree = ocp.load_pytree(resolved_path, abstract_pytree)
+        restored_pytree = ocp.load(
+            resolved_path, abstract_state=abstract_pytree
+        )
       restored_pytree = self._clear_pytree(restored_pytree)
       del restored_pytree
       with metrics.measure("restore", metrics_to_measure):
-        restored_pytree = ocp.load_pytree(
-            context.path / str(step), abstract_pytree
+        restored_pytree = ocp.load(
+            context.path / str(step), abstract_state=abstract_pytree
         )
       restored_pytree = self._clear_pytree(restored_pytree)
       del restored_pytree

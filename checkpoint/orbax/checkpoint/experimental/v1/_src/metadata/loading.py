@@ -29,13 +29,13 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 CheckpointMetadata = metadata_types.CheckpointMetadata
 InvalidLayoutError = errors.InvalidLayoutError
 PyTreeMetadata = metadata_types.PyTreeMetadata
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 AbstractCheckpointable = handler_types.AbstractCheckpointable
 
 
-def pytree_metadata(
+def metadata(
     path: path_types.PathLike,
     checkpointable_name: str | None = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
 ) -> CheckpointMetadata[PyTreeMetadata]:
@@ -54,7 +54,7 @@ def pytree_metadata(
 
   For example::
 
-    metadata = ocp.pytree_metadata(path)  # CheckpointMetadata[PyTreeMetadata]
+    metadata = ocp.metadata(path)  # CheckpointMetadata[PyTreeMetadata]
     metadata.metadata # PyTreeMetadata
     metadata.init_timestamp_nsecs  # Checkpoint creation timestamp.
 
@@ -62,8 +62,8 @@ def pytree_metadata(
 
   The metadata can then be used to inform checkpoint loading. For example::
 
-    metadata = ocp.pytree_metadata(path)
-    restored = ocp.load_pytree(path, metadata)
+    metadata = ocp.metadata(path)
+    restored = ocp.load(path, metadata)
 
     # Load with altered properties.
     def _get_abstract_array(arr):
@@ -75,7 +75,7 @@ def pytree_metadata(
     metadata = dataclasses.replace(metadata,
           metadata=jax.tree.map(_get_abstract_array, metadata.metadata)
     )
-    ocp.load_pytree(path, metadata)
+    ocp.load(path, metadata)
 
   Args:
     path: The path to the checkpoint.
@@ -87,8 +87,8 @@ def pytree_metadata(
       dynamically discovers and resolves a pytree checkpointable. It prioritizes
       the standard 'pytree' checkpointable name if present, then sorts any other
       valid pytree checkpointable names alphabetically and returns the first
-      valid one, and ultimately falls back to interpreting the path as a flat
-      V0 root layout if no standard pytree exists.
+      valid one, and ultimately falls back to interpreting the path as a flat V0
+      root layout if no standard pytree exists.
 
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
@@ -111,12 +111,12 @@ def pytree_metadata(
   # the composite handler into the layout themselves.
   step_metadata = _checkpointables_metadata_impl(layout, path)
   if resolved_name is None:
-    metadata = step_metadata.metadata
+    tree_metadata = step_metadata.metadata
   else:
-    metadata = step_metadata.metadata[resolved_name]
+    tree_metadata = step_metadata.metadata[resolved_name]
   return CheckpointMetadata[PyTreeMetadata](
       path=path,
-      metadata=metadata,
+      metadata=tree_metadata,
       init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
       commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
       custom_metadata=step_metadata.custom_metadata,

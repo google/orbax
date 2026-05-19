@@ -7,7 +7,7 @@ Checkpoint Loading
 
 Loading functions
 ------------------------------------------------------------
-.. autofunction:: load_pytree
+.. autofunction:: load
 .. autofunction:: load_checkpointables
-.. autofunction:: load_pytree_async
+.. autofunction:: load_async
 .. autofunction:: load_checkpointables_async

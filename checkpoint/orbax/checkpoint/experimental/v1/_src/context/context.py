@@ -73,7 +73,7 @@ class Context(epy.ContextManager):
 
       # Basic usage
       with ocp.Context(pytree_options=ocp.options.PyTreeOptions()):
-        ocp.save_pytree(directory, tree)
+        ocp.save(directory, tree)
 
       # Inheriting properties from an existing context
       with ocp.Context(pytree_options=ocp.options.PyTreeOptions()) as outer_ctx:
@@ -81,7 +81,7 @@ class Context(epy.ContextManager):
         with ocp.Context(outer_ctx,
             array_options=ocp.options.ArrayOptions()
             ) as inner_ctx:
-          ocp.save_pytree(directory, tree)
+          ocp.save(directory, tree)
 
     Context is not shared across threads::
 
@@ -92,9 +92,9 @@ class Context(epy.ContextManager):
       with ocp.Context(
           pytree_options=ocp.options.PyTreeOptions()
       ):  # Thread #1 creates Context.
-        # The following save_pytree call is executed in Thread #2, which sees
+        # The following save call is executed in Thread #2, which sees
         # a "default" Context, NOT the one created above.
-        executor.submit(ocp.save_pytree, directory, tree)
+        executor.submit(ocp.save, directory, tree)
 
 
   Attributes:

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for V1 load_pytree API against generated V0 and V1 Checkpoints."""
+"""Tests for V1 load API against generated V0 and V1 Checkpoints."""
 
 import os
 from typing import Tuple, Type
@@ -33,6 +33,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout_lib.STATE_CHECKPOINTABLE_KEY
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 
@@ -41,7 +42,7 @@ _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
 class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
-  """Tests for V1 load_pytree API against generated Checkpoints."""
+  """Tests for V1 load API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -100,11 +101,14 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
       else:
         registry.add(ocp.handlers.PyTreeHandler, checkpointable_name=path.name)
 
-    if pytree_registered:
+    if pytree_registered and not registry.has(STATE_CHECKPOINTABLE_KEY):
       # Register to scoped 'pytree' handler for fallback resolution.
       # Note this should standardly be present, though testing its presence to
       # ensure resolution works as expected without always relying on it.
-      registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='pytree')
+      registry.add(
+          ocp.handlers.PyTreeHandler,
+          checkpointable_name=STATE_CHECKPOINTABLE_KEY,
+      )
 
     return registry
 
@@ -174,8 +178,9 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
       return (
           registration.NoEntryError,
           (
-              r'Could not resolve a handler for .* and no \'pytree\' handler'
-              r' found in .*'
+              r'Could not resolve a handler for .* and no \''
+              + STATE_CHECKPOINTABLE_KEY
+              + r'\' handler found in .*'
           ),
       )
 
@@ -192,7 +197,7 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
       handler_registered=[True, False],
       pytree_registered=[True, False],
   )
-  def test_load_pytree_compatibility(
+  def test_load_compatibility(
       self,
       version: str,
       checkpointable_name: str | None,
@@ -204,13 +209,13 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
       handler_registered: bool,
       pytree_registered: bool,
   ) -> None:
-    """Tests load_pytree against various checkpoint configurations.
+    """Tests load against various checkpoint configurations.
 
     Args:
       version: The checkpoint version to test against.
       checkpointable_name: The name of the checkpointable to load.
       abstract_pytree_provided: Whether an abstract pytree is provided to
-        ocp.load_pytree.
+        ocp.load.
       name_registered: Whether a handler is registered for the
         checkpointable_name.
       metadata_present: Whether the checkpoint has metadata.
@@ -263,18 +268,18 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
         )
     ):
       if error_type is None:
-        loaded = ocp.load_pytree(
+        loaded = ocp.load(
             path,
             checkpointable_name=checkpointable_name,
-            abstract_pytree=actual_abstract_pytree,
+            abstract_state=actual_abstract_pytree,
         )
         test_utils.assert_tree_equal(self, loaded, self.expected_state)
       else:
         with self.assertRaisesRegex(error_type, expected_error_msg):
-          ocp.load_pytree(
+          ocp.load(
               path,
               checkpointable_name=checkpointable_name,
-              abstract_pytree=actual_abstract_pytree,
+              abstract_state=actual_abstract_pytree,
           )
 
   @parameterized.product(
@@ -290,10 +295,10 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
           'missing_pytree_data_file__sharding',
       ],
   )
-  def test_load_pytree_non_critical_corruptions(
+  def test_load_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
-    """Tests load_pytree against checkpoints with non-critical corruptions.
+    """Tests load against checkpoints with non-critical corruptions.
 
     Args:
       version: The version of the checkpoint to load.
@@ -305,8 +310,8 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
         'non_critical_metadata_alterations',
         alteration,
     )
-    loaded = ocp.load_pytree(
-        path, abstract_pytree=self.abstract_state, checkpointable_name='state'
+    loaded = ocp.load(
+        path, abstract_state=self.abstract_state, checkpointable_name='state'
     )
     test_utils.assert_tree_equal(self, loaded, self.expected_state)
 
@@ -317,10 +322,10 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
           'missing_pytree_data_dir_d',
       ],
   )
-  def test_load_pytree_critical_corruptions(
+  def test_load_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
-    """Tests load_pytree against checkpoints with critical corruptions.
+    """Tests load against checkpoints with critical corruptions.
 
     Args:
       version: The version of the checkpoint to load.
@@ -335,17 +340,17 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
     error_type = ValueError
     error_msg = r'Error opening .* driver:'
     with self.assertRaisesRegex(error_type, error_msg):
-      ocp.load_pytree(
+      ocp.load(
           path,
           checkpointable_name='state',
-          abstract_pytree=self.abstract_state,
+          abstract_state=self.abstract_state,
       )
 
   @parameterized.product(
       version=['v0', 'v1'],
   )
   def test_load_incorrect_path(self, version: str) -> None:
-    """Tests load_pytree against checkpoints with incorrect paths.
+    """Tests load against checkpoints with incorrect paths.
 
     Args:
       version: The version of the checkpoint to test against.
@@ -363,12 +368,12 @@ class LoadPytreeCompatibilityTestBase(parameterized.TestCase):
         InvalidLayoutError,
         r'Could not recognize the checkpoint at .* as a valid Orbax checkpoint'
     ):
-      ocp.load_pytree(child_path, checkpointable_name='state')
+      ocp.load(child_path, checkpointable_name='state')
     with self.assertRaisesRegex(
         InvalidLayoutError,
         r'Could not recognize the checkpoint at .* as a valid Orbax checkpoint'
     ):
-      ocp.load_pytree(parent_path, checkpointable_name='state')
+      ocp.load(parent_path, checkpointable_name='state')
 
 
 if __name__ == '__main__':

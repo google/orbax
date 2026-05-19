@@ -39,7 +39,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import types as async
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 AUTO_CHECKPOINTABLE_KEY = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY
 AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeaf]
 CheckpointMetadata = metadata_types.CheckpointMetadata
@@ -102,9 +102,9 @@ def _standardize_abstract_checkpointables(abstract_checkpointables):
   return abstract_checkpointables
 
 
-def load_pytree(
+def load(
     path: path_types.PathLike,
-    abstract_pytree: (
+    abstract_state: (
         AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
     *,
@@ -119,25 +119,25 @@ def load_pytree(
   This function must be called on all available controller processes.
 
   The operation blocks until complete. For improved performance, consider using
-  :py:func:`.load_pytree_async` instead.
+  :py:func:`.load_async` instead.
 
-  If `abstract_pytree` is not provided, the `PyTree` will be loaded exactly as
+  If `abstract_state` is not provided, the `PyTree` will be loaded exactly as
   saved.
 
   IMPORTANT: Loading is more brittle and error-prone when not providing
-  `abstract_pytree`. Always provide `abstract_pytree` if possible. Note that
+  `abstract_state`. Always provide `abstract_state` if possible. Note that
   you can always obtain the tree structure from a saved checkpoint using
-  :py:func:`.pytree_metadata`.
+  :py:func:`.metadata`.
 
-  Providing the `abstract_pytree` guarantees two things:
+  Providing the `abstract_state` guarantees two things:
 
-  1. The restored tree will exactly match the structure of `abstract_pytree` (or
+  1. The restored tree will exactly match the structure of `abstract_state` (or
   raise an error if it is impossible to guarantee this). For example, if
-  `abstract_pytree` is a custom object registered as a `PyTree`, the checkpoint
+  `abstract_state` is a custom object registered as a `PyTree`, the checkpoint
   will be restored as the same object, if possible.
 
   2. The leaves of the restored tree will be restored with the properties
-  indicated by the abstract leaves. For example, if a leaf in `abstract_pytree`
+  indicated by the abstract leaves. For example, if a leaf in `abstract_state`
   is a `jax.ShapeDtypeStruct`, the restored leaf will be a `jax.Array` with the
   same shape and `dtype`. Each `AbstractLeaf` has a corresponding `Leaf`
   that is restored. See `orbax.checkpoint.v1.tree` for a table
@@ -150,26 +150,26 @@ def load_pytree(
       path = '/tmp/my_checkpoint'
 
       # Save a checkpoint
-      pytree = {'a': jnp.arange(8), 'b': jnp.zeros(4)}
-      ocp.save_pytree(path, pytree)
+      state = {'a': jnp.arange(8), 'b': jnp.zeros(4)}
+      ocp.save(path, state)
 
       # Load the checkpoint
       # Highly recommended to provide the abstract pytree (structure/shapes)
-      abstract_pytree = jax.eval_shape(lambda: pytree)
+      abstract_state = jax.eval_shape(lambda: state)
 
       # Method A: Load using the abstract structure.
       # This automatically looks for the 'pytree' subdirectory inside 'path'.
-      restored = ocp.load_pytree(path, abstract_pytree)
+      restored = ocp.load(path, abstract_state)
 
       # Method B: Infer structure from file (Not recommended for production use)
       # cases or for complex trees.
-      restored_inferred = ocp.load_pytree(path)
+      restored_inferred = ocp.load(path)
 
   Args:
     path: The path to load the checkpoint from. This path must contain a
       subdirectory with name provided by `checkpointable_name`. See
       `checkpointable_name` for more details.
-    abstract_pytree: Provides a tree structure for the checkpoint to be restored
+    abstract_state: Provides a tree structure for the checkpoint to be restored
       into. May be omitted to load exactly as saved, but this is much more
       brittle than providing the tree.
     checkpointable_name: The name of the checkpointable to load. A subdirectory
@@ -193,7 +193,7 @@ def load_pytree(
       async_origin=False,
   ).record_start()
 
-  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
+  abstract_state = _standardize_abstract_checkpointables(abstract_state)
   validation.validate_pytree_checkpointable_name(checkpointable_name)
 
   ctx = context_lib.get_context()
@@ -207,10 +207,10 @@ def load_pytree(
   loaded_pytree = _load_impl(
       path,
       functools.partial(
-          resolver.layout.load_pytree,
+          resolver.layout.load,
           path=path,
           checkpointable_name=resolver.pytree_name,
-          abstract_pytree=abstract_pytree,
+          abstract_state=abstract_state,
       ),
       start_time=start_time,
   )
@@ -232,7 +232,7 @@ def load_checkpointables(
   what a checkpointable is.
 
   This function can be used to load any checkpoint saved by
-  :py:func:`.save_checkpointables` (or :py:func:`.save_pytree`). The path should
+  :py:func:`.save_checkpointables` (or :py:func:`.save`). The path should
   contain a number of subdirectories - each of these represents the name of a
   checkpointable.
 
@@ -360,13 +360,12 @@ def _load_impl(
     load_fn: LoadFn,
     start_time: float,
 ) -> dict[str, Checkpointable] | tree_types.PyTreeOf[tree_types.Leaf]:
-  """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load_pytree`.
+  """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load`.
 
   Args:
     path: The path to the checkpoint.
     load_fn: A  function that returns an awaitable for loading the checkpoint
-      based on either :py:func:`.load_checkpointables` or
-      :py:func:`.load_pytree`.
+      based on either :py:func:`.load_checkpointables` or :py:func:`.load`.
     start_time: The time when the loading process started.
 
   Returns:
@@ -407,7 +406,7 @@ def _load_impl(
 
 
 class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
-  """An :py:class:`.AsyncResponse` for :py:func:`.load_pytree_async`."""
+  """An :py:class:`.AsyncResponse` for :py:func:`.load_async`."""
 
   def __init__(
       self,
@@ -487,13 +486,13 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
     return self._thread_runner.result(timeout=timeout)
 
 
-def load_pytree_async(
+def load_async(
     path: path_types.PathLike,
-    abstract_pytree: (
+    abstract_state: (
         AbstractPyTree | CheckpointMetadata[AbstractPyTree] | None
     ) = None,
     *,
-    checkpointable_name: str | None = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str | None = STATE_CHECKPOINTABLE_KEY,
 ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
   """Loads a PyTree asynchronously. Currently has limited support."""
   start_time = time.time()
@@ -511,17 +510,17 @@ def load_pytree_async(
         f'layout, not {ctx.checkpoint_layout}.'
     )
   path = ctx.file_options.path_class(path)
-  abstract_pytree = _standardize_abstract_checkpointables(abstract_pytree)
+  abstract_state = _standardize_abstract_checkpointables(abstract_state)
   validation.validate_pytree_checkpointable_name(checkpointable_name)
 
   async def _blocking_load() -> Any:
     resolver = await layout_registry.CheckpointLayoutResolver.resolve(
         path, ctx.checkpoint_layout, pytree_name=checkpointable_name
     )
-    return await resolver.layout.load_pytree(
+    return await resolver.layout.load(
         path,
         checkpointable_name=resolver.pytree_name,
-        abstract_pytree=abstract_pytree,
+        abstract_state=abstract_state,
     )
 
   background_awaitable = asyncio_utils.run_sync(_blocking_load())

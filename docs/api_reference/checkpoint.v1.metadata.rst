@@ -16,5 +16,5 @@ CheckpointMetadata
 
 Loading functions
 ------------------------------------------------------------
-.. autofunction:: pytree_metadata
+.. autofunction:: metadata
 .. autofunction:: checkpointables_metadata

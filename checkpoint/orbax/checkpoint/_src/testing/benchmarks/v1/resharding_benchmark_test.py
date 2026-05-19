@@ -68,7 +68,7 @@ class ReshardingBenchmarkTest(parameterized.TestCase):
     # Setup real checkpoint and sharding config
     pytree = {'a': jnp.arange(8), 'b': {'c': jnp.ones((4, 4))}}
     ref_ckpt_path = self.directory / 'ref_ckpt'
-    ocp.save_pytree(ref_ckpt_path, pytree)
+    ocp.save(ref_ckpt_path, pytree)
 
     sharding_config = {
         'a': {

@@ -49,7 +49,7 @@ class CheckpointMetadata(
   2. **Lower level** (individual path API): Accessed via free functions.
 
   `CheckpointMetadata` objects are returned by both API levels using the same
-  core methods (:py:func:`~.v1.pytree_metadata` and
+  core methods (:py:func:`~.v1.metadata` and
   :py:func:`~.v1.checkpointables_metadata`), reflecting this inherent symmetry.
 
   See superclass documentation for more information, and for a list of base
@@ -63,10 +63,10 @@ class CheckpointMetadata(
 
     # Higher level (sequence-of-steps API)
     with ocp.training.Checkpointer('/path/to/my/checkpoints') as ckptr:
-      ckpt_meta = ckptr.pytree_metadata(100)
+      ckpt_meta = ckptr.metadata(100)
 
     # Lower level (individual path API)
-    ckpt_meta = ocp.pytree_metadata('/path/to/my/checkpoints/100')
+    ckpt_meta = ocp.metadata('/path/to/my/checkpoints/100')
 
     # Inspect checkpoint-level properties
     print(f'Init time (ns): {ckpt_meta.init_timestamp_nsecs}')

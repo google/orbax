@@ -31,6 +31,8 @@ from orbax.checkpoint.experimental.v1._src.handlers import stateful_checkpointab
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
+
 
 def _try_register_handler(
     handler_type: type[handler_types.CheckpointableHandler],
@@ -80,6 +82,4 @@ _try_register_handler(
         'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler',
     ],
 )
-_try_register_handler(
-    pytree_handler.PyTreeHandler, checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
-)
+_try_register_handler(pytree_handler.PyTreeHandler, STATE_CHECKPOINTABLE_KEY)
