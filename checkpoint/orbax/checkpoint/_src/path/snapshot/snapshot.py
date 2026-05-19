@@ -26,12 +26,14 @@ from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import utils as ocp_path_utils
 
 
-SNAPSHOTTING_TIME = "snapshotting_time"
-PENDING_DIR_SUFFIX = ".pending_"
+
+PENDING_DIR_SUFFIX = ".pending"
 
 
 def get_pending_dir_name(source_name: str) -> str:
-  return f"{source_name}{PENDING_DIR_SUFFIX}{uuid.uuid4().hex}"
+  return (
+      f"{source_name}{PENDING_DIR_SUFFIX}_{time.time_ns()}_{uuid.uuid4().hex}"
+  )
 
 
 def get_uuid_from_pending_dir_name(pending_dir_name: str) -> str:
@@ -169,8 +171,7 @@ class _EmptySnapshot(Snapshot):
 
     if not await async_path.exists(self._snapshot):
       raise FileNotFoundError(f"Snapshot does not exist: {self._snapshot}")
-    if not await async_path.exists(self._source):
-      await async_path.mkdir(self._source, parents=True, exist_ok=True)
+    await async_path.mkdir(self._source, parents=True, exist_ok=True)
     # Move files from inside the tmp snapshot into the original source
     # directory under a pending suffix. This is to avoid potentially wiping
     # out previous files.
