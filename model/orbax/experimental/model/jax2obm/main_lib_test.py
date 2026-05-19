@@ -352,12 +352,14 @@ class MainLibTest(parameterized.TestCase):
               stable_hlo_body {
                 """
         + stable_hlo_text
-        + """
+        + f"""
                 calling_convention_version: 10
-                lowering_platforms: "cpu"
+                lowering_platforms: "{'cpu' if native_serialization_platforms else 'tpu'}"
                 module_kept_var_idx: 0
                 module_kept_var_idx: 1
                 module_kept_var_idx: 2
+"""
+        + """
                 supplemental_info {
                   key: "jax_specific_info"
                   value {
@@ -985,7 +987,7 @@ class MainLibTest(parameterized.TestCase):
                     version: "1.0"
                   }
                   calling_convention_version: 10
-                  lowering_platforms: "cpu"
+                  lowering_platforms: "tpu"
                   module_kept_var_idx: 0
                   module_kept_var_idx: 1
                   module_kept_var_idx: 2

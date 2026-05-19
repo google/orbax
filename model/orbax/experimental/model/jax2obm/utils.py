@@ -74,7 +74,7 @@ def make_jax_exported_creator(
         obm.manifest_pb2.Platform.Name(p).lower() for p in platforms
     )
   else:
-    native_serialization_platforms = None
+    native_serialization_platforms = ["tpu"]
 
   return jax_export.export(
       fun_jax,
