@@ -14,6 +14,7 @@
 
 """Tests for checkpointing with Context."""
 
+import asyncio
 from concurrent import futures
 from absl.testing import absltest
 import orbax.checkpoint.experimental.v1 as ocp
@@ -32,28 +33,27 @@ class ContextTest(absltest.TestCase):
 
   def test_default_context(self):
     ctx = fake_checkpoint_operation()
-    self.assertEqual(ctx.array_options, ArrayOptions())
+    self.assertEqual(ctx.array, ArrayOptions())
 
     with ocp.Context():
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.array_options, ArrayOptions())
+      self.assertEqual(ctx.array, ArrayOptions())
 
     context = ocp.Context()
     with context:
       ctx = fake_checkpoint_operation()
-      self.assertEqual(ctx.array_options, ArrayOptions())
+      self.assertEqual(ctx.array, ArrayOptions())
 
   def test_get_context_with_default(self):
-    default_ctx = ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_ocdbt=False))
-    )
-    custom_ctx = ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
-    )
+    default_ctx = ocp.Context()
+    default_ctx.array.saving.use_ocdbt = False
+
+    custom_ctx = ocp.Context()
+    custom_ctx.array.saving.use_zarr3 = False
 
     with self.subTest("no context set, no default provided"):
       ctx = context_lib.get_context()
-      self.assertEqual(ctx.array_options, ArrayOptions())
+      self.assertEqual(ctx.array, ArrayOptions())
 
     with self.subTest("no context set, default provided"):
       ctx = context_lib.get_context(default=default_ctx)
@@ -72,152 +72,277 @@ class ContextTest(absltest.TestCase):
 
     with self.subTest("no context set, default=None provided"):
       ctx = context_lib.get_context(default=None)
-      self.assertEqual(ctx.array_options, ArrayOptions())
+      self.assertEqual(ctx.array, ArrayOptions())
 
   def test_custom_context(self):
-    with ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
-    ):
-      ctx = fake_checkpoint_operation()
+    ctx = ocp.Context()
+    ctx.array.saving.use_zarr3 = False
+    with ctx:
+      ctx_2 = fake_checkpoint_operation()
       self.assertEqual(
-          ctx.array_options,
-          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
-      )
-
-    context = ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
-    )
-    with context:
-      ctx = fake_checkpoint_operation()
-      self.assertEqual(
-          ctx.array_options,
+          ctx_2.array,
           ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
       )
 
   def test_custom_context_in_separate_thread_becomes_default(self):
     with futures.ThreadPoolExecutor(max_workers=1) as executor:
-      with ocp.Context(
-          array_options=ArrayOptions(
-              saving=ArrayOptions.Saving(use_zarr3=False)
-          )
-      ):
+      ctx = ocp.Context()
+      ctx.array.saving.use_zarr3 = False
+      with ctx:
         future = executor.submit(fake_checkpoint_operation)
-        ctx = future.result()
-        self.assertEqual(ctx.array_options, ArrayOptions())
-
-    with ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
-    ):
-      with futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(fake_checkpoint_operation)
-        ctx = future.result()
-        self.assertEqual(ctx.array_options, ArrayOptions())
+        active = future.result()
+        self.assertEqual(active.array.saving.use_zarr3, True)
 
   def test_custom_context_in_same_thread_remains_custom(self):
     def test_fn():
-      with ocp.Context(
-          array_options=ArrayOptions(
-              saving=ArrayOptions.Saving(use_zarr3=False)
-          )
-      ):
-        ctx = fake_checkpoint_operation()
-        return ctx
+      context = ocp.Context()
+      context.array.saving.use_zarr3 = False
+      with context:
+        return fake_checkpoint_operation()
 
     with futures.ThreadPoolExecutor(max_workers=1) as executor:
       future = executor.submit(test_fn)
       ctx = future.result()
       self.assertEqual(
-          ctx.array_options,
+          ctx.array,
           ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
       )
 
   def test_nested_contexts(self):
-    with ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False))
-    ):
-      ctx = fake_checkpoint_operation()
+    ctx1 = ocp.Context()
+    ctx1.array.saving.use_zarr3 = False
+    with ctx1:
       self.assertEqual(
-          ctx.array_options,
-          ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
+          fake_checkpoint_operation().array.saving.use_zarr3, False
       )
 
-      with ocp.Context(
-          array_options=ArrayOptions(
-              saving=ArrayOptions.Saving(use_ocdbt=False)
-          )
-      ):
-        ctx = fake_checkpoint_operation()
-        self.assertEqual(
-            ctx.array_options,
-            ArrayOptions(
-                saving=ArrayOptions.Saving(use_zarr3=True, use_ocdbt=False)
-            ),
-        )
-
-      ctx = fake_checkpoint_operation()
-      self.assertEqual(
-          ctx.array_options,
-          ArrayOptions(
-              saving=ArrayOptions.Saving(use_zarr3=False, use_ocdbt=True)
-          ),
-      )
+      ctx2 = ocp.Context()  # absolute default slate by default
+      ctx2.array.saving.use_ocdbt = False
+      with ctx2:
+        active = fake_checkpoint_operation()
+        self.assertEqual(active.array.saving.use_zarr3, True)
+        self.assertEqual(active.array.saving.use_ocdbt, False)
 
   def test_nested_contexts_with_inheritance(self):
-    default_ctx = fake_checkpoint_operation()
-    self.assertEqual(
-        default_ctx.array_options,
-        ArrayOptions(
-            saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=True)
-        ),
-    )
-    self.assertEqual(
-        default_ctx.file_options,
-        FileOptions(path_permission_mode=None),
-    )
+    ctx1 = ocp.Context()
+    ctx1.array.saving.use_zarr3 = False
+    ctx1.file.path_permission_mode = 0o750
+    with ctx1:
+      active1 = fake_checkpoint_operation()
+      self.assertEqual(active1.array.saving.use_zarr3, False)
+      self.assertEqual(active1.file.path_permission_mode, 0o750)
 
-    with ocp.Context(
-        array_options=ArrayOptions(saving=ArrayOptions.Saving(use_zarr3=False)),
-        file_options=FileOptions(path_permission_mode=0o750),
-    ):
-      ctx = fake_checkpoint_operation()
+      ctx2 = ocp.Context(active1)
+      ctx2.array.saving.use_ocdbt = False
+      with ctx2:
+        active2 = fake_checkpoint_operation()
+        self.assertEqual(active2.array.saving.use_zarr3, False)  # inherited
+        self.assertEqual(active2.array.saving.use_ocdbt, False)  # mutated
+        self.assertEqual(active2.file.path_permission_mode, 0o750)  # inherited
+
+      active3 = fake_checkpoint_operation()
+      self.assertEqual(active3.array.saving.use_zarr3, False)
+      self.assertEqual(active3.array.saving.use_ocdbt, True)
+      self.assertEqual(active3.file.path_permission_mode, 0o750)
+
+  def test_concurrent_separate_instances_preserve_frozen_states(self):
+    ctx1 = ocp.Context()
+    ctx2 = ocp.Context()
+    with ctx1:
+      with self.assertRaises(RuntimeError):
+        ctx1.array.saving.use_zarr3 = False
+      # ctx2 option IDs are not in _FROZEN_IDS
+      ctx2.array.saving.use_zarr3 = False
+
+      with ctx2:
+        with self.assertRaises(RuntimeError):
+          ctx1.array.saving.use_zarr3 = False
+        with self.assertRaises(RuntimeError):
+          ctx2.array.saving.use_zarr3 = False
+
+      # After exiting ctx2, ctx2 is no longer frozen
+      ctx2.array.saving.use_zarr3 = True
+
+  def test_exhaustive_frozen_context_mutability_checks(self):
+    parent_ctx = ocp.Context()
+    parent_ctx.array.saving.use_zarr3 = True
+
+    with parent_ctx:
+      # 1. Accessing properties on the outer parent_ctx raises RuntimeError
+      # (it is frozen during the block)
+      with self.assertRaises(RuntimeError):
+        parent_ctx.array.saving.use_zarr3 = False
+      with self.assertRaises(RuntimeError):
+        parent_ctx.file.path_permission_mode = 0o750
+      with self.assertRaises(RuntimeError):
+        parent_ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+      # Reading properties is fine.
+      _ = parent_ctx.array
+
+      # 2. get_context() returns the active parent_ctx directly. It is fully
+      # frozen against mutation, but allows read access.
+      active_parent = context_lib.get_context()
+      self.assertTrue(active_parent.array.saving.use_zarr3)
+      with self.assertRaises(RuntimeError):
+        active_parent.array.saving.use_zarr3 = False
+
+      # 3. Creating and mutating a child context template inside an enclosure
+      # works perfectly.
+      child_ctx = ocp.Context(parent_ctx)
+      child_ctx.array.saving.use_zarr3 = False  #  Mutates fine before entry
+
+      with child_ctx:
+        # Inside inner block, both parent_ctx and child_ctx are frozen
+        with self.assertRaises(RuntimeError):
+          child_ctx.array.saving.use_zarr3 = True
+        with self.assertRaises(RuntimeError):
+          parent_ctx.array.saving.use_zarr3 = False
+
+  def test_asyncio_tasks_inherit_frozen_context(self):
+    ctx = ocp.Context()
+    ctx.array.saving.use_zarr3 = True
+
+    async def bg_operation():
+      # Inside the asyncio task, the context and its frozen state are inherited
+      active = context_lib.get_context()
+      self.assertIs(active, ctx)
+      self.assertTrue(active.array.saving.use_zarr3)
+      # Attempting to mutate ctx from the running async task raises RuntimeError
+      with self.assertRaises(RuntimeError):
+        ctx.array.saving.use_zarr3 = False
+
+    async def main():
+      with ctx:
+        # Spawn background task while context is active
+        task = asyncio.create_task(bg_operation())
+        await task
+
+    asyncio.run(main())
+
+  def test_asyncio_task_overlap_preserves_task_frozen_state(self):
+    ctx = ocp.Context()
+    ctx.array.saving.use_zarr3 = True
+
+    resume_bg = asyncio.Event()
+    bg_started = asyncio.Event()
+
+    async def bg_save_operation():
+      bg_started.set()
+      await resume_bg.wait()
+      # Even though main coroutine exited `with ctx:`, this asyncio task
+      # inherited the context snapshot where ctx was frozen.
+      active = context_lib.get_context()
+      self.assertIs(active, ctx)
+      with self.assertRaises(RuntimeError):
+        ctx.array.saving.use_zarr3 = False
+
+    async def main():
+      with ctx:
+        task = asyncio.create_task(bg_save_operation())
+        await bg_started.wait()
+
+      # Now main has exited `with ctx:`. In main's context var, ctx is unfrozen.
+      ctx.array.saving.use_zarr3 = False  # Main can mutate it now
+
+      # Resume bg task to verify it is still protected/frozen in its own context
+      resume_bg.set()
+      await task
+
+    asyncio.run(main())
+
+  def test_deeply_nested_options_frozen_check(self):
+    ctx = ocp.Context()
+    ctx.array.saving.storage_options.chunk_byte_size = 1024
+    ctx.pytree.loading.partial_load = True
+    with ctx:
+      with self.assertRaises(RuntimeError):
+        ctx.array.saving.storage_options.chunk_byte_size = 2048
+      with self.assertRaises(RuntimeError):
+        ctx.pytree.loading.partial_load = False
+      # Reading is perfectly fine
       self.assertEqual(
-          ctx.array_options,
-          ArrayOptions(
-              saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=False)
-          ),
+          ctx.array.saving.storage_options.chunk_byte_size, 1024
       )
-      self.assertEqual(
-          ctx.file_options,
-          FileOptions(path_permission_mode=0o750),
-      )
-      with ocp.Context(
-          ctx,
-          array_options=ArrayOptions(
-              saving=ArrayOptions.Saving(use_ocdbt=False)
-          ),
-      ):
-        ctx = fake_checkpoint_operation()
-        self.assertEqual(
-            ctx.array_options,
-            ArrayOptions(
-                saving=ArrayOptions.Saving(use_ocdbt=False, use_zarr3=True)
-            ),
-        )
-        self.assertEqual(
-            ctx.file_options,
-            FileOptions(path_permission_mode=0o750),
-        )
-      ctx = fake_checkpoint_operation()
-      self.assertEqual(
-          ctx.array_options,
-          ArrayOptions(
-              saving=ArrayOptions.Saving(use_ocdbt=True, use_zarr3=False)
-          ),
-      )
-      self.assertEqual(
-          ctx.file_options,
-          FileOptions(path_permission_mode=0o750),
-      )
+      self.assertTrue(ctx.pytree.loading.partial_load)
+
+  def test_context_modification_after_exit(self):
+    ctx = ocp.Context()
+    ctx.array.saving.use_zarr3 = False
+    with ctx:
+      self.assertFalse(fake_checkpoint_operation().array.saving.use_zarr3)
+      with self.assertRaises(RuntimeError):
+        ctx.array.saving.use_zarr3 = True
+
+    # Exiting the block unfreezes the context
+    ctx.array.saving.use_zarr3 = True
+    with ctx:
+      self.assertTrue(fake_checkpoint_operation().array.saving.use_zarr3)
+      with self.assertRaises(RuntimeError):
+        ctx.array.saving.use_zarr3 = False
+
+  def test_collect_ids_completeness(self):
+    ctx = ocp.Context()
+    collected_ids = context_lib._collect_ids(ctx)  # pylint: disable=protected-access
+
+    # Verify top-level context and direct option attributes
+    self.assertIn(id(ctx), collected_ids)
+    self.assertIn(id(ctx.array), collected_ids)
+    self.assertIn(id(ctx.pytree), collected_ids)
+    self.assertIn(id(ctx.file), collected_ids)
+    self.assertIn(id(ctx.memory), collected_ids)
+
+    # Verify nested child dataclasses
+    self.assertIn(id(ctx.array.saving), collected_ids)
+    self.assertIn(id(ctx.array.saving.storage_options), collected_ids)
+    self.assertIn(id(ctx.array.loading), collected_ids)
+    self.assertIn(id(ctx.pytree.saving), collected_ids)
+    self.assertIn(id(ctx.pytree.loading), collected_ids)
+
+  def test_frozen_ids_lifecycle_and_nesting(self):
+    ctx1 = ocp.Context()
+    ctx2 = ocp.Context()
+
+    initial_frozen = options_lib._FROZEN_IDS.get()  # pylint: disable=protected-access
+    self.assertNotIn(id(ctx1), initial_frozen)
+    self.assertNotIn(id(ctx2), initial_frozen)
+
+    with ctx1:
+      frozen_outer = options_lib._FROZEN_IDS.get()  # pylint: disable=protected-access
+      self.assertIn(id(ctx1), frozen_outer)
+      self.assertIn(id(ctx1.array.saving), frozen_outer)
+      self.assertNotIn(id(ctx2), frozen_outer)
+
+      with ctx2:
+        frozen_inner = options_lib._FROZEN_IDS.get()  # pylint: disable=protected-access
+        self.assertIn(id(ctx1), frozen_inner)
+        self.assertIn(id(ctx2), frozen_inner)
+        self.assertIn(id(ctx1.array.saving), frozen_inner)
+        self.assertIn(id(ctx2.array.saving), frozen_inner)
+
+      # Exiting ctx2 pops ctx2 IDs but preserves ctx1 IDs
+      frozen_after_inner = options_lib._FROZEN_IDS.get()  # pylint: disable=protected-access
+      self.assertIn(id(ctx1), frozen_after_inner)
+      self.assertNotIn(id(ctx2), frozen_after_inner)
+
+    # Exiting ctx1 restores exact initial state
+    self.assertEqual(options_lib._FROZEN_IDS.get(), initial_frozen)  # pylint: disable=protected-access
+
+  def test_context_var_reset_on_exception(self):
+    ctx = ocp.Context()
+    initial_context = context_lib._CONTEXT.get()  # pylint: disable=protected-access
+    initial_frozen = options_lib._FROZEN_IDS.get()  # pylint: disable=protected-access
+
+    try:
+      with ctx:
+        self.assertIs(context_lib._CONTEXT.get(), ctx)  # pylint: disable=protected-access
+        self.assertIn(id(ctx), options_lib._FROZEN_IDS.get())  # pylint: disable=protected-access
+        raise ValueError("Intentional failure inside context enclosure")
+    except ValueError:
+      pass
+
+    # Verify cleanup occurred despite exception
+    self.assertIs(context_lib._CONTEXT.get(), initial_context)  # pylint: disable=protected-access
+    self.assertEqual(options_lib._FROZEN_IDS.get(), initial_frozen)  # pylint: disable=protected-access
 
 
 if __name__ == "__main__":

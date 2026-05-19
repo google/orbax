@@ -51,14 +51,12 @@ class MemoryOptionsTest(parameterized.TestCase):
       del path
       return True
 
-    memory_options = ocp_options.MemoryOptions(
-        write_concurrent_bytes=1024,
-        read_concurrent_bytes=2048,
-        transfer_concurrent_bytes=512,
-        is_prioritized_key_fn=is_prioritized_key_fn,
-    )
-
-    with context_lib.Context(memory_options=memory_options):
+    ctx = context_lib.Context()
+    ctx.memory.write_concurrent_bytes = 1024
+    ctx.memory.read_concurrent_bytes = 2048
+    ctx.memory.transfer_concurrent_bytes = 512
+    ctx.memory.is_prioritized_key_fn = is_prioritized_key_fn
+    with ctx:
       with mock.patch(
           'orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler',
           autospec=True,
