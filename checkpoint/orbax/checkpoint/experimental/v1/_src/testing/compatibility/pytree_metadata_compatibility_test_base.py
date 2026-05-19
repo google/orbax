@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for V1 pytree_metadata API against generated V0 and V1 Checkpoints."""
+"""Tests for V1 metadata API against generated V0 and V1 Checkpoints."""
 
 import os
 from typing import Tuple, Type
@@ -30,6 +30,9 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout as ch
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout_lib.STATE_CHECKPOINTABLE_KEY
+
+
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 
@@ -38,7 +41,7 @@ _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
 class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
-  """Tests for V1 pytree_metadata API against generated Checkpoints."""
+  """Tests for V1 metadata API against generated Checkpoints."""
 
   def setUp(self) -> None:
     super().setUp()
@@ -87,7 +90,11 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
       registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='state')
       registry.add(ocp.handlers.JsonHandler, checkpointable_name='metadata')
 
-    registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='pytree')
+    if not registry.has(STATE_CHECKPOINTABLE_KEY):
+      registry.add(
+          ocp.handlers.PyTreeHandler,
+          checkpointable_name=STATE_CHECKPOINTABLE_KEY,
+      )
     return registry
 
   def _determine_expected_outcome(
@@ -146,7 +153,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
       is_pytree=[True, False],
       handler_registered=[True, False],
   )
-  def test_pytree_metadata_compatibility(
+  def test_metadata_compatibility(
       self,
       version: str,
       checkpointable_name: str | None,
@@ -156,7 +163,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
       is_pytree: bool,
       handler_registered: bool,
   ) -> None:
-    """Tests pytree_metadata compatibility across V0 and V1 checkpoints.
+    """Tests metadata compatibility across V0 and V1 checkpoints.
 
     Args:
       version: The checkpoint version to test against.
@@ -192,7 +199,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
         )
     ):
       if error_type is None:
-        loaded = ocp.pytree_metadata(
+        loaded = ocp.metadata(
             path,
             checkpointable_name=checkpointable_name,
         )
@@ -204,7 +211,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
         test_utils.assert_tree_equal(self, expected, actual)
       else:
         with self.assertRaisesRegex(error_type, error_msg):
-          ocp.pytree_metadata(
+          ocp.metadata(
               path,
               checkpointable_name=checkpointable_name,
           )
@@ -221,10 +228,10 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
           'missing_pytree_data_dir_array_metadatas',
       ],
   )
-  def test_pytree_metadata_non_critical_corruptions(
+  def test_metadata_non_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
-    """Tests pytree_metadata with non-critical corruptions.
+    """Tests metadata with non-critical corruptions.
 
     Args:
       version: The checkpoint version to test against.
@@ -236,7 +243,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
         'non_critical_metadata_alterations',
         alteration,
     )
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
+    loaded = ocp.metadata(path, checkpointable_name='state')
     expected = self.expected_state_metadata
     actual = loaded.metadata
     if multihost.is_pathways_backend() or jax.process_count() > 1:
@@ -247,10 +254,10 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
   @parameterized.product(
       version=['v0', 'v1'],
   )
-  def test_pytree_metadata_missing_sharding_corruption(
+  def test_metadata_missing_sharding_corruption(
       self, version: str
   ) -> None:
-    """Tests pytree_metadata with missing sharding corruption.
+    """Tests metadata with missing sharding corruption.
 
     Args:
       version: The checkpoint version to test against.
@@ -263,7 +270,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
     )
     # Missing sharding metadata results in a pytree identical to expected
     # values except sharding metadata is None.
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
+    loaded = ocp.metadata(path, checkpointable_name='state')
     self.assertIsNone(loaded.metadata['a'].sharding_metadata)
 
   @parameterized.product(
@@ -273,10 +280,10 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
           'missing_pytree_data_dir_d',
       ],
   )
-  def test_pytree_metadata_critical_corruptions(
+  def test_metadata_critical_corruptions(
       self, version: str, alteration: str
   ) -> None:
-    """Tests pytree_metadata with critical corruptions.
+    """Tests metadata with critical corruptions.
 
     Args:
       version: The checkpoint version to test against.
@@ -289,7 +296,7 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
         alteration,
     )
     # Doesnt fail as we are just accessing the metadata.
-    loaded = ocp.pytree_metadata(path, checkpointable_name='state')
+    loaded = ocp.metadata(path, checkpointable_name='state')
     self.assertIsNone(loaded.metadata)
 
 

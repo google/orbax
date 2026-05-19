@@ -304,24 +304,24 @@ class OrbaxV0Layout(CheckpointLayout):
           f"Failed to interpret path {path} as a V0 Orbax PyTree."
       ) from e
 
-  async def load_pytree(
+  async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_pytree: (
+      abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
   ) -> Awaitable[Any]:
     """Loads a V0 PyTree checkpoint.
 
     Attempts to load `checkpointable_name` pytree by finding its corresponding
-    handler from the metadata. If `abstract_pytree` is provided, it attempts to
+    handler from the metadata. If `abstract_state` is provided, it attempts to
     load the checkpoint as a PyTree of the given abstract pytree.
 
     Args:
       path: The path to the checkpoint directory.
       checkpointable_name: The name of the pytree checkpointable to load.
-      abstract_pytree: The abstract pytree to load.
+      abstract_state: The abstract pytree to load.
 
     Returns:
       An awaitable containing the loaded PyTree.
@@ -332,12 +332,12 @@ class OrbaxV0Layout(CheckpointLayout):
     if checkpointable_name is None:
       # Read checkpoint metadata and resolve pytree handler for loading.
       # TODO(b/484400394): Find a better way to inform the user that they need
-      # to use load_pytree(..., checkpointable_name=None) when item_handlers is
+      # to use load(..., checkpointable_name=None) when item_handlers is
       # a str. An idea is to create a seperate validate_checkpointables method
       # and we can read in checkpoint metadata at validation time for both
       # validate_pytree and validate_checkpointables operations and warn the
       # user if they are trying to load a composite checkpoint by calling
-      # load_pytree(checkpointable_name=None) or trying to load a composite
+      # load(checkpointable_name=None) or trying to load a composite
       # checkpoint as a pytree checkpoint respectively.
       checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(
           path
@@ -345,27 +345,27 @@ class OrbaxV0Layout(CheckpointLayout):
       if isinstance(checkpoint_metadata.item_handlers, dict):
         logging.warning(
             "Checkpoint looks like a V1 checkpoint. Calling"
-            " `loading.load_pytree(..., checkpointable_name=None)` is only"
+            " `loading.load(..., checkpointable_name=None)` is only"
             " supported for loading legacy V0 checkpoints. If you intended to"
             " load a specific checkpointable from the given path, then please"
-            " consider using `load_pytree` or  `load_checkpointables` instead."
+            " consider using `load` or  `load_checkpointables` instead."
         )
       handler_for_load = (
           await handler_resolution.get_handler_for_load_direct_pytree(
               path.name,
               self._handler_registry,
-              abstract_pytree,
+              abstract_state,
               checkpoint_metadata,
           )
       )
       result = await handler_for_load.load(
           path,
-          abstract_pytree,
+          abstract_state,
       )
       return result
     else:
-      return await self._orbax_layout.load_pytree(
-          path, checkpointable_name, abstract_pytree
+      return await self._orbax_layout.load(
+          path, checkpointable_name, abstract_state
       )
 
   async def load_checkpointables(

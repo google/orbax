@@ -117,16 +117,7 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
 
   def setup_registry(self) -> registration.CheckpointableHandlerRegistry:
     """Sets up a registry for the test."""
-    registry = ocp.handlers.local_registry()
-    registry.add(
-        ocp.handlers.PyTreeHandler,
-        checkpointable_name='state',
-        secondary_typestrs=[
-            'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler',
-        ],
-    )
-
-    return registry
+    return ocp.handlers.local_registry()
 
   def _create_temporary_checkpoint(
       self,
@@ -270,7 +261,7 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
           step.standard_name_format(step_prefix='checkpoint'),
       ],
   )
-  def test_pytree_metadata(
+  def test_metadata(
       self,
       version: str,
       metrics_status: bool,
@@ -301,7 +292,7 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)
 
-    metadata = checkpointer.pytree_metadata(0)
+    metadata = checkpointer.metadata(0)
     self.assertIsInstance(metadata, CheckpointMetadata)
     actual = compatibility_test_utils.strip_sharding_metadata(
         metadata.metadata
@@ -425,14 +416,14 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
           step.standard_name_format(step_prefix='checkpoint'),
       ],
   )
-  def test_load_pytree(
+  def test_load(
       self,
       version: str,
       metrics_status: bool,
       root_metadata_status: bool,
       name_format: step.NameFormat | None = None,
   ) -> None:
-    """Verifies load_pytree API against generated Checkpoints.
+    """Verifies load API against generated Checkpoints.
 
     Args:
       version: The checkpoint version to load.
@@ -456,7 +447,7 @@ class ManagerCompatibilityTestBase(parameterized.TestCase):
     checkpointer = Checkpointer(path, step_name_format=name_format)
     self.enter_context(checkpointer)
 
-    loaded = checkpointer.load_pytree(
-        0, abstract_pytree=self.abstract_state, checkpointable_name='state'
+    loaded = checkpointer.load(
+        0, abstract_state=self.abstract_state, checkpointable_name='state'
     )
     test_utils.assert_tree_equal(self, self.expected_state, loaded)

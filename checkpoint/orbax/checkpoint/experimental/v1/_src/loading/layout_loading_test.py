@@ -33,6 +33,7 @@ from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 NamedSharding = sharding.NamedSharding
 Mesh = sharding.Mesh
 P = sharding.PartitionSpec
@@ -63,7 +64,7 @@ class LayoutLoadingTest(parameterized.TestCase):
         'b': np.array([0, 1, 0.2], dtype=np.float32),
     }
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save_pytree(self.orbax_pytree_path, self.object_to_save)
+    saving.save(self.orbax_pytree_path, self.object_to_save)
 
     # Create a mock Orbax checkpoint checkpointables
     self.checkpointables_to_save = {
@@ -78,14 +79,14 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
     ):
-      pytree = loading.load_pytree(self.safetensors_path)
+      pytree = loading.load(self.safetensors_path)
     self.assertIsInstance(pytree, dict)
     np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
     # TODO(b/430651483)
     np.testing.assert_allclose(pytree['b'], self.object_to_save['b'])
 
   def test_load_orbax_pytree_checkpoint(self):
-    pytree = loading.load_pytree(self.orbax_pytree_path)
+    pytree = loading.load(self.orbax_pytree_path)
     test_utils.assert_tree_equal(self, self.object_to_save, pytree)
 
   def test_load_orbax_checkpointables_checkpoint(self):
@@ -99,7 +100,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     # User provides a directory of Orbax checkpoints, not specific one.
     with context_lib.Context(checkpoint_layout=layout_enum):
       with self.assertRaises(InvalidLayoutError):
-        loading.load_pytree(
+        loading.load(
             epath.Path(self.test_dir.full_path),
         )
 
@@ -110,7 +111,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     # User provides a empty directory of SafeTensors checkpoints, not a file.
     with context_lib.Context(checkpoint_layout=layout_enum):
       with self.assertRaises(InvalidLayoutError):
-        loading.load_pytree(
+        loading.load(
             epath.Path(self.test_dir_safetensors.full_path),
         )
 
@@ -121,7 +122,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
     ):
-      pytree = loading.load_pytree(safetensors_dir)
+      pytree = loading.load(safetensors_dir)
     self.assertIsInstance(pytree, dict)
     np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
     np.testing.assert_allclose(pytree['b'], self.object_to_save['b'])
@@ -129,19 +130,17 @@ class LayoutLoadingTest(parameterized.TestCase):
   def test_nonexistent_path(self):
     # User provides a path that does not exist.
     with self.assertRaises(InvalidLayoutError):
-      loading.load_pytree(
+      loading.load(
           epath.Path(self.test_dir.full_path) / 'nonexistent_path',
       )
 
-  def test_load_pytree_with_checkpoint_metadata(self):
+  def test_load_with_checkpoint_metadata(self):
     abstract_pytree = self.object_to_save
     metadata = metadata_types.CheckpointMetadata(
         path=self.orbax_pytree_path, metadata=abstract_pytree
     )
 
-    loaded = loading.load_pytree(
-        self.orbax_pytree_path, abstract_pytree=metadata
-    )
+    loaded = loading.load(self.orbax_pytree_path, abstract_state=metadata)
     test_utils.assert_tree_equal(self, self.object_to_save, loaded)
 
   def test_load_checkpointables_with_checkpoint_metadata(self):
@@ -159,7 +158,7 @@ class LayoutLoadingTest(parameterized.TestCase):
       (options_lib.CheckpointLayout.SAFETENSORS,),
       (options_lib.CheckpointLayout.ORBAX,),
   )
-  def test_load_pytree_async(self, layout: options_lib.CheckpointLayout):
+  def test_load_async(self, layout: options_lib.CheckpointLayout):
     original_finalize_load = loading._LoadPyTreeResponse._finalize_load
 
     async def sleep_and_load(*args, **kwargs):
@@ -183,11 +182,11 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(checkpoint_layout=layout):
       if layout != options_lib.CheckpointLayout.SAFETENSORS:
         with self.assertRaises(NotImplementedError):
-          loading.load_pytree_async(directory)
+          loading.load_async(directory)
         return
 
       start = time.time()
-      response = loading.load_pytree_async(directory)
+      response = loading.load_async(directory)
 
     self.assertLess(time.time() - start, 1)
     loaded = response.result()
@@ -200,7 +199,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.ORBAX
     ):
-      loaded_orbax = loading.load_pytree(
+      loaded_orbax = loading.load(
           self.orbax_pytree_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
       )
@@ -210,7 +209,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
     ):
-      loaded_safe = loading.load_pytree(
+      loaded_safe = loading.load(
           self.safetensors_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
       )
@@ -220,19 +219,21 @@ class LayoutLoadingTest(parameterized.TestCase):
     # Save a checkpoint structure containing multiple checkpointable names.
     checkpointables = {
         'analytics': {'a': np.array([1, 2, 3])},
-        'pytree': {'a': np.array([1, 2, 3])},
-        'state': {'b': np.array([4, 5, 6])},
+        STATE_CHECKPOINTABLE_KEY: {'a': np.array([1, 2, 3])},
+        'pytree': {'b': np.array([4, 5, 6])},
     }
     multiple_path = epath.Path(self.test_dir.full_path) / 'multi_checkpoint'
     saving.save_checkpointables(multiple_path, checkpointables)
 
-    # Triggering AUTO loading mode should prioritize resolving 'pytree'.
+    # Triggering AUTO loading mode should prioritize resolving state.
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.ORBAX
     ):
-      loaded = loading.load_pytree(multiple_path)
+      loaded = loading.load(multiple_path)
 
-    test_utils.assert_tree_equal(self, checkpointables['pytree'], loaded)
+    test_utils.assert_tree_equal(
+        self, checkpointables[STATE_CHECKPOINTABLE_KEY], loaded
+    )
 
   def test_load_auto_non_pytree_fallback(self):
     # Save a checkpoint that intentionally omits the standard 'pytree' key.
@@ -245,7 +246,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.ORBAX
     ):
-      loaded = loading.load_pytree(
+      loaded = loading.load(
           fallback_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
       )
@@ -255,8 +256,8 @@ class LayoutLoadingTest(parameterized.TestCase):
         self, custom_checkpointables['custom_state'], loaded
     )
 
-  def test_load_pytree_with_abstract_mesh(self):
-    # Tests that load_pytree works with abstract_pytree containing an
+  def test_load_with_abstract_mesh(self):
+    # Tests that load works with abstract_state containing an
     # AbstractMesh, similar to the pattern used whent loading NNX models.
     # See:
     # https://flax.readthedocs.io/en/stable/guides/checkpointing.html#restore-checkpoints
@@ -269,7 +270,7 @@ class LayoutLoadingTest(parameterized.TestCase):
 
     data = {'w': np.ones((8, 8), dtype=np.float32)}
     save_path = epath.Path(self.test_dir.full_path) / 'abstract_mesh_checkpoint'
-    saving.save_pytree(save_path, data)
+    saving.save(save_path, data)
 
     # Construct an AbstractMesh and NamedSharding and an abstract_pytree that
     # uses it, simulating the output of nnx.eval_shape().
@@ -286,7 +287,7 @@ class LayoutLoadingTest(parameterized.TestCase):
     # Load with a concrete mesh context and validate.
     concrete_mesh = Mesh(np.array(jax.devices()[:1]).reshape(1, 1), ('x', 'y'))
     with jax.set_mesh(concrete_mesh):
-      loaded = loading.load_pytree(save_path, abstract_pytree=abstract_pytree)
+      loaded = loading.load(save_path, abstract_state=abstract_pytree)
 
     # Convert to numpy for comparison with the original numpy 'data'
     loaded_np = jax.tree.map(np.array, loaded)

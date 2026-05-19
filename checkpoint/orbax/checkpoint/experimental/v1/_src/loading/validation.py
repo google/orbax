@@ -39,7 +39,7 @@ def validate_pytree_checkpointable_name(
   if checkpointable_name == EMPTY_CHECKPOINTABLE_KEY:
     raise ValueError(
         'Empty string is not supported as a checkpointable name in'
-        ' `load_pytree`. Checkpointable name must be a valid non-empty string'
+        ' `load`. Checkpointable name must be a valid non-empty string'
         ' name or None if loading a legacy V0 direct pytree checkpoint.'
     )
   if checkpointable_name in RESERVED_CHECKPOINTABLE_KEYS:

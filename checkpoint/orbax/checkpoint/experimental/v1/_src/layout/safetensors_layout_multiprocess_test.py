@@ -157,9 +157,7 @@ class ShardedSafetensorsLayoutTest(
     expected_tensor = jax.device_put(tensor_to_save, abstract_sharding)
 
     layout = SafetensorsLayout()
-    restore_fn = await layout.load_pytree(
-        st_path, abstract_pytree=abstract_state
-    )
+    restore_fn = await layout.load(st_path, abstract_state=abstract_state)
     restored_tensor = await restore_fn
     restored_tensor = restored_tensor["params.tensor"]
 
@@ -190,9 +188,7 @@ class ShardedSafetensorsLayoutTest(
             ignore_load_sharding=True
         )
     ):
-      restore_fn = await layout.load_pytree(
-          st_path, abstract_pytree=abstract_state
-      )
+      restore_fn = await layout.load(st_path, abstract_state=abstract_state)
       restored_pytree = await restore_fn
     restored_tensor = restored_pytree["params.tensor"]
 
@@ -234,9 +230,7 @@ class ShardedSafetensorsLayoutTest(
             ignore_load_sharding=True
         )
     ):
-      restore_fn = await layout.load_pytree(
-          st_path, abstract_pytree=abstract_state
-      )
+      restore_fn = await layout.load(st_path, abstract_state=abstract_state)
       restored_pytree = await restore_fn
 
     # Tensors are expected to be distributed among hosts.
@@ -288,9 +282,9 @@ class ShardedSafetensorsLayoutTest(
 
     tracemalloc.start()
 
-    restore_fn = await layout.load_pytree(
+    restore_fn = await layout.load(
         file_path,
-        abstract_pytree=abstract_pytree,
+        abstract_state=abstract_pytree,
     )
     pytree = await restore_fn
 
@@ -348,9 +342,9 @@ class ShardedSafetensorsLayoutTest(
             ignore_load_sharding=True
         )
     ):
-      restore_fn = await layout.load_pytree(
+      restore_fn = await layout.load(
           file_path,
-          abstract_pytree=abstract_pytree,
+          abstract_state=abstract_pytree,
       )
       pytree = await restore_fn
 
@@ -441,8 +435,8 @@ class ShardedSafetensorsLayoutTest(
     with self.assertRaisesRegex(
         ValueError, "The PyTree is not a flat dictionary."
     ):
-      test_awaitable = await layout.load_pytree(
-          st_path, abstract_pytree=nested_abstract_pytree
+      test_awaitable = await layout.load(
+          st_path, abstract_state=nested_abstract_pytree
       )
       await test_awaitable
 
@@ -469,8 +463,8 @@ class ShardedSafetensorsLayoutTest(
     with self.assertRaisesRegex(
         KeyError, "not found in Safetensors checkpoint"
     ):
-      test_awaitable = await layout.load_pytree(
-          st_path, abstract_pytree=wrong_key_abstract_pytree
+      test_awaitable = await layout.load(
+          st_path, abstract_state=wrong_key_abstract_pytree
       )
       await test_awaitable
 

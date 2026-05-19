@@ -116,8 +116,8 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
     )
 
     with ocp.Context(context=options.context):
-      loaded_pytree = ocp.load_pytree(
-          reference_checkpoint_path, abstract_pytree
+      loaded_pytree = ocp.load(
+          reference_checkpoint_path, abstract_state=abstract_pytree
       )
 
     for step in range(options.num_savings):
@@ -132,12 +132,12 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
                 "ReplicaParallelMultislice: Async Saving pytree to %s.",
                 save_path,
             )
-            f = ocp.save_pytree_async(save_path, loaded_pytree)
+            f = ocp.save_async(save_path, loaded_pytree)
           with metrics.measure("save_background", metrics_to_measure):
             f.result()
         else:
           with metrics.measure("save_blocking", metrics_to_measure):
-            ocp.save_pytree(save_path, loaded_pytree)
+            ocp.save(save_path, loaded_pytree)
           with metrics.measure("save_background", metrics_to_measure):
             pass
 

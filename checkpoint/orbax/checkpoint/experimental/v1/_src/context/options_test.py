@@ -71,9 +71,9 @@ class MemoryOptionsTest(parameterized.TestCase):
 
         pytree = {'a': jnp.ones((1,))}
 
-        # save_pytree will eventually call BasePyTreeCheckpointHandler
+        # save will eventually call BasePyTreeCheckpointHandler
         try:
-          saving.save_pytree('/tmp/test', pytree)
+          saving.save('/tmp/test', pytree)
         except Exception:  # pylint: disable=broad-except
           # We might get some errors because we mocked too much,
           # but we check if mock_handler_class was called.

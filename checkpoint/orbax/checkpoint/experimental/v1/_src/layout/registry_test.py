@@ -22,10 +22,14 @@ from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import standard_checkpoint_handler
 from orbax.checkpoint.checkpoint_manager import CheckpointManager
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
 from orbax.checkpoint.experimental.v1._src.saving import saving
+
+
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
 
 async def get_pytree_spec(path, layout_enum, pytree_name=None):
@@ -44,7 +48,7 @@ class PyTreeCheckpointableResolutionAsyncTest(
     super().setUp()
     self.root_directory = epath.Path(self.create_tempdir())
     self.v1_directory = self.root_directory / 'v1'
-    saving.save_pytree(
+    saving.save(
         self.v1_directory,
         {'a': 1, 'b': 2},
     )
@@ -68,13 +72,13 @@ class PyTreeCheckpointableResolutionAsyncTest(
 
   async def test_v1_valid_name(self):
     layout, resolved_name = await get_pytree_spec(
-        self.v1_directory, CheckpointLayoutEnum.ORBAX, 'pytree'
+        self.v1_directory, CheckpointLayoutEnum.ORBAX, STATE_CHECKPOINTABLE_KEY
     )
-    self.assertEqual(resolved_name, 'pytree')
+    self.assertEqual(resolved_name, STATE_CHECKPOINTABLE_KEY)
     self.assertIsInstance(layout, orbax_layout.OrbaxLayout)
     self.assertTrue(await orbax_layout.has_indicator_file(self.v1_directory))
 
-  @parameterized.parameters([None, 'state', 'params'])
+  @parameterized.parameters([None, 'pytree', 'params'])
   async def test_v1_invalid_name(self, checkpointable_name):
     with self.assertRaises(registry.InvalidLayoutError):
       await get_pytree_spec(
@@ -99,7 +103,9 @@ class PyTreeCheckpointableResolutionAsyncTest(
   async def test_v1_direct_path(self):
     with self.assertRaises(registry.InvalidLayoutError):
       await get_pytree_spec(
-          self.v1_directory / 'pytree', CheckpointLayoutEnum.ORBAX, None
+          self.v1_directory / STATE_CHECKPOINTABLE_KEY,
+          CheckpointLayoutEnum.ORBAX,
+          None,
       )
 
   async def test_v0_child_path_load_failure(self):
@@ -123,7 +129,7 @@ class PyTreeCheckpointableResolutionAsyncTest(
 
   async def test_v1_checkpoint_path_missing_pytree_metadata(self):
     (self.v1_directory / orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE).unlink()
-    (self.v1_directory / 'pytree' / '_METADATA').unlink()
+    (self.v1_directory / STATE_CHECKPOINTABLE_KEY / '_METADATA').unlink()
     with self.assertRaises(registry.InvalidLayoutError):
       await get_pytree_spec(
           self.v1_directory, CheckpointLayoutEnum.ORBAX, None
@@ -179,7 +185,7 @@ class IsOrbaxCheckpointTest(parameterized.TestCase):
     super().setUp()
     self.root_directory = epath.Path(self.create_tempdir())
     self.v1_directory = self.root_directory / 'v1'
-    saving.save_pytree(
+    saving.save(
         self.v1_directory,
         {'a': 1, 'b': 2},
     )

@@ -164,12 +164,12 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
         jax.profiler.start_trace(context.path / "trace_save")
       if options.async_enabled:
         with metrics.measure("save_blocking", metrics_to_measure):
-          f = ocp.save_pytree_async(save_path, pytree)
+          f = ocp.save_async(save_path, pytree)
         with metrics.measure("save_background", metrics_to_measure):
           f.result()
       else:
         with metrics.measure("save_blocking", metrics_to_measure):
-          ocp.save_pytree(save_path, pytree)
+          ocp.save(save_path, pytree)
         with metrics.measure("save_background", metrics_to_measure):
           pass
       context.pytree = clear_pytree(context.pytree)
@@ -179,7 +179,7 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
       if options.enable_trace:
         jax.profiler.start_trace(context.path / "trace_load")
       with metrics.measure("load", metrics_to_measure):
-        restored_pytree = ocp.load_pytree(save_path, abstract_pytree)
+        restored_pytree = ocp.load(save_path, abstract_state=abstract_pytree)
       clear_pytree(restored_pytree)
       if options.enable_trace:
         jax.profiler.stop_trace()

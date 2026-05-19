@@ -35,7 +35,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import types as async
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
 StatefulCheckpointableHandler = (
     stateful_checkpointable_handler.StatefulCheckpointableHandler
@@ -46,7 +46,7 @@ StatefulCheckpointableHandler = (
 class _PartialSavePyTree(handler_types.StatefulCheckpointable):
   """Wraps a PyTree to signal that it should be saved in partial mode."""
 
-  pytree: tree_types.PyTree
+  state: tree_types.PyTree
 
   def __post_init__(self):
     self.handler = pytree_handler.PyTreeHandler(partial_save_mode=True)
@@ -54,15 +54,15 @@ class _PartialSavePyTree(handler_types.StatefulCheckpointable):
   async def save(
       self, directory: path_types.PathAwaitingCreation
   ) -> Awaitable[None]:
-    return await self.handler.save(directory, self.pytree)
+    return await self.handler.save(directory, self.state)
 
   async def load(self, directory: path_types.Path) -> Awaitable[None]:
     raise NotImplementedError('Partial load is not supported via this wrapper.')
 
 
-def save_pytree(
+def save(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ):
@@ -83,7 +83,7 @@ def save_pytree(
   ### Workflow
 
   A typical partial save workflow involves one or more calls to
-  :py:func:`.save_pytree` followed by a single call to :py:func:`~.finalize`::
+  :py:func:`.save` followed by a single call to :py:func:`~.finalize`::
 
     path = '/path/to/my/checkpoint'
 
@@ -91,12 +91,12 @@ def save_pytree(
     # '/path/to/my/checkpoint.partial_save'
     # Note: the exact temporary directory name is an implementation detail that
     # depends on the file system and should not be relied on.
-    ocp.partial.save_pytree(path, {'layer1': ..., 'step': 1})
+    ocp.partial.save(path, {'layer1': ..., 'step': 1})
 
     # A subsequent call reads the previous version and applies new updates
     # to the temporary directory:
     # '/path/to/my/checkpoint.partial_save'
-    ocp.partial.save_pytree(path, {'layer2': ..., 'metrics': ...})
+    ocp.partial.save(path, {'layer2': ..., 'metrics': ...})
 
     # This call commits the latest version to the final destination at
     # '/path/to/my/checkpoint'.
@@ -104,42 +104,42 @@ def save_pytree(
 
   ### Additions vs. Replacements
 
-  The provided `pytree` represents a set of updates.
-  - If a key in `pytree` (e.g., 'metrics') does not exist in the on-disk
+  The provided `state` represents a set of updates.
+  - If a key in `state` (e.g., 'metrics') does not exist in the on-disk
     checkpoint, it is treated as an **addition**. In other words, the sets of
-    keys of the on-disk PyTree and the provided `pytree` are disjoint.
+    keys of the on-disk PyTree and the provided `state` are disjoint.
   - If a key (e.g., 'step') already exists, its value is **replaced**. In other
-    words, the sets of keys of the on-disk PyTree and the provided `pytree`
+    words, the sets of keys of the on-disk PyTree and the provided `state`
     overlap. Replacements are currently NOT supported. Please reach out to the
     Orbax team if you need this functionality.
 
-  See :py:func:`~.v1.save_pytree` for general
+  See :py:func:`~.v1.save` for general
   PyTree saving documentation.
 
   Args:
     path: The path to save the checkpoint to.
-    pytree: A PyTree representing the additions to be applied to the on-disk
+    state: A PyTree representing the additions to be applied to the on-disk
       checkpoint.
     custom_metadata: User-provided custom metadata. This will be merged with any
       existing custom metadata. Values from this dictionary will overwrite
       existing values if keys conflict.
   """
-  save_pytree_async(
+  save_async(
       path,
-      pytree,
+      state,
       custom_metadata=custom_metadata,
   ).result()
 
 
-def save_pytree_async(
+def save_async(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
   """Partially saves a PyTree asynchronously.
 
-  Unlike :py:func:`.save_pytree`, this function returns an
+  Unlike :py:func:`.save`, this function returns an
   :py:class:`.AsyncResponse`
   immediately after scheduling the save operation. The actual writing to disk
   happens in a background thread. You can use `response.result()` to block
@@ -161,17 +161,17 @@ def save_pytree_async(
   ### Workflow
 
   A typical partial save workflow involves one or more calls to
-  :py:func:`.save_pytree_async` followed by a single call to
+  :py:func:`.save_async` followed by a single call to
   :py:func:`.finalize`::
 
     path = '/path/to/my/checkpoint'
 
     # The first call creates a temporary directory and returns immediately.
-    response1 = ocp.partial.save_pytree_async(path, {'layer1': ..., 'step': 1})
+    response1 = ocp.partial.save_async(path, {'layer1': ..., 'step': 1})
 
     # A subsequent call also returns immediately. Orbax ensures that this
     # operation waits for the first one to complete before starting.
-    response2 = ocp.partial.save_pytree_async(
+    response2 = ocp.partial.save_async(
         path, {'layer2': ..., 'metrics': ...}
     )
 
@@ -185,23 +185,22 @@ def save_pytree_async(
 
   ### Additions vs. Replacements
 
-  The provided `pytree` represents a set of updates.
-  - If a key in `pytree` (e.g., 'metrics') does not exist in the on-disk
+  The provided `state` represents a set of updates.
+  - If a key in `state` (e.g., 'metrics') does not exist in the on-disk
     checkpoint, it is treated as an **addition**.
   - If a key (e.g., 'step') already exists, its value is **replaced**.
     Replacements are currently NOT supported. Please reach out to the Orbax team
     if you need this functionality.
 
-  See :py:func:`~.v1.save_pytree_async` for general
+  See :py:func:`~.v1.save_async` for general
   PyTree saving documentation.
 
   Args:
     path: The path to save the checkpoint to.
-    pytree: The PyTree to save. This may be any JAX PyTree (including custom
-      objects registered as PyTrees) consisting of supported leaf types (see
-      :py:class:`~.v1.tree.Leaf`). Default supported leaf types include
-      `jax.Array`, `np.ndarray`, simple types like
-      `int`, `float`, `str`, and empty nodes.
+    state: The PyTree to save. This may be any JAX PyTree consisting of
+      supported leaf types (see :py:class:`~.v1.tree.Leaf`).
+      Default supported leaf types include `jax.Array`, `np.ndarray`,
+      simple types like `int`, `float`, `str`, and empty nodes.
     custom_metadata: User-provided custom metadata. An arbitrary
       JSON-serializable dictionary the user can use to store additional
       information. The field is treated as opaque by Orbax.
@@ -222,7 +221,7 @@ def save_pytree_async(
 
   return execution.save_checkpointables_impl(
       partial_path_lib.add_partial_save_suffix(path),
-      {PYTREE_CHECKPOINTABLE_KEY: _PartialSavePyTree(pytree)},
+      {STATE_CHECKPOINTABLE_KEY: _PartialSavePyTree(state)},
       overwrite=False,
       custom_metadata=custom_metadata,
       async_origin=True,
@@ -235,7 +234,7 @@ def finalize(path: path_types.PathLike) -> None:
 
   This function commits all changes made during a partial save session,
   concluding the transaction. It should be called once after all desired
-  :py:func:`.save_pytree` operations are complete.
+  :py:func:`.save` operations are complete.
 
   The finalization process is atomic. It renames the temporary, versioned
   partial save directory to the final target `path`, making the updated
@@ -250,7 +249,7 @@ def finalize(path: path_types.PathLike) -> None:
     path = '/path/to/my/checkpoint'
 
     # These calls write to a temporary, versioned directory, not the final path.
-    ocp.partial.save_pytree(path, {'step': 1})
+    ocp.partial.save(path, {'step': 1})
     ocp.partial.save_checkpointables(path, {'metrics': ...})
 
     # This call performs the atomic rename, making the checkpoint available at
@@ -259,13 +258,13 @@ def finalize(path: path_types.PathLike) -> None:
 
   Args:
     path: The final, target path of the checkpoint to be finalized. This should
-      be the same path that was passed to :py:func:`~.save_pytree` calls.
+      be the same path that was passed to :py:func:`~.save` calls.
 
   Raises:
     FileExistsError: If a finalized checkpoint already exists at `path`. To
       overwrite, it must be deleted first.
     FileNotFoundError: If no partial save session is found for the given `path`.
-      This can happen if :py:func:`.save_pytree` was not called first.
+      This can happen if :py:func:`.save` was not called first.
   """
   context = context_lib.get_context()
   path = context.file_options.path_class(path)

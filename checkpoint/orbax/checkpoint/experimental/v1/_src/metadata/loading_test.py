@@ -36,7 +36,7 @@ Bar = handler_utils.Bar
 AbstractFoo = handler_utils.AbstractFoo
 AbstractBar = handler_utils.AbstractBar
 InvalidLayoutError = ocp.errors.InvalidLayoutError
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
 
 class PyTreeMetadataTest(absltest.TestCase):
@@ -45,7 +45,7 @@ class PyTreeMetadataTest(absltest.TestCase):
     super().setUp()
     self.directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
     self.pytree, self.abstract_pytree = array_test_utils.create_numpy_pytree()
-    ocp.save_pytree(self.directory, self.pytree)
+    ocp.save(self.directory, self.pytree)
 
   def _create_value_metadata(self, value):
     if isinstance(value, np.ndarray):
@@ -67,42 +67,40 @@ class PyTreeMetadataTest(absltest.TestCase):
 
   def test_invalid_path(self):
     with self.assertRaises(InvalidLayoutError):
-      ocp.pytree_metadata(self.directory.parent)
+      ocp.metadata(self.directory.parent)
     with self.assertRaises(InvalidLayoutError):
-      ocp.pytree_metadata(self.directory.parent / 'foo')
+      ocp.metadata(self.directory.parent / 'foo')
 
-  def test_pytree_metadata_default_checkpointable_name(self):
-    expected_pytree_metadata = jax.tree.map(
+  def test_metadata_default_checkpointable_name(self):
+    expected_metadata = jax.tree.map(
         self._create_value_metadata, self.pytree
     )
 
-    metadata = ocp.pytree_metadata(self.directory)
+    metadata = ocp.metadata(self.directory)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
-    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+    self.assertEqual(expected_metadata, metadata.metadata)
 
-  def test_pytree_metadata_custom_checkpointable_name(self):
+  def test_metadata_custom_checkpointable_name(self):
     self.directory.rmtree()
 
     custom_name = 'custom_pytree'
     ocp.save_checkpointables(self.directory, {custom_name: self.pytree})
 
-    expected_pytree_metadata = jax.tree.map(
+    expected_metadata = jax.tree.map(
         self._create_value_metadata, self.pytree
     )
 
-    metadata = ocp.pytree_metadata(
-        self.directory, checkpointable_name=custom_name
-    )
+    metadata = ocp.metadata(self.directory, checkpointable_name=custom_name)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
-    self.assertEqual(expected_pytree_metadata, metadata.metadata)
+    self.assertEqual(expected_metadata, metadata.metadata)
 
-  def test_pytree_metadata_checkpointable_name_none(self):
-    pytree_dir = self.directory / PYTREE_CHECKPOINTABLE_KEY
+  def test_metadata_checkpointable_name_none(self):
+    pytree_dir = self.directory / STATE_CHECKPOINTABLE_KEY
     with self.assertRaises(InvalidLayoutError):
-      ocp.pytree_metadata(pytree_dir, checkpointable_name=None)
+      ocp.metadata(pytree_dir, checkpointable_name=None)
 
   def test_load_with_metadata(self):
-    metadata = ocp.pytree_metadata(self.directory)
+    metadata = ocp.metadata(self.directory)
 
     def _set_numpy_cast_type(x):
       if isinstance(x, np.ndarray):
@@ -124,15 +122,15 @@ class PyTreeMetadataTest(absltest.TestCase):
     )
     expected_pytree = jax.tree.map(_set_numpy_cast_type, self.pytree)
 
-    with self.subTest('pytree_metadata'):
-      loaded_pytree = ocp.load_pytree(self.directory, metadata.metadata)
+    with self.subTest('metadata'):
+      loaded_pytree = ocp.load(self.directory, metadata.metadata)
 
       test_utils.assert_tree_equal(self, expected_pytree, loaded_pytree)
     with self.subTest('full_metadata'):
-      loaded_pytree = ocp.load_pytree(self.directory, metadata)
+      loaded_pytree = ocp.load(self.directory, metadata)
       test_utils.assert_tree_equal(self, expected_pytree, loaded_pytree)
 
-  def test_pytree_metadata_safetensors(self):
+  def test_metadata_safetensors(self):
     st_path = epath.Path(self.create_tempdir().full_path) / 'model.safetensors'
     tensor_data = {
         'x': np.array([[1.0, 2.0]], dtype=np.float32),
@@ -149,7 +147,7 @@ class PyTreeMetadataTest(absltest.TestCase):
     with context_lib.Context(
         checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
     ):
-      ckpt_metadata = ocp.pytree_metadata(st_path)
+      ckpt_metadata = ocp.metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
@@ -168,10 +166,10 @@ class PyTreeMetadataTest(absltest.TestCase):
       with context_lib.Context(
           checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
       ):
-        ocp.pytree_metadata(self.directory)
+        ocp.metadata(self.directory)
 
 
-  def test_pytree_metadata_with_incompatible_item(self):
+  def test_metadata_with_incompatible_item(self):
     self.directory.rmtree()
     # Save a valid PyTree to 'state'
     ocp.save_checkpointables(self.directory, {'state': self.pytree})
@@ -180,7 +178,7 @@ class PyTreeMetadataTest(absltest.TestCase):
     (self.directory / 'datasets').mkdir()
     (self.directory / 'datasets' / 'data.txt').write_text('some data')
 
-    metadata = ocp.pytree_metadata(self.directory, checkpointable_name='state')
+    metadata = ocp.metadata(self.directory, checkpointable_name='state')
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertIsInstance(metadata.metadata, dict)
     self.assertSetEqual(
@@ -253,9 +251,9 @@ class CheckpointablesMetadataTest(absltest.TestCase):
       ckpt_metadata = ocp.checkpointables_metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
-    self.assertIn(PYTREE_CHECKPOINTABLE_KEY, ckpt_metadata.metadata)
+    self.assertIn(STATE_CHECKPOINTABLE_KEY, ckpt_metadata.metadata)
 
-    st_pytree_metadata = ckpt_metadata.metadata[PYTREE_CHECKPOINTABLE_KEY]
+    st_pytree_metadata = ckpt_metadata.metadata[STATE_CHECKPOINTABLE_KEY]
     self.assertEqual(st_pytree_metadata.keys(), expected_st_metadata.keys())
     for key, expected_sds in expected_st_metadata.items():
       actual_sds = st_pytree_metadata[key]

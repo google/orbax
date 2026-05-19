@@ -31,6 +31,7 @@ from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_t
 import safetensors.numpy
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 np_save_file = safetensors.numpy.save_file
 OrbaxLayout = orbax_layout.OrbaxLayout
 InvalidLayoutError = orbax_layout.InvalidLayoutError
@@ -72,7 +73,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     }
     self.custom_metadata = {'framework': 'JAX', 'version': '1.0'}
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save_pytree(
+    saving.save(
         self.orbax_path / '0',
         self.object_to_save,
         custom_metadata=self.custom_metadata,
@@ -117,7 +118,9 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     indicator_path.rmtree()  # Remove the indicator file
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     metadata_path.rmtree()
-    pytree_metadata_path = self.orbax_path / '0' / 'pytree' / '_METADATA'
+    pytree_metadata_path = (
+        self.orbax_path / '0' / STATE_CHECKPOINTABLE_KEY / '_METADATA'
+    )
     pytree_metadata_path.rmtree()
     with self.assertRaises(InvalidLayoutError):
       await layout.validate(self.orbax_path / '0')
@@ -137,12 +140,14 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     )
     restored_checkpointables = await restored_checkpointables_await
     test_utils.assert_tree_equal(
-        self, restored_checkpointables['pytree'], self.object_to_save
+        self,
+        restored_checkpointables[STATE_CHECKPOINTABLE_KEY],
+        self.object_to_save,
     )
 
   async def test_save_with_custom_name(self):
     custom_path = epath.Path(self.test_dir.full_path) / 'custom_checkpoint'
-    saving.save_pytree(
+    saving.save(
         custom_path,
         self.object_to_save,
         checkpointable_name='my_custom_name',
@@ -164,7 +169,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     self.assertIsInstance(result_metadata, metadata_types.CheckpointMetadata)
 
     expected_structs = {
-        checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: {
+        STATE_CHECKPOINTABLE_KEY: {
             'a': numpy_leaf_handler.NumpyMetadata(
                 shape=(9,),
                 dtype=np.dtype(np.int32),
@@ -200,7 +205,7 @@ class V1ValidationTest(
         / 'ckpt'
     )
     self.pytree, _ = array_test_utils.create_numpy_pytree()
-    saving.save_pytree(self.directory, self.pytree)
+    saving.save(self.directory, self.pytree)
 
   async def test_nonexistent_path(self):
     with self.assertRaises(FileNotFoundError):
@@ -217,21 +222,25 @@ class V1ValidationTest(
       await OrbaxLayout()._validate(self.directory)
 
   async def test_deleted_pytree(self):
-    (self.directory / 'pytree').rmtree()
+    (self.directory / STATE_CHECKPOINTABLE_KEY).rmtree()
 
     await OrbaxLayout()._validate(self.directory)
     with self.assertRaises(FileNotFoundError):
-      await OrbaxLayout()._validate_pytree(self.directory, 'pytree')
+      await OrbaxLayout()._validate_pytree(
+          self.directory, STATE_CHECKPOINTABLE_KEY
+      )
 
   async def test_missing_checkpointable_matching_name(self):
     with self.assertRaises(FileNotFoundError):
       await OrbaxLayout()._validate_pytree(self.directory, 'foo')
 
   async def test_no_pytree_metadata(self):
-    await _unlink_pytree_metadata(self.directory / 'pytree')
+    await _unlink_pytree_metadata(self.directory / STATE_CHECKPOINTABLE_KEY)
 
     with self.assertRaises(FileNotFoundError):
-      await OrbaxLayout()._validate_pytree(self.directory, 'pytree')
+      await OrbaxLayout()._validate_pytree(
+          self.directory, STATE_CHECKPOINTABLE_KEY
+      )
 
 
 class IsOrbaxV1CheckpointTest(parameterized.TestCase):
@@ -251,7 +260,7 @@ class IsOrbaxV1CheckpointTest(parameterized.TestCase):
     }
     self.custom_metadata = {'framework': 'JAX', 'version': '1.0'}
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save_pytree(
+    saving.save(
         self.orbax_path / '0',
         self.object_to_save,
         custom_metadata=self.custom_metadata,

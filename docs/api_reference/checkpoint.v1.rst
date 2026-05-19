@@ -33,21 +33,21 @@ Types
 
 Loading
 ~~~~~~~
-.. autofunction:: load_pytree
-.. autofunction:: load_pytree_async
+.. autofunction:: load
+.. autofunction:: load_async
 .. autofunction:: load_checkpointables
 .. autofunction:: load_checkpointables_async
 
 Saving
 ~~~~~~
-.. autofunction:: save_pytree
-.. autofunction:: save_pytree_async
+.. autofunction:: save
+.. autofunction:: save_async
 .. autofunction:: save_checkpointables
 .. autofunction:: save_checkpointables_async
 
 Metadata
 ~~~~~~~~
-.. autofunction:: pytree_metadata
+.. autofunction:: metadata
 .. autofunction:: checkpointables_metadata
 .. autoclass:: PyTreeMetadata
 .. autoclass:: CheckpointMetadata

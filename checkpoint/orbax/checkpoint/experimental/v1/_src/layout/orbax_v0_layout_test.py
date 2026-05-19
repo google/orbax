@@ -205,33 +205,35 @@ class V0ValidationTest(
         self.directory, 'state'
     )
 
-  async def test_load_pytree(self):
+  async def test_load(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     loaded = await (
-        await layout.load_pytree(self.directory, 'state', self.pytree)
+        await layout.load(self.directory, 'state', abstract_state=self.pytree)
     )
     test_utils.assert_tree_equal(self, self.pytree, loaded)
 
-  async def test_load_pytree_no_checkpoint_metadata(self):
+  async def test_load_no_checkpoint_metadata(self):
     await async_path.unlink(self.directory / '_CHECKPOINT_METADATA')
     layout = orbax_v0_layout.OrbaxV0Layout()
 
     loaded = await (
-        await layout.load_pytree(self.directory, 'state', self.pytree)
+        await layout.load(self.directory, 'state', abstract_state=self.pytree)
     )
     test_utils.assert_tree_equal(self, self.pytree, loaded)
 
-  async def test_load_pytree_no_checkpoint_metadata_or_target_pytree(self):
+  async def test_load_no_checkpoint_metadata_or_target_pytree(self):
     await async_path.unlink(self.directory / '_CHECKPOINT_METADATA')
     layout = orbax_v0_layout.OrbaxV0Layout()
 
-    loaded = await (await layout.load_pytree(self.directory, 'state'))
+    loaded = await (await layout.load(self.directory, 'state'))
     test_utils.assert_tree_equal(self, self.pytree, loaded)
 
-  async def test_load_pytree_v0_checkpoint(self):
+  async def test_load_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     loaded = await (
-        await layout.load_pytree(self.v0_pytree_directory, None, self.pytree)
+        await layout.load(
+            self.v0_pytree_directory, None, abstract_state=self.pytree
+        )
     )
     test_utils.assert_tree_equal(self, self.pytree, loaded)
 
@@ -245,7 +247,9 @@ class V0ValidationTest(
     await orbax_v0_layout.OrbaxV0Layout()._validate(self.v0_pytree_directory)
 
     loaded = await (
-        await layout.load_pytree(self.v0_pytree_directory, None, self.pytree)
+        await layout.load(
+            self.v0_pytree_directory, None, abstract_state=self.pytree
+        )
     )
     # Passes because we still have the pytree metadata.
     test_utils.assert_tree_equal(self, self.pytree, loaded)

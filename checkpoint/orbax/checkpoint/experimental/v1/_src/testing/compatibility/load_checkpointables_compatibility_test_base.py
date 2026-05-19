@@ -31,6 +31,9 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout_lib.STATE_CHECKPOINTABLE_KEY
+
+
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 
@@ -101,7 +104,11 @@ class LoadCheckpointablesCompatibilityTestBase(parameterized.TestCase):
       registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='state')
       registry.add(ocp.handlers.JsonHandler, checkpointable_name='metadata')
 
-    registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='pytree')
+    if not registry.has(STATE_CHECKPOINTABLE_KEY):
+      registry.add(
+          ocp.handlers.PyTreeHandler,
+          checkpointable_name=STATE_CHECKPOINTABLE_KEY,
+      )
 
     return registry
 

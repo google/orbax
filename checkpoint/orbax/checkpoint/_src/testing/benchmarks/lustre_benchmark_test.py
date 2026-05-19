@@ -53,7 +53,7 @@ class LustreBenchmarkTest(parameterized.TestCase):
     # Create temporary directories for the test
     # Ensure all processes use the same directory
     base_dir = self.create_tempdir(name='benchmark')
-    # cache_dir should not exist before save_pytree is called
+    # cache_dir should not exist before save is called
     cache_dir_path = epath.Path(base_dir.full_path) / 'cache'
     work_dir = base_dir.mkdir('work')
 
@@ -156,7 +156,7 @@ class LustreBenchmarkTest(parameterized.TestCase):
     )
 
     # Create a checkpoint at the "GCS" location for step 0 so restore works
-    ocp.save_pytree(gcs_dir_path / '0', pytree)
+    ocp.save(gcs_dir_path / '0', pytree)
 
     # Run the test function
     result = generator.test_fn(context)

@@ -85,7 +85,7 @@ def add_internal_checkpointables(
 
 
 class _SaveResponse(AsyncResponse[None]):
-  """An :py:class:`.AsyncResponse` representing the result of:py:func:`.save_pytree_async`."""
+  """An :py:class:`.AsyncResponse` representing the result of :py:func:`.save_async`."""
 
   def __init__(
       self,

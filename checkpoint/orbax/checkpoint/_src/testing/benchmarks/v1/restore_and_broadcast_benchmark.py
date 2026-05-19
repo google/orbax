@@ -122,8 +122,8 @@ class RestoreAndBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       if options.enable_trace:
         jax.profiler.start_trace(context.path / "trace_load")
       with metrics.measure("load", metrics_to_measure):
-        restored_pytree = ocp.load_pytree(
-            reference_checkpoint_path, abstract_pytree
+        restored_pytree = ocp.load(
+            reference_checkpoint_path, abstract_state=abstract_pytree
         )
       benchmark.clear_pytree(restored_pytree)
       if options.enable_trace:

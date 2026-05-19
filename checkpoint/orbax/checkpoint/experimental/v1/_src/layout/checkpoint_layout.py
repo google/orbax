@@ -24,7 +24,7 @@ Path = types.Path
 
 ### Constants shared by all layouts. ###
 
-PYTREE_CHECKPOINTABLE_KEY = "pytree"
+STATE_CHECKPOINTABLE_KEY = "state"
 EMPTY_CHECKPOINTABLE_KEY = ""
 AUTO_CHECKPOINTABLE_KEY = "AUTO"
 
@@ -107,18 +107,18 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def load_pytree(
+  async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_pytree: Any | None = None,
+      abstract_state: Any | None = None,
   ) -> Awaitable[Any]:
     """Loads a PyTree from the checkpoint.
 
     Args:
       path: The path to the checkpoint.
       checkpointable_name: The name of the checkpointable to load.
-      abstract_pytree: The abstract PyTree structure.
+      abstract_state: The abstract PyTree structure.
 
     Returns:
       An awaitable PyTree.

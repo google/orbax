@@ -45,7 +45,7 @@ CheckpointMetadata = training_metadata_types.CheckpointMetadata
 RootMetadata = training_metadata_types.RootMetadata
 
 
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
 
 class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
@@ -130,15 +130,15 @@ class Checkpointer(epy.ContextManager):
         if ckptr.latest is None:
           model_state = init_from_scratch(rng)
         else:
-          model_state = ckptr.load_pytree()  # Loads latest checkpoint.
+          model_state = ckptr.load()  # Loads latest checkpoint.
           # Note: prefer to specify the abstract tree if available.
-          model_state = ckptr.load_pytree(
-              ckptr.latest, abstract_pytree=abstract_model_state)
+          model_state = ckptr.load(
+              ckptr.latest, abstract_state=abstract_model_state)
         start_step = ckptr.latest.step if ckptr.latest else 0
         for step in range(start_step, num_steps):
           model_state = train_step(model_state)
           # Saves a checkpoint if needed (according to `save_decision_policy`).
-          ckptr.save_pytree(step, model_state)
+          ckptr.save(step, model_state)
 
     Prefer to use the context manager style as shown above, which ensures that
     the Checkpointer is closed properly and any outstanding async operations are
@@ -230,7 +230,7 @@ class Checkpointer(epy.ContextManager):
 
     The method returns a list of :py:class:`.CheckpointMetadata` objects, which
     contain selected properties describing the checkpoint. Contrast this with
-    the methods :py:func:`.pytree_metadata` and
+    the methods :py:func:`.metadata` and
     :py:func:`.checkpointables_metadata`, which may perform a more expensive
     disk read to retrieve additional information. This method only returns
     cheap cacheable properties like step and timestamp. The return value is
@@ -279,12 +279,12 @@ class Checkpointer(epy.ContextManager):
       step = _resolve_integer_step(step)
       return self._manager.should_save(step)
 
-  def save_pytree(
+  def save(
       self,
       step: int,
-      pytree: tree_types.PyTreeOf[tree_types.Leaf],
+      state: tree_types.PyTreeOf[tree_types.Leaf],
       *,
-      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
+      checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
       force: bool = False,
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
@@ -293,7 +293,7 @@ class Checkpointer(epy.ContextManager):
     """Saves a checkpoint, if dictated by :py:class:`.SaveDecisionPolicy`.
 
     This method behaves similarly to the standalone free function
-    :py:func:`~orbax.checkpoint.v1.save_pytree` (see
+    :py:func:`~orbax.checkpoint.v1.save` (see
     documentation), but performs additional tasks related to managing a sequence
     of checkpoint steps.
 
@@ -325,7 +325,7 @@ class Checkpointer(epy.ContextManager):
            ckptr = training.Checkpointer(directory)
 
            # Save the tree at step 0.
-           saved = ckptr.save_pytree(step=0, pytree=tree)
+           saved = ckptr.save(step=0, state=tree)
 
            # Clean up background threads gracefully when the training loop ends
            ckptr.close()
@@ -338,9 +338,9 @@ class Checkpointer(epy.ContextManager):
 
            ckptr = training.Checkpointer(directory)
 
-           ckptr.save_pytree(
+           ckptr.save(
                step=1,
-               pytree=tree,
+               state=tree,
                metrics={'loss': 0.12, 'accuracy': 0.95},
                custom_metadata={'description': 'Model after epoch 1'},
            )
@@ -350,7 +350,7 @@ class Checkpointer(epy.ContextManager):
 
     Args:
       step: The step number to save.
-      pytree: The PyTree to save.
+      state: The PyTree to save.
       checkpointable_name: The name of the checkpointable to save a pytree
         under. Defaults to 'pytree'.
       force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
@@ -366,9 +366,9 @@ class Checkpointer(epy.ContextManager):
     Returns:
       Whether a checkpoint was saved or not.
     """
-    return self.save_pytree_async(
+    return self.save_async(
         step,
-        pytree,
+        state,
         checkpointable_name=checkpointable_name,
         force=force,
         overwrite=overwrite,
@@ -392,7 +392,7 @@ class Checkpointer(epy.ContextManager):
     names to values. See `the guide on Checkpointables
     <https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointables.html>`_
     for more details on checkpointables. Also see documentation for
-    :py:func:`~orbax.checkpoint.v1.save_pytree`.
+    :py:func:`~orbax.checkpoint.v1.save`.
 
     Example:
       1. Basic Usage:
@@ -462,12 +462,12 @@ class Checkpointer(epy.ContextManager):
         custom_metadata=custom_metadata,
     ).result()
 
-  def save_pytree_async(
+  def save_async(
       self,
       step: int,
-      pytree: tree_types.PyTreeOf[tree_types.Leaf],
+      state: tree_types.PyTreeOf[tree_types.Leaf],
       *,
-      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
+      checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
       force: bool = False,
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
@@ -476,7 +476,7 @@ class Checkpointer(epy.ContextManager):
     """Saves a checkpoint asynchronously.
 
     This function is the asynchronous equivalent of
-    :py:meth:`~.save_pytree`. It accepts the exact same
+    :py:meth:`~.save`. It accepts the exact same
     arguments; please refer to that method for detailed descriptions.
 
     This method executes mostly in the background, blocking the main thread for
@@ -485,18 +485,18 @@ class Checkpointer(epy.ContextManager):
     Example:
       ::
 
-        async_response = ckptr.save_pytree_async(step=0, pytree=tree)
+        async_response = ckptr.save_async(step=0, state=tree)
         saved = async_response.result()
 
     Args:
       step: The step number to save.
-      pytree: The PyTree to save.
+      state: The PyTree to save.
       checkpointable_name: The name of the checkpointable to save a pytree
         under. Defaults to 'pytree'.
-      force: See `save_pytree`.
-      overwrite: See `save_pytree`.
-      metrics: See `save_pytree`.
-      custom_metadata: See `save_pytree`.
+      force: See `save`.
+      overwrite: See `save`.
+      metrics: See `save`.
+      custom_metadata: See `save`.
 
     Returns:
       An `AsyncResponse`, which can be awaited via `result()`, which returns a
@@ -504,7 +504,7 @@ class Checkpointer(epy.ContextManager):
     """
     return self.save_checkpointables_async(
         step,
-        {checkpointable_name: pytree},
+        {checkpointable_name: state},
         force=force,
         overwrite=overwrite,
         metrics=metrics,
@@ -582,23 +582,23 @@ class Checkpointer(epy.ContextManager):
       )
       return _AsyncSaveResponse(self._manager, saved)
 
-  def load_pytree(
+  def load(
       self,
       step: int | CheckpointMetadata | None = None,
-      abstract_pytree: (
+      abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
       *,
-      checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
+      checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
   ) -> tree_types.PyTreeOf[tree_types.Leaf]:
     """Loads a PyTree checkpoint at the given step.
 
     This method behaves similarly to the standalone free function
-    :py:func:`~orbax.checkpoint.v1.load_pytree`.
+    :py:func:`~orbax.checkpoint.v1.load`.
 
-    **Note:** Loading a PyTree without providing an `abstract_pytree` is
+    **Note:** Loading a PyTree without providing an `abstract_state` is
     provided purely for convenience. For serious or production use cases, it is
-    STRONGLY recommended to always provide an `abstract_pytree` to ensure the
+    STRONGLY recommended to always provide an `abstract_state` to ensure the
     restored PyTree strictly matches the expected shapes, dtypes, and sharding.
 
     Example:
@@ -612,7 +612,7 @@ class Checkpointer(epy.ContextManager):
            ckptr = training.Checkpointer(directory)
 
            # Load the saved PyTree from latest step
-           restored_tree = ckptr.load_pytree(step=None)
+           restored_tree = ckptr.load(step=None)
 
       2. Loading with an Abstract PyTree:
          Provide an abstract structure (such as target shapes and dtypes)
@@ -631,16 +631,16 @@ class Checkpointer(epy.ContextManager):
            }
 
            # Restore exactly matching the target structure
-           restored_tree = ckptr.load_pytree(
+           restored_tree = ckptr.load(
                step=1,
-               abstract_pytree=target_structure
+               abstract_state=target_structure
            )
 
     Args:
       step: The step number or :py:class:`.CheckpointMetadata` to load. If None,
         the checkpointer will attempt to resolve and load the latest existing
         checkpoint.
-      abstract_pytree: The abstract PyTree to load.
+      abstract_state: The abstract PyTree to load.
       checkpointable_name: The name of the checkpointable to load a pytree
         under. Defaults to 'pytree'.
 
@@ -648,7 +648,7 @@ class Checkpointer(epy.ContextManager):
       The loaded PyTree.
     """
     return self.load_checkpointables(
-        step, {checkpointable_name: abstract_pytree}
+        step, {checkpointable_name: abstract_state}
     )[checkpointable_name]
 
   def load_checkpointables(
@@ -768,10 +768,10 @@ class Checkpointer(epy.ContextManager):
           abstract_checkpointables,
       )
 
-  def load_pytree_async(
+  def load_async(
       self,
       step: int | CheckpointMetadata | None = None,
-      abstract_pytree: (
+      abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
   ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
@@ -786,7 +786,7 @@ class Checkpointer(epy.ContextManager):
     """Loads a set of checkpointables asynchronously at the given step."""
     raise NotImplementedError()
 
-  def pytree_metadata(
+  def metadata(
       self, step: int | CheckpointMetadata | None = None
   ) -> training_metadata_types.CheckpointMetadata[
       metadata_types.PyTreeMetadata
@@ -810,7 +810,7 @@ class Checkpointer(epy.ContextManager):
     with context_lib.get_context(self._context):
       checkpoint = self._resolve_existing_checkpoint(step)
       del step
-      checkpoint_metadata = metadata_loading.pytree_metadata(
+      checkpoint_metadata = metadata_loading.metadata(
           self._manager.directory
           / self._step_name_format.build_name(checkpoint.step)
       )

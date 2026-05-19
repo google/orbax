@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- #v1 Rename `save/load_pytree` to `save/load`. Eliminate most user-facing
+"pytree" terminology in favor of "state" as a more specific term.
+Add `deprecations.py` for handling deprecated public functions.
+
 ## [0.11.40] - 2026-05-18
 
 ### Removed

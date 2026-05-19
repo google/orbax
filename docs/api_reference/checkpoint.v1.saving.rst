@@ -7,7 +7,7 @@ Checkpoint Saving
 
 Saving functions
 ------------------------------------------------------------
-.. autofunction:: save_pytree
+.. autofunction:: save
 .. autofunction:: save_checkpointables
-.. autofunction:: save_pytree_async
+.. autofunction:: save_async
 .. autofunction:: save_checkpointables_async

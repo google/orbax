@@ -29,27 +29,27 @@ from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-PYTREE_CHECKPOINTABLE_KEY = checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 Checkpointable = handler_types.Checkpointable
 
 
-def save_pytree(
+def save(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],
     *,
-    checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ):
   """Saves a `PyTree`.
 
   The operation blocks until complete. For improved performance, consider using
-  :py:func:`.save_pytree_async` instead. This function should be called on
+  :py:func:`.save_async` instead. This function should be called on
   all available controller processes.
 
   Example usage:
     Simple save of a dictionary containing JAX arrays::
-      pytree = {
+      state = {
           'params': {
               'w': jnp.ones((8, 8)),
               'b': jnp.zeros(8),
@@ -57,11 +57,11 @@ def save_pytree(
           'step': 100
       }
       # Saves to /tmp/my_checkpoint/
-      ocp.save_pytree('/tmp/my_checkpoint', pytree)
+      ocp.save('/tmp/my_checkpoint', state)
 
   Args:
     path: The path to save the checkpoint to.
-    pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
+    state: The `PyTree` to save. This may be any JAX `PyTree` (including custom
       objects registered as `PyTrees`) consisting of supported leaf types. See
       `orbax.checkpoint.experimental.v1.tree` for a table of standard supported
       leaf types.
@@ -75,7 +75,7 @@ def save_pytree(
   """
   execution.save_checkpointables_impl(
       path,
-      {checkpointable_name: pytree},
+      {checkpointable_name: state},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
       async_origin=False,
@@ -147,17 +147,17 @@ def save_checkpointables(
 
 # TODO(b/396190818): Test modification of the context by the user after the
 # save operation is scheduled.
-def save_pytree_async(
+def save_async(
     path: path_types.PathLike,
-    pytree: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],
     *,
-    checkpointable_name: str = PYTREE_CHECKPOINTABLE_KEY,
+    checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:
   """Saves a `PyTree` asynchronously.
 
-  Unlike :py:func:`.save_pytree`, this function returns immediately after the
+  Unlike :py:func:`.save`, this function returns immediately after the
   save operation is scheduled
   (except for certain operations, like device-to-host copying of on-device
   arrays, which must happen on the main thread). Further writing operations
@@ -172,7 +172,7 @@ def save_pytree_async(
   Example usage:
     Simple save of a dictionary containing JAX arrays asynchronously::
 
-      pytree = {
+      state = {
           'params': {
               'w': jnp.ones((8, 8)),
               'b': jnp.zeros(8),
@@ -180,8 +180,8 @@ def save_pytree_async(
           'step': 100
       }
       # Saves to /tmp/my_checkpoint/
-      future = ocp.experimental.v1.save_pytree_async(
-          '/tmp/my_checkpoint', pytree
+      future = ocp.experimental.v1.save_async(
+          '/tmp/my_checkpoint', state
       )
 
       # Perform other work here...
@@ -191,7 +191,7 @@ def save_pytree_async(
 
   Args:
     path: The path to save the checkpoint to.
-    pytree: The `PyTree` to save. This may be any JAX `PyTree` (including custom
+    state: The `PyTree` to save. This may be any JAX `PyTree` (including custom
       objects registered as `PyTrees`) consisting of supported leaf types. See
       `orbax.checkpoint.v1.tree` for a table of standard supported leaf types.
     checkpointable_name: The name of the checkpointable to save a pytree under.
@@ -208,7 +208,7 @@ def save_pytree_async(
   """
   return execution.save_checkpointables_impl(
       path,
-      {checkpointable_name: pytree},
+      {checkpointable_name: state},
       overwrite=overwrite,
       custom_metadata=custom_metadata,
       async_origin=True,

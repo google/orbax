@@ -96,7 +96,7 @@ class CheckpointableHandler(Protocol[_Checkpointable, _AbstractCheckpointable]):
 
   In most contexts, when dealing with just a PyTree, the API of choice is::
 
-    ocp.save_pytree(directory, pytree)
+    ocp.save(directory, pytree)
 
   The concept of "checkpointable" is not so obvious in this case. When dealing
   with multiple objects, we can use::
@@ -120,7 +120,7 @@ class CheckpointableHandler(Protocol[_Checkpointable, _AbstractCheckpointable]):
         ),
     )
     # Equivalently,
-    ocp.load_pytree(directory, abstract_model_params)
+    ocp.load(directory, abstract_model_params)
 
   With the methods defined in this Protocol (`save`, `load`),
   logic within the method itself is executed in the main thread,
