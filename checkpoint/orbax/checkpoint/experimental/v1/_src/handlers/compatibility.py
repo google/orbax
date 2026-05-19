@@ -24,7 +24,6 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
-from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
@@ -67,7 +66,7 @@ class CompatibilityCheckpointHandler(
       args: Args,
   ) -> list[future.Future] | None:
     async_path = _PathAwaitingCreation(
-        directory, context_lib.get_context().operation_id()
+        directory, synchronization.get_operation_id()
     )
     save_awaitable = await self._handler.save(async_path, args.checkpointable)
 

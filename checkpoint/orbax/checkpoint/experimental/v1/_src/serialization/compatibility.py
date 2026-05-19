@@ -103,7 +103,7 @@ def _construct_serialization_context(
   return types.SerializationContext(
       # TODO(dnlng): should use actual wait
       parent_dir=_PathAwaitingCreation(
-          info.parent_dir, context_lib.get_context().operation_id()
+          info.parent_dir, synchronization.get_operation_id()
       ),
       ts_context=info.ts_context,
       byte_limiter=info.byte_limiter,
@@ -304,7 +304,7 @@ class CompatibleTypeHandler(
     async def _background_serialize():
       await serialization_task
 
-    operation_id = context_lib.get_context().operation_id()
+    operation_id = synchronization.get_operation_id()
 
     return [
         future.CommitFuture(

@@ -42,6 +42,7 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import path_utils as saving_path_utils
 from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -142,7 +143,7 @@ class _SaveResponse(AsyncResponse[None]):
     }
 
     return cls(
-        context.operation_id(),
+        synchronization.get_operation_id(),
         temporary_path,
         handler_typestrs,
         background_awaitable,
@@ -280,7 +281,7 @@ async def _run_blocking_save(
             'save_checkpointables_async:run_blocking_save:partial_save',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 
@@ -382,10 +383,15 @@ def save_checkpointables_impl(
       operation_type=event_tracking.OperationType.SAVE,
       async_origin=async_origin,
   ).record_start()
+  context = context_lib.get_context()
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
-  asyncio_utils.run_sync(context_lib.synchronize_next_operation_id())
-  context = context_lib.get_context()
+  asyncio_utils.run_sync(
+      synchronization.synchronize_next_operation_id(
+          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
+          processes=context.multiprocessing_options.active_processes,
+      )
+  )
 
   path = context.file_options.path_class(path)
   _check_directory_consistency(path)

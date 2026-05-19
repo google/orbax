@@ -74,3 +74,30 @@ async def await_contracted_signals(operation_id: str):
     )
     barrier_key = _get_unique_barrier_key(signal, operation_id)
     await client.blocking_key_value_get(barrier_key, timeout_secs)
+
+
+def get_operation_id() -> str:
+  """Returns the current operation id."""
+  return OperationIdGenerator.get_current_operation_id()
+
+
+async def synchronize_next_operation_id(
+    prefix: str | None = None,
+    processes: set[int] | None = None,
+):
+  """Obtains the next operation id and synchronizes processes."""
+  operation_id = OperationIdGenerator.next_operation_id()
+  await multihost.sync_global_processes(
+      multihost.unique_barrier_key(
+          'next_awaitable_signal_operation_id:sync',
+          prefix=prefix,
+      ),
+      operation_id=get_operation_id(),
+      processes=processes,
+  )
+  logging.vlog(
+      1,
+      '[process=%s] Synchronized next awaitable signal operation id to %s',
+      multihost.process_index(),
+      operation_id,
+  )

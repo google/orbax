@@ -23,12 +23,12 @@ from typing import Awaitable, Iterable, Sequence
 from absl import logging
 import jax
 from orbax.checkpoint._src.futures import future
-from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 Path = types.Path
 PathLike = types.PathLike
@@ -236,7 +236,7 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
         path,
         subdirectories=subdirectories,
         context=context_lib.get_context(),
-        operation_id=context_lib.get_context().operation_id(),
+        operation_id=synchronization.get_operation_id(),
         completion_signals=completion_signals,
     )
     return cls(path.get(), awaitable)

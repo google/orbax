@@ -44,6 +44,7 @@ from orbax.checkpoint.experimental.v1._src.path import async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import registry as serialization_registry
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_test_utils
@@ -75,10 +76,12 @@ async def _sleep_and_create_paths(*args, **kwargs):
   await asyncio.sleep(2)
   return await _original_create_paths(*args, **kwargs)
 
+# TODO: b/514807381 - Remove TestBase Pattern from Orbax tests.
+
 
 class SaveLoadTestBase:
 
-  class Test(parameterized.TestCase):
+  class TestSetup(parameterized.TestCase):
 
     def setUp(self):
       super().setUp()
@@ -95,6 +98,8 @@ class SaveLoadTestBase:
     def tearDown(self):
       super().tearDown()
       test_utils.sync_global_processes('SavingTest:teardown_complete')
+
+  class SaveLoadTest(TestSetup):
 
     def save_and_wait(self, *args, use_async: bool, **kwargs):
       if use_async:
@@ -1203,3 +1208,45 @@ class SaveLoadTestBase:
           self.assertEqual(metadata['b'].shape, (32,))
           self.assertEqual(metadata['b'].storage_metadata.write_shape, (4,))
           self.assertEqual(metadata['b'].storage_metadata.chunk_shape, (2,))
+
+  class SynchronizationTest(TestSetup):
+
+    def test_sync_save_increments_operation_id(self):
+      initial_op_id = int(synchronization.get_operation_id())
+      save_dir = self.directory / 'sync_save'
+      ocp.save_pytree(save_dir, self.pytree)
+      post_save_op_id = int(synchronization.get_operation_id())
+      self.assertEqual(post_save_op_id, initial_op_id + 1)
+
+    def test_async_save_increments_operation_id(self):
+      initial_op_id = int(synchronization.get_operation_id())
+      save_dir = self.directory / 'async_save'
+      response = ocp.save_pytree_async(save_dir, self.pytree)
+      response.result()
+      post_save_op_id = int(synchronization.get_operation_id())
+      self.assertEqual(post_save_op_id, initial_op_id + 1)
+
+    def test_sync_load_increments_operation_id(self):
+      save_dir = self.directory / 'sync_load'
+      ocp.save_pytree(save_dir, self.pytree)
+
+      initial_op_id = int(synchronization.get_operation_id())
+      restored = ocp.load_pytree(save_dir, self.abstract_pytree)
+      self.assertIsNotNone(restored)
+      post_load_op_id = int(synchronization.get_operation_id())
+      self.assertEqual(post_load_op_id, initial_op_id + 1)
+
+    def test_save_then_load_increments_operation_id_sequentially(self):
+      initial_op_id = int(synchronization.get_operation_id())
+      save_dir = self.directory / 'save_then_load_seq'
+
+      # 1. Perform save (should increment by 1)
+      ocp.save_pytree(save_dir, self.pytree)
+      post_save_op_id = int(synchronization.get_operation_id())
+      self.assertEqual(post_save_op_id, initial_op_id + 1)
+
+      # 2. Perform load (should increment by 1 again)
+      restored = ocp.load_pytree(save_dir, self.abstract_pytree)
+      self.assertIsNotNone(restored)
+      post_load_op_id = int(synchronization.get_operation_id())
+      self.assertEqual(post_load_op_id, initial_op_id + 2)
