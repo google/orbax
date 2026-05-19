@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import collections
 from unittest import mock
 
 from absl.testing import absltest
@@ -30,6 +31,9 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
     sidecar_worker_checkpoint_manager,
 )
+
+
+EmptyState = collections.namedtuple('EmptyState', [])
 
 
 def _steps_array(steps: list[int]) -> np.ndarray:
@@ -60,7 +64,10 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     fake_mesh.axis_types = (jax.sharding.AxisType.Auto,)
     worker_manager = mock.Mock()
     dummy = object()
-    cpu_devices = (mock.Mock(id=101), mock.Mock(id=102))
+    worker_cpu_devices = (mock.Mock(id=101),)
+    state_cpu_devices = (mock.Mock(id=101), mock.Mock(id=102))
+    fake_cpu_mesh = mock.Mock()
+    fake_cpu_mesh.devices = np.array(state_cpu_devices)
     with mock.patch.object(
         sidecar_worker_checkpoint_manager,
         'WorkerCheckpointManager',
@@ -69,14 +76,18 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         controller_lib.colocated_transport,
         'install_pathways_colocated_serialization_patch',
     ) as mock_install_patch, mock.patch.object(
+        controller_lib.colocated_utils,
+        'colocated_cpu_devices_by_worker',
+        return_value=worker_cpu_devices,
+    ) as mock_worker_cpus, mock.patch.object(
         controller_lib.colocated_transport,
-        'unique_colocated_cpu_devices',
-        return_value=cpu_devices,
-    ) as mock_unique_cpus, mock.patch.object(
+        'colocated_cpu_mesh',
+        return_value=fake_cpu_mesh,
+    ) as mock_colocated_cpu_mesh, mock.patch.object(
         controller_lib.dispatchers,
         'get_dummy_input_array',
         return_value=dummy,
-    ), mock.patch.object(
+    ) as mock_get_dummy_input_array, mock.patch.object(
         controller_lib.ColocatedController,
         '_specialize_worker_calls',
         autospec=True,
@@ -92,10 +103,13 @@ class ColocatedControllerInternalTest(absltest.TestCase):
 
     self.assertIs(controller._dummy, dummy)
     mock_install_patch.assert_called_once_with()
-    mock_unique_cpus.assert_called_once_with((fake_device_2, fake_device_1))
+    mock_colocated_cpu_mesh.assert_called_once_with(fake_mesh)
+    mock_worker_cpus.assert_called_once_with((fake_device_2, fake_device_1))
+    mock_get_dummy_input_array.assert_called_once_with(worker_cpu_devices)
     kwargs = mock_worker_manager.call_args.kwargs
     self.assertEqual(kwargs['mesh_shape'], (2,))
     self.assertEqual(kwargs['mesh_axis_names'], ('x',))
+    self.assertEqual(kwargs['mesh_device_ids'], (101, 102))
     self.assertEqual(kwargs['mesh_axis_types'], tuple(fake_mesh.axis_types))
     self.assertEqual(kwargs['save_interval_steps'], 3)
     self.assertIsInstance(kwargs['local_directory'], str)
@@ -105,6 +119,8 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     fake_mesh.devices = np.array([mock.Mock(id=1)])
     fake_mesh.axis_names = ('x',)
     fake_mesh.axis_types = (jax.sharding.AxisType.Auto,)
+    fake_cpu_mesh = mock.Mock()
+    fake_cpu_mesh.devices = np.array([mock.Mock(id=101)])
 
     with mock.patch.object(
         sidecar_worker_checkpoint_manager,
@@ -114,9 +130,13 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         controller_lib.colocated_transport,
         'install_pathways_colocated_serialization_patch',
     ), mock.patch.object(
-        controller_lib.colocated_transport,
-        'unique_colocated_cpu_devices',
+        controller_lib.colocated_utils,
+        'colocated_cpu_devices_by_worker',
         return_value=(),
+    ), mock.patch.object(
+        controller_lib.colocated_transport,
+        'colocated_cpu_mesh',
+        return_value=fake_cpu_mesh,
     ), self.assertRaisesRegex(
         ValueError, 'requires at least one colocated CPU device'
     ):
@@ -137,7 +157,8 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     controller._local_directory = 'local'
     controller._worker_save_call = None
     controller._worker_save_call_in_specs = None
-    controller._colocated_cpu_devices = (device,)
+    controller._worker_cpu_devices = (device,)
+    controller._state_cpu_devices = (device,)
     controller._colocated_cpu_ids = frozenset({device.id})
     return controller, device
 
@@ -149,7 +170,28 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     controller._persistent_checkpoint_manager = None
     mesh = jax.sharding.Mesh(np.array([device]), ('d',))
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.restore_infer.specialize.side_effect = (
+        lambda *args, **kwargs: controller._worker_manager.restore_infer
+    )
     return controller, sharding
+
+  def _set_worker_restore_result(
+      self,
+      controller,
+      *,
+      return_value=None,
+      side_effect=None,
+  ):
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.restore_infer.specialize.return_value = (
+        controller._worker_manager.restore_infer
+    )
+    if side_effect is not None:
+      controller._worker_manager.restore_infer.side_effect = side_effect
+    else:
+      controller._worker_manager.restore_infer.return_value = return_value
 
   def test_get_worker_save_call_specializes_with_cpu_specs_and_devices(self):
     controller, device = self._make_controller_for_specialization()
@@ -174,7 +216,7 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     result = controller._get_worker_save_call(step_arr, force_arr, state)
 
     self.assertIs(result, sentinel)
-    self.assertEqual(captured['devices'], controller._colocated_cpu_devices)
+    self.assertEqual(captured['devices'], controller._worker_cpu_devices)
     spec_leaves = [
         leaf
         for leaf in jax.tree.leaves(captured['in_specs'])
@@ -228,6 +270,55 @@ class ColocatedControllerInternalTest(absltest.TestCase):
 
     self.assertEqual(target_shardings['x'], sharding)
 
+  def test_restore_out_specs_use_worker_structure_for_empty_namedtuple(self):
+    controller, sharding = self._make_controller_for_restore()
+    shape_dtype_tree = {
+        'opt_state': [
+            EmptyState(),
+            {'count': jax.ShapeDtypeStruct((), jnp.int32)},
+        ],
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32),
+    }
+    target_shardings = {
+        'opt_state': [EmptyState(), {'count': sharding}],
+        'weights': sharding,
+    }
+
+    out_specs = controller._restore_out_specs_from_shape_dtype_tree(
+        shape_dtype_tree,
+        target_shardings,
+        source_name='restore item',
+    )
+
+    self.assertIsNone(out_specs['opt_state'][0])
+    self.assertEqual(out_specs['opt_state'][1]['count'].shape, ())
+    self.assertEqual(out_specs['weights'].shape, (2,))
+
+  def test_rebuild_restored_state_restores_empty_namedtuple_from_none(self):
+    controller, sharding = self._make_controller_for_restore()
+    del sharding
+    restored_state = {
+        'opt_state': [None, {'count': jnp.asarray(7, dtype=jnp.int32)}],
+        'weights': jnp.arange(2, dtype=jnp.float32),
+    }
+    template_state = {
+        'opt_state': [
+            EmptyState(),
+            {'count': jax.ShapeDtypeStruct((), jnp.int32)},
+        ],
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32),
+    }
+
+    rebuilt = controller._rebuild_restored_state(restored_state, template_state)
+
+    self.assertEqual(
+        jax.tree.structure(rebuilt), jax.tree.structure(template_state)
+    )
+    self.assertEqual(rebuilt['opt_state'][0], EmptyState())
+    np.testing.assert_array_equal(
+        np.asarray(rebuilt['weights']), np.arange(2, dtype=np.float32)
+    )
+
   def test_rebuild_restored_state_unwraps_single_mapping_wrapper(self):
     controller, sharding = self._make_controller_for_restore()
     del sharding
@@ -260,67 +351,46 @@ class ColocatedControllerInternalTest(absltest.TestCase):
   def test_latest_step_returns_none_for_worker_sentinel(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.all_steps.return_value = object()
+    controller._worker_manager.latest_step.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'array_result_values',
-        return_value=[_steps_array([]), _steps_array([])],
-    ) as mock_array_values:
+        'scalar_result_values',
+        return_value=[
+            controller_lib.colocated_utils.NO_STEP_SENTINEL,
+            controller_lib.colocated_utils.NO_STEP_SENTINEL,
+        ],
+    ) as mock_scalar_values:
       latest_step = controller.latest_step()
 
     self.assertIsNone(latest_step)
-    controller._worker_manager.all_steps.assert_called_once()
-    mock_array_values.assert_called_once()
+    controller._worker_manager.latest_step.assert_called_once()
+    mock_scalar_values.assert_called_once()
 
-  def test_latest_step_returns_highest_common_worker_step(self):
+  def test_latest_step_returns_unanimous_latest_step(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.all_steps.return_value = object()
+    controller._worker_manager.latest_step.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'array_result_values',
-        return_value=[_steps_array([1, 2, 3]), _steps_array([2, 3, 4])],
+        'scalar_result_values',
+        return_value=[3, 3],
     ):
       latest_step = controller.latest_step()
 
     self.assertEqual(latest_step, 3)
-    controller._worker_manager.all_steps.assert_called_once()
+    controller._worker_manager.latest_step.assert_called_once()
 
-  def test_latest_step_handles_max_steps_and_sentinel(self):
+  def test_latest_step_returns_none_when_inconsistent(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.all_steps.return_value = object()
-
-    # Worker 1 has steps 1..MAX_TRACKED_STEPS
-    # Worker 2 has steps 1..MAX_TRACKED_STEPS-1 and padded with 0
-    max_steps = controller_lib.colocated_utils.MAX_TRACKED_STEPS
-    w1_steps = list(range(1, max_steps + 1))
-    w2_steps = list(range(1, max_steps)) + [0]
+    controller._worker_manager.latest_step.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'array_result_values',
-        return_value=[
-            np.asarray(w1_steps, dtype=np.int32),
-            np.asarray(w2_steps, dtype=np.int32),
-        ],
-    ):
-      latest_step = controller.latest_step()
-
-    self.assertEqual(latest_step, 127)
-    controller._worker_manager.all_steps.assert_called_once()
-
-  def test_latest_step_returns_none_when_no_common_step(self):
-    controller, _ = self._make_controller_for_restore()
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.all_steps.return_value = object()
-
-    with mock.patch.object(
-        controller_lib.colocated_utils,
-        'array_result_values',
-        return_value=[_steps_array([1, 5]), _steps_array([4])],
+        'scalar_result_values',
+        return_value=[3, 4],
     ):
       latest_step = controller.latest_step()
 
@@ -329,20 +399,20 @@ class ColocatedControllerInternalTest(absltest.TestCase):
   def test_latest_step_retries_transient_runtime_error(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.all_steps.side_effect = [
+    controller._worker_manager.latest_step.side_effect = [
         RuntimeError('transient'),
         object(),
     ]
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'array_result_values',
-        return_value=[_steps_array([12])],
+        'scalar_result_values',
+        return_value=[12],
     ), mock.patch.object(controller_lib.time, 'sleep') as mock_sleep:
       latest_step = controller.latest_step()
 
     self.assertEqual(latest_step, 12)
-    self.assertEqual(controller._worker_manager.all_steps.call_count, 2)
+    self.assertEqual(controller._worker_manager.latest_step.call_count, 2)
     mock_sleep.assert_called_once_with(1)
 
   def test_should_save_returns_worker_vote(self):
@@ -433,8 +503,9 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
 
     result = controller.restore(
         7,
@@ -451,6 +522,116 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     self.assertEqual(
         jax.tree.structure(result), jax.tree.structure(template_state)
     )
+    np.testing.assert_array_equal(
+        np.asarray(result['weights']), np.arange(2, dtype=np.float32)
+    )
+
+  def test_restore_accepts_worker_none_for_empty_namedtuple(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'opt_state': [
+            None,
+            {
+                'count': jax.device_put(
+                    jnp.asarray(7, dtype=jnp.int32), cpu_sharding
+                )
+            },
+        ],
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32), cpu_sharding
+        ),
+    }
+    template_state = {
+        'opt_state': [
+            EmptyState(),
+            {'count': jax.ShapeDtypeStruct((), jnp.int32, sharding=sharding)},
+        ],
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding),
+    }
+    restore_args = {
+        'opt_state': [
+            EmptyState(),
+            {'count': type_handlers.ArrayRestoreArgs(sharding=sharding)},
+        ],
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding),
+    }
+    captured = {}
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
+
+    def _specialize_fn(*, out_specs_fn, devices):
+      captured['devices'] = devices
+      captured['out_specs'] = out_specs_fn(None)
+      return controller._worker_manager.restore_infer
+
+    controller._worker_manager.restore_infer.specialize.side_effect = (
+        _specialize_fn
+    )
+
+    result = controller.restore(
+        7,
+        args_lib.Composite(
+            state=args_lib.PyTreeRestore(
+                item=template_state,
+                restore_args=restore_args,
+            )
+        ),
+        default_item_mode=True,
+    )
+
+    self.assertIsNone(captured['out_specs']['opt_state'][0])
+    self.assertEqual(captured['devices'], controller._state_cpu_devices)
+    self.assertEqual(
+        jax.tree.structure(result), jax.tree.structure(template_state)
+    )
+    self.assertEqual(result['opt_state'][0], EmptyState())
+    np.testing.assert_array_equal(
+        np.asarray(result['weights']), np.arange(2, dtype=np.float32)
+    )
+
+  def test_restore_no_item_rebuilds_empty_namedtuple_from_restore_args(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'opt_state': [None],
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32), cpu_sharding
+        ),
+    }
+    restore_args = {
+        'opt_state': [EmptyState()],
+        'weights': type_handlers.ArrayRestoreArgs(
+            sharding=sharding,
+            global_shape=(2,),
+            dtype=jnp.float32,
+        ),
+    }
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
+
+    result = controller.restore(
+        7,
+        args_lib.Composite(
+            state=args_lib.PyTreeRestore(
+                restore_args=restore_args,
+            )
+        ),
+        default_item_mode=True,
+    )
+
+    self.assertEqual(
+        jax.tree.structure(result), jax.tree.structure(restore_args)
+    )
+    self.assertEqual(result['opt_state'][0], EmptyState())
     np.testing.assert_array_equal(
         np.asarray(result['weights']), np.arange(2, dtype=np.float32)
     )
@@ -473,8 +654,9 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
     controller.latest_step = mock.Mock(return_value=11)
 
     controller.restore(
@@ -500,7 +682,6 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
     controller.latest_step = mock.Mock(return_value=None)
 
     with self.assertRaisesRegex(FileNotFoundError, 'No steps found'):
@@ -535,8 +716,9 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.restore_infer.return_value = restored_cpu_state
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
     controller._persistent_checkpoint_manager = mock.Mock()
     controller._persistent_checkpoint_manager.restore.return_value = (
         args_lib.Composite(dataset='dataset-state')
@@ -612,11 +794,13 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.restore_infer.side_effect = [
-        RuntimeError('transient'),
-        restored_cpu_state,
-    ]
+    self._set_worker_restore_result(
+        controller,
+        side_effect=[
+            RuntimeError('transient'),
+            restored_cpu_state,
+        ],
+    )
 
     result = controller.restore(
         7,
@@ -642,9 +826,9 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
-    controller._worker_manager = mock.Mock()
-    controller._worker_manager.restore_infer.side_effect = ValueError(
-        'bad restore'
+    self._set_worker_restore_result(
+        controller,
+        side_effect=ValueError('bad restore'),
     )
 
     with self.assertRaisesRegex(ValueError, 'bad restore'):
@@ -660,6 +844,7 @@ class ColocatedControllerInternalTest(absltest.TestCase):
       )
 
     self.assertEqual(controller._worker_manager.restore_infer.call_count, 1)
+
 
 if __name__ == '__main__':
   absltest.main()

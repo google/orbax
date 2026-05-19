@@ -202,6 +202,7 @@ class _ReplicatorLocalCheckpointEngine:
         options.step_name_format or step_lib.standard_name_format()
     )
     self._active_processes = None
+    self._skip_result_mesh_remap = is_sidecar
 
     sidecar_mp_options = multiprocessing_options
     if is_sidecar:
@@ -584,6 +585,11 @@ class _ReplicatorLocalCheckpointEngine:
       args_dict = dict(restored.items())
       args_dict[_DATASET_ITEM_NAME] = restored_dataset[_DATASET_ITEM_NAME]
       restored = args_lib.Composite(**args_dict)
+
+    if self._skip_result_mesh_remap:
+      # Pathways sidecars only own worker-local colocated CPU devices. The
+      # single controller performs the final transfer to caller shardings.
+      return restored[_STATE_ITEM_NAME] if default_item_mode else restored
 
     return self._get_mesh_consistent_result(
         original_args,
@@ -1011,6 +1017,8 @@ class ReplicatorCheckpointManager(
     return self._non_null_local_engine.wait_until_finished()
 
   def check_for_errors(self) -> None:
+    if self._colocated_controller is not None:
+      return self._colocated_controller.check_for_errors()
     if self._local_engine is None:
       return None
     return self._local_engine.check_for_errors()

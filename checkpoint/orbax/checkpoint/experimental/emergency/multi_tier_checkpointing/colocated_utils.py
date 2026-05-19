@@ -58,6 +58,42 @@ def compute_distributed_to_device_ids(
   return distributed_to_device_ids
 
 
+def colocated_cpu_devices_by_worker(
+    devices: Sequence[jax.Device],
+) -> tuple[jax.Device, ...]:
+  """Returns one colocated CPU device per Pathways worker.
+
+  Colocated Python can expose one CPU per accelerator. MTC worker management
+  needs one remote Python execution per worker VM, not one per accelerator, so
+  this selects a representative accelerator from each worker and maps those
+  representatives to colocated CPUs.
+
+  Args:
+    devices: The sequence of global devices to extract representatives from.
+
+  Returns:
+    A tuple of colocated unique CPU devices, exactly one per worker VM.
+  """
+  worker_groups = pathways.group_devices_by_worker(devices)
+  sorted_worker_groups = sorted(
+      worker_groups.items(),
+      key=lambda item: _worker_key_sort_key(item[0]),
+  )
+  representative_devices = tuple(
+      worker_devices[0] for _, worker_devices in sorted_worker_groups
+  )
+  cpu_devices = colocated_transport.unique_colocated_cpu_devices(
+      representative_devices
+  )
+  if len(cpu_devices) != len(representative_devices):
+    raise ValueError(
+        'Expected one colocated CPU device per Pathways worker, got '
+        f'{len(cpu_devices)} CPU devices for '
+        f'{len(representative_devices)} workers.'
+    )
+  return cpu_devices
+
+
 def _worker_key_sort_key(worker_key: tuple[int, ...]) -> tuple[int, ...]:
   """Sorts `(task, slice)` worker keys in slice-major order."""
   if len(worker_key) == 2:
@@ -203,6 +239,3 @@ def array_result_values(result: jax.Array, *, op_name: str) -> list[np.ndarray]:
     if value.ndim == 0:
       raise ValueError(f'{op_name}: expected array shard value, got scalar.')
   return values
-
-
-
