@@ -34,6 +34,7 @@ from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -376,6 +377,14 @@ def _load_impl(
     raise ValueError('Path must not be None.')
 
   ctx = context_lib.get_context()
+  # Ensure the operation ID is incremented as soon as possible. This must be
+  # done uniquely for each load operation.
+  asyncio_utils.run_sync(
+      synchronization.synchronize_next_operation_id(
+          prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
+          processes=ctx.multiprocessing_options.active_processes,
+      )
+  )
 
   async def _load() -> Checkpointable:
     load_awaitable = await load_fn()
@@ -390,7 +399,7 @@ def _load_impl(
             '_load_impl',
             prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=ctx.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=ctx.multiprocessing_options.active_processes,
     )
     return result
@@ -444,7 +453,7 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
         async_origin=True,
     ).record_blocking_completion(blocking_duration_secs)
     return cls(
-        context.operation_id(),
+        synchronization.get_operation_id(),
         path,
         background_awaitable,
         start_time=start_time,
@@ -470,7 +479,7 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
                 self._context.multiprocessing_options.barrier_sync_key_prefix
             ),
         ),
-        operation_id=self._context.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=self._context.multiprocessing_options.active_processes,
     )
     total_duration_secs = time.time() - self._start_time
@@ -503,6 +512,14 @@ def load_pytree_async(
       async_origin=True,
   ).record_start()
   ctx = context_lib.get_context()
+  # Ensure the operation ID is incremented as soon as possible. This must be
+  # done uniquely for each load operation.
+  asyncio_utils.run_sync(
+      synchronization.synchronize_next_operation_id(
+          prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
+          processes=ctx.multiprocessing_options.active_processes,
+      )
+  )
   if not path:
     raise ValueError('Path must not be None.')
   if ctx.checkpoint_layout != options_lib.CheckpointLayout.SAFETENSORS:

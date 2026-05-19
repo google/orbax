@@ -22,6 +22,7 @@ from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 
 
@@ -78,7 +79,7 @@ async def remove_existing_path(
           'save_checkpointables_async:rmtree',
           prefix=context.multiprocessing_options.barrier_sync_key_prefix,
       ),
-      operation_id=context.operation_id(),
+      operation_id=synchronization.get_operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )
 
@@ -107,7 +108,7 @@ async def maybe_overwrite_existing(
           'save_checkpointables_async:maybe_overwrite_existing:pre',
           prefix=context.multiprocessing_options.barrier_sync_key_prefix,
       ),
-      operation_id=context.operation_id(),
+      operation_id=synchronization.get_operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )
   if await async_path.exists(path):
@@ -120,6 +121,6 @@ async def maybe_overwrite_existing(
           'save_checkpointables_async:maybe_overwrite_existing:post',
           prefix=context.multiprocessing_options.barrier_sync_key_prefix,
       ),
-      operation_id=context.operation_id(),
+      operation_id=synchronization.get_operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )

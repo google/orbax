@@ -19,11 +19,10 @@ from unittest import mock
 from absl.testing import absltest
 from etils import epath
 from orbax.checkpoint._src.futures import future
-from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import async_utils
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 OperationIdGenerator = synchronization.OperationIdGenerator
 AwaitableSignalsContract = future.AwaitableSignalsContract
@@ -63,7 +62,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     self.assertGreater(c, b)
 
   async def test_async_mkdir(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
@@ -78,7 +77,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await self.assertExists(self.directory / 'tmp')
 
   async def test_async_mkdir_with_subdirectories(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
@@ -95,7 +94,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await self.assertExists(self.directory / 'tmp' / 'b')
 
   async def test_async_mkdir_sequential(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir1 = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp1', self.directory / 'final1'
     )
@@ -121,7 +120,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await self.assertExists(self.directory / 'tmp2')
 
   async def test_async_mkdir_parallel(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir1 = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp1', self.directory / 'final1'
     )
@@ -144,7 +143,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await self.assertExists(self.directory / 'tmp2')
 
   async def test_async_mkdir_with_delayed_wait(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
@@ -164,7 +163,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await t
 
   async def test_async_mkdir_with_no_wait(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
@@ -180,8 +179,8 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await t
 
   async def test_signals(self):
-    await context_lib.synchronize_next_operation_id()
-    operation_id = context_lib.get_context().operation_id()
+    await synchronization.synchronize_next_operation_id()
+    operation_id = synchronization.get_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )
@@ -220,7 +219,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await t
 
   async def test_await_creation_without_create(self):
-    await context_lib.synchronize_next_operation_id()
+    await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
         self.directory / 'tmp', self.directory / 'final'
     )

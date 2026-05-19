@@ -31,6 +31,7 @@ from orbax.checkpoint.experimental.v1._src.partial import path as partial_path_l
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import execution
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
+from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -282,7 +283,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_path_existence_start',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
     if await async_path.exists(final_path):
@@ -299,7 +300,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_path_rename_start',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 
@@ -324,7 +325,7 @@ def finalize(path: path_types.PathLike) -> None:
             'OcpPartialSaving:finalize_rename_complete',
             prefix=context.multiprocessing_options.barrier_sync_key_prefix,
         ),
-        operation_id=context.operation_id(),
+        operation_id=synchronization.get_operation_id(),
         processes=context.multiprocessing_options.active_processes,
     )
 
