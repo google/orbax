@@ -36,6 +36,7 @@ message StorageBackend {
     MultipleRegions multi_regions = 5;  // e.g. GCS (dual/multi-regions)
   }
   BackendType backend_type = 6;
+  string prefix = 7;  // GCS bucket name or Lustre mount point.
 }
 
 message TierPath {
@@ -144,6 +145,12 @@ message InfoRequest {
 
 message InfoResponse {
   Asset asset = 1;
+}
+
+message ServerConfig {
+  int64 client_keep_alive_interval_seconds = 1;
+  string db_connection_str = 2;
+  repeated StorageBackend storage_backends = 3;
 }
 
 service TieringService {
