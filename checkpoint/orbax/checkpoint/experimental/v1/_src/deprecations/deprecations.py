@@ -18,23 +18,30 @@ import functools
 from typing import Any, Callable, TypeVar
 import warnings
 
-from orbax.checkpoint.experimental.v1._src.loading import loading
-from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
-from orbax.checkpoint.experimental.v1._src.saving import saving
-
 _FuncT = TypeVar('_FuncT', bound=Callable[..., Any])
 
 
 def deprecated(*, new: _FuncT) -> Callable[[_FuncT], _FuncT]:
-  """Decorator to mark a function as a deprecated alias of another function."""
+  """Decorator to mark a function as a deprecated alias of another function.
+
+  Usage:
+    @deprecated(new=new_function)
+    def old_function(...): ...
+
+  Args:
+    new: The function to use instead.
+
+  Returns:
+    A decorator function.
+  """
 
   def decorator(deprecated_func: _FuncT) -> _FuncT:
     @functools.wraps(deprecated_func)
     def wrapper(*args, **kwargs):
-      alias_name = getattr(deprecated_func, '__name__', 'unknown')
+      deprecated_func_name = getattr(deprecated_func, '__name__', 'unknown')
       new_name = getattr(new, '__name__', 'unknown')
       warnings.warn(
-          f'`{alias_name}` is deprecated, use `{new_name}` instead.',
+          f'`{deprecated_func_name}` is deprecated, use `{new_name}` instead.',
           DeprecationWarning,
           stacklevel=2,
       )
@@ -43,28 +50,3 @@ def deprecated(*, new: _FuncT) -> Callable[[_FuncT], _FuncT]:
     return wrapper
 
   return decorator
-
-
-@deprecated(new=saving.save)
-def save_pytree(*args, **kwargs):
-  return saving.save(*args, **kwargs)
-
-
-@deprecated(new=saving.save_async)
-def save_pytree_async(*args, **kwargs):
-  return saving.save_async(*args, **kwargs)
-
-
-@deprecated(new=loading.load)
-def load_pytree(*args, **kwargs):
-  return loading.load(*args, **kwargs)
-
-
-@deprecated(new=loading.load_async)
-def load_pytree_async(*args, **kwargs):
-  return loading.load_async(*args, **kwargs)
-
-
-@deprecated(new=metadata_loading.metadata)
-def pytree_metadata(*args, **kwargs):
-  return metadata_loading.metadata(*args, **kwargs)

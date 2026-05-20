@@ -12,69 +12,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest import mock
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
-from orbax.checkpoint.experimental.v1._src.loading import loading
-from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
-from orbax.checkpoint.experimental.v1._src.saving import saving
+
+
+# Define a dummy free function and its alias statically
+def dummy_free_target(arg, kwarg=None):
+  return f'free:{arg}:{kwarg}'
+
+
+@deprecations.deprecated(new=dummy_free_target)
+def dummy_free_alias(*args, **kwargs):
+  return dummy_free_target(*args, **kwargs)
+
+
+# Define a dummy class with a method and its alias statically
+class DummyClass:
+
+  def dummy_method_target(self, arg, kwarg=None):
+    return f'method:{arg}:{kwarg}'
+
+  @deprecations.deprecated(new=dummy_method_target)
+  def dummy_method_alias(self, *args, **kwargs):
+    return self.dummy_method_target(*args, **kwargs)
 
 
 class DeprecationsTest(parameterized.TestCase):
 
-  @parameterized.named_parameters(
-      dict(
-          testcase_name='save_pytree',
-          alias_func=deprecations.save_pytree,
-          alias_name='save_pytree',
-          target_module=saving,
-          target_name='save',
-      ),
-      dict(
-          testcase_name='save_pytree_async',
-          alias_func=deprecations.save_pytree_async,
-          alias_name='save_pytree_async',
-          target_module=saving,
-          target_name='save_async',
-      ),
-      dict(
-          testcase_name='load_pytree',
-          alias_func=deprecations.load_pytree,
-          alias_name='load_pytree',
-          target_module=loading,
-          target_name='load',
-      ),
-      dict(
-          testcase_name='load_pytree_async',
-          alias_func=deprecations.load_pytree_async,
-          alias_name='load_pytree_async',
-          target_module=loading,
-          target_name='load_async',
-      ),
-      dict(
-          testcase_name='pytree_metadata',
-          alias_func=deprecations.pytree_metadata,
-          alias_name='pytree_metadata',
-          target_module=metadata_loading,
-          target_name='metadata',
-      ),
-  )
-  def test_deprecated_alias(
-      self, alias_func, alias_name, target_module, target_name
-  ):
-    with mock.patch.object(target_module, target_name) as mock_target:
-      mock_target.return_value = 'expected_result'
+  def test_deprecated_free_function_alias(self):
+    # Access the statically defined alias
+    with self.assertWarnsRegex(
+        DeprecationWarning,
+        '`dummy_free_alias` is deprecated, use `dummy_free_target` instead.',
+    ):
+      result = dummy_free_alias('val', kwarg='ok')
 
-      with self.assertWarnsRegex(
-          DeprecationWarning,
-          f'`{alias_name}` is deprecated, use `{target_name}` instead.',
-      ):
-        result = alias_func('arg1', kwarg1='val1')
+    self.assertEqual(result, 'free:val:ok')
 
-      self.assertEqual(result, 'expected_result')
-      mock_target.assert_called_once_with('arg1', kwarg1='val1')
+  def test_deprecated_method_alias(self):
+    # Access the statically defined method alias
+    obj = DummyClass()
+    with self.assertWarnsRegex(
+        DeprecationWarning,
+        '`dummy_method_alias` is deprecated, use `dummy_method_target`'
+        ' instead.',
+    ):
+      result = obj.dummy_method_alias('val', kwarg='ok')
+
+    self.assertEqual(result, 'method:val:ok')
 
 
 if __name__ == '__main__':

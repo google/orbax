@@ -26,6 +26,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -544,3 +545,14 @@ def load_checkpointables_async(
   """Loads checkpointables asynchronously. Not yet implemented."""
   del path, abstract_checkpointables
   raise NotImplementedError('Asynchronous loading is not yet supported.')
+
+
+@deprecations.deprecated(new=load)
+def load_pytree(*args, **kwargs):
+  return load(*args, **kwargs)
+
+
+@deprecations.deprecated(new=load_async)
+def load_pytree_async(*args, **kwargs):
+  return load_async(*args, **kwargs)
+

@@ -23,6 +23,7 @@ from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
@@ -916,3 +917,24 @@ class Checkpointer(epy.ContextManager):
       yield self
     finally:
       self.close()
+
+  @deprecations.deprecated(new=save)
+  def save_pytree(self, *args, **kwargs):
+    return self.save(*args, **kwargs)
+
+  @deprecations.deprecated(new=save_async)
+  def save_pytree_async(self, *args, **kwargs):
+    return self.save_async(*args, **kwargs)
+
+  @deprecations.deprecated(new=load)
+  def load_pytree(self, *args, **kwargs):
+    return self.load(*args, **kwargs)
+
+  @deprecations.deprecated(new=load_async)
+  def load_pytree_async(self, *args, **kwargs):
+    return self.load_async(*args, **kwargs)
+
+  @deprecations.deprecated(new=metadata)
+  def pytree_metadata(self, *args, **kwargs):
+    return self.metadata(*args, **kwargs)
+

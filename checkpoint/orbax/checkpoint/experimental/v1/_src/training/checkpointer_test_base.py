@@ -889,3 +889,75 @@ class CheckpointerTestBase:
           lightweight_initialize,
       )
       checkpointer.close()
+
+  class DeprecationsTest(parameterized.TestCase):
+    """Tests for deprecated aliases on Checkpointer."""
+
+    def setUp(self):
+      super().setUp()
+      self.directory = '/tmp/dummy_dir'
+      self.enter_context(
+          mock.patch('orbax.checkpoint.checkpoint_manager.CheckpointManager')
+      )
+      self.mock_save = self.enter_context(
+          mock.patch.object(Checkpointer, 'save')
+      )
+      self.mock_save_async = self.enter_context(
+          mock.patch.object(Checkpointer, 'save_async')
+      )
+      self.mock_load = self.enter_context(
+          mock.patch.object(Checkpointer, 'load')
+      )
+      self.mock_load_async = self.enter_context(
+          mock.patch.object(Checkpointer, 'load_async')
+      )
+      self.mock_metadata = self.enter_context(
+          mock.patch.object(Checkpointer, 'metadata')
+      )
+
+    def test_save_pytree(self):
+      checkpointer = Checkpointer(self.directory)
+      with self.assertWarnsRegex(
+          DeprecationWarning,
+          '`save_pytree` is deprecated, use `save` instead.',
+      ):
+        checkpointer.save_pytree(0, 'dummy_state', foo='bar')
+      self.mock_save.assert_called_once_with(0, 'dummy_state', foo='bar')
+
+    def test_save_pytree_async(self):
+      checkpointer = Checkpointer(self.directory)
+      with self.assertWarnsRegex(
+          DeprecationWarning,
+          '`save_pytree_async` is deprecated, use `save_async` instead.',
+      ):
+        checkpointer.save_pytree_async(0, 'dummy_state', foo='bar')
+      self.mock_save_async.assert_called_once_with(0, 'dummy_state', foo='bar')
+
+    def test_load_pytree(self):
+      checkpointer = Checkpointer(self.directory)
+      with self.assertWarnsRegex(
+          DeprecationWarning,
+          '`load_pytree` is deprecated, use `load` instead.',
+      ):
+        checkpointer.load_pytree(0, 'dummy_abstract_state', foo='bar')
+      self.mock_load.assert_called_once_with(
+          0, 'dummy_abstract_state', foo='bar'
+      )
+
+    def test_load_pytree_async(self):
+      checkpointer = Checkpointer(self.directory)
+      with self.assertWarnsRegex(
+          DeprecationWarning,
+          '`load_pytree_async` is deprecated, use `load_async` instead.',
+      ):
+        checkpointer.load_pytree_async(0, 'dummy_abstract_state')
+      self.mock_load_async.assert_called_once_with(0, 'dummy_abstract_state')
+
+    def test_pytree_metadata(self):
+      checkpointer = Checkpointer(self.directory)
+      with self.assertWarnsRegex(
+          DeprecationWarning,
+          '`pytree_metadata` is deprecated, use `metadata` instead.',
+      ):
+        checkpointer.pytree_metadata(0, foo='bar')
+      self.mock_metadata.assert_called_once_with(0, foo='bar')

@@ -17,6 +17,7 @@
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint.experimental.v1 import errors
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -170,3 +171,9 @@ def _checkpointables_metadata_impl(
     return await layout.metadata(path)
 
   return asyncio_utils.run_sync(_load_metadata())
+
+
+@deprecations.deprecated(new=metadata)
+def pytree_metadata(*args, **kwargs):
+  return metadata(*args, **kwargs)
+
