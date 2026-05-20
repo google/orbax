@@ -10,6 +10,7 @@ permissions:
 jobs:
   label:
     runs-on: ubuntu-latest
+    if: github.actor != 'copybara-service[bot]'
     steps:
       - name: Add pull ready label
         uses: actions/github-script@v7
