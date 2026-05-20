@@ -22,15 +22,12 @@ customized, and is delegated to the `TypeHandler` class.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import dataclasses
 import functools
 import json
-import sys
 import threading
 import time
-from typing import Any, List, Optional, Sequence, Tuple, Union
-import uuid
+from typing import Any, List, Optional, Tuple, Union
 
 from absl import logging
 from etils import epath
@@ -40,11 +37,12 @@ from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.engine import async_io_engine
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
-from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
+from orbax.checkpoint._src.metadata import metadata_manager as metadata_manager_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
@@ -52,12 +50,10 @@ from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import memory_regulator
-from orbax.checkpoint._src.serialization import ocdbt_utils
-from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as type_handler_registry_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
-from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
+from orbax.checkpoint._src.tree import tree_walker
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -65,13 +61,12 @@ import tensorstore as ts
 
 
 PyTree = Any
-TupleKey = Tuple[str, ...]
 RestoreArgs = type_handlers.RestoreArgs
 ArrayRestoreArgs = type_handlers.ArrayRestoreArgs
 SaveArgs = type_handlers.SaveArgs
 ParamInfo = types.ParamInfo
-TypeHandler = types.TypeHandler
 TypeHandlerRegistry = types.TypeHandlerRegistry
+BatchRequest = async_io_engine.BatchRequest
 
 # TODO(b/298487158) Clean up protected access.
 LimitInFlightBytes = limits.LimitInFlightBytes
@@ -86,118 +81,12 @@ DEFAULT_CONCURRENT_GB = 96
 
 
 
-class PartialSaveError(Exception):
-  """Raised when there is an error during partial saving."""
-
-
-class PartialSaveReplacementError(PartialSaveError):
-  """Raised when a replacement is attempted during partial saving."""
-
-
-def _default_sizeof_values(values: Sequence[Any]) -> Sequence[int]:
-  return [sys.getsizeof(v) for v in values]
-
-
-def _get_batch_memory_size(
-    handler: TypeHandler, values: Sequence[Any]
-) -> Tuple[int, int]:
-  """Gets memory size for a batch of leaf values."""
-  try:
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-  except NotImplementedError:
-    logging.warning(
-        '`memory_size` is not implemented for `TypeHandler` of type: %s. Using'
-        ' the a default implementation to measure value memory consumption that'
-        ' may result in inaccurate estimation.',
-        type(handler),
-    )
-    write_sizes = read_sizes = _default_sizeof_values(values)
-  assert len(write_sizes) == len(values)
-  assert len(read_sizes) == len(values)
-  return sum(write_sizes), sum(read_sizes)
-
-
-def _log_io_metrics(
-    size: int,
-    start_time: float,
-    gbytes_per_sec_metric: str,
-    gbytes_metric: Optional[str] = None,
-):
-  """Logs the bytes per second metric."""
-  time_elapsed = time.time() - start_time
-  bytes_per_sec = (
-      float('nan') if time_elapsed == 0 else float(size) / time_elapsed
-  )
-  note = 'per-host'
-  logging.info(
-      '[process=%d] %s: %s/s (total gbytes: %s) (time elapsed: %s s) (%s)',
-      multihost.process_index(),
-      gbytes_per_sec_metric,
-      humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
-      humanize.naturalsize(size, binary=True),
-      time_elapsed,
-      note,
-  )
-  jax.monitoring.record_scalar(
-      gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
-  )
-  if gbytes_metric is not None:
-    jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
-
-
-async def _logging_serialize(
-    handler: TypeHandler,
-    serialize: asyncio.Coroutine[Any, Any, Sequence[future.Future]],
-) -> Sequence[future.Future]:
-  """Logs the time taken to serialize."""
-  start = time.time()
-  commit_futures = await serialize
-  handler_name = f'{type(handler).__module__}.{type(handler).__qualname__}'
-  logging.info(
-      '[process=%s][thread=%s] Initiated %s.serialize. Time taken: %fs',
-      multihost.process_index(),
-      threading.current_thread().name,
-      f'"{handler_name}"',
-      time.time() - start,
-  )
-  return commit_futures
-
-
-@dataclasses.dataclass
-class _BatchRequest:
-  """Represents a a request for batched serialization or deserialization.
-
-  Attributes:
-    handler: Used to serialize or deserialize the parameters.
-    keys: Used to identify the original tree keys so that the PyTree can be
-      reconstructed.
-    values: Values to serialize.
-    infos: ParamInfos.
-    args: List of SaveArgs or RestoreArgs.
-  """
-
-  handler: TypeHandler
-  keys: List[str]
-  values: List[Any]
-  infos: List[ParamInfo]
-  args: List[Union[SaveArgs, RestoreArgs]]
-
-  def __post_init__(self):
-    length = len(self.values)
-    if not all((
-        length == len(self.infos),
-        length == len(self.args),
-        length == len(self.keys),
-    )):
-      raise AssertionError('Found `_BatchRequest` with mismatched parameters.')
-
-
 def batched_serialization_requests(
     tree: PyTree,
     param_infos: PyTree,
     args: PyTree,
     registry: TypeHandlerRegistry,
-) -> List[_BatchRequest]:
+) -> List[BatchRequest]:
   """Gets a list of batched serialization or deserialization requests."""
   grouped = {}
 
@@ -246,7 +135,7 @@ def batched_serialization_requests(
       ) from e
 
     if handler not in grouped:
-      grouped[handler] = _BatchRequest(handler, [], [], [], [])
+      grouped[handler] = BatchRequest(handler, [], [], [], [])
     request = grouped[handler]
     grouped[handler] = dataclasses.replace(
         request,
@@ -325,17 +214,6 @@ def _fill_missing_save_or_restore_args(
   )
 
 
-@contextlib.contextmanager
-def _memory_profiler_context():
-  """Context manager for memory_regulator profiler."""
-  memory_regulator.profiler_start()
-  try:
-    yield
-  finally:
-    # Explicitly stop the bg thread if an exception occurs
-    memory_regulator.profiler_end()
-
-
 
 
 def _format_bytes(bytes_value: Optional[int]) -> str:
@@ -376,6 +254,7 @@ class BasePyTreeCheckpointHandler(
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
+      metadata_manager: Optional[metadata_manager_lib.MetadataManager] = None,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -392,8 +271,8 @@ class BasePyTreeCheckpointHandler(
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
         before a new array can start being transferred. Can be "auto".
-      memory_limit_options: Options for configuring memory limits for save.
-        Can help to reduce the possibility of OOM's when checkpoints are saved.
+      memory_limit_options: Options for configuring memory limits for save. Can
+        help to reduce the possibility of OOM's when checkpoints are saved.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       use_compression: If True, use zstd compression.
@@ -420,6 +299,8 @@ class BasePyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      metadata_manager: Optional `MetadataManager` instance to manage
+        persistence.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -463,6 +344,11 @@ class BasePyTreeCheckpointHandler(
     if self._array_metadata_store:
       self._array_metadata_store.set_primary_host(self._primary_host)
     self._array_metadata_validator = array_metadata_validator
+    self._metadata_manager = (
+        metadata_manager
+        if metadata_manager is not None
+        else metadata_manager_lib.MetadataManager()
+    )
 
     if enable_pinned_host_transfer is None:
       enable_pinned_host_transfer = jax.default_backend() == 'gpu'
@@ -486,162 +372,14 @@ class BasePyTreeCheckpointHandler(
         self._pytree_metadata_options,
         self._array_metadata_store,
         self._enable_pinned_host_transfer,
-        _format_bytes(self._save_concurrent_bytes),
+        _format_bytes(save_concurrent_bytes),
         _format_bytes(self._restore_concurrent_bytes),
     )
+    self._async_io_engine = async_io_engine.AsyncIoEngine()
 
   def get_param_names(self, item: PyTree) -> PyTree:
     """Gets parameter names for PyTree elements."""
-    return get_param_names(item)
-
-  def _get_param_infos(
-      self,
-      item: PyTree,
-      directory: epath.Path,
-      *,
-      use_ocdbt: bool = True,
-      use_compression: bool | None = True,
-      use_zarr3: Optional[bool] = None,
-      ocdbt_target_data_file_size: Optional[int] = None,
-      byte_limiter: Optional[limits.ByteLimiter] = None,
-      device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
-      raise_array_data_missing_error: bool = True,
-  ) -> PyTree:
-    """Returns parameter information for elements in `item`.
-
-    At minimum, this method should extract the names of each parameter for
-    saving/restoring.
-
-    Args:
-      item: a PyTree to extract information from.
-      directory: a directory where checkpoint files are located.
-      use_ocdbt: Whether to use OCDBT for writing or reading.
-      use_compression: Whether to use zstd compression
-      use_zarr3: Whether to use zarr3.
-      ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
-        OCDBT data file.
-      byte_limiter: ByteLimiter object.
-      device_host_byte_limiter: ByteLimiter object for device-to-host transfer.
-      raise_array_data_missing_error: See documentation in ParamInfo.
-
-    Returns:
-      A PyTree matching `item` of ParamInfo.
-    """
-    if use_zarr3 is None:
-      use_zarr3 = self._use_zarr3
-    names = self.get_param_names(item)
-    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
-
-    def _param_info(keypath, name, value):
-      if isinstance(value, tree_metadata.ValueMetadataEntry):
-        skip_deserialize = value.skip_deserialize
-      elif isinstance(value, type(PLACEHOLDER)):
-        skip_deserialize = True
-      else:
-        skip_deserialize = False
-      return ParamInfo(
-          name=name,
-          keypath=keypath,
-          parent_dir=directory,
-          skip_deserialize=skip_deserialize,
-          is_ocdbt_checkpoint=use_ocdbt,
-          use_compression=use_compression,
-          use_zarr3=use_zarr3,
-          enable_pinned_host_transfer=self._enable_pinned_host_transfer,
-          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-          byte_limiter=byte_limiter,
-          device_host_byte_limiter=device_host_byte_limiter,
-          ts_context=ts_context,
-          value_typestr=type_handler_registry_lib.get_param_typestr(
-              value, self._type_handler_registry, self._pytree_metadata_options
-          ),
-          raise_array_data_missing_error=raise_array_data_missing_error,
-          is_prioritized_key_fn=self._is_prioritized_key_fn,
-      )
-
-    return jax.tree.map_with_path(
-        _param_info, names, item, is_leaf=utils.is_empty_or_leaf
-    )
-
-  async def _async_partial_save(
-      self,
-      directory: epath.Path,
-      item: PyTree,
-      batch_requests: list[_BatchRequest],
-      param_infos: PyTree,
-      save_args: BasePyTreeSaveArgs,
-  ):
-    value_metadata_tree = (
-        await self._read_metadata_file(directory)
-    ).as_nested_tree()
-
-    tree_diff = tree_structure_utils.tree_difference(item, value_metadata_tree)
-
-    additions = set()
-
-    def _handle_diffs(keypath, diff):
-      keypath = tree_utils.tuple_path_from_keypath(keypath)
-      if diff.lhs is not None:  # Leaf is present in the current item
-        if diff.rhs is None:  # Leaf was not in the on-disk metadata
-          additions.add(keypath)
-        else:  # Leaf was also in the on-disk metadata
-          raise PartialSaveReplacementError(
-              f'Key "{keypath}" was found in the on-disk PyTree metadata and'
-              ' supplied item. Partial saving currently does not support'
-              ' REPLACEMENT. Please reach out to the Orbax team if you need'
-              ' this feature.'
-          )
-
-    jax.tree.map_with_path(
-        _handle_diffs,
-        tree_diff,
-        is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff),
-    )
-
-    logging.info(
-        '[process=%d] Found the following additions during partial save: %s',
-        multihost.process_index(),
-        additions,
-    )
-
-    # Filter out requests that don't have any additions.
-    filtered_requests = []
-    for request in batch_requests:
-      filtered_items = []
-      for key, value, info, arg in zip(
-          request.keys, request.values, request.infos, request.args
-      ):
-        for add in additions:
-          # Additions may be a prefix/parent of the key.
-          if add == key[: len(add)]:
-            filtered_items.append((key, value, info, arg))
-      if filtered_items:
-        keys, values, infos, args = zip(*filtered_items)
-        filtered_requests.append(
-            dataclasses.replace(
-                request,
-                keys=list(keys),
-                values=list(values),
-                infos=list(infos),
-                args=list(args),
-            )
-        )
-
-    serialize_ops = []
-    tree_memory_size = 0
-    for request in filtered_requests:
-      serialize_ops += [
-          _logging_serialize(
-              request.handler,
-              request.handler.serialize(
-                  request.values, request.infos, request.args
-              ),
-          )
-      ]
-      write_size, _ = _get_batch_memory_size(request.handler, request.values)
-      tree_memory_size += write_size
-
-    return serialize_ops, tree_memory_size, param_infos, save_args
+    return tree_utils.get_param_names(item)
 
   async def async_save(
       self,
@@ -693,7 +431,6 @@ class BasePyTreeCheckpointHandler(
     custom_metadata = args.custom_metadata
 
     save_args = _fill_missing_save_or_restore_args(item, save_args, mode='save')
-    byte_limiter = limits.get_byte_limiter(self._save_concurrent_bytes)
 
     device_host_concurrent_bytes = self._save_device_host_concurrent_bytes
     if device_host_concurrent_bytes == 'auto':
@@ -709,15 +446,19 @@ class BasePyTreeCheckpointHandler(
       device_host_byte_limiter = limits.get_byte_limiter(
           device_host_concurrent_bytes
       )
-    param_infos = self._get_param_infos(
+    param_infos = tree_walker.get_param_infos(
         item,
         directory,
+        use_zarr3=self._use_zarr3,
+        enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+        type_handler_registry=self._type_handler_registry,
+        pytree_metadata_options=self._pytree_metadata_options,
+        is_prioritized_key_fn=self._is_prioritized_key_fn,
+        use_compression=self._use_compression,
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-        byte_limiter=byte_limiter,
         device_host_byte_limiter=device_host_byte_limiter,
-        use_compression=self._use_compression,
-        use_zarr3=self._use_zarr3,
+        concurrent_bytes=self._save_concurrent_bytes,
     )
     # TODO(b/425293362): Add validation for PathAwaitingCreation.
     if isinstance(directory, epath.Path):
@@ -725,7 +466,6 @@ class BasePyTreeCheckpointHandler(
           leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
       )
 
-    serialize_ops = []  # List of (coros -> List of futures)
     batch_requests = batched_serialization_requests(
         item,
         param_infos,
@@ -737,33 +477,20 @@ class BasePyTreeCheckpointHandler(
         directory / PYTREE_METADATA_FILE
     )
     batch_requests_ready_time = time.time()
-    with _memory_profiler_context():
-      if is_partial_save:
-        serialize_ops, tree_memory_size, param_infos, save_args = (
-            await self._async_partial_save(
-                directory, item, batch_requests, param_infos, save_args
-            )
-        )
-      else:
-        tree_memory_size = 0
-        for request in batch_requests:
-          serialize_ops += [
-              _logging_serialize(
-                  request.handler,
-                  request.handler.serialize(
-                      request.values, request.infos, request.args
-                  ),
-              )
-          ]
-          write_size, _ = _get_batch_memory_size(
-              request.handler, request.values
+    if is_partial_save:
+      value_metadata_tree = (
+          await self._metadata_manager.read_metadata_file(
+              directory, pytree_metadata_options=self._pytree_metadata_options
           )
-          tree_memory_size += write_size
-      # Await copy futures. Returns List[List[future.Future]].
-      commit_futures = await asyncio.gather(*serialize_ops)
-    logging.info(
-        'MemoryRegulated: Peak usage: %f GiB',
-        memory_regulator.profiler_peak_usage_gib(),
+      ).as_nested_tree()
+      requests_to_save = tree_walker.filter_partial_save_requests(
+          item, value_metadata_tree, batch_requests
+      )
+    else:
+      requests_to_save = batch_requests
+
+    commit_futures, tree_memory_size = await self._async_io_engine.execute_save(
+        requests_to_save
     )
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
@@ -793,7 +520,7 @@ class BasePyTreeCheckpointHandler(
       save_futures += commit_futures
 
 
-    _log_io_metrics(
+    async_io_engine.log_io_metrics(
         tree_memory_size,
         start_time,
         '/jax/orbax/write/blocking_gbytes_per_sec',
@@ -802,7 +529,7 @@ class BasePyTreeCheckpointHandler(
         future.ChainedFuture(
             save_futures,
             functools.partial(
-                _log_io_metrics,
+                async_io_engine.log_io_metrics,
                 tree_memory_size,
                 start_time,
                 '/jax/orbax/write/gbytes_per_sec',
@@ -856,30 +583,17 @@ class BasePyTreeCheckpointHandler(
   ) -> Tuple[int, PyTree]:
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
-    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
-    param_infos = jax.tree.map(
-        lambda info: info.replace(byte_limiter=byte_limiter),
-        param_infos,
-    )
     batch_requests = batched_serialization_requests(
         metadata,
         param_infos,
         restore_args,
         self._type_handler_registry,
     )
-    deserialized_batches = []
-    deserialized_batches_ops = []
-    for request in batch_requests:
-      deserialized_batches_ops.append(
-          request.handler.deserialize(request.infos, request.args)
-      )
-    deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
-
-    tree_memory_size = 0
+    deserialized_batches, tree_memory_size = (
+        await self._async_io_engine.execute_restore(batch_requests)
+    )
     flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
-      _, read_size = _get_batch_memory_size(request.handler, deserialized)
-      tree_memory_size += read_size
       for key, value in zip(request.keys, deserialized):
         flat_restored[key] = value
     # Add in empty nodes from the metadata tree.
@@ -896,74 +610,6 @@ class BasePyTreeCheckpointHandler(
     # flat_restored.
     return tree_memory_size, tree_utils.from_flat_dict(
         flat_restored, target=item
-    )
-
-  def _partial_restore_with_omission(
-      self,
-      item: PyTree,
-      serialized_item: PyTree,
-      value_metadata_tree: PyTree,
-      restore_args: PyTree,
-  ) -> Tuple[PyTree, PyTree]:
-    """Restores leaves specified in `item`. Skips omitted leaves."""
-    if not self._pytree_metadata_options.support_rich_types:
-      # Replace empty containers with scalar values (zeros). During saving,
-      # some empty containers (like named tuples) were given
-      # ValueMetadataEntries as if they were scalars. We normalize these
-      # containers to scalars so that tree_trim is none the wiser.
-      serialized_item = jax.tree.map(
-          lambda v: 0 if empty_values.is_empty_container(v) else v,
-          serialized_item,
-          is_leaf=tree_utils.is_empty_or_leaf,
-      )
-
-    value_metadata_tree = tree_structure_utils.tree_trim(
-        serialized_item, value_metadata_tree, strict=False
-    )
-    value_metadata_tree = value_metadata_tree.unsafe_structure
-
-    if restore_args is not None:
-      restore_args = tree_structure_utils.tree_trim(
-          item, restore_args, strict=True
-      )
-
-    return value_metadata_tree, restore_args
-
-  def _partial_restore_with_placeholders(
-      self, serialized_item: PyTree, value_metadata_tree: PyTree
-  ) -> PyTree:
-    """Restores leaves from `item`, except for those marked as placeholders."""
-    diff = (
-        tree_structure_utils.tree_difference(
-            serialized_item,
-            value_metadata_tree,
-            is_leaf=tree_utils.is_empty_or_leaf,
-            leaves_equal=lambda a, b: True,
-        )
-        or {}
-    )
-    for keypath, value_diff in tree_utils.to_flat_dict(
-        diff, is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff)
-    ).items():
-      if value_diff.lhs is PLACEHOLDER and value_diff.rhs is None:
-        parent = value_metadata_tree
-        for key in keypath[:-1]:
-          parent = parent[key]
-        parent[keypath[-1]] = PLACEHOLDER
-      else:
-        formatted_diff = tree_structure_utils.format_tree_diff(
-            diff, source_label='Item', target_label='Metadata'
-        )
-        raise ValueError(
-            'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
-            ' intentional, pass `partial_restore=True` to only restore'
-            ' parameters found in `item`.'
-        )
-    return jax.tree.map(
-        lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
-        value_metadata_tree,
-        serialized_item,
     )
 
   def restore(
@@ -1065,7 +711,9 @@ class BasePyTreeCheckpointHandler(
       )
     # Get value metadata tree and use_zarr3 from serialized pytree metadata.
     internal_tree_metadata = asyncio_utils.run_sync(
-        self._read_metadata_file(directory)
+        self._metadata_manager.read_metadata_file(
+            directory, pytree_metadata_options=self._pytree_metadata_options
+        )
     )
     value_metadata_tree = internal_tree_metadata.as_nested_tree()
     if not value_metadata_tree:
@@ -1090,44 +738,16 @@ class BasePyTreeCheckpointHandler(
     serialized_item = tree_metadata.serialize_tree(
         item, self._pytree_metadata_options
     )
-    if item is None:
-      item = value_metadata_tree
-    elif args.partial_restore:
-      value_metadata_tree, restore_args = self._partial_restore_with_omission(
-          item, serialized_item, value_metadata_tree, restore_args
-      )
-    elif any(
-        type_handlers.is_placeholder(leaf) for leaf in jax.tree.leaves(item)
-    ):
-      value_metadata_tree = self._partial_restore_with_placeholders(
-          serialized_item, value_metadata_tree
-      )
-    else:
-      # Deserialize value metadata tree to the same structure as item to allow
-      # for comparison with item that contains rich types.
-      if self._pytree_metadata_options.support_rich_types:
-        value_metadata_tree = tree_utils.deserialize_tree(
-            value_metadata_tree, item
+    item, value_metadata_tree, restore_args = (
+        tree_walker.validate_and_align_restore_structures(
+            item=item,
+            serialized_item=serialized_item,
+            value_metadata_tree=value_metadata_tree,
+            restore_args=restore_args,
+            partial_restore=args.partial_restore,
+            support_rich_types=self._pytree_metadata_options.support_rich_types,
         )
-      # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
-      # dicts, lists, custom nodes) as leaves, as they do not contain any
-      # actual data to be restored, but are needed to maintain the structure.
-      diff = tree_structure_utils.tree_difference(
-          serialized_item,
-          value_metadata_tree,
-          is_leaf=tree_utils.is_empty_or_leaf,
-          leaves_equal=lambda a, b: True,
-      )
-      if diff is not None:
-        formatted_diff = tree_structure_utils.format_tree_diff(
-            diff, source_label='Item', target_label='Metadata'
-        )
-        raise ValueError(
-            'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
-            ' intentional, pass `partial_restore=True` to only restore'
-            ' parameters found in `item`.'
-        )
+    )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
@@ -1141,12 +761,18 @@ class BasePyTreeCheckpointHandler(
       )
     restore_args = tree_utils.deserialize_tree(restore_args, item)
 
-    param_infos = self._get_param_infos(
+    param_infos = tree_walker.get_param_infos(
         item=value_metadata_tree,
         directory=directory,
-        use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
+        enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+        type_handler_registry=self._type_handler_registry,
+        pytree_metadata_options=self._pytree_metadata_options,
+        is_prioritized_key_fn=self._is_prioritized_key_fn,
+        use_compression=self._use_compression,
+        use_ocdbt=use_ocdbt,
         raise_array_data_missing_error=raise_array_data_missing_error,
+        concurrent_bytes=self._restore_concurrent_bytes,
     )
     # Begin restore.
     tree_memory_size, restored_item = asyncio_utils.run_sync(
@@ -1174,110 +800,13 @@ class BasePyTreeCheckpointHandler(
       )
 
 
-    _log_io_metrics(
+    async_io_engine.log_io_metrics(
         tree_memory_size,
         start_time,
         '/jax/checkpoint/read/gbytes_per_sec',
         '/jax/checkpoint/read/gbytes',  # device memory usage
     )
     return restored_item
-
-  async def _get_param_infos_with_write_shape(
-      self,
-      param_infos: PyTree,
-      checkpoint_dir: epath.Path,
-      array_metadata_store: array_metadata_store_lib.Store,
-  ) -> PyTree:
-    """Returns `param_infos` updated with `write_shape`.
-
-    Args:
-      param_infos: A PyTree of ParamInfo to be updated.
-      checkpoint_dir: The checkpoint directory where write_shape metadata is
-        saved in ArrayMetadata store.
-      array_metadata_store: The ArrayMetadata store to read write_shape metadata
-        from.
-    """
-    if not utils.is_primary_host(self._primary_host):
-      return param_infos
-    # Extract write_shape from ArrayMetadata for current process_index.
-    process_index = multihost.process_index()
-    array_metadatas = await array_metadata_store.read(
-        checkpoint_dir, process_index=process_index
-    )
-    if array_metadatas is None:
-      jax_array_param_info = type_handlers.any_jax_array_param_info(param_infos)
-      if jax_array_param_info is not None:
-        raise ValueError(
-            f'No ArrayMetadata found for process_index={process_index} in the'
-            f' checkpoint directory: {checkpoint_dir}. But input PyTree'
-            ' contains at least one jax.Array param_info:'
-            f' {jax_array_param_info}.'
-        )
-      return param_infos
-
-    assert isinstance(array_metadatas, list)
-    array_metadatas_cache = {
-        array_metadata.param_name: array_metadata
-        for array_metadata in array_metadatas
-    }
-
-    def update_param_info(param_info: types.ParamInfo) -> types.ParamInfo:
-      if not type_handlers.represents_jax_array(param_info):
-        return param_info
-      if param_info.name not in array_metadatas_cache:
-        raise ValueError(
-            f'No ArrayMetadata found for param_info: {param_info}, checkpoint'
-            f' directory: {checkpoint_dir}, process_index={process_index}.'
-        )
-      return param_info.replace(
-          write_shape=array_metadatas_cache[param_info.name].write_shape
-      )
-
-    return jax.tree.map(update_param_info, param_infos)
-
-  async def _write_metadata_file(
-      self,
-      directory: epath.Path,
-      *,
-      param_infos: PyTree,
-      save_args: PyTree,
-      custom_metadata: tree_types.JsonType | None,
-      use_ocdbt: bool,
-      use_zarr3: bool,
-      partial_save: bool,
-  ) -> None:
-    if utils.is_primary_host(self._primary_host):
-      metadata_write_start_time = time.time()
-      path = directory / PYTREE_METADATA_FILE
-      metadata_content = tree_metadata.InternalTreeMetadata.build(
-          param_infos,
-          save_args=save_args,
-          use_ocdbt=use_ocdbt,
-          use_zarr3=use_zarr3,
-          custom_metadata=custom_metadata,
-          pytree_metadata_options=self._pytree_metadata_options,
-      )
-
-      if partial_save:
-        old_metadata = await self._read_metadata_file(directory)
-        metadata_content = tree_metadata.InternalTreeMetadata.merge(
-            old_metadata, metadata_content, overwrite=True
-        )
-
-      logging.vlog(
-          1,
-          'Writing pytree metadata file: %s with pytree_metadata_options: %s',
-          path,
-          self._pytree_metadata_options,
-      )
-      await async_path.write_text(
-          path,
-          json.dumps(metadata_content.to_json()),
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/checkpoint/write/async/metadata_write_duration_secs',
-          time.time() - metadata_write_start_time,
-      )
 
   async def _write_metadata_after_commits(
       self,
@@ -1302,20 +831,17 @@ class BasePyTreeCheckpointHandler(
     checkpoint_dir = jax.tree.leaves(param_infos)[0].parent_dir
 
     commit_time = time.time()
-    # `write_shape` is extracted from ArrayMetadata store saved during
-    # materialization of commit_futures. Then it is written to the pytree
-    # metadata.
-    # TODO(b/390465017): Simplify all metadata related code in this module after
-    # removing overriding of self._write_metadata_file() in subclasses. All
-    # metadata related code can be moved to a separate class and
-    # BasePyTreeCheckpointHandler should delegate all metadata related code to
-    # that class.
     if self._array_metadata_store is not None:
-      param_infos = await self._get_param_infos_with_write_shape(
-          param_infos, checkpoint_dir, self._array_metadata_store
+      param_infos = (
+          await self._metadata_manager.get_param_infos_with_write_shape(
+              param_infos,
+              checkpoint_dir,
+              array_metadata_store=self._array_metadata_store,
+              primary_host=self._primary_host,
+          )
       )
 
-    await self._write_metadata_file(
+    await self._metadata_manager.write_metadata_file(
         checkpoint_dir,
         param_infos=param_infos,
         save_args=save_args,
@@ -1323,6 +849,8 @@ class BasePyTreeCheckpointHandler(
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         partial_save=partial_save,
+        primary_host=self._primary_host,
+        pytree_metadata_options=self._pytree_metadata_options,
     )
     end_time = time.time()
     logging.info(
@@ -1335,71 +863,11 @@ class BasePyTreeCheckpointHandler(
         end_time - commit_time,
     )
 
-  async def _read_metadata_file(
-      self, directory: epath.Path
-  ) -> tree_metadata.InternalTreeMetadata:
-    """Reads metadata file and returns a tree of restore types.
-
-    Args:
-      directory: directory
-
-    Returns:
-      orbax.checkpoint.metadata.InternalTreeMetadata
-
-    Raises:
-      FileNotFoundError: if the metadata file is not found.
-    """
-    path = directory / PYTREE_METADATA_FILE
-    if not await async_path.exists(path):
-      raise FileNotFoundError(
-          f'Metadata file (named {PYTREE_METADATA_FILE}) does not exist at'
-          f' {directory}.'
-      )
-    logging.vlog(
-        1,
-        'Reading pytree metadata file: %s with pytree_metadata_options: %s',
-        path,
-        self._pytree_metadata_options,
-    )
-    metadata = tree_metadata.InternalTreeMetadata.from_json(
-        json.loads(await async_path.read_text(path)),
-        pytree_metadata_options=self._pytree_metadata_options,
-    )
-
-    # Log the read event for the checkpoint to the DM log.
-    event_tracking.record_read_metadata_event(directory)
-
-    return metadata
-
-
   def metadata(self, directory: epath.Path) -> tree_metadata.TreeMetadata:
-    """Returns tree metadata.
-
-    The result will be a PyTree matching the structure of the saved checkpoint.
-    Note that if the item saved was a custom class, the restored metadata will
-    be returned as a nested dictionary representation.
-
-    Example::
-
-      {
-        'layer0': {
-            'w': ArrayMetadata(dtype=jnp.float32, shape=(8, 8), shards=(1, 2)),
-            'b': ArrayMetadata(dtype=jnp.float32, shape=(8,), shards=(1,)),
-        },
-        'step': ScalarMetadata(dtype=jnp.int64),
-      }
-
-    If the required metadata file is not present, this method will raise an
-    error.
-
-    Args:
-      directory: checkpoint location.
-
-    Returns:
-      tree containing metadata.
-    """
     internal_tree_metadata = asyncio_utils.run_sync(
-        self._read_metadata_file(directory)
+        self._metadata_manager.read_metadata_file(
+            directory, pytree_metadata_options=self._pytree_metadata_options
+        )
     )
     return tree_metadata.build_default_tree_metadata(
         internal_tree_metadata.as_custom_metadata(
@@ -1408,57 +876,6 @@ class BasePyTreeCheckpointHandler(
         ),
         custom_metadata=internal_tree_metadata.custom_metadata,
         use_zarr3=internal_tree_metadata.use_zarr3,
-    )
-
-  async def _finalize_async(self, directory: epath.Path) -> None:
-    start_time = time.time()
-    finalize_coros = []
-    if self._array_metadata_store is not None:
-      if self._primary_host is None:
-        logging.log_first_n(
-            logging.INFO,
-            '[process=%s] Skipped cross-host ArrayMetadata validation'
-            ' because all hosts are primary (e.g. local storage).',
-            1,  # log only once
-            multihost.process_index(),
-        )
-      elif utils.is_primary_host(self._primary_host):
-        finalize_coros.append(
-            array_metadata_store_lib.validate_all_array_metadatas(
-                self._array_metadata_validator,
-                self._array_metadata_store,
-                directory,
-            )
-        )
-
-    async def merge_ocdbt_per_process_files():
-      merge_start_time = time.time()
-      ts_context = ts_utils.get_ts_context(use_ocdbt=True)
-      await ocdbt_utils.merge_ocdbt_per_process_files(
-          directory,
-          ts_context=ts_context,
-          use_zarr3=self._use_zarr3,
-          enable_validation=self._enable_post_merge_validation,
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
-          time.time() - merge_start_time,
-      )
-
-    finalize_coros.append(merge_ocdbt_per_process_files())
-
-    await asyncio.gather(*finalize_coros)
-    end_time = time.time()
-    logging.info(
-        '[process=%s][thread=%s] Pytree save finalize (merge_ocdbt +'
-        ' ArrayMetadata validation) completed. Time taken: %fs. use_zarr3=%s,'
-        ' enable_post_merge_validation=%s, directory=%s',
-        multihost.process_index(),
-        threading.current_thread().name,
-        end_time - start_time,
-        self._use_zarr3,
-        self._enable_post_merge_validation,
-        directory,
     )
 
   def finalize(self, directory: epath.Path) -> None:
@@ -1471,7 +888,16 @@ class BasePyTreeCheckpointHandler(
     Args:
       directory: Path where the checkpoint is located.
     """
-    asyncio_utils.run_sync(self._finalize_async(directory))
+    asyncio_utils.run_sync(
+        self._metadata_manager.finalize_async(
+            directory,
+            array_metadata_store=self._array_metadata_store,
+            primary_host=self._primary_host,
+            array_metadata_validator=self._array_metadata_validator,
+            use_zarr3=self._use_zarr3,
+            enable_post_merge_validation=self._enable_post_merge_validation,
+        )
+    )
 
 
 @register_with_handler(BasePyTreeCheckpointHandler, for_save=True)
