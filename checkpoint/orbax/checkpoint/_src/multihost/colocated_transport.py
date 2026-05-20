@@ -251,7 +251,7 @@ def install_pathways_colocated_serialization_patch() -> None:
 def unique_colocated_cpu_devices(
     devices: Sequence[jax.Device],
 ) -> tuple[jax.Device, ...]:
-  """Returns one colocated CPU device per worker."""
+  """Returns colocated CPU devices with duplicate CPU ids removed."""
   all_cpu = tuple(cp.colocated_cpu_devices(tuple(devices)))
   unique_cpu = []
   seen_ids = set()
@@ -261,6 +261,11 @@ def unique_colocated_cpu_devices(
     seen_ids.add(device.id)
     unique_cpu.append(device)
   return tuple(unique_cpu)
+
+
+def colocated_cpu_mesh(mesh: jax.sharding.Mesh) -> jax.sharding.Mesh:
+  """Returns a colocated CPU mesh preserving the input mesh order."""
+  return cp.colocated_cpu_devices(mesh)
 
 
 def colocated_cpu_sharding(
@@ -273,7 +278,7 @@ def colocated_cpu_sharding(
         cpu_devices[0], memory_kind=sharding.memory_kind
     )
   if isinstance(sharding, jax.sharding.NamedSharding):
-    cpu_mesh = cp.colocated_cpu_devices(sharding.mesh)
+    cpu_mesh = colocated_cpu_mesh(sharding.mesh)
     return jax.sharding.NamedSharding(
         cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
     )

@@ -44,13 +44,33 @@ class WorkerCheckpointManagerRaw:
       mesh_shape: tuple[int, ...],
       mesh_axis_names: tuple[str, ...],
       save_interval_steps: int,
+      mesh_device_ids: tuple[int, ...],
       mesh_axis_types: tuple[jax.sharding.AxisType, ...] | None = None,
   ) -> None:
     colocated_transport.install_pathways_colocated_serialization_patch()
     signaling_client.mark_pathways_colocated_runtime_active()
 
+    if len(mesh_device_ids) != np.prod(mesh_shape):
+      raise ValueError(
+          'mesh_device_ids must match mesh_shape size, got '
+          f'{len(mesh_device_ids)} ids for mesh_shape={mesh_shape}.'
+      )
+    devices_by_id = {int(d.id): d for d in jax.devices()}
+    missing_ids = [
+        device_id
+        for device_id in mesh_device_ids
+        if device_id not in devices_by_id
+    ]
+    if missing_ids:
+      raise ValueError(
+          'mesh_device_ids contains devices not visible to the sidecar: '
+          f'{missing_ids}.'
+      )
+
     cpu_mesh = jax.sharding.Mesh(
-        np.array(jax.devices()).reshape(mesh_shape),
+        np.array(
+            [devices_by_id[device_id] for device_id in mesh_device_ids]
+        ).reshape(mesh_shape),
         mesh_axis_names,
         axis_types=mesh_axis_types,
     )
@@ -143,6 +163,13 @@ class WorkerCheckpointManagerRaw:
   def wait_until_finished(self, dummy_array: jax.Array) -> jax.Array:
     """Blocks until worker-side async save work completes."""
     self._rcm.wait_until_finished()
+    return colocated_utils.make_scalar_on_like(
+        True, dummy_array, dtype=jnp.bool_
+    )
+
+  def check_for_errors(self, dummy_array: jax.Array) -> jax.Array:
+    """Raises async checkpoint errors from the wrapped manager."""
+    self._rcm.check_for_errors()
     return colocated_utils.make_scalar_on_like(
         True, dummy_array, dtype=jnp.bool_
     )

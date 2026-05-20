@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 "pytree" terminology in favor of "state" as a more specific term.
 Add `deprecations.py` for handling deprecated public functions.
 
+### Fixed
+
+- Fix Pathways MTC Colocated worker initialization and save/restore PyTree bugs.
+
 ## [0.11.40] - 2026-05-18
 
 ### Removed
@@ -25,8 +29,6 @@ effort in maintaining. Safetensors is instead the recommended conversion case.
 
 - #v1 Allow a context to be default-configured for all `Checkpointer`
 operations.
-
-### Changed
 
 - Upgrade to TensorStore>=0.1.84 (and Python>=3.11 as a consequence.)
 

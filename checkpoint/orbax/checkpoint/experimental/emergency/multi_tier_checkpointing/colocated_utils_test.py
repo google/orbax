@@ -197,6 +197,32 @@ class ColocatedUtilsTest(absltest.TestCase):
 
     self.assertEqual(distributed, [[0, 1], [2], [72], [74]])
 
+  def test_colocated_cpu_devices_by_worker_selects_one_device_per_worker(self):
+    devices = [
+        _FakeDevice(id=10, virtual_task_index=1, slice_index=0),
+        _FakeDevice(id=0, virtual_task_index=0, slice_index=0),
+        _FakeDevice(id=1, virtual_task_index=0, slice_index=0),
+        _FakeDevice(id=73, virtual_task_index=0, slice_index=1),
+        _FakeDevice(id=72, virtual_task_index=0, slice_index=1),
+    ]
+    cpu_devices = (mock.Mock(id=100), mock.Mock(id=101), mock.Mock(id=102))
+
+    with mock.patch.object(
+        colocated_utils.colocated_transport,
+        'unique_colocated_cpu_devices',
+        return_value=cpu_devices,
+    ) as mock_unique_cpu_devices:
+      result = colocated_utils.colocated_cpu_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+
+    self.assertEqual(result, cpu_devices)
+    mock_unique_cpu_devices.assert_called_once_with(
+        (
+            devices[1],  # worker (task=0, slice=0), first in input order.
+            devices[0],  # worker (task=1, slice=0).
+            devices[3],  # worker (task=0, slice=1), first in input order.
+        )
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
