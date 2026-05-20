@@ -19,7 +19,6 @@
 import contextlib
 import functools
 
-from orbax.checkpoint.experimental import v1
 from orbax.checkpoint import arrays
 from orbax.checkpoint import aggregate_handlers
 from orbax.checkpoint import args
@@ -80,6 +79,8 @@ from orbax.checkpoint._src.handlers.handler_registration import DefaultCheckpoin
 # This class should be regarded as internal-only, and may be removed without
 # warning.
 from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
+
+from orbax.checkpoint.experimental import v1
 
 # Test utils.
 from orbax.checkpoint import test_utils
