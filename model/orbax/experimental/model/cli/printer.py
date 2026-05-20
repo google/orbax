@@ -88,7 +88,8 @@ def unstructured_data(
   return '\n'.join(details)
 
 
-def obm_type(t: obm.type_pb2.Type) -> str:
+def obm_type(t: obm.type_pb2.Type
+             ) -> str:
   """Generates a human-readable string for a model type."""
   if t.HasField('leaf'):
     if t.leaf.HasField('tensor_type'):
@@ -160,7 +161,8 @@ def obm_type(t: obm.type_pb2.Type) -> str:
   return ''
 
 
-def tensor_type(tt: obm.type_pb2.TensorType) -> str:
+def tensor_type(tt: obm.type_pb2.TensorType |
+                ) -> str:
   if not tt.shape.shape_with_known_rank.dimension_sizes:
     return f'{obm.type_pb2.DType.Name(tt.dtype)}'
 
