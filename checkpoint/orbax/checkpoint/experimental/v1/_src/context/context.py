@@ -20,11 +20,8 @@ from collections.abc import Iterable
 import contextvars
 import typing
 
-from absl import logging
 from etils import epy
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
-from orbax.checkpoint.experimental.v1._src.synchronization import multihost
-from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 
 # Each Thread will have its own copy of `Context` object.
@@ -224,32 +221,9 @@ class Context(epy.ContextManager):
   def safetensors_options(self) -> options_lib.SafetensorsOptions:
     return self._safetensors_options
 
-  def operation_id(self) -> str:
-    return synchronization.OperationIdGenerator.get_current_operation_id()
-
   def __contextmanager__(self) -> Iterable[Context]:
     token = _CONTEXT.set(self)
     try:
       yield self
     finally:
       _CONTEXT.reset(token)
-
-
-async def synchronize_next_operation_id():
-  """Obtains the next operation id and synchronizes processes."""
-  context = get_context()
-  operation_id = synchronization.OperationIdGenerator.next_operation_id()
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'next_awaitable_signal_operation_id:sync',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      operation_id=context.operation_id(),
-      processes=context.multiprocessing_options.active_processes,
-  )
-  logging.vlog(
-      1,
-      '[process=%s] Synchronized next awaitable signal operation id to %s',
-      multihost.process_index(),
-      operation_id,
-  )
