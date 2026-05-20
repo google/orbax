@@ -2121,6 +2121,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/preempt/duration_saved_secs',
             duration.total_seconds(),
+            storage_type=path_utils.get_storage_type(self._directory),
         )
 
   def _finalize(self, step: int, steps_to_remove: List[int]):
