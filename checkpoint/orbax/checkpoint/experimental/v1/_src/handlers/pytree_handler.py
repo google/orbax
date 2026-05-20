@@ -35,6 +35,7 @@ from orbax.checkpoint._src.serialization import types as v0_serialization_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import compatibility
@@ -55,7 +56,7 @@ PartialSaveReplacementError = (
     base_pytree_checkpoint_handler.PartialSaveReplacementError
 )
 
-PYTREE_CHECKPOINTABLE_KEY = 'pytree'
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
 
 def _get_remaining_timeout(

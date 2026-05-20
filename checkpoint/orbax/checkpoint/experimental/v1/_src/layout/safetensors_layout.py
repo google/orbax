@@ -32,6 +32,7 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = types.Path
@@ -458,7 +459,7 @@ class _SingleFileLoader:
     return tensors
 
   async def load_multi_host(
-      self, abstract_pytree: dict[str, Any]
+      self, abstract_state: dict[str, Any]
   ) -> tuple[dict[str, Any], dict[str, float]]:
     """Loads tensors from a single safetensors file in multi-host mode.
 
@@ -474,7 +475,7 @@ class _SingleFileLoader:
        requires no data processing.
 
     Args:
-      abstract_pytree: A flat dictionary mapping tensor names to
+      abstract_state: A flat dictionary mapping tensor names to
         jax.ShapeDtypeStruct objects specifying target shape and sharding.
 
     Returns:
@@ -486,7 +487,7 @@ class _SingleFileLoader:
       ValueError: If the number of devices is not uniform across hosts, or if a
         sharded tensor's first dimension is not divisible by the number of
         devices per host.
-      KeyError: If a tensor in the abstract_pytree is not found in the
+      KeyError: If a tensor in the abstract_state is not found in the
         safetensors file.
     """
     io_time = 0.0
@@ -523,7 +524,7 @@ class _SingleFileLoader:
 
     if not context_lib.get_context().safetensors_options.ignore_load_sharding:
       max_shard_shape_per_dtype = _calculate_max_shard_shapes(
-          abstract_pytree,
+          abstract_state,
           header,
       )
       zero_buffers = _create_shared_zero_buffers(
@@ -543,7 +544,7 @@ class _SingleFileLoader:
     )
 
     # Process each tensor in the requested PyTree.
-    for name, abstract_leaf in abstract_pytree.items():
+    for name, abstract_leaf in abstract_state.items():
       if name not in header:
         continue
 
@@ -578,7 +579,7 @@ class _MultiFileLoader:
       paths = [self.path]
     return [_SingleFileLoader(path) for path in paths]
 
-  async def _load_single_host(self, abstract_pytree: dict[str, Any]) -> Any:
+  async def _load_single_host(self, abstract_state: dict[str, Any]) -> Any:
     """Loads a safetensors checkpoint on a single host."""
     # Return NumPy arrays.
     # Load from all files and merge.
@@ -598,20 +599,20 @@ class _MultiFileLoader:
         "[safetensors][single-host] Loaded tensors in %.0fs",
         time.time() - start,
     )
-    if not abstract_pytree:
+    if not abstract_state:
       return restored_pytree
 
     start = time.time()
-    for k in abstract_pytree:
+    for k in abstract_state:
       if k not in restored_pytree:
         raise KeyError(f"Tensor '{k}' not found in Safetensors checkpoint.")
 
     restored_pytree = {
         k: jax.device_put(
             restored_pytree[k],
-            device=abstract_pytree[k].sharding,
+            device=abstract_state[k].sharding,
         )
-        for k in abstract_pytree
+        for k in abstract_state
     }
     logging.info(
         "[safetensors][single-host] Host-to-device transfer in %.0fs",
@@ -620,12 +621,12 @@ class _MultiFileLoader:
     return restored_pytree
 
   async def _load_multi_host(
-      self, abstract_pytree: dict[str, Any] | None
+      self, abstract_state: dict[str, Any] | None
   ) -> Any:
     """Loads a safetensors checkpoint on multiple hosts."""
-    if not abstract_pytree:
+    if not abstract_state:
       raise ValueError(
-          "abstract_pytree must be provided for multi-host loading."
+          "abstract_state must be provided for multi-host loading."
       )
 
     loaders = await self._get_loaders()
@@ -635,7 +636,7 @@ class _MultiFileLoader:
     start = time.time()
     load_ops = []
     for loader in loaders:
-      load_ops.append(loader.load_multi_host(abstract_pytree))
+      load_ops.append(loader.load_multi_host(abstract_state))
 
     restored_pytree = {}
     total_io_time = 0.0
@@ -649,7 +650,7 @@ class _MultiFileLoader:
         restored_pytree[name] = arr
 
     # Validate that all requested tensors were found in at least one file.
-    for k in abstract_pytree:
+    for k in abstract_state:
       if k not in restored_pytree:
         raise KeyError(f"Tensor '{k}' not found in Safetensors checkpoint.")
 
@@ -667,18 +668,18 @@ class _MultiFileLoader:
 
   async def load_safetensors(
       self,
-      abstract_pytree: dict[str, Any] | None = None,
+      abstract_state: dict[str, Any] | None = None,
   ) -> Any:
     """Calls the correct safetensors loading function."""
-    if abstract_pytree is not None and not tree_utils.is_flat_dict(
-        abstract_pytree
+    if abstract_state is not None and not tree_utils.is_flat_dict(
+        abstract_state
     ):
       raise ValueError("The PyTree is not a flat dictionary.")
 
     if multihost.process_count() > 1:
-      return await self._load_multi_host(abstract_pytree)
+      return await self._load_multi_host(abstract_state)
     else:
-      return await self._load_single_host(abstract_pytree)
+      return await self._load_single_host(abstract_state)
 
   async def load_metadata(self):
     """Loads the metadata from a safetensors checkpoint."""
@@ -711,7 +712,7 @@ class _MultiFileLoader:
     logging.info("[safetensors] Loaded metadata in %.0fs", time.time() - start)
     return metadata_types.CheckpointMetadata[dict[str, Any]](
         path=self.path,
-        metadata={checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY: metadata},
+        metadata={STATE_CHECKPOINTABLE_KEY: metadata},
         commit_timestamp_nsecs=commit_timestamp_nsecs,
         custom_metadata=custom_metadata,
     )
@@ -764,29 +765,29 @@ class SafetensorsLayout(CheckpointLayout):
       )
 
   async def get_checkpointable_names(self, path: Path) -> list[str]:
-    return [checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY]
+    return [STATE_CHECKPOINTABLE_KEY]
 
   async def validate_pytree(
       self, path: Path, checkpointable_name: str | None
   ) -> None:
     return
 
-  async def load_pytree(
+  async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_pytree: Any | None = None,
+      abstract_state: Any | None = None,
   ) -> Awaitable[Any]:
     """Loads a NumPy checkpoint file.
 
-    If `abstract_pytree` is provided, it attempts to load numpy arrays as
+    If `abstract_state` is provided, it attempts to load numpy arrays as
     sharded `jax.Arrays` onto devices.
 
     Args:
       path: The path to load the checkpoint from.
       checkpointable_name: The name of the pytree checkpointable to load,
         unsused in this case.
-      abstract_pytree: An optional PyTree of abstract arrays specifying sharding
+      abstract_state: An optional PyTree of abstract arrays specifying sharding
         information.
 
     Returns:
@@ -794,7 +795,7 @@ class SafetensorsLayout(CheckpointLayout):
     """
     del checkpointable_name
     self._loader = _MultiFileLoader(path)
-    return self._loader.load_safetensors(abstract_pytree)
+    return self._loader.load_safetensors(abstract_state)
 
   async def save(
       self,

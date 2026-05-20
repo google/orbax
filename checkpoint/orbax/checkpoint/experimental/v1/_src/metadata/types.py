@@ -56,12 +56,12 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   `dict[str, AbstractCheckpointable]`.
 
   `CheckpointMetadata` can be accessed via one of two metadata methods. Please
-  see :py:func:`.pytree_metadata` and :py:func:`.checkpointables_metadata` for
+  see :py:func:`.metadata` and :py:func:`.checkpointables_metadata` for
   more information and usage instructions.
 
   If the checkpoint contains a `PyTree`, this metadata can be accessed via::
 
-    metadata = ocp.pytree_metadata(path)
+    metadata = ocp.metadata(path)
 
     # Inspect various properties
     metadata.init_timestamp_nsecs

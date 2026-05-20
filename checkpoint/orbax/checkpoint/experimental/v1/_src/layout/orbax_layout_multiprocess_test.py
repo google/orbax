@@ -30,6 +30,8 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import stateful_checkpointable_handler
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.partial import path as partial_path_lib
@@ -39,6 +41,7 @@ from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.testing import path_utils
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 CHECKPOINT_METADATA = orbax_layout.CHECKPOINT_METADATA
 ORBAX_CHECKPOINT_INDICATOR_FILE = orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
 InternalCheckpointMetadata = (
@@ -175,8 +178,11 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
     self.assertTrue(layout._handler_registry.has('pytree_foo'))
     self.assertEqual(layout._handler_registry.get('pytree_foo'), PyTreeHandler)
 
-    self.assertTrue(layout._handler_registry.has('pytree'))
-    self.assertEqual(layout._handler_registry.get('pytree'), PyTreeHandler)
+    self.assertTrue(layout._handler_registry.has(STATE_CHECKPOINTABLE_KEY))
+    self.assertEqual(
+        layout._handler_registry.get(STATE_CHECKPOINTABLE_KEY),
+        PyTreeHandler,
+    )
 
   @parameterized.product(
       save_checkpointables=({'foo': {'a': 1}, 'bar': {'x': 5}},),
@@ -231,7 +237,7 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
   ):
     if with_name:
       pairs_to_register = [
-          (PyTreeHandler, 'pytree'),
+          (PyTreeHandler, 'state'),
           (FooHandler, 'foo'),
       ]
     else:
@@ -245,7 +251,7 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
     layout = OrbaxLayout()
     layout._handler_registry = registry
 
-    checkpointables = {'pytree': {'a': 1}, 'foo': Foo(x=1, y='foo')}
+    checkpointables = {'state': {'a': 1}, 'foo': Foo(x=1, y='foo')}
     self.save(
         layout,
         self.directory,
@@ -341,8 +347,8 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
         'foo_list': PartialSavePyTree([{}, {'b2': 4}]),
     }
     merged_checkpointables = tree_structure_utils.merge_trees(
-        {k: v.pytree for k, v in first_save_checkpointables.items()},
-        {k: v.pytree for k, v in second_save_checkpointables.items()},
+        {k: v.state for k, v in first_save_checkpointables.items()},
+        {k: v.state for k, v in second_save_checkpointables.items()},
     )
     registry = self.create_registry(include_global_registry=False)
     registry.add(StatefulCheckpointableHandler)

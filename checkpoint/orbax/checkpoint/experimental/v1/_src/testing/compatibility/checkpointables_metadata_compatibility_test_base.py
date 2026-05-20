@@ -30,6 +30,9 @@ from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.testing.compatibility import test_utils as compatibility_test_utils
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout_lib.STATE_CHECKPOINTABLE_KEY
+
+
 CheckpointLayoutEnum = options_lib.CheckpointLayout
 InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 
@@ -58,7 +61,9 @@ class CheckpointablesMetadataCompatibilityTestBase(parameterized.TestCase):
   def setup_registry(self) -> registration.CheckpointableHandlerRegistry:
     """Ensures we only have what we explicitly add."""
     registry = ocp.handlers.local_registry(include_global_registry=False)
-    registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='pytree')
+    registry.add(
+        ocp.handlers.PyTreeHandler, checkpointable_name=STATE_CHECKPOINTABLE_KEY
+    )
     return registry
 
   def _determine_expected_outcome(

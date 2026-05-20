@@ -22,7 +22,9 @@ from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 InternalCheckpointMetadata = (
     step_metadata_serialization.InternalCheckpointMetadata
 )
@@ -64,7 +66,8 @@ def _resolve_single_handler_for_load(
     The handler for the checkpointable.
 
   Raises:
-    registration.NoEntryError: If no handler is resolved and 'pytree' name is
+    registration.NoEntryError: If no handler is resolved and
+    STATE_CHECKPOINTABLE_KEY name is
     not registered.
   """
   # 1. Resolve the checkpointable's handler using handler discovery.
@@ -86,16 +89,17 @@ def _resolve_single_handler_for_load(
   # 2. If no handler is resolved yet, try to resolve using the default
   # pytree handler.
   pytree_handler = registration.get_registered_handler_by_name(
-      handler_registry, "pytree"
+      handler_registry, STATE_CHECKPOINTABLE_KEY
   )
   if not pytree_handler:
     raise registration.NoEntryError(
         f"Could not resolve a handler for '{checkpointable_name}' and no"
-        f" 'pytree' handler found in {handler_registry})."
+        f" '{STATE_CHECKPOINTABLE_KEY}' handler found in {handler_registry})."
         " Please inspect the checkpoint contents via"
         " `loading.checkpointables_metadata`. You may need to provide an"
         " abstract_checkpointable or register a missing handler for this name"
-        " or for 'pytree' name which is used as a fallback."
+        f" or for '{STATE_CHECKPOINTABLE_KEY}' name which is used as a"
+        " fallback."
     )
   return pytree_handler
 

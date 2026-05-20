@@ -35,6 +35,9 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
+
+
 class CheckpointVersion(enum.Enum):
   V0 = 0
   V1 = 1
@@ -206,14 +209,12 @@ class OrbaxLayout(CheckpointLayout):
         for n in existing_names
         if n not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
     ]
-    if checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY in checkpointable_names:
+    if STATE_CHECKPOINTABLE_KEY in checkpointable_names:
       # Prioritize 'pytree' checkpointable name if present.
-      other_names = sorted([
-          n
-          for n in checkpointable_names
-          if n != checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY
-      ])
-      names = [checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY] + other_names
+      other_names = sorted(
+          [n for n in checkpointable_names if n != STATE_CHECKPOINTABLE_KEY]
+      )
+      names = [STATE_CHECKPOINTABLE_KEY] + other_names
     else:
       names = sorted(checkpointable_names)
     return names
@@ -251,7 +252,7 @@ class OrbaxLayout(CheckpointLayout):
     )
 
   async def _validate_pytree(self, path: Path, checkpointable_name: str | None):
-    """Validates checkpoint written by `save_pytree` or `save_checkpointables`.
+    """Validates checkpoint written by `save` or `save_checkpointables`.
 
     Validates that checkpointable_name is a Pytree checkpoint by verifying its
     path contains the required metadata files.
@@ -371,11 +372,11 @@ class OrbaxLayout(CheckpointLayout):
           f"Failed to interpret path {path} as a V1 Orbax PyTree."
       ) from e
 
-  async def load_pytree(
+  async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_pytree: (
+      abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
       ) = None,
   ) -> Awaitable[Any]:
@@ -384,7 +385,7 @@ class OrbaxLayout(CheckpointLayout):
     Args:
       path: The path to the checkpoint.
       checkpointable_name: The name of the pytree checkpointable to load.
-      abstract_pytree: The abstract pytree to load.
+      abstract_state: The abstract pytree to load.
 
     Returns:
       An awaitable containing the loaded pytree.
@@ -392,14 +393,14 @@ class OrbaxLayout(CheckpointLayout):
     checkpoint_metadata = await read_checkpoint_metadata(path)
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,
-        {checkpointable_name: abstract_pytree},
+        {checkpointable_name: abstract_state},
         checkpoint_metadata,
     )
 
     handler_for_load = handlers_for_load[checkpointable_name]
     result = await handler_for_load.load(
         path / checkpointable_name,
-        abstract_pytree,
+        abstract_state,
     )
     return result
 
@@ -445,19 +446,19 @@ class OrbaxLayout(CheckpointLayout):
     # Read checkpoint metadata and resolve handlers for loading.
     checkpoint_metadata = await read_checkpoint_metadata(path)
     # TODO(b/484400394): Find a better way to inform the user that they need
-    # to use load_pytree(..., checkpointable_name=None) when item_handlers is
+    # to use load(..., checkpointable_name=None) when item_handlers is
     # a str. An idea is to create a seperate validate_checkpointables method
     # and we can read in checkpoint metadata at validation time for both
     # validate_pytree and validate_checkpointables operations and warn the user
     # know if they are trying to load a composite checkpoint by calling
-    # load_pytree(checkpointable_name=None) or trying to load a composite
+    # load(checkpointable_name=None) or trying to load a composite
     # checkpoint as a pytree checkpoint respectively.
     if isinstance(checkpoint_metadata.item_handlers, str):
       logging.warning(
           "Checkpoint looks like a legacy V0 checkpoint. This is only"
           " supported for legacy V0 checkpoints. If you intended to load a"
           " pytree checkpoint from the given path, then please consider using"
-          " `loading.load_pytree(..., checkpointable_name=None)` instead."
+          " `loading.load(..., checkpointable_name=None)` instead."
       )
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,

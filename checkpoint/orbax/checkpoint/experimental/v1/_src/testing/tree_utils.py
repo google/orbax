@@ -19,10 +19,11 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 
 
+STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
+
+
 def is_pytree_checkpoint_complete(directory):
-  return (
-      directory / checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY / 'manifest.ocdbt'
-  ).exists()
+  return (directory / STATE_CHECKPOINTABLE_KEY / 'manifest.ocdbt').exists()
 
 
 def get_d_files_mtimes(path: path_types.Path) -> list[int]:
@@ -31,7 +32,7 @@ def get_d_files_mtimes(path: path_types.Path) -> list[int]:
   Assumes a structure like::
 
     path/
-      <PYTREE_CHECKPOINTABLE_KEY>/
+      <STATE_CHECKPOINTABLE_KEY>/
         ocdbt.process_0/
           d/
             <d_file_1>
@@ -57,9 +58,7 @@ def get_d_files_mtimes(path: path_types.Path) -> list[int]:
       len(matching_dirs) == 1
   ), f'Expected exactly one matching directory, got {matching_dirs}.'
   tmpdir = matching_dirs[0]
-  matching_pytree_dirs = list(
-      tmpdir.glob(f'{checkpoint_layout.PYTREE_CHECKPOINTABLE_KEY}*')
-  )
+  matching_pytree_dirs = list(tmpdir.glob(f'{STATE_CHECKPOINTABLE_KEY}*'))
   if not matching_pytree_dirs:
     # Temp path not created yet.
     return []

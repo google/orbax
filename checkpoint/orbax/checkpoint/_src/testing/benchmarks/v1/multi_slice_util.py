@@ -35,7 +35,7 @@ def get_multi_slice_abstract_state(
 ) -> Any:
   """Returns the abstract state for all replicas."""
   with ocp.Context(context=context):
-    metadata = ocp.pytree_metadata(reference_checkpoint_path)
+    metadata = ocp.metadata(reference_checkpoint_path)
     # Abstract tree has shardings on a single replica.
     single_replica_abstract_state = (
         checkpoint_generation.get_abstract_state_from_sharding_config(

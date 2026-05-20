@@ -39,6 +39,7 @@ class Snapshotter:
     self._lock = threading.Lock()
     self._queue = queue.Queue(maxsize=1)
     self.replica_axis_index = replica_axis_index
+
     self._worker_thread = threading.Thread(target=self._worker, daemon=True)
     self._worker_thread.start()
 
@@ -52,7 +53,7 @@ class Snapshotter:
       finally:
         self._queue.task_done()
 
-  def save_pytree(self, step: int, state: tree_types.PyTree) -> None:
+  def save(self, step: int, state: tree_types.PyTree) -> None:
     """Backs up JAX array states to pinned host memory, asynchronously.
 
     If previous snapshotting requests are still in progress, this request may
@@ -79,7 +80,7 @@ class Snapshotter:
 
     self._queue.put((pinned_state, step))
 
-  def load_pytree(
+  def load(
       self,
       abstract_state: tree_types.PyTree,
       *,
