@@ -68,4 +68,6 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
         return asyncio.run_coroutine_threadsafe(coro, event_loop).result()
       finally:
         event_loop.call_soon_threadsafe(event_loop.stop)
-        thread.join()
+        thread.join(timeout=30)
+        if thread.is_alive():
+          raise RuntimeError('Event loop thread did not stop cleanly.')
