@@ -138,7 +138,7 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
           operation_id='op',
           processes=None,
       )
-      awaitable = await layout.save(
+      awaitable = await layout.save_checkpointables(
           path_utils.PathAwaitingCreationWrapper(directory),
           checkpointables=checkpointables,
       )
