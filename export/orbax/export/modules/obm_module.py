@@ -16,7 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import copy
-import logging
+from absl import logging
 from typing import Any, Optional, Union
 import warnings
 
