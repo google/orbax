@@ -1665,9 +1665,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       FileNotFoundError: If no steps are found in the directory.
     """
     if step is None:
-      step = self.latest_step()
+      if directory is None:
+        step = self.latest_step()
+      else:
+        steps = utils.checkpoint_steps(directory)
+        step = max(steps) if steps else None
       if step is None:
-        raise FileNotFoundError(f'No steps found in {self.directory}.')
+        raise FileNotFoundError(
+            f'No steps found in {directory or self.directory}.'
+        )
     directory = directory or self.directory
     directory = epath.Path(directory)
     step_stats = step_statistics.RestoreStepStatistics()
