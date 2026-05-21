@@ -1,0 +1,19 @@
+suite_name: "Llama 3.1 70B Orbax OCDBT 16-GPU"
+num_repeats: 20
+
+mesh_config:
+  mesh_axes: ["data", "fsdp", "tensor"]
+  ici_parallelism: {"data": 1, "fsdp": 16, "tensor": 1}
+
+checkpoint_config:
+  path: "gs://orbax-benchmarks/checkpoints/llama-3.1-70B-checkpoints/0/items"
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.benchmark.Benchmark"
+    options:
+      async_enabled: true
+      use_ocdbt: true
+      use_zarr3: true
+      use_replica_parallel: false
+      use_compression: true
+      enable_trace: true
