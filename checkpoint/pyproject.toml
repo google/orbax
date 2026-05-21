@@ -78,10 +78,13 @@ testing = [
 ]
 tiering_service = [
     'aiosqlite',
+    'fire',
     'greenlet',
     'grpcio-tools>=1.80.0',
     'pysqlite3',
+    'pytimeparse',
     'sqlalchemy>=1.4.0',
+    'uvloop',
 ]
 
 [tool.flit.sdist]

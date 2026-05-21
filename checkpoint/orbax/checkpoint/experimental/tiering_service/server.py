@@ -14,15 +14,21 @@
 
 """Checkpoint Tiering Service (CTS) Server implementation."""
 
+import asyncio
 from collections.abc import Sequence
 from concurrent import futures
 import os
+import sys
 import uuid
 
 from absl import logging
+import fire
 import grpc
+from orbax.checkpoint.experimental.tiering_service import db_lib
+from orbax.checkpoint.experimental.tiering_service import server_config
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2_grpc
+import uvloop
 
 from google.protobuf import timestamp_pb2
 
@@ -114,9 +120,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
 
     # TODO: b/503445654 - Fake a TierPath for now
     asset_uuid = str(uuid.uuid4())
-    gcs_path = (
-        f"gs://checkpoint-tiering/{request.user}/{request.path}/{asset_uuid}"
-    )
+    storage_path = f"/mnt/lustre/{request.path}"
 
     if not request.HasField("zone") and not request.HasField("region"):
       logging.error(
@@ -143,17 +147,24 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         updated_at=now,
     )
 
-    tp = asset.tier_paths.add(
-        path=gcs_path,
+    # TODO: b/503445654 - Look up nearest backend to reserve path for requestor.
+    storage_backend_kwargs = {
+        "level": 0,
+        "backend_type": tiering_service_pb2.BACKEND_TYPE_LUSTRE,
+        # database/config.
+        "prefix": "/mnt/lustre",
+    }
+    if request.HasField("zone"):
+      storage_backend_kwargs["zone"] = request.zone
+    elif request.HasField("region"):
+      storage_backend_kwargs["region"] = request.region
+
+    asset.tier_paths.add(
+        path=storage_path,
         storage_backend=tiering_service_pb2.StorageBackend(
-            level=1,
-            backend_type=tiering_service_pb2.BACKEND_TYPE_GCS,
+            **storage_backend_kwargs
         ),
     )
-    if request.HasField("zone"):
-      tp.storage_backend.zone = request.zone
-    elif request.HasField("region"):
-      tp.storage_backend.region = request.region
 
     _assets_by_uuid[asset_uuid] = asset
     logging.info("Reserved asset with UUID: %s", asset_uuid)
@@ -303,19 +314,53 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     return tiering_service_pb2.InfoResponse(asset=asset)
 
 
-def serve() -> None:
-  """Starts the gRPC server."""
-  server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-  tiering_service_pb2_grpc.add_TieringServiceServicer_to_server(
-      TieringServiceServicer(), server
-  )
+async def setup_storage_backends(
+    config: tiering_service_pb2.ServerConfig,
+) -> None:
+  """Initializes the database if uninitialized, otherwise verifies it matches configuration."""
+  if not await db_lib.async_is_db_initialized(config):
+    await db_lib.async_initialize_db(config)
+  else:
+    await db_lib.async_verify_db(config)
 
-  server_creds = os.environ.get("SERVER_CREDS")  # pylint: disable=unused-variable
 
-  server.add_secure_port("[::]:50051", server_creds)
-  server.start()
-  server.wait_for_termination()
+class CtsServer:
+  """Checkpoint Tiering Service (CTS) Server CLI."""
+
+  async def serve(self, yaml_path: str) -> None:
+    """Starts the gRPC server.
+
+    Args:
+      yaml_path: Path to the YAML configuration file.
+    """
+    config = server_config.load_config(yaml_path)
+    await setup_storage_backends(config)
+
+    server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
+    tiering_service_pb2_grpc.add_TieringServiceServicer_to_server(
+        TieringServiceServicer(), server
+    )
+
+    server_creds = os.environ.get("SERVER_CREDS")  # pylint: disable=unused-variable
+
+    server.add_secure_port("[::]:50051", server_creds)
+    await server.start()
+    await server.wait_for_termination()
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+  """Main entry point for CTS server."""
+  if argv is None:
+    argv = sys.argv
+  uvloop.install()
+  try:
+    asyncio.get_event_loop()
+  except RuntimeError:
+    # Create the high-performance uvloop instead
+    loop = uvloop.new_event_loop()
+    asyncio.set_event_loop(loop)
+  fire.Fire(CtsServer, command=argv[1:])
 
 
 if __name__ == "__main__":
-  serve()
+  main()

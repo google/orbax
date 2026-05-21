@@ -159,6 +159,7 @@ class StorageBackend(Base):
     region: The region where the storage backend resides.
     multi_regions: A list of regions forming a multi-region deployment.
     backend_type: The type of storage (e.g., Lustre, GCS).
+    prefix: Storage backend prefix (e.g., gs://bucket-name, /mnt/lustre/).
     tier_paths: Relationship to the TierPath objects utilizing this backend.
   """
 
@@ -174,6 +175,7 @@ class StorageBackend(Base):
   backend_type = sqlalchemy.Column(
       sqlalchemy.Enum(BackendType), default=BackendType.BACKEND_TYPE_UNSPECIFIED
   )
+  prefix = sqlalchemy.Column(sqlalchemy.String, nullable=False)
 
   tier_paths = sqlalchemy.orm.relationship(
       "TierPath", back_populates="storage_backend", cascade="all, delete-orphan"
@@ -199,8 +201,9 @@ class StorageBackend(Base):
     else:
       location = "None"
     return (
-        f"StorageBackend(id={self.id}, level={self.level}, "
-        f"backend_type={self.backend_type.name!r}, {location})"
+        f"StorageBackend(id={self.id}, level={self.level},"
+        f" backend_type={self.backend_type.name!r}, prefix={self.prefix!r},"
+        f" {location})"
     )
 
   def validate_pre_commit(self) -> None:
