@@ -886,8 +886,12 @@ class SingleReplicaArrayHandlerTest(
         multislice, 'slice_count', return_value=num_replicas
     ):
       if config.active_mesh_on_restore:
-        with mesh:
-          restored = await handler.deserialize(param_infos, restore_args)
+        if hasattr(jax, 'set_mesh'):
+          with jax.set_mesh(mesh):
+            restored = await handler.deserialize(param_infos, restore_args)
+        else:
+          with mesh:
+            restored = await handler.deserialize(param_infos, restore_args)
       else:
         restored = await handler.deserialize(param_infos, restore_args)
     test_utils.sync_global_processes(
@@ -1013,7 +1017,10 @@ class SingleReplicaArrayHandlerTest(
     )
     await self.single_replica_serialize_deserialize(config)
 
-  async def test_single_replica_deserialize_under_active_mesh(self):
+  @parameterized.parameters(0, 1)
+  async def test_single_replica_deserialize_under_active_mesh(
+      self, primary_replica_id
+  ):
     if len(jax.devices()) < 2:
       self.skipTest('Need at least 2 devices for this test')
 
@@ -1029,6 +1036,7 @@ class SingleReplicaArrayHandlerTest(
         partition_specs=mesh_axes,
         is_ocdbt=False,
         active_mesh_on_restore=True,
+        primary_replica_id=primary_replica_id,
     )
     await self.single_replica_serialize_deserialize(config)
 
