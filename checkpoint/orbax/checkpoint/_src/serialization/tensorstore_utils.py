@@ -67,6 +67,8 @@ _GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
 STORE_ARRAY_DATA_EQUAL_TO_FILL_VALUE = True
 
 
+# How many TS data files can be buffered at once. We may expect that the number
+# of files being concurrently written to be less than this limit.
 _BASE_TS_CONTEXT = {
     'file_io_concurrency': {'limit': 128},
 }
