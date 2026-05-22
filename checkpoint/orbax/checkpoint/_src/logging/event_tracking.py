@@ -23,6 +23,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import utils as path_utils
 
 
+
 def record_read_event(directory: epath.Path):
   """Records a dataread event for the checkpoint."""
   return None
@@ -201,3 +202,5 @@ class OperationRecorder:
               duration_secs,
               storage_type=self._storage_type,
           )
+
+
