@@ -18,7 +18,6 @@ from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
 from orbax.checkpoint._src.handlers import handler_registration as legacy_handler_registration
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 from orbax.checkpoint.experimental.v1._src.handlers import compatibility as handler_compatibility
 from orbax.checkpoint.experimental.v1._src.handlers import registration as handler_registration
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -29,6 +28,7 @@ from orbax.checkpoint.experimental.v1._src.saving import execution
 from orbax.checkpoint.experimental.v1._src.saving import validation
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+from typing_extensions import deprecated  # pytype: disable=not-supported-yet
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 Checkpointable = handler_types.Checkpointable
@@ -353,12 +353,11 @@ def get_v0_checkpointer_and_args(
   return ckptr, args
 
 
-@deprecations.deprecated(new=save)
+@deprecated('Use `save` instead.')
 def save_pytree(*args, **kwargs):
   return save(*args, **kwargs)
 
 
-@deprecations.deprecated(new=save_async)
+@deprecated('Use `save_async` instead.')
 def save_pytree_async(*args, **kwargs):
   return save_async(*args, **kwargs)
-

@@ -22,11 +22,11 @@ from typing import Any, Awaitable, Protocol
 
 from absl import logging
 import jax
+
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
-from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -39,6 +39,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import synchronizatio
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+from typing_extensions import deprecated  # pytype: disable=not-supported-yet
 
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
@@ -564,12 +565,11 @@ def load_checkpointables_async(
   raise NotImplementedError('Asynchronous loading is not yet supported.')
 
 
-@deprecations.deprecated(new=load)
+@deprecated('Use `load` instead.')
 def load_pytree(*args, **kwargs):
   return load(*args, **kwargs)
 
 
-@deprecations.deprecated(new=load_async)
+@deprecated('Use `load_async` instead.')
 def load_pytree_async(*args, **kwargs):
   return load_async(*args, **kwargs)
-

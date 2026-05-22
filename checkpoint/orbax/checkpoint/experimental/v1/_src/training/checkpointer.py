@@ -23,7 +23,6 @@ from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
-from orbax.checkpoint.experimental.v1._src.deprecations import deprecations
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
@@ -40,7 +39,7 @@ from orbax.checkpoint.experimental.v1._src.training import preservation_policies
 from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-
+from typing_extensions import deprecated  # pytype: disable=not-supported-yet
 
 CheckpointMetadata = training_metadata_types.CheckpointMetadata
 RootMetadata = training_metadata_types.RootMetadata
@@ -918,23 +917,22 @@ class Checkpointer(epy.ContextManager):
     finally:
       self.close()
 
-  @deprecations.deprecated(new=save)
+  @deprecated('Use `save` instead.')
   def save_pytree(self, *args, **kwargs):
     return self.save(*args, **kwargs)
 
-  @deprecations.deprecated(new=save_async)
+  @deprecated('Use `save_async` instead.')
   def save_pytree_async(self, *args, **kwargs):
     return self.save_async(*args, **kwargs)
 
-  @deprecations.deprecated(new=load)
+  @deprecated('Use `load` instead.')
   def load_pytree(self, *args, **kwargs):
     return self.load(*args, **kwargs)
 
-  @deprecations.deprecated(new=load_async)
+  @deprecated('Use `load_async` instead.')
   def load_pytree_async(self, *args, **kwargs):
     return self.load_async(*args, **kwargs)
 
-  @deprecations.deprecated(new=metadata)
+  @deprecated('Use `metadata` instead.')
   def pytree_metadata(self, *args, **kwargs):
     return self.metadata(*args, **kwargs)
-

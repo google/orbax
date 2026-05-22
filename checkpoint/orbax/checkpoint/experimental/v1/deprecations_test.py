@@ -28,48 +28,41 @@ class DeprecationsTest(parameterized.TestCase):
       dict(
           testcase_name='save_pytree',
           alias_func=ocp.save_pytree,
-          alias_name='save_pytree',
           target_module=saving,
           target_name='save',
       ),
       dict(
           testcase_name='save_pytree_async',
           alias_func=ocp.save_pytree_async,
-          alias_name='save_pytree_async',
           target_module=saving,
           target_name='save_async',
       ),
       dict(
           testcase_name='load_pytree',
           alias_func=ocp.load_pytree,
-          alias_name='load_pytree',
           target_module=loading,
           target_name='load',
       ),
       dict(
           testcase_name='load_pytree_async',
           alias_func=ocp.load_pytree_async,
-          alias_name='load_pytree_async',
           target_module=loading,
           target_name='load_async',
       ),
       dict(
           testcase_name='pytree_metadata',
           alias_func=ocp.pytree_metadata,
-          alias_name='pytree_metadata',
           target_module=metadata_loading,
           target_name='metadata',
       ),
   )
-  def test_deprecated_alias(
-      self, alias_func, alias_name, target_module, target_name
-  ):
+  def test_deprecated_alias(self, alias_func, target_module, target_name):
     with mock.patch.object(target_module, target_name) as mock_target:
       mock_target.return_value = 'expected_result'
 
       with self.assertWarnsRegex(
           DeprecationWarning,
-          f'`{alias_name}` is deprecated, use `{target_name}` instead.',
+          f'Use `{target_name}` instead.',
       ):
         result = alias_func('arg1', kwarg1='val1')
 

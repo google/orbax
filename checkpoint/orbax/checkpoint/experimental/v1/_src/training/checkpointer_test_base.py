@@ -919,7 +919,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       with self.assertWarnsRegex(
           DeprecationWarning,
-          '`save_pytree` is deprecated, use `save` instead.',
+          'Use `save` instead.',
       ):
         checkpointer.save_pytree(0, 'dummy_state', foo='bar')
       self.mock_save.assert_called_once_with(0, 'dummy_state', foo='bar')
@@ -928,7 +928,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       with self.assertWarnsRegex(
           DeprecationWarning,
-          '`save_pytree_async` is deprecated, use `save_async` instead.',
+          'Use `save_async` instead.',
       ):
         checkpointer.save_pytree_async(0, 'dummy_state', foo='bar')
       self.mock_save_async.assert_called_once_with(0, 'dummy_state', foo='bar')
@@ -937,7 +937,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       with self.assertWarnsRegex(
           DeprecationWarning,
-          '`load_pytree` is deprecated, use `load` instead.',
+          'Use `load` instead.',
       ):
         checkpointer.load_pytree(0, 'dummy_abstract_state', foo='bar')
       self.mock_load.assert_called_once_with(
@@ -948,7 +948,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       with self.assertWarnsRegex(
           DeprecationWarning,
-          '`load_pytree_async` is deprecated, use `load_async` instead.',
+          'Use `load_async` instead.',
       ):
         checkpointer.load_pytree_async(0, 'dummy_abstract_state')
       self.mock_load_async.assert_called_once_with(0, 'dummy_abstract_state')
@@ -957,7 +957,7 @@ class CheckpointerTestBase:
       checkpointer = Checkpointer(self.directory)
       with self.assertWarnsRegex(
           DeprecationWarning,
-          '`pytree_metadata` is deprecated, use `metadata` instead.',
+          'Use `metadata` instead.',
       ):
         checkpointer.pytree_metadata(0, foo='bar')
       self.mock_metadata.assert_called_once_with(0, foo='bar')
