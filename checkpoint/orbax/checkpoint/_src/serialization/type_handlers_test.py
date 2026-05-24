@@ -36,13 +36,18 @@ from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import jax_array_handlers
+from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import ocdbt_utils
+from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 from orbax.checkpoint._src.testing import multiprocess_test
+from orbax.checkpoint._src.tree import utils as tree_utils
+
 import tensorstore as ts
 
 mock = unittest.mock
@@ -711,6 +716,157 @@ class ArrayHandlerTest(parameterized.TestCase):
     write_sizes, read_sizes = zip(*handler.memory_size(values))
     self.assertSequenceEqual(write_sizes, [32, 64, 32, 64])
     self.assertSequenceEqual(read_sizes, [256, 64, 32, 64])
+
+
+class ArrayHandlerCallbackTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.pytree, _, _ = test_utils.setup_sharded_pytree()
+
+  class TestCallback(types.NoopSerializationStatusCallback):
+
+    def __init__(self, priority: types.TransferPriority):
+      self.priority = priority
+      self.events = []
+
+    def key_priority(self, keypath) -> types.TransferPriority:
+      self.events.append(('register', tree_utils.str_keypath(keypath)))
+      return self.priority
+
+    def on_transfer_end(self, keypath) -> None:
+      self.events.append(('on_transfer_end', tree_utils.str_keypath(keypath)))
+
+    def on_write_end(self, keypath) -> None:
+      self.events.append(('on_write_end', tree_utils.str_keypath(keypath)))
+
+  def _setup_serialize_args(self):
+    directory = epath.Path(self.create_tempdir().full_path)
+    arr = jax.tree.leaves(self.pytree)[0]
+    info = get_param_info('a', directory)
+    info = info.replace(
+        keypath=(jax.tree_util.DictKey('params'), jax.tree_util.DictKey('a')),
+        device_host_byte_limiter=limits.LimitInFlightBytes(16),
+    )
+    return arr, info
+
+  @parameterized.parameters(
+      types.TransferPriority.SYNCHRONOUS,
+      types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED,
+  )
+  async def test_callback_traversal(self, priority):
+    cb = self.TestCallback(priority)
+    handler = type_handlers.ArrayHandler(
+        callback=cb, use_replica_parallel=False
+    )
+    arr, info = self._setup_serialize_args()
+
+    futures = await handler.serialize([arr], [info])
+    for f in futures:
+      f.result()
+
+    self.assertEqual(
+        cb.events,
+        [
+            ('register', ('params', 'a')),
+            ('on_transfer_end', ('params', 'a')),
+            ('on_write_end', ('params', 'a')),
+        ],
+    )
+
+  @parameterized.parameters(
+      types.TransferPriority.SYNCHRONOUS,
+      types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED,
+  )
+  async def test_callback_traversal_without_dispatcher(self, priority):
+    cb = self.TestCallback(priority)
+    handler = type_handlers.ArrayHandler(
+        callback=cb, use_replica_parallel=False
+    )
+    arr, info = self._setup_serialize_args()
+
+    real_transfer = replica_slices.transfer_arrays_to_host
+    real_serialize = serialization.async_serialize_from_host
+
+    def mock_transfer(*args, **kwargs):
+      cb.events.append(('transfer_call', ('params', 'a')))
+      return real_transfer(*args, **kwargs)
+
+    async def mock_serialize(*args, **kwargs):
+      cb.events.append(('write_call', ('params', 'a')))
+      return await real_serialize(*args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', side_effect=mock_transfer
+    ), mock.patch.object(
+        serialization, 'async_serialize_from_host', side_effect=mock_serialize
+    ):
+      futures = await handler.serialize([arr], [info])
+      for f in futures:
+        f.result()
+
+    expected_events = [
+        ('register', ('params', 'a')),
+        ('transfer_call', ('params', 'a')),
+        ('on_transfer_end', ('params', 'a')),
+        ('write_call', ('params', 'a')),
+        ('on_write_end', ('params', 'a')),
+    ]
+    self.assertEqual(cb.events, expected_events)
+
+  @parameterized.parameters(
+      types.TransferPriority.SYNCHRONOUS,
+      types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED,
+  )
+  async def test_callback_traversal_with_dispatcher(self, priority):
+    cb = self.TestCallback(priority)
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+
+    def mock_dispatch(*args, **kwargs):
+      del args, kwargs  # Unused.
+      cb.events.append(('transfer_call', ('params', 'a')))
+      cb.events.append(('write_call', ('params', 'a')))
+      return jnp.array([1.0])
+
+    def mock_batches(deprioritized_params, **kwargs):
+      del kwargs  # Unused.
+      arrays, infos, args = zip(*deprioritized_params)
+      yield list(arrays), list(infos), list(args)
+
+    mock_dispatcher.dispatch.side_effect = mock_dispatch
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher, callback=cb
+    )
+    arr, info = self._setup_serialize_args()
+
+    # Mock _get_deprioritized_batches_to_serialize to avoid the memory budget
+    # calculation, which attempts to calculate distributed mem usage
+    with mock.patch.object(
+        jax_array_handlers,
+        '_get_deprioritized_batches_to_serialize',
+        side_effect=mock_batches,
+    ):
+      futures = await handler.serialize([arr], [info])
+      for f in futures:
+        f.result()
+
+    # Note: 'write_call' appears before 'on_transfer_end' because fake_dispatch
+    # mock executes fully in a single synchronous step before returning.
+    # In reality, on_transfer_end would execute after the
+    # host initiates the operation but before the remote write completes.
+    self.assertEqual(
+        cb.events,
+        [
+            ('register', ('params', 'a')),
+            ('transfer_call', ('params', 'a')),
+            ('write_call', ('params', 'a')),
+            ('on_transfer_end', ('params', 'a')),
+            ('on_write_end', ('params', 'a')),
+        ],
+    )
 
 
 class PlaceholderHandlerTest(
