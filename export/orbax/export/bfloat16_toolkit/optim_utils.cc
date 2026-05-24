@@ -46,7 +46,7 @@ namespace orbax {
 // Read variables and name - variable mappings.
 absl::Status ReadVariablesAsTensors(
     const std::string& input_prefix,
-    ::gtl::linked_hash_map<std::string, Tensor>* var_tensors) {
+    absl::linked_hash_map<std::string, Tensor>* var_tensors) {
   VLOG(1) << "Reading Variables from " << input_prefix;
   BundleReader reader(Env::Default(), input_prefix);
   reader.Seek(tensorflow::kHeaderEntryKey);
@@ -65,7 +65,7 @@ absl::Status ReadVariablesAsTensors(
 // Persist variables and name - variable mappings.
 absl::Status WriteTensorsToVariables(
     const std::string& output_prefix,
-    const ::gtl::linked_hash_map<std::string, Tensor>& var_tensors) {
+    const absl::linked_hash_map<std::string, Tensor>& var_tensors) {
   VLOG(1) << "Writing Variables to " << output_prefix;
   BundleWriter writer(Env::Default(), output_prefix);
   for (const auto& it : var_tensors) {
@@ -125,7 +125,7 @@ absl::Status RewriteTPUPartitionedCall(FunctionInfo* tpu_func) {
   Graph* graph = tpu_func->parent()->get_graph();
   Node* call_node = tpu_func->node_in_parent_graph();
   std::string orig_name = call_node->name();
-  ::gtl::linked_hash_map<int, const Edge*> input_edges, output_edges;
+  absl::linked_hash_map<int, const Edge*> input_edges, output_edges;
 
   // Collect input and output edges.
   for (const Edge* edge : GetInEdges(call_node)) {
@@ -203,7 +203,7 @@ bool IsNodeBFloat16(Node* node) {
 // models that have been converted to bfloat16 should not pass through the
 // converter again. Otherwise, it may lead to unintended behaviors.
 absl::Status ValidateGraphHasNoBFloat16Ops(Graph* graph) {
-  ::gtl::linked_hash_map<std::string, int> func_overhead;
+  absl::linked_hash_map<std::string, int> func_overhead;
   auto func = std::make_unique<FunctionInfo>("root");
   func->set_graph(graph);
   TF_RETURN_IF_ERROR(func->Build(graph->flib_def(), &func_overhead));
