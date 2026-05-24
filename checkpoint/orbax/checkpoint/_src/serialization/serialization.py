@@ -19,7 +19,10 @@ import collections
 from collections.abc import Mapping
 import os
 import re
+import time
 from typing import Any, Dict, Optional, Sequence, Union
+
+from absl import logging
 
 import jax
 from jax.experimental import layout
@@ -212,6 +215,8 @@ async def async_serialize_from_host(
   Raises:
     KeyError: If `metadata` or `dtype` is not found in the tensorstore spec.
   """
+  del primary_host
+
   if not rslices_on_host.is_on_host:
     raise ValueError('Replica slices have not been transferred to host.')
   byte_limiter = byte_limiter or limits.get_byte_limiter()
@@ -222,29 +227,20 @@ async def async_serialize_from_host(
     raise KeyError('`dtype` not found in tensorstore spec.')
   context = context or ts_utils.get_ts_context(use_ocdbt=False)
 
-  # If primary_host is None, all hosts will checkpoint. This is used
-  # for checkpointing to local filesystem.
-  if primary_host is None or multihost.process_index() == primary_host:
-    await ts.open(
-        ts.Spec(tensorstore_spec),
-        create=True,
-        open=True,
-        context=context,
-        transaction=transaction,
-    )
-
-  # `ts.open` runs twice for process `primary_host` because for the first time,
-  # we just get the future to be awaited upon in the background thread. The
-  # second one runs with `assume_metadata=True` which does no I/O operation and
-  # returns the tensorstore object.
-  # For every process other than `primary_host`, we open with
-  # `assume_metadata=True`.
+  start_ts_open = time.perf_counter()
   t = await ts.open(
       ts.Spec(tensorstore_spec),
+      create=True,
       open=True,
-      assume_metadata=True,
       context=context,
       transaction=transaction,
+  )
+  ts_open_duration = time.perf_counter() - start_ts_open
+  logging.info(
+      '[process=%s] Completed TensorStore open for %s in %.4f seconds.',
+      multihost.process_index(),
+      tensorstore_spec,
+      ts_open_duration,
   )
 
   async def write_fragment(fragment: fragments.ConcreteFragment):
@@ -260,11 +256,25 @@ async def async_serialize_from_host(
           can_reference_source_data_indefinitely=True,
       )
 
+  start_ts_write = time.perf_counter()
+  logging.info(
+      '[process=%s] Starting TensorStore disk write for %d fragments.',
+      multihost.process_index(),
+      len(rslices_on_host.to_fragments().fragments),
+  )
   write_coros = [
       write_fragment(fragment)
       for fragment in rslices_on_host.to_fragments().fragments
   ]
   await asyncio.gather(*write_coros)
+  ts_duration = time.perf_counter() - start_ts_write
+  logging.info(
+      '[process=%s] Completed TensorStore disk write for %d fragments in %.4f'
+      ' seconds.',
+      multihost.process_index(),
+      len(rslices_on_host.to_fragments().fragments),
+      ts_duration,
+  )
 
 
 def estimate_write_memory_footprint(arr: np.ndarray) -> int:

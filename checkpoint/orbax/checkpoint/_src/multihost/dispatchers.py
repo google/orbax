@@ -15,7 +15,7 @@
 """Provides dispatchers for running functions on multiple workers."""
 
 import abc
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
 from absl import logging
@@ -147,6 +147,10 @@ class Dispatcher(abc.ABC):
       completion of func if result_specs is None.
     """
     ...
+
+  def split_by_slice(self, arrays: PyTree) -> Mapping[int, PyTree]:
+    """Splits arrays into per-slice arrays."""
+    return {0: arrays}
 
 
 class ColocatedPythonDispatcher(Dispatcher):

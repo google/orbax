@@ -18,6 +18,7 @@ import collections
 import dataclasses
 import functools
 import math
+import time
 from typing import Optional, Sequence
 
 from absl import logging
@@ -262,6 +263,8 @@ def get_replica_slices(
   Returns:
     ReplicaSlices object.
   """
+  if replica_id is None and use_replica_parallel:
+    replica_id = multihost.process_index()
   Result = tuple[list[ReplicaSlice], Shape]
   shard0 = arr.addressable_shards[0]
 
@@ -276,6 +279,7 @@ def get_replica_slices(
         )
         for shard in arr.addressable_shards
         if shard.replica_id == target_replica_id
+        or (replica_id is not None and shard.replica_id == 0)
     ]
     local_shape = shard0.data.shape
     return rslices, local_shape
@@ -312,7 +316,10 @@ def get_replica_slices(
       assert shard.data.shape == shard0.data.shape
 
       # Parallelize saving across only `replica_count` replicas.
-      if shard.replica_id >= replica_count:
+      eff_replica_id = (
+          replica_id if replica_id is not None else shard.replica_id
+      )
+      if eff_replica_id >= replica_count:
         continue
 
       size = local_shape[axis]
@@ -321,7 +328,7 @@ def get_replica_slices(
       assert slize.step is None
       assert slize.stop is None or slize.stop == start + shard.data.shape[axis]
 
-      start_offset = shard.replica_id * size
+      start_offset = eff_replica_id * size
       end_offset = start_offset + size
       new_slice = slice(start + start_offset, start + end_offset)
 
@@ -467,13 +474,19 @@ def transfer_arrays_to_host(
       )
       for arr in arrays
   ]
+  start_d2h_time = time.perf_counter()
+  logging.info(
+      '[process=%s] Starting D2H transfer for %d arrays.',
+      multihost.process_index(),
+      len(arrays),
+  )
   # Kick off transfers for all replica slices to be saved.
   transfers_per_array = [
       [async_transfer_slice(rslice) for rslice in rslices.replica_slices]
       for rslices in rslices_per_array
   ]
   # Wait for all the transferred data to be ready.
-  return [
+  res = [
       dataclasses.replace(
           rslices,
           is_on_host=True,
@@ -489,3 +502,11 @@ def transfer_arrays_to_host(
       )
       for rslices, transfers in zip(rslices_per_array, transfers_per_array)
   ]
+  d2h_duration = time.perf_counter() - start_d2h_time
+  logging.info(
+      '[process=%s] Completed D2H transfer for %d arrays in %.4f seconds.',
+      multihost.process_index(),
+      len(arrays),
+      d2h_duration,
+  )
+  return res

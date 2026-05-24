@@ -49,6 +49,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
+
 import tensorstore as ts
 
 Pytree: TypeAlias = Any
@@ -217,9 +218,15 @@ def _get_replica_slices(
       )
       for arr in arrays
   ]
+  start_d2h = time.perf_counter()
+  logging.info(
+      '[process=%s] Starting D2H numpy array conversion for %d arrays.',
+      multihost.process_index(),
+      len(arrays),
+  )
   # D2H copy is performed automatically as part of dispatcher call, but
   # we must set properties correctly to pass later consistency checks.
-  return [
+  res = [
       dataclasses.replace(
           rslices,
           is_on_host=True,
@@ -234,6 +241,15 @@ def _get_replica_slices(
       )
       for rslices in rslices_per_array
   ]
+  d2h_duration = time.perf_counter() - start_d2h
+  logging.info(
+      '[process=%s] Completed D2H numpy array conversion for %d arrays in %.4f'
+      ' seconds.',
+      multihost.process_index(),
+      len(arrays),
+      d2h_duration,
+  )
+  return res
 
 
 def _worker_serialize_arrays(
@@ -251,6 +267,8 @@ def _worker_serialize_arrays(
     ext_metadata: Dict[str, Any],
 ):
   """Worker function to serialize arrays."""
+  if replica_id is None and use_replica_parallel:
+    replica_id = multihost.process_index()
   rslices_per_array = _get_replica_slices(
       arrays,
       replica_id,
@@ -270,6 +288,7 @@ def _worker_serialize_arrays(
           enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
           use_replica_parallel=use_replica_parallel,
           ext_metadata=ext_metadata,
+          replica_id=replica_id,
       )
   )
 
@@ -486,30 +505,42 @@ def _serialize_arrays(
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
     ):
-      ret = dispatcher.dispatch(
-          _worker_serialize_arrays,
-          input_arrays=batch_arrays,
-          func_kwargs={
-              'infos': batch_infos,
-              'args': batch_args,
-              'replica_id': replica_id,
-              'use_replica_parallel': use_replica_parallel,
-              'min_slice_bytes_for_replica_parallel': (
-                  min_slice_bytes_for_replica_parallel
-              ),
-              'max_replicas_for_replica_parallel': (
-                  max_replicas_for_replica_parallel
-              ),
-              'primary_host': primary_host,
-              'metadata_key': metadata_key,
-              'array_metadata_store': array_metadata_store,
-              'enable_replica_parallel_separate_folder': (
-                  enable_replica_parallel_separate_folder
-              ),
-              'ext_metadata': ext_metadata,
-          },
-      )
-      jax.block_until_ready(ret)
+      if use_replica_parallel:
+        per_slice_arrays = dispatcher.split_by_slice(batch_arrays)
+      else:
+        per_slice_arrays = {0: batch_arrays}
+      rets = []
+      for slice_id, slice_arrays in per_slice_arrays.items():
+        if replica_id is None and use_replica_parallel:
+          slice_replica_id = slice_id
+        else:
+          slice_replica_id = replica_id
+        ret = dispatcher.dispatch(
+            _worker_serialize_arrays,
+            input_arrays=slice_arrays,
+            func_kwargs={
+                'infos': batch_infos,
+                'args': batch_args,
+                'replica_id': slice_replica_id,
+                'use_replica_parallel': use_replica_parallel,
+                'min_slice_bytes_for_replica_parallel': (
+                    min_slice_bytes_for_replica_parallel
+                ),
+                'max_replicas_for_replica_parallel': (
+                    max_replicas_for_replica_parallel
+                ),
+                'primary_host': primary_host,
+                'metadata_key': metadata_key,
+                'array_metadata_store': array_metadata_store,
+                'enable_replica_parallel_separate_folder': (
+                    enable_replica_parallel_separate_folder
+                ),
+                'ext_metadata': ext_metadata,
+            },
+        )
+        rets.append(ret)
+      for ret in rets:
+        jax.block_until_ready(ret)
 
     # Enqueue D2H operation for prioritized values.
     if prioritized:
@@ -572,6 +603,7 @@ async def _async_serialize_replica_slices(
     enable_replica_parallel_separate_folder: bool,
     use_replica_parallel: bool,
     ext_metadata: Dict[str, Any],
+    replica_id: int | None = None,
 ) -> None:
   """This function contains the logic from ArrayHandler._background_serialize."""
   write_coros = []
@@ -592,6 +624,12 @@ async def _async_serialize_replica_slices(
             1,
         )
     await info.await_path_creation()
+    if replica_id is not None:
+      process_index = replica_id
+    else:
+      process_index = ocdbt_utils.get_process_index_for_subdir(
+          info.is_ocdbt_checkpoint
+      )
     array_write_spec = ts_utils.build_array_write_spec(
         info=info,
         arg=arg,
@@ -599,9 +637,7 @@ async def _async_serialize_replica_slices(
         local_shape=value.local_shape,
         dtype=value.dtype,
         use_ocdbt=info.is_ocdbt_checkpoint,
-        process_index=ocdbt_utils.get_process_index_for_subdir(
-            info.is_ocdbt_checkpoint
-        ),
+        process_index=process_index,
         replica_separate_folder=replica_separate_folder,
         metadata_key=metadata_key,
         ext_metadata=ext_metadata.get(info.name),
