@@ -4,23 +4,73 @@ Orbax
 ------------------------------------------------------
 
 
-Orbax is an umbrella namespace providing common training utilities for JAX
-users. It includes multiple distinct but interrelated libraries.
+Orbax is a modular and customizable JAX checkpointing library built for high performance at scale,
+allowing for distributed array storage and checkpoint lifecycle management.
+
+We are focused on providing a JAX-native approach to model persistence and recovery, with the goals of providing an
+API that is **easy to use**, **highly performant**, and **maximimally compatible** across the JAX ecosystem.
 
 .. grid::
 
    .. grid-item::
       :columns: 12 12 12 6
 
-      .. card:: Checkpointing
+      .. card:: Performance
          :class-card: sd-border-0
          :shadow: none
          :class-title: sd-fs-5
 
          .. div:: sd-font-normal
 
-            A flexible and customizable API for managing checkpoints consisting
-            of various user-defined objects in multi-host, multi-device settings.
+            Checkpointing with Orbax is fast and memory-efficient, allowing for quick start-up and minimal training impact.
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Distributed
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            Orbax abstracts the details of persisting disributed arrays and provides a unified API for single- and multi-process checkpointing.
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Management
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            Orbax facilitates checkpointing in a training loop, e.g. through metadata management, garbage collection, and saving policies. 
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Flexibility
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            Orbax features out-of-the-box support for advanced workflows like topology-agnostic loading (resharding), partial loading, incremental saving, and more.
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Extensibility
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            Orbax provides extensibility for user-defined types and logic through customizable handler interfaces.
 
    .. grid-item::
       :columns: 12 12 12 6
@@ -32,57 +82,55 @@ users. It includes multiple distinct but interrelated libraries.
 
          .. div:: sd-font-normal
 
-            A library for exporting JAX models to Tensorflow SavedModel format.
+            Orbax provides an associated library, `orbax-export`, for exporting JAX models to Tensorflow SavedModel format.
 
 
-Installation
----------------
 
-There is no single `orbax` package, but rather a separate package for each
-functionality provided by the Orbax namespace.
+.. Table of Contents
 
-The latest release of `orbax-checkpoint` can be installed from
-`PyPI <https://pypi.org/project/orbax-checkpoint/>`_ using
-
-``pip install orbax-checkpoint``
-
-You may also install directly from GitHub, using the following command. This
-can be used to obtain the most recent version of Orbax.
-
-``pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'``
-
-NOTE: Certain edge cases of `orbax-checkpoint` may not work on Windows.
- Also, supporting them is not planned yet.
-
-Similarly, `orbax-export` can be installed from
-`PyPI <https://pypi.org/project/orbax-export/>`_ using
-
-``pip install orbax-export``
-
-Install from GitHub using the following.
-
-``pip install 'git+https://github.com/google/orbax/#subdirectory=export'``
-
-
-.. For TOC
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Checkpointing
+   :caption: Getting Started
 
-   guides/checkpoint/orbax_checkpoint_announcements
-   guides/checkpoint/orbax_checkpoint_101
-   guides/checkpoint/orbax_checkpoint_api_overview
-   guides/checkpoint/api_refactor
-   guides/checkpoint/checkpointing_pytrees
-   guides/checkpoint/checkpoint_format
-   guides/checkpoint/optimized_checkpointing
-   guides/checkpoint/transformations
-   guides/checkpoint/preemption_checkpointing
-   guides/checkpoint/async_checkpointing
-   guides/checkpoint/debug_guide
-   api_reference/checkpoint
-   index.v1
+   installation
+   guides/checkpoint/v1/orbax_checkpoint_101
+   guides/checkpoint/v1/checkpointables
+   guides/checkpoint/v1/checkpointing_pytrees
+   guides/checkpoint/v1/training
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Performance
+
+   guides/checkpoint/v1/async_checkpointing
+   guides/checkpoint/v1/checkpoint_format
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Advanced Usage
+
+   guides/checkpoint/v1/checkpoint_format
+   guides/checkpoint/v1/customization
+   guides/checkpoint/v1/partial_saving
+   guides/checkpoint/v1/model_surgery
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: API Reference
+
+   api_reference/checkpoint.v1
+
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Migrating to Orbax V1
+
+   guides/checkpoint/v1/orbax_v0_to_v1_migration
+   index.v0
 
 .. toctree::
    :hidden:
@@ -90,124 +138,63 @@ Install from GitHub using the following.
    :caption: Exporting
 
    guides/export/orbax_export_101
+   guides/checkpoint/v1/checkpointing_and_exporting_jax_models
    api_reference/export
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Additional Information
 
-Checkpointing
+   contributors
+
+
+.. Make sure the grid is not ragged.
+Quick Links
 ---------------
 .. grid::
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: Announcements
-         :class-card: sd-text-black sd-bg-warning
-         :link: guides/checkpoint/orbax_checkpoint_announcements.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Getting Started
+      .. card:: :material-regular:`download;2em` Installation
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/orbax_checkpoint_101.html
+         :link: installation.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: API Overview
+      .. card:: :material-regular:`rocket_launch;2em` Getting Started
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/orbax_checkpoint_api_overview.html
+         :link: guides/checkpoint/v1/orbax_checkpoint_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: API Refactor
+      .. card:: :material-regular:`science;2em` MNIST Example
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/api_refactor.html
+         :link: guides/checkpoint/v1/training.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: Checkpointing PyTrees of Arrays
+      .. card:: :material-regular:`transform;2em` V1 API Migration
          :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/checkpointing_pytrees.html
+         :link: guides/checkpoint/v1/orbax_v0_to_v1_migration.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: Checkpoint Format Guide
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/checkpoint_format.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Optimized Checkpointing
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/optimized_checkpointing.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Transformations
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/transformations.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Preemption Tolerance
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/preemption_checkpointing.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Async Checkpointing
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/async_checkpointing.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Debug Guide
-         :class-card: sd-text-black sd-bg-light
-         :link: guides/checkpoint/debug_guide.html
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: API Reference
-         :class-card: sd-text-black sd-bg-light
-         :link: api_reference/checkpoint.html
-
-
-Exporting
-----------------
-.. grid::
-
-   .. grid-item::
-      :columns: 6 6 6 4
-
-      .. card:: Getting Started
+      .. card:: :material-regular:`unarchive;2em` Exporting
          :class-card: sd-text-black sd-bg-light
          :link: guides/export/orbax_export_101.html
 
    .. grid-item::
       :columns: 6 6 6 4
 
-      .. card:: API Reference
+      .. card:: :material-regular:`menu_book;2em` API Reference
          :class-card: sd-text-black sd-bg-light
-         :link: api_reference/export.html
-
-
-.. For TOC
-.. toctree::
-   :hidden:
-   :maxdepth: 5
-   :caption: Additional Information
-
-   contributors
+         :link: api_reference/checkpoint.v1.html
 
 
 Support
