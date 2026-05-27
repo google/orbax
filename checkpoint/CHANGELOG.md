@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `SerializationStatusCallback` for save operations to track transfer and
+disk write events.
+
+While primarily intended as lightweight progress handles, this callback system
+allows the potential to inject custom logic for advanced monitoring and custom
+actions during checkpointing.
+
 ### Changed
 
 - #v1 Rename `save/load_pytree` to `save/load`. Eliminate most user-facing
