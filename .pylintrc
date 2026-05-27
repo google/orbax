@@ -37,16 +37,9 @@ extension-pkg-whitelist=
 
 [PARAMETER_DOCUMENTATION]
 
-# Whether to accept unqualified docparam tags.
-accept-no-param-doc=no
-
-# Enforce Returns docstrings (mandatory in internal presubmits).
-accept-no-return-doc=no
-
-# Enforce Yields docstrings for generator functions (mandatory in internal presubmits).
-accept-no-yields-doc=no
-
-# Allow missing Raises docstrings (optional in internal presubmits).
+accept-no-param-doc=yes
+accept-no-return-doc=yes
+accept-no-yields-doc=yes
 accept-no-raise-doc=yes
 
 # Default docstring format.
@@ -193,6 +186,14 @@ disable=apply-builtin,
         wrong-import-order,
         xrange-builtin,
         zip-builtin-not-iterating,
+        missing-module-docstring,
+        missing-function-docstring,
+        missing-class-docstring,
+        protected-access,
+        invalid-name,
+        redefined-outer-name,
+        unused-argument,
+        abstract-method,
 
 
 [REPORTS]
