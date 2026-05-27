@@ -1,25 +1,127 @@
 name: Auto Label PR
 
 on:
+  workflow_run:
+    workflows: ["Code Formatting & Lint Validation"]
+    types:
+      - completed
   pull_request_target:
-    types: [opened]
+    types: [labeled]
 
 permissions:
   pull-requests: write
   issues: write
 
 jobs:
-  label:
+  evaluate-and-writeback:
     runs-on: ubuntu-latest
     if: github.actor != 'copybara-service[bot]'
     steps:
-      - name: Add pull ready label
+      - name: Process Verification Outcome & Manage Dialogue
         uses: actions/github-script@v8
         with:
           script: |
-            github.rest.issues.addLabels({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: ['pull ready']
-            })
+            let pr;
+            let conclusion = 'failure';
+
+            if (context.eventName === 'pull_request_target') {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+              });
+              pr = data;
+              // Check latest lint workflow run status
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'lint.yml',
+                branch: pr.head.ref,
+              });
+              const run = runs.data.workflow_runs.find(r => r.head_sha === pr.head.sha);
+              conclusion = run ? run.conclusion : 'failure';
+            } else {
+              const pulls = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+              });
+              pr = pulls.data.find(p => p.head.sha === context.payload.workflow_run.head_sha);
+              if (!pr) {
+                console.log('No matching open PR found for head sha.');
+                return;
+              }
+              conclusion = context.payload.workflow_run.conclusion;
+            }
+
+            const issue_number = pr.number;
+
+            if (conclusion === 'failure') {
+              console.log('Lint workflow failed. Posting guidance advice comment.');
+              if (context.eventName === 'workflow_run') {
+                await github.rest.issues.createComment({
+                  issue_number: issue_number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: '👋 Hello! Thank you for your contribution. Unfortunately, our pre-commit lint and style validation checks failed. In order for our internal review bots to import and process your Pull Request, please verify your code adheres to our formatting guidelines by running `pre-commit run --all-files` locally and pushing the adjustments. See [`CONTRIBUTING.md`](https://github.com/google/orbax/blob/main/CONTRIBUTING.md) for full instructions.'
+                });
+              }
+              return;
+            }
+
+            if (conclusion === 'success') {
+              console.log('Lint workflow succeeded. Cleaning up old failure comments.');
+              const comments = await github.rest.issues.listComments({
+                issue_number: issue_number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              });
+
+              // Clean up past lint failure comments
+              for (const comment of comments.data) {
+                if (comment.user.type === 'Bot' && comment.body.includes('pre-commit lint and style validation checks failed')) {
+                  await github.rest.issues.deleteComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: comment.id,
+                  });
+                }
+              }
+
+              // Verify Google CLA signature requirement
+              const hasCLA = pr.labels.some(label => label.name === 'cla: yes');
+              if (hasCLA) {
+                console.log('CLA fully signed. Onboarding pull ready label.');
+                // Delete previous CLA warning comment if present
+                for (const comment of comments.data) {
+                  if (comment.user.type === 'Bot' && comment.body.includes('Google Contributor License Agreement (CLA) is not yet signed')) {
+                    await github.rest.issues.deleteComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      comment_id: comment.id,
+                    });
+                  }
+                }
+
+                if (!pr.labels.some(label => label.name === 'pull ready')) {
+                  await github.rest.issues.addLabels({
+                    issue_number: issue_number,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    labels: ['pull ready']
+                  });
+                }
+              } else {
+                console.log('CLA unsigned. Posting CLA endorsement request comment.');
+                // Post CLA comment only if not already present
+                const existingCLAComment = comments.data.some(comment => comment.user.type === 'Bot' && comment.body.includes('Google Contributor License Agreement (CLA) is not yet signed'));
+                if (!existingCLAComment) {
+                  await github.rest.issues.createComment({
+                    issue_number: issue_number,
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    body: '👋 Hello! Your code formatting and style checks passed successfully! However, we notice your Google Contributor License Agreement (CLA) is not yet signed. Please verify your agreement status at https://cla.developers.google.com/ so our automated review bots can import your Pull Request.'
+                  });
+                }
+              }
+            }

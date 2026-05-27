@@ -1,0 +1,44 @@
+# pre-commit configuration for Orbax.
+# Run locally with: pre-commit run --all-files
+#
+# Tool config lives in the repo-root pyproject.toml ([tool.pyink],
+# [tool.isort]) and .pylintrc. The --config / --settings-path arguments
+# below force the hooks to read from the root instead of the closest
+# subpackage pyproject.toml (checkpoint/, model/, export/).
+repos:
+  - repo: https://github.com/google/pyink
+    rev: '25.12.0'
+    hooks:
+      - id: pyink
+        types_or: [python, jupyter]
+        files: '\.(py|ipynb)$'
+        args: [--config=pyproject.toml]
+        additional_dependencies: ["pyink[jupyter]"]
+
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v4.0.5
+    hooks:
+      - id: pylint
+        name: pylint
+        types: [python]
+        verbose: true
+        args:
+          - --rcfile=.pylintrc
+        exclude: ^(tests/|.*_test\.py$)
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        name: isort
+        types: [python]
+        args: [--settings-path=pyproject.toml]
+        exclude: ^(tests/|.*_test\.py$)
+
+  - repo: https://github.com/google/pytype
+    rev: '2024.4.11'
+    hooks:
+      - id: pytype
+        name: pytype
+        args: [-d, import-error, --keep-going, -j, auto]
+        exclude: ^(tests/|.*_test\.py$)

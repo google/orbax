@@ -1,0 +1,29 @@
+name: Code Formatting & Lint Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  style-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
+          cache: 'pip'
+
+      - name: Install Pre-commit
+        run: pip install pre-commit
+
+      - name: Execute Code Formatting & Lint Validation
+        run: pre-commit run --all-files --show-diff-on-failure
