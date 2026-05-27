@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import unittest
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -177,6 +178,18 @@ class PyTreeCheckpointableResolutionAsyncTest(
       await get_pytree_spec(
           flat_directory, CheckpointLayoutEnum.ORBAX, None
       )
+
+  async def test_lower_level_error_propagation(self):
+    with mock.patch.object(
+        orbax_layout, 'has_tensorstore_data_files', new_callable=mock.AsyncMock
+    ) as mock_has_ts:
+      mock_has_ts.side_effect = PermissionError('Permission denied')
+      with self.assertRaises(PermissionError):
+        await get_pytree_spec(
+            self.v1_directory,
+            CheckpointLayoutEnum.ORBAX,
+            checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+        )
 
 
 class IsOrbaxCheckpointTest(parameterized.TestCase):

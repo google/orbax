@@ -356,7 +356,12 @@ class OrbaxLayout(CheckpointLayout):
     """Validates the given path as a V1 Orbax checkpoint."""
     try:
       await self._validate(path)
-    except BaseException as e:
+    except (
+        FileNotFoundError,
+        NotADirectoryError,
+        ValueError,
+        InvalidLayoutError,
+    ) as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V1 Orbax checkpoint."
       ) from e
@@ -367,7 +372,12 @@ class OrbaxLayout(CheckpointLayout):
     """Validates the given path as a V1 PyTree checkpoint."""
     try:
       await self._validate_pytree(path, checkpointable_name)
-    except BaseException as e:
+    except (
+        FileNotFoundError,
+        NotADirectoryError,
+        ValueError,
+        InvalidLayoutError,
+    ) as e:
       raise InvalidLayoutError(
           f"Failed to interpret path {path} as a V1 Orbax PyTree."
       ) from e
