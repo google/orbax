@@ -99,14 +99,21 @@ class Asset(Base):
       sqlalchemy.Enum(AssetState), default=AssetState.ASSET_STATE_UNSPECIFIED
   )
   created_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  finalized_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
-  deleted_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  finalized_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  deleted_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  write_expires_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
   updated_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       onupdate=sqlalchemy.sql.func.now(),
       nullable=False,
@@ -311,8 +318,12 @@ class TierPath(Base):
       nullable=False,
   )
   path = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-  ready_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
-  expires_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  ready_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  expires_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="tier_paths")
   storage_backend = sqlalchemy.orm.relationship(
@@ -383,11 +394,13 @@ class AssetJob(Base):
   )
 
   created_at = sqlalchemy.Column(
-      sqlalchemy.DateTime,
+      sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  completed_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+  completed_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="jobs")
   target_tier_path = sqlalchemy.orm.relationship("TierPath")

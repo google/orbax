@@ -34,22 +34,46 @@ class TieringServiceTest(
 
   def setUp(self):
     super().setUp()
-    self.servicer = server.TieringServiceServicer()
+    storage_backends_config = [
+        {
+            "level": 0,
+            "backend_type": "BACKEND_TYPE_LUSTRE",
+            "prefix": "/mnt/lustre",
+            "zone": "us-central1-a",
+        },
+        {
+            "level": 1,
+            "backend_type": "BACKEND_TYPE_GCS",
+            "prefix": "gs://my-bucket",
+            "region": "us-central1",
+        },
+    ]
+    self.config = self._setup_config(
+        {"storage_backends": storage_backends_config}
+    )
+    self.servicer = server.TieringServiceServicer(self.config)
     self.context = mock.create_autospec(
-        grpc.ServicerContext, instance=True, spec_set=True
+        grpc.aio.ServicerContext, instance=True, spec_set=True
     )
     # Mock metadata for OAuth token
-    self.context.invocation_metadata.return_value = (
-        ("authorization", "Bearer valid-mock-token"),
+    self.context.invocation_metadata = mock.AsyncMock(
+        return_value=(("authorization", "Bearer valid-mock-token"),)
     )
-    # Clear internal state between tests
-    server._assets_by_uuid = {}
 
-  def _reserve_asset(self):
+  async def asyncSetUp(self):
+    super().asyncSetUp()
+    await server.setup_storage_backends(self.config)
+    await self.servicer.initialize()
+
+  async def asyncTearDown(self):
+    await self.servicer.close()
+    await super().asyncTearDown()
+
+  async def _reserve_asset(self):
     reserve_req = tiering_service_pb2.ReserveRequest(
         path="test/path", user="test-user", zone="us-central1-a"
     )
-    reserve_res = self.servicer.Reserve(reserve_req, self.context)
+    reserve_res = await self.servicer.Reserve(reserve_req, self.context)
     return reserve_res.asset.uuid
 
   def _setup_config(self, config_dict):
@@ -58,14 +82,14 @@ class TieringServiceTest(
     config.db_connection_str = f"sqlite+aiosqlite:///{tmp_file.full_path}"
     return config
 
-  def test_reserve_success(self):
+  async def test_reserve_success(self):
     request = tiering_service_pb2.ReserveRequest(
         path="test/path",
         user="test-user",
         zone="us-central1-a",
         tags=["tag1"],
     )
-    response = self.servicer.Reserve(request, self.context)
+    response = await self.servicer.Reserve(request, self.context)
 
     self.assertEqual(response.asset.path, "test/path")
     self.assertEqual(response.asset.user, "test-user")
@@ -73,77 +97,127 @@ class TieringServiceTest(
         response.asset.state, tiering_service_pb2.ASSET_STATE_ACTIVE_WRITE
     )
     self.assertLen(response.asset.tier_paths, 1)
-    self.assertTrue(response.asset.tier_paths[0].path.startswith("/mnt/lustre"))
+    self.assertStartsWith(response.asset.tier_paths[0].path, "/mnt/lustre")
 
-  def test_reserve_keep_alive_not_found(self):
+  async def test_reserve_twice(self):
+    request1 = tiering_service_pb2.ReserveRequest(
+        path="test/path1",
+        user="test-user",
+        zone="us-central1-a",
+        tags=["tag1"],
+    )
+    response1 = await self.servicer.Reserve(request1, self.context)
+    self.assertEqual(response1.asset.path, "test/path1")
+
+    request2 = tiering_service_pb2.ReserveRequest(
+        path="test/path2",
+        user="test-user",
+        zone="us-central1-a",
+        tags=["tag2"],
+    )
+    response2 = await self.servicer.Reserve(request2, self.context)
+    self.assertEqual(response2.asset.path, "test/path2")
+
+  async def test_reserve_keep_alive_not_found(self):
     request = tiering_service_pb2.ReserveKeepAliveRequest(uuid="invalid-uuid")
-    self.servicer.ReserveKeepAlive(request, self.context)
+    await self.servicer.ReserveKeepAlive(request, self.context)
 
     self.context.abort.assert_called_once_with(
         grpc.StatusCode.NOT_FOUND, "Asset not found"
     )
 
-  def test_reserve_invalid_argument(self):
+  async def test_reserve_invalid_argument(self):
     request = tiering_service_pb2.ReserveRequest(
         path="test/path",
         user="test-user",
     )
-    self.servicer.Reserve(request, self.context)
+    await self.servicer.Reserve(request, self.context)
 
     self.context.abort.assert_called_once_with(
         grpc.StatusCode.INVALID_ARGUMENT, "No zone or region specified"
     )
 
-  def test_finalize_success(self):
-    asset_uuid = self._reserve_asset()
+  async def test_finalize_success(self):
+    asset_uuid = await self._reserve_asset()
     finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
-    finalize_res = self.servicer.Finalize(finalize_req, self.context)
+    finalize_res = await self.servicer.Finalize(finalize_req, self.context)
 
     self.assertEqual(
         finalize_res.asset.state, tiering_service_pb2.ASSET_STATE_STORED
     )
 
-  def test_finalize_failed_precondition(self):
-    asset_uuid = self._reserve_asset()
-    self.servicer.Finalize(
+  async def test_finalize_permission_denied(self):
+    asset_uuid = await self._reserve_asset()
+    # Remove token from context to simulate missing auth
+    self.context.invocation_metadata.return_value = ()
+
+    finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
+    await self.servicer.Finalize(finalize_req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.PERMISSION_DENIED, "Insufficient Lustre permissions"
+    )
+
+  async def test_finalize_already_finalized_raises_failed_precondition(self):
+    asset_uuid = await self._reserve_asset()
+    await self.servicer.Finalize(
         tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
     )
 
     # Try to finalize again
     finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
-    self.servicer.Finalize(finalize_req, self.context)
+    await self.servicer.Finalize(finalize_req, self.context)
 
     self.context.abort.assert_called_once_with(
-        grpc.StatusCode.FAILED_PRECONDITION, "Asset not in ACTIVE_WRITE state"
+        grpc.StatusCode.FAILED_PRECONDITION,
+        "Asset is in state ASSET_STATE_STORED, expected"
+        " ASSET_STATE_ACTIVE_WRITE",
     )
 
-  def test_delete_success(self):
-    asset_uuid = self._reserve_asset()
-    self.servicer.Delete(
+  async def test_delete_unimplemented(self):
+    asset_uuid = await self._reserve_asset()
+    await self.servicer.Delete(
         tiering_service_pb2.DeleteRequest(uuid=asset_uuid), self.context
     )
-    self.assertNotIn(asset_uuid, server._assets_by_uuid)
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.UNIMPLEMENTED, "Delete Not Implemented"
+    )
 
-  def test_info_success(self):
-    asset_uuid = self._reserve_asset()
-    response = self.servicer.Info(
+  async def test_info_success(self):
+    asset_uuid = await self._reserve_asset()
+    response = await self.servicer.Info(
         tiering_service_pb2.InfoRequest(uuid=asset_uuid), self.context
     )
-    self.assertEqual(response.asset.uuid, asset_uuid)
+    self.assertEqual(response.assets[0].uuid, asset_uuid)
 
-  def test_prefetch_success(self):
-    asset_uuid = self._reserve_asset()
+  async def test_prefetch_unimplemented(self):
+    asset_uuid = await self._reserve_asset()
+    # Finalize the asset to STORED state so it is eligible for prefetching
+    finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
+    await self.servicer.Finalize(finalize_req, self.context)
+
     prefetch_req = tiering_service_pb2.PrefetchRequest(
         uuid=asset_uuid, zone="us-central1-a"
     )
-    response = self.servicer.Prefetch(prefetch_req, self.context)
+    await self.servicer.Prefetch(prefetch_req, self.context)
 
-    self.assertEqual(response.asset.uuid, asset_uuid)
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.UNIMPLEMENTED, "Prefetch Not Implemented"
+    )
 
-  def test_prefetch_invalid_argument(self):
-    asset_uuid = self._reserve_asset()
+  async def test_prefetch_keep_alive_unimplemented(self):
+    asset_uuid = await self._reserve_asset()
+    req = tiering_service_pb2.PrefetchKeepAliveRequest(uuid=asset_uuid)
+    await self.servicer.PrefetchKeepAlive(req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.UNIMPLEMENTED, "PrefetchKeepAlive Not Implemented"
+    )
+
+  async def test_prefetch_invalid_argument(self):
+    asset_uuid = await self._reserve_asset()
     prefetch_req = tiering_service_pb2.PrefetchRequest(uuid=asset_uuid)
-    self.servicer.Prefetch(prefetch_req, self.context)
+    await self.servicer.Prefetch(prefetch_req, self.context)
 
     self.context.abort.assert_called_once_with(
         grpc.StatusCode.INVALID_ARGUMENT, "No location specified"
@@ -162,7 +236,7 @@ class TieringServiceTest(
     self.assertTrue(tp.HasField("ready_at"))
     self.assertTrue(tp.HasField("expires_at"))
 
-  def test_reserve_permission_denied(self):
+  async def test_reserve_permission_denied(self):
     # Remove token from context to simulate missing auth
     self.context.invocation_metadata.return_value = ()
 
@@ -171,10 +245,10 @@ class TieringServiceTest(
         user="test-user",
         zone="us-central1-a",
     )
-    self.servicer.Reserve(request, self.context)
+    await self.servicer.Reserve(request, self.context)
 
     self.context.abort.assert_called_once_with(
-        grpc.StatusCode.PERMISSION_DENIED, "Insufficient GCS permissions"
+        grpc.StatusCode.PERMISSION_DENIED, "Insufficient Lustre permissions"
     )
 
   @parameterized.named_parameters(

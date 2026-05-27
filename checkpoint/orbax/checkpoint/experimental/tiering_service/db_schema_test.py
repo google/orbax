@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import datetime
 import multiprocessing
 import unittest
@@ -547,6 +546,9 @@ class DbSchemaMultiprocessTest(
     self.session_maker = sessionmaker(
         self.engine, expire_on_commit=False, class_=AsyncSession
     )
+    # Dispose the engine to close connection pool before spawning subprocesses.
+    # This avoids database lock contention/sharing issues in multiprocess tests.
+    await self.engine.dispose()
 
   async def asyncTearDown(self) -> None:
     async with self.engine.begin() as conn:
@@ -554,25 +556,24 @@ class DbSchemaMultiprocessTest(
     await self.engine.dispose()
     await super().asyncTearDown()
 
-  def test_asset_job_queue_multiprocess(self) -> None:
-    async def _setup():
-      async with self.session_maker() as session:
-        asset = db_schema.Asset(
-            asset_uuid="uuid-queue-multi",
-            path="/experiment/queue-multi",
-            user="testuser",
-        )
-        sb = db_schema.StorageBackend(
-            level=0, zone="us-central1-a", prefix="gs://gcs-bucket"
-        )
-        tp = db_schema.TierPath(
-            asset_uuid="uuid-queue-multi", storage_backend=sb, path="/path1"
-        )
-        session.add_all([asset, sb, tp])
-        await session.commit()
-        return tp.id
+  async def test_asset_job_queue_multiprocess(self) -> None:
+    async with self.session_maker() as session:
+      asset = db_schema.Asset(
+          asset_uuid="uuid-queue-multi",
+          path="/experiment/queue-multi",
+          user="testuser",
+      )
+      sb = db_schema.StorageBackend(
+          level=0, zone="us-central1-a", prefix="gs://gcs-bucket"
+      )
+      tp = db_schema.TierPath(
+          asset_uuid="uuid-queue-multi", storage_backend=sb, path="/path1"
+      )
+      session.add_all([asset, sb, tp])
+      await session.commit()
+      tp_id = tp.id
 
-    tp_id = asyncio.run(_setup())
+    await self.engine.dispose()
 
     job_types = [
         (int(db_schema.RequestType.REQUEST_TYPE_COPY), tp_id),
@@ -586,29 +587,30 @@ class DbSchemaMultiprocessTest(
           [(self.db_path, jt, target_id) for jt, target_id in job_types],
       )
 
-    for request_type_val, success in results:
-      with self.subTest(request_type=request_type_val):
-        self.assertTrue(success)
+    # Verify that all workers successfully added their jobs.
+    expected_results = [
+        (int(db_schema.RequestType.REQUEST_TYPE_COPY), True),
+        (int(db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE), True),
+        (int(db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS), True),
+    ]
+    self.assertCountEqual(results, expected_results)
 
-    async def _verify():
-      async with self.session_maker() as session:
-        result = await session.execute(
-            select(db_schema.AssetJob).filter_by(asset_uuid="uuid-queue-multi")
-        )
-        jobs = result.scalars().all()
-        self.assertLen(jobs, 3)
+    async with self.session_maker() as session:
+      result = await session.execute(
+          select(db_schema.AssetJob).filter_by(asset_uuid="uuid-queue-multi")
+      )
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 3)
 
-        found_types = [j.request_type for j in jobs]
-        expected_types = [
-            db_schema.RequestType.REQUEST_TYPE_COPY,
-            db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
-            db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
-        ]
-        self.assertCountEqual(found_types, expected_types)
+      found_types = [j.request_type for j in jobs]
+      expected_types = [
+          db_schema.RequestType.REQUEST_TYPE_COPY,
+          db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
+          db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      ]
+      self.assertCountEqual(found_types, expected_types)
 
-    asyncio.run(_verify())
-
-  def test_create_asset_multiprocess(self) -> None:
+  async def test_create_asset_multiprocess(self) -> None:
     with multiprocessing.Pool(processes=5) as pool:
       results = pool.map(_worker_create_asset, [self.db_path] * 5)
 

@@ -25,7 +25,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 
 
-def _get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
+def get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
   """Returns an AsyncEngine configured from ServerConfig."""
   input_url = config.db_connection_str
 
@@ -42,7 +42,7 @@ def _get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
 @contextlib.asynccontextmanager
 async def _engine_context(config: tiering_service_pb2.ServerConfig):
   """Yields an AsyncEngine and ensures it is disposed upon exit."""
-  engine = _get_async_engine(config)
+  engine = get_async_engine(config)
   try:
     yield engine
   finally:
