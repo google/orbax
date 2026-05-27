@@ -15,12 +15,12 @@
 """Core classes and functions for benchmarking Orbax."""
 
 import abc
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 import hashlib
 import itertools
 import sys
-from typing import Any, Callable
+from typing import Any
 
 from absl import logging
 from etils import epath
@@ -48,7 +48,7 @@ class BenchmarkOptions:
 
 
 def benchmark_options(options_cls):
-  """Decorator to associate a BenchmarkOptions subclass with a BenchmarksGenerator."""
+  """Associates a BenchmarkOptions subclass with a BenchmarksGenerator."""
   if not issubclass(options_cls, BenchmarkOptions):
     raise TypeError(
         "Decorating class must be a subclass of BenchmarkOptions, got"
@@ -70,7 +70,7 @@ def benchmark_options(options_cls):
 
 @dataclasses.dataclass
 class TestContext:
-  """Input object passed to each test function, providing pre-configured components for the test run.
+  """Input passed to each test function with pre-configured components.
 
   Attributes:
     pytree: The generated or loaded checkpoint data. May be None.
@@ -80,6 +80,10 @@ class TestContext:
     repeat_index: The index of the repeat run, if this test is run multiple
       times.
     local_path: The local path to store the checkpoint data.
+    output_dir: The suite-level output directory. Used by `trace_path` to
+      compose TB Profile-plugin-discoverable trace paths.
+    name: The benchmark's stable hashed name. Used by `trace_path` as the
+      Profile-plugin <run> segment so traces show up alongside scalars.
   """
 
   pytree: Any | None
@@ -88,11 +92,46 @@ class TestContext:
   mesh: jax.sharding.Mesh | None = None
   repeat_index: int | None = None
   local_path: epath.Path | None = None
+  output_dir: epath.Path | str | None = None
+  name: str | None = None
+
+  def trace_path(self, operation: str) -> epath.Path | None:
+    """Trace destination for an operation, or None if no trace is captured.
+
+    Routes `jax.profiler.start_trace` output into the layout the TB Profile
+    plugin discovers: `<output_dir>/tensorboard/plugins/profile/<run>/`. Each
+    operation becomes its own `<run>` segment (`<name>__<operation>`) so save
+    and load traces show up as separate Profile-tab entries.
+
+    Returns None when:
+      - `options.enable_trace` is missing or False.
+      - `repeat_index` > 0 and `options.trace_every_repeat` is missing or False
+        (first-repeat-only is the default; profile traces overflow Trace Viewer
+        otherwise).
+      - `output_dir` or `name` is missing (no Profile root to route into).
+    """
+    if not getattr(self.options, "enable_trace", False):
+      return None
+    if (
+        self.repeat_index is not None
+        and self.repeat_index > 0
+        and not getattr(self.options, "trace_every_repeat", False)
+    ):
+      return None
+    if self.output_dir is None or self.name is None:
+      return None
+    return (
+        epath.Path(self.output_dir)
+        / "tensorboard"
+        / "plugins"
+        / "profile"
+        / f"{self.name}__{operation}"
+    )
 
 
 @dataclasses.dataclass
 class TestResult:
-  """Output object returned by each test function, containing the results of the test run, including collected metrics."""
+  """Output returned by each test function with results and metrics."""
 
   metrics: metric_lib.Metrics
   error: Exception | None = (
@@ -107,7 +146,7 @@ class TestResult:
 
 
 class Benchmark(abc.ABC):
-  """An object that encapsulates a single, runnable benchmark test case, including its configuration and metadata."""
+  """A single runnable benchmark test case with config and metadata."""
 
   def __init__(
       self,
@@ -193,6 +232,8 @@ class Benchmark(abc.ABC):
         mesh=self.mesh,
         repeat_index=repeat_index,
         local_path=local_path,
+        output_dir=self.output_dir,
+        name=self.name,
     )
 
     test_context_summary = self._build_test_context_summary(context)
@@ -283,6 +324,7 @@ class BenchmarksGenerator(abc.ABC):
           " decorated with @benchmark_options to set the 'options_class'"
           " attribute."
       )
+    # pylint: disable-next=isinstance-second-argument-not-valid-type
     if not isinstance(options, self.options_class):
       raise TypeError(
           f"Expected options of type {self.options_class.__name__}, but got"
@@ -297,7 +339,7 @@ class BenchmarksGenerator(abc.ABC):
 
   @abc.abstractmethod
   def test_fn(self, test_context: TestContext) -> TestResult:
-    """A user-defined test function that will be run for every generated benchmark variant."""
+    """User-defined test function run for each generated benchmark variant."""
 
   def _get_options_product(self) -> Sequence[BenchmarkOptions]:
     """Computes the Cartesian product of all options in the dataclass."""
@@ -334,7 +376,7 @@ class BenchmarksGenerator(abc.ABC):
   def _get_meshes(
       self, skip_incompatible_mesh_configs: bool
   ) -> Sequence[jax.sharding.Mesh]:
-    """Returns a list of meshes for all mesh configs that are compatible with the runtime environment."""
+    """Returns meshes for mesh configs compatible with the runtime."""
     meshes = []
     for mesh_config in self._mesh_configs:
       try:
@@ -439,7 +481,6 @@ class TestSuite:
       path.rmtree()
     except FileNotFoundError:
       logging.warning("Repeat directory %s not found. Skipping removal.", path)
-
 
   def run(self) -> Sequence[TestResult]:
     """Runs all benchmarks in the suite sequentially."""

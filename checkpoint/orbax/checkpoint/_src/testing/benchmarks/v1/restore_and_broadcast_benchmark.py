@@ -94,12 +94,8 @@ class RestoreAndBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
     logging.info("Benchmark options: %s", pprint.pformat(options))
     metrics_to_measure = benchmark.get_metrics_to_measure(options)
 
-    reference_checkpoint_path = epath.Path(
-        options.reference_checkpoint_path
-    )
-    reference_sharding_path = epath.Path(
-        options.reference_sharding_path
-    )
+    reference_checkpoint_path = epath.Path(options.reference_checkpoint_path)
+    reference_sharding_path = epath.Path(options.reference_sharding_path)
 
     if context.mesh.devices.ndim != 2:
       raise ValueError(
@@ -118,15 +114,17 @@ class RestoreAndBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
         reference_sharding_path=reference_sharding_path,
     )
 
+    load_trace = context.trace_path("load")
+
     with ocp.Context(context=options.context):
-      if options.enable_trace:
-        jax.profiler.start_trace(context.path / "trace_load")
+      if load_trace is not None:
+        jax.profiler.start_trace(str(load_trace))
       with metrics.measure("load", metrics_to_measure):
         restored_pytree = ocp.load(
             reference_checkpoint_path, abstract_state=abstract_pytree
         )
       benchmark.clear_pytree(restored_pytree)
-      if options.enable_trace:
+      if load_trace is not None:
         jax.profiler.stop_trace()
 
     return benchmarks_core.TestResult(metrics=metrics)
