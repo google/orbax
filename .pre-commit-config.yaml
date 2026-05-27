@@ -36,7 +36,7 @@ repos:
         exclude: ^(tests/|.*_test\.py$)
 
   - repo: https://github.com/google/pytype
-    rev: '2024.4.11'
+    rev: '2024.10.11'
     hooks:
       - id: pytype
         name: pytype

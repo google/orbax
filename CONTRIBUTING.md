@@ -53,10 +53,10 @@ pip install pre-commit
 pre-commit install
 ```
 
-To check the whole tree before submitting a PR:
+To check your modified files before submitting a PR:
 
 ```bash
-pre-commit run --all-files
+pre-commit run --files $(git diff --name-only origin/main)
 ```
 
 ## Community Guidelines

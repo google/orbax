@@ -12,18 +12,22 @@ permissions:
 jobs:
   style-check:
     runs-on: ubuntu-latest
+    if: github.actor != 'copybara-service[bot]'
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
+          # This reads from .python-version (the minimum Python version that Orbax supports).
           python-version-file: '.python-version'
           cache: 'pip'
 
       - name: Install Pre-commit
         run: pip install pre-commit
 
-      - name: Execute Code Formatting & Lint Validation
-        run: pre-commit run --all-files --show-diff-on-failure
+      - name: Execute Code Formatting & Lint Validation on PR Delta
+        run: pre-commit run --from-ref ${{ github.event.pull_request.base.sha }} --to-ref ${{ github.event.pull_request.head.sha }} --show-diff-on-failure
