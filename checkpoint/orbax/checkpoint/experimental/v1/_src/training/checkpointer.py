@@ -52,12 +52,14 @@ class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
   """Response for asynchronous saving."""
 
   def __init__(
-      self, manager: checkpoint_manager.CheckpointManager, saved: bool
+      self, manager: checkpoint_manager.CheckpointManager
   ):
 
     async def _wait() -> bool:
+      # If a background operation fails wait_until_finished() will re-raise the
+      # exception back to caller.
       manager.wait_until_finished()
-      return saved
+      return True
 
     self._thread_runner = thread_utils.BackgroundThreadRunner[bool](_wait())
 
@@ -366,7 +368,7 @@ class Checkpointer(epy.ContextManager):
     Returns:
       Whether a checkpoint was saved or not.
     """
-    return self.save_async(
+    response = self.save_async(
         step,
         state,
         checkpointable_name=checkpointable_name,
@@ -374,7 +376,10 @@ class Checkpointer(epy.ContextManager):
         overwrite=overwrite,
         metrics=metrics,
         custom_metadata=custom_metadata,
-    ).result()
+    )
+    if response is None:
+      return False
+    return response.result()
 
   def save_checkpointables(
       self,
@@ -453,14 +458,17 @@ class Checkpointer(epy.ContextManager):
     Returns:
       bool: True if the checkpoint was successfully saved, False otherwise.
     """
-    return self.save_checkpointables_async(
+    response = self.save_checkpointables_async(
         step,
         checkpointables,
         force=force,
         overwrite=overwrite,
         metrics=metrics,
         custom_metadata=custom_metadata,
-    ).result()
+    )
+    if response is None:
+      return False
+    return response.result()
 
   def save_async(
       self,
@@ -472,7 +480,7 @@ class Checkpointer(epy.ContextManager):
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
-  ) -> async_types.AsyncResponse[bool]:
+  ) -> async_types.AsyncResponse[bool] | None:
     """Saves a checkpoint asynchronously.
 
     This function is the asynchronous equivalent of
@@ -486,7 +494,8 @@ class Checkpointer(epy.ContextManager):
       ::
 
         async_response = ckptr.save_async(step=0, state=tree)
-        saved = async_response.result()
+        if async_response is not None:
+          saved = async_response.result()
 
     Args:
       step: The step number to save.
@@ -500,7 +509,8 @@ class Checkpointer(epy.ContextManager):
 
     Returns:
       An `AsyncResponse`, which can be awaited via `result()`, which returns a
-      bool indicating whether a checkpoint was saved or not.
+      bool indicating whether a checkpoint was saved or not, or None if the save
+      was skipped by policy.
     """
     return self.save_checkpointables_async(
         step,
@@ -520,7 +530,7 @@ class Checkpointer(epy.ContextManager):
       overwrite: bool = False,
       metrics: tree_types.JsonType | None = None,
       custom_metadata: tree_types.JsonType | None = None,
-  ) -> async_types.AsyncResponse[bool]:
+  ) -> async_types.AsyncResponse[bool] | None:
     """Saves checkpointable objects asynchronously.
 
     This function is the asynchronous equivalent of
@@ -534,7 +544,8 @@ class Checkpointer(epy.ContextManager):
             step=0,
             checkpointables=items_to_save
         )
-        saved = async_response.result()
+        if async_response is not None:
+          saved = async_response.result()
 
     Args:
       step: The step number to save.
@@ -545,9 +556,9 @@ class Checkpointer(epy.ContextManager):
       custom_metadata: See `save_checkpointables`.
 
     Returns:
-      An object representing the background operation. Call `.result()` on it
-      to block and return a boolean indicating whether the checkpoint was
-      successfully saved.
+      An object representing the background operation, or None if the save was
+      skipped by policy. Call `.result()` on it to block and return a boolean
+      indicating whether the checkpoint was successfully saved.
 
     Raises:
       StepAlreadyExistsError: If `overwrite` is False and a checkpoint at the
@@ -573,14 +584,16 @@ class Checkpointer(epy.ContextManager):
           checkpointables, metrics=metrics
       )
       self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
-      saved = self._manager.save(
+      save_initiated = self._manager.save(
           step,
           args=args,
           metrics=metrics,
           force=force,
           custom_metadata=custom_metadata,
       )
-      return _AsyncSaveResponse(self._manager, saved)
+      if not save_initiated:
+        return None
+      return _AsyncSaveResponse(self._manager)
 
   def load(
       self,
