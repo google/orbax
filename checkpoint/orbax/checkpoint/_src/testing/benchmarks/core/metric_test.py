@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import json
 import time
 import tracemalloc
@@ -367,6 +368,102 @@ class MetricsManagerTest(parameterized.TestCase):
         step=0, scalars={'acc_': 0.9}
     )
     mock_writer.flush.assert_called_once()
+
+
+@dataclasses.dataclass(frozen=True)
+class _HpOpts:
+  async_enabled: bool = True
+  chunk_byte_size: int | None = None
+  notes: str = 'baseline'
+
+
+class MetricsManagerHparamsTest(parameterized.TestCase):
+  """The HParams summary is emitted once per (benchmark, run) at step 0."""
+
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.metric_writers.create_default_writer'
+  )
+  def test_first_result_writes_hparams_from_options(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(
+        name='HpSuite', num_repeats=1, tensorboard_dir=temp_dir
+    )
+
+    m = metric_lib.Metrics()
+    m.results['load_time_duration'] = (1.0, 's')
+    manager.add_result(
+        'bench1',
+        m,
+        benchmark_options=_HpOpts(
+            async_enabled=False, chunk_byte_size=256, notes='x'
+        ),
+    )
+
+    mock_writer.write_hparams.assert_called_once_with(
+        {
+            'async_enabled': False,
+            'chunk_byte_size': 256,
+            'notes': 'x',
+        }
+    )
+
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.metric_writers.create_default_writer'
+  )
+  def test_subsequent_results_do_not_rewrite_hparams(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(
+        name='HpSuite', num_repeats=2, tensorboard_dir=temp_dir
+    )
+
+    opts = _HpOpts()
+    for _ in range(2):
+      m = metric_lib.Metrics()
+      m.results['load_time_duration'] = (1.0, 's')
+      manager.add_result('bench1', m, benchmark_options=opts)
+
+    mock_writer.write_hparams.assert_called_once()
+
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.metric_writers.create_default_writer'
+  )
+  def test_no_options_does_not_call_write_hparams(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(
+        name='HpSuite', num_repeats=1, tensorboard_dir=temp_dir
+    )
+
+    m = metric_lib.Metrics()
+    m.results['load_time_duration'] = (1.0, 's')
+    manager.add_result('bench1', m, benchmark_options=None)
+
+    mock_writer.write_hparams.assert_not_called()
+
+  @mock.patch(
+      'orbax.checkpoint._src.testing.benchmarks.core.metric.metric_writers.create_default_writer'
+  )
+  def test_none_field_value_serialized_as_string(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metric_lib.MetricsManager(
+        name='HpSuite', num_repeats=1, tensorboard_dir=temp_dir
+    )
+
+    m = metric_lib.Metrics()
+    m.results['load_time_duration'] = (1.0, 's')
+    manager.add_result(
+        'bench1', m, benchmark_options=_HpOpts(chunk_byte_size=None)
+    )
+
+    args, _ = mock_writer.write_hparams.call_args
+    self.assertEqual(args[0]['chunk_byte_size'], 'None')
 
 
 if __name__ == '__main__':

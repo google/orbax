@@ -120,12 +120,14 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
           reference_checkpoint_path, abstract_state=abstract_pytree
       )
 
+    save_trace = context.trace_path("save")
+
     for step in range(options.num_savings):
       logging.info("ReplicaParallelMultislice: Starting Step: %s", step)
       save_path = context.path / "ckpt" / str(step)
       with ocp.Context(context=options.context):
-        if options.enable_trace:
-          jax.profiler.start_trace(context.path / "trace_save")
+        if save_trace is not None:
+          jax.profiler.start_trace(str(save_trace))
         if options.async_enabled:
           with metrics.measure("save_blocking", metrics_to_measure):
             logging.info(
@@ -150,7 +152,7 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
 
     # Clear the pytree to free up memory.
     context.pytree = benchmark.clear_pytree(loaded_pytree)
-    if options.enable_trace:
+    if save_trace is not None:
       jax.profiler.stop_trace()
 
     return benchmarks_core.TestResult(metrics=metrics)
