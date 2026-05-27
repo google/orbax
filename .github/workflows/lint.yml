@@ -26,8 +26,12 @@ jobs:
           python-version-file: '.python-version'
           cache: 'pip'
 
-      - name: Install Pre-commit
-        run: pip install pre-commit
+      - name: Install Pre-commit and Pytype
+        # pytype is declared as a `language: system` pre-commit hook, so it
+        # must be on the runner's PATH before the hook can be invoked. The
+        # version is pinned to match the rev in .pre-commit-config.yaml so
+        # CI and local runs agree on the same pytype.
+        run: pip install pre-commit pytype==2024.10.11
 
       - name: Execute Code Formatting & Lint Validation on PR Delta
         run: pre-commit run --from-ref ${{ github.event.pull_request.base.sha }} --to-ref ${{ github.event.pull_request.head.sha }} --show-diff-on-failure
