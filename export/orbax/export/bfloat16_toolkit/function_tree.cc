@@ -282,7 +282,7 @@ absl::StatusOr<FunctionInfo*> FunctionInfo::get_child(Node* call_node) {
     if (child->IsDeleted()) continue;
     if (child->node_in_parent_graph() == call_node) return child.get();
   }
-  return errors::NotFound(
+  return absl::NotFoundError(
       absl::StrCat("Could not find a child function called by node ",
                    call_node->DebugString()));
 }

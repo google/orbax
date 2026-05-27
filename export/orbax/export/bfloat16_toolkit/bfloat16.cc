@@ -95,7 +95,7 @@ absl::StatusOr<std::string> FindTPUClusterName(const Edge* edge) {
   if ((edge->src()->type_string() == "TPUReplicatedInput")) {
     attr = edge->dst()->attrs().Find("_tpu_replicate");
     if (attr != nullptr && attr->has_s()) return attr->s();
-    return errors::NotFound(
+    return absl::NotFoundError(
         "Could not find a TPU cluster name for the Cast node connecting the "
         "TPUReplicatedInput node.");
   }
@@ -338,7 +338,7 @@ absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
           if (n->name() == kBrainServerInitOpName) {
             if (n->op_def().name() != kBrainServerInitOpType ||
                 n->requested_device() != kBrainServerInitOpDevice) {
-              return tensorflow::errors::InvalidArgument(absl::StrCat(
+              return absl::InvalidArgumentError(absl::StrCat(
                   "The input graph already has a node called \"",
                   kBrainServerInitOpName, "\", but it is not an ",
                   kBrainServerInitOpType,
@@ -1014,7 +1014,7 @@ static absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
   if (restore_out_edge.dst()->type_string() == "AssignVariableOp")
     return absl::OkStatus();
   if (restore_out_edge.dst()->type_string() != "Identity") {
-    return errors::Unimplemented(
+    return absl::UnimplementedError(
         "Unable to convert checkpoint to bfloat16 because updating the restore "
         "assign ops failed.");
   }
@@ -1626,7 +1626,7 @@ absl::Status ApplyBFloat16Optimization(
     bfloat16_func = func;
   } else if (bfloat16_scope == DeviceAgnosticBFloat16Scope::kBatch) {
     if (func->IsRoot())
-      return errors::InvalidArgument(
+      return absl::InvalidArgumentError(
           "Cannot apply the bfloat16 optimization to the BatchFunction when "
           "there is no BatchFunction in the model. Either add the "
           "BatchFunction or change the BFloat16Scope.");
@@ -1638,7 +1638,7 @@ absl::Status ApplyBFloat16Optimization(
       batch_func = batch_func->parent();
     }
     if (batch_func->IsRoot())
-      return errors::InvalidArgument(
+      return absl::InvalidArgumentError(
           "Cannot apply the bfloat16 optimization to the BatchFunction when "
           "there is no BatchFunction in the model. Either add the "
           "BatchFunction or change the BFloat16Scope.");
@@ -1647,9 +1647,9 @@ absl::Status ApplyBFloat16Optimization(
     bfloat16_func = func->GetRoot();
   } else if (bfloat16_scope == DeviceAgnosticBFloat16Scope::kOther) {
     if (options.bfloat16_func_prefix().empty()) {
-      return tensorflow::errors::FailedPrecondition(
-          "Name prefix of FunctionDef to be converted to bfloat16",
-          "needs to be unspecified.");
+      return absl::FailedPreconditionError(
+          absl::StrCat("Name prefix of FunctionDef to be converted to bfloat16",
+                       "needs to be unspecified."));
     }
     std::vector<FunctionInfo*> bfloat16_func_candidates;
     TF_RETURN_IF_ERROR(func->GetRoot()->Find(
@@ -1658,13 +1658,13 @@ absl::Status ApplyBFloat16Optimization(
         },
         &bfloat16_func_candidates));
     if (bfloat16_func_candidates.empty()) {
-      return tensorflow::errors::NotFound("FunctionDef name with prefix ",
-                                          options.bfloat16_func_prefix(),
-                                          " not found.");
+      return absl::NotFoundError(absl::StrCat("FunctionDef name with prefix ",
+                                              options.bfloat16_func_prefix(),
+                                              " not found."));
     }
     bfloat16_func = bfloat16_func_candidates.front();
   } else {
-    return tensorflow::errors::InvalidArgument("Invalid BFloat16Scope.");
+    return absl::InvalidArgumentError("Invalid BFloat16Scope.");
   }
   TF_RETURN_IF_ERROR(FuncFloatToBFloat16(bfloat16_func, options));
   VLOG(3) << DumpGraphToFile(

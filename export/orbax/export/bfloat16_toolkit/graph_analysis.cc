@@ -88,28 +88,32 @@ absl::StatusOr<OutputTensor> ParseOutputTensorFromString(
     const Graph& g, const std::string& tensor) {
   std::vector<std::string> parts = absl::StrSplit(tensor, ':');
   if (parts.size() > 2) {
-    return errors::InvalidArgument("Invalid tensor name: ", tensor);
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid tensor name: ", tensor));
   }
   auto node_name_index = g.BuildNodeNameIndex();
   if (node_name_index.find(parts[0]) == node_name_index.end()) {
-    return errors::InvalidArgument("Cannot find node for tensor: ", tensor);
+    return absl::InvalidArgumentError(
+        absl::StrCat("Cannot find node for tensor: ", tensor));
   }
 
   Node* node = g.FindNodeId(node_name_index.at(parts[0])->id());
   OutputTensor result(node, 0);
   if (parts.size() == 2) {
     if (!absl::SimpleAtoi(parts[1], &result.index)) {
-      return errors::InvalidArgument("Invalid node output \"", parts[1],
-                                     "\" in tensor name \"", tensor, "\"");
+      return absl::InvalidArgumentError(
+          absl::StrCat("Invalid node output \"", parts[1],
+                       "\" in tensor name \"", tensor, "\""));
     }
   }
 
   if (result.index < 0) {
-    return errors::InvalidArgument("Output index cannot be negative: ", tensor);
+    return absl::InvalidArgumentError(
+        absl::StrCat("Output index cannot be negative: ", tensor));
   } else if (result.index >= node->num_outputs()) {
-    return errors::InvalidArgument(
-        "Invalid output index : ", result.index,
-        ". Number of node outputs: ", node->num_outputs());
+    return absl::InvalidArgumentError(
+        absl::StrCat("Invalid output index : ", result.index,
+                     ". Number of node outputs: ", node->num_outputs()));
   }
 
   return result;
@@ -707,8 +711,8 @@ absl::Status AnalyseGraph(
     const ::gtl::linked_hash_set<std::string>& disallowed_nodes,
     absl::string_view xla_jit_device) {
   if (func_info != nullptr && g != func_info->get_graph())
-    return errors::Internal("Input graph is not the same graph in ",
-                            func_info->name());
+    return absl::InternalError(absl::StrCat(
+        "Input graph is not the same graph in ", func_info->name()));
   GetReversePostOrder(*g, reverse_post_order, NodeComparatorID());
   TF_RETURN_IF_ERROR(GetTpuCompatibility(flib_def, *reverse_post_order,
                                          disallowed_nodes, func_info,
@@ -1521,13 +1525,13 @@ absl::Status GetGraphForPartition(
   if (!func_names.empty() &&
       !func_names.contains((*partition_candidate)->name())) {
     std::string func_names_list = absl::StrJoin(func_names, ", ");
-    return errors::InvalidArgument(
+    return absl::InvalidArgumentError(absl::StrCat(
         "Could not find a TPU eligible function with the name(s) specified via "
         "function_alias and/or partition_func_names. Function name(s) provided "
         "via function_alias and/or partition_func_names are: ",
         func_names_list,
         " whereas partition candidate function identified is: ",
-        (*partition_candidate)->name());
+        (*partition_candidate)->name()));
   }
   LOG(INFO) << (*partition_candidate)->name() << " selected for partition.";
 

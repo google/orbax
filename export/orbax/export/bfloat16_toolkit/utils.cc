@@ -42,13 +42,15 @@ absl::Status ExtractGraphFromFunction(
     Graph* func_graph, ::gtl::linked_hash_set<std::string>* control_ret_nodes) {
   // Get TPU Graph from function library.
   if (!flib_def.Contains(func_name)) {
-    return errors::InvalidArgument("Function ", func_name, " not found!");
+    return absl::InvalidArgumentError(
+        absl::StrCat("Function ", func_name, " not found!"));
   }
 
   std::unique_ptr<FunctionBody> func_body(nullptr);
   const FunctionDef* func_def = flib_def.Find(func_name);
   if (func_def == nullptr) {
-    return errors::InvalidArgument("FunctionDef of ", func_name, " not found!");
+    return absl::InvalidArgumentError(
+        absl::StrCat("FunctionDef of ", func_name, " not found!"));
   }
   AttrValueMap attr_val_map = AttrValueMap();
   attr_val_map.insert(func_def->attr().begin(), func_def->attr().end());
