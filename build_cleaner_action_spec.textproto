@@ -1,0 +1,18 @@
+# proto-file: devtools/build_cleaner/proto/actions.proto
+# proto-message: ActionSpecs
+action_spec {
+  action: ADD_RULES
+  add_rules_params {
+    source_selector {
+      source_regex: ".*_test\\.py"
+      missing_lang_specific_rule: true
+    }
+    new_rule_spec {
+      rule_kind: "pytype_strict_contrib_test"
+      bzl_file_label: "//devtools/python/blaze:pytype.bzl"
+    }
+  }
+  fix_rules_params {
+    choice_strategy: PICK_ANY
+  }
+}
