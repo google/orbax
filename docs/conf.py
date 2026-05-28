@@ -101,6 +101,7 @@ html_theme_options = {
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['images']
+html_copy_source = False
 
 # -- Options for myst -------------------------------------------------------
 
@@ -109,8 +110,10 @@ html_static_path = ['images']
 # Example: export ORBAX_SKIP_COLABS=true; ./serve_docs.sh
 if os.environ.get('ORBAX_SKIP_COLABS') == 'true':
   jupyter_execute_notebooks = 'off'
+  nb_execution_mode = 'off'
 else:
   jupyter_execute_notebooks = 'force'
+  nb_execution_mode = 'force'
 execution_allow_errors = True
 
 # -- Options for katex ------------------------------------------------------

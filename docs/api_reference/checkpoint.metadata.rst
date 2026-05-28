@@ -33,9 +33,3 @@ Sharding Metadata
 
 .. autoclass:: SingleDeviceShardingMetadata
   :members:
-
-.. autoclass:: GSPMDShardingMetadata
-  :members:
-
-.. autoclass:: PositionalShardingMetadata
-  :members:

@@ -112,7 +112,6 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
    :maxdepth: 1
    :caption: Advanced Usage
 
-   guides/checkpoint/v1/checkpoint_format
    guides/checkpoint/v1/customization
    guides/checkpoint/v1/partial_saving
    guides/checkpoint/v1/model_surgery
@@ -129,6 +128,7 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
    :maxdepth: 1
    :caption: Migrating to Orbax V1
 
+   guides/checkpoint/v1/what_is_orbax_v1
    guides/checkpoint/v1/orbax_v0_to_v1_migration
    index.v0
 
@@ -146,7 +146,7 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
    :maxdepth: 1
    :caption: Additional Information
 
-   contributors
+   Contributors <contributors>
 
 
 .. Make sure the grid is not ragged.
