@@ -1,7 +1,12 @@
 # Orbax - Checkpointing for JAX Models
 
-[![PyPI version](https://img.shields.io/pypi/v/orbax-checkpoint)](https://pypi.org/project/orbax-checkpoint/)
+[![PyPI version](https://img.shields.io/pypi/v/orbax-checkpoint?label=orbax-checkpoint)](https://pypi.org/project/orbax-checkpoint/)
+[![PyPI version](https://img.shields.io/pypi/v/orbax-export?label=orbax-export)](https://pypi.org/project/orbax-export/)
 [![Documentation Status](https://readthedocs.org/projects/orbax/badge/?version=latest)](https://orbax.readthedocs.io/en/latest/?badge=latest)
+[![Build Checkpoint](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/build-checkpoint&label=build-checkpoint)](https://github.com/google/orbax/actions/workflows/build.yml)
+[![Build Export](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/build-export&label=build-export)](https://github.com/google/orbax/actions/workflows/build.yml)
+[![Checkpoint Benchmarks](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/multiprocess-checkpoint-benchmarks&label=checkpoint%20benchmarks)](https://github.com/google/orbax/actions/workflows/multiprocess_tests.yml)
+[![Multiprocess Unit Tests](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/multiprocess-unit-tests&label=multiprocess-unit-tests)](https://github.com/google/orbax/actions/workflows/multiprocess_tests.yml)
 
 [**Installation**](#installation)
 | [**Quickstart**](#quickstart)

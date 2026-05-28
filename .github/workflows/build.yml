@@ -93,7 +93,7 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/build-checkpoint"
             }'
 
   build-export:
@@ -162,7 +162,7 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/build-export"
             }'
 
   build-orbax-model:
@@ -234,7 +234,7 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/build-orbax-model"
             }'
 
   multiprocess-checkpoint-benchmarks:
@@ -312,7 +312,7 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/build-checkpoint-benchmarks"
             }'
 
   multiprocess-unit-tests:
@@ -371,5 +371,5 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/build-multiprocess-unit-tests"
             }'

@@ -132,7 +132,7 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/multiprocess-checkpoint-benchmarks"
             }'
 
   multiprocess-unit-tests:
@@ -232,5 +232,5 @@ jobs:
             "state": "'$lowercase_status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "description": "'$status'",
-            "context": "github-actions/build"
+            "context": "github-actions/multiprocess-unit-tests"
             }'
