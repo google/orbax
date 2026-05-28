@@ -134,17 +134,26 @@ class SerializationContext:
             async with context.byte_limiter:
                await self._write_to_disk(save_path, params)
 
+          # Use the context's D2H limiter to manage device-to-host transfer
+          # concurrency.
+          if context.device_host_byte_limiter:
+            async with context.device_host_byte_limiter:
+               data = await self._transfer_to_host(params)
+
   Attributes:
     parent_dir: The base directory where the checkpoint or leaf data should be
       saved.
     ts_context: An optional :py:class:`tensorstore.Context` object used to
       configure storage backends and shared resources.
     byte_limiter: An optional rate limiter used to throttle I/O operations.
+    device_host_byte_limiter: An optional rate limiter used to throttle
+      device-to-host memory transfers.
   """
 
   parent_dir: path_types.PathAwaitingCreation
   ts_context: ts.Context | None = None
   byte_limiter: limits.LimitInFlightBytes | None = None
+  device_host_byte_limiter: limits.LimitInFlightBytes | None = None
 
 
 @dataclasses.dataclass

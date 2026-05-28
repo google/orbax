@@ -107,6 +107,7 @@ def _construct_serialization_context(
       ),
       ts_context=info.ts_context,
       byte_limiter=info.byte_limiter,
+      device_host_byte_limiter=info.device_host_byte_limiter,
   )
 
 
@@ -226,10 +227,11 @@ def _validate_serialization_infos(
         (info0.parent_dir != info.parent_dir)
         or (info0.ts_context != info.ts_context)
         or (info0.byte_limiter != info.byte_limiter)
+        or (info0.device_host_byte_limiter != info.device_host_byte_limiter)
     ):
       raise ValueError(
-          'All infos must have the same parent_dir, ts_context, and'
-          ' byte_limiter.'
+          'All infos must have the same parent_dir, ts_context, byte_limiter,'
+          ' and device_host_byte_limiter.'
       )
 
   # TODO(dnlng): Add validation for ocdbt & zarr3.
