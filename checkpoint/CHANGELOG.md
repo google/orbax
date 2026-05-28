@@ -38,6 +38,8 @@ effort in maintaining. Safetensors is instead the recommended conversion case.
 
 - #v1 Allow a context to be default-configured for all `Checkpointer`
 operations.
+- #v1 Refactor Context to use a mutable namespace pattern. Introduces a new way
+to configure Orbax checkpointing options using a mutable dot-notation style.
 
 - Upgrade to TensorStore>=0.1.84 (and Python>=3.11 as a consequence.)
 

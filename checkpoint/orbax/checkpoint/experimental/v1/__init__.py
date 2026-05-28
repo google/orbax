@@ -38,7 +38,7 @@ from orbax.checkpoint.experimental.v1.handlers import (
     CheckpointableHandler,
     StatefulCheckpointable,
 )
-from orbax.checkpoint.experimental.v1._src.context import options
+from orbax.checkpoint.experimental.v1 import options
 from orbax.checkpoint.experimental.v1._src.context.context import (
     Context,
 )
