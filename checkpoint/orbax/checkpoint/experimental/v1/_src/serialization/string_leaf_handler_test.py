@@ -94,9 +94,8 @@ class StringLeafHandlerTest(
         self.create_tempdir(f'tmp_{self._testMethodName}').full_path
     )
 
-    init_context = context_lib.Context()
-
-    with context_lib.get_context(init_context) as context:
+    context = context_lib.Context()
+    with context:
 
       handler = string_leaf_handler.StringLeafHandler()
 

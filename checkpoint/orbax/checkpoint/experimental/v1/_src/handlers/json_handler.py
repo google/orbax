@@ -72,14 +72,14 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
 
       config = {'learning_rate': 0.01, 'batch_size': 32}
 
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              experiment_config=ocp.handlers.JsonHandler(
-                  filename='experiment_config.json'
-              )
-          )
+      registry = ocp.handlers.local_registry()
+      registry.add(
+          ocp.handlers.JsonHandler,
+          checkpointable_name='experiment_config',
       )
-      with ocp.Context(checkpointables_options=checkpointables_options):
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      with ctx:
           ocp.save_checkpointables(path, dict(experiment_config=config))
 
   Attributes:

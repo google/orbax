@@ -208,9 +208,8 @@ class SaveLoadTestBase:
           )
       )
 
-      context = ocp.Context(
-          async_options=ocp.options.AsyncOptions(timeout_secs=timeout_secs)
-      )
+      context = ocp.Context()
+      context.asynchronous.timeout_secs = timeout_secs
       self.enter_context(context)
 
       start = time.time()
@@ -538,13 +537,11 @@ class SaveLoadTestBase:
               dtype=save_dtype
           )
       )
-      with ocp.Context(
-          array_options=ocp.options.ArrayOptions(
-              saving=ocp.options.ArrayOptions.Saving(
-                  scoped_storage_options_creator=scoped_storage_options_creator
-              )
-          )
-      ):
+      ctx = ocp.Context()
+      ctx.array.saving.scoped_storage_options_creator = (
+          scoped_storage_options_creator
+      )
+      with ctx:
         ocp.save(self.directory, tree)
 
       with self.subTest('with_abstract_tree'):
@@ -673,15 +670,12 @@ class SaveLoadTestBase:
           )
 
     def test_custom_checkpointables(self):
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      registry.add(handler_utils.BarHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       checkpointables = {
           'pytree': self.numpy_pytree,
           'foo': Foo(123, 'hi'),
@@ -751,14 +745,11 @@ class SaveLoadTestBase:
           'two': {'c': 3, 'd': 4},
       }
       directory = self.directory
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              one=handler_utils.DictHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.DictHandler, checkpointable_name='one')
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       ocp.save_checkpointables(directory, checkpointables)
       self.assertTrue((directory / 'one' / 'data.txt').exists())
       self.assertFalse((directory / 'two' / 'data.txt').exists())
@@ -802,15 +793,12 @@ class SaveLoadTestBase:
         test_utils.assert_tree_equal(self, self.pytree, loaded)
 
     def test_abstract_checkpointables_types(self):
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-              handler_utils.BarHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      registry.add(handler_utils.BarHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       checkpointables = {
           'foo': Foo(123, 'hi'),
           'bar': Bar(456, 'bye'),
@@ -837,14 +825,11 @@ class SaveLoadTestBase:
         self.assertEqual(checkpointables, loaded)
 
     def test_async_directory_creation(self):
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              handler_utils.FooHandler,
-          )
-      )
-      self.enter_context(
-          ocp.Context(checkpointables_options=checkpointables_options)
-      )
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      self.enter_context(ctx)
       self.enter_context(
           mock.patch.object(
               async_utils, '_create_paths', _sleep_and_create_paths
@@ -1074,13 +1059,9 @@ class SaveLoadTestBase:
           'y': self.pytree['y'],
       }
 
-      with ocp.Context(
-          pytree_options=ocp.options.PyTreeOptions(
-              loading=ocp.options.PyTreeOptions.Loading(
-                  partial_load=True,
-              )
-          )
-      ):
+      ctx = ocp.Context()
+      ctx.pytree.loading.partial_load = True
+      with ctx:
         loaded = ocp.load(self.directory, reference_pytree)
 
       test_utils.assert_tree_equal(self, expected, loaded)
@@ -1161,13 +1142,9 @@ class SaveLoadTestBase:
       self.assertEqual(
           sharding.shard_shape((4, 32)), (4, 32 // partition_count)
       )
-      with ocp.Context(
-          array_options=ocp.options.ArrayOptions(
-              loading=ocp.options.ArrayOptions.Loading(
-                  use_load_and_broadcast=True,
-              )
-          )
-      ):
+      ctx = ocp.Context()
+      ctx.array.loading.use_load_and_broadcast = True
+      with ctx:
         ocp.save(self.directory, [arr])
         with self.subTest('with_abstract_pytree'):
           loaded = ocp.load(
@@ -1199,15 +1176,9 @@ class SaveLoadTestBase:
       }
 
       with self.subTest('global_setting'):
-        with ocp.Context(
-            array_options=ocp.options.ArrayOptions(
-                saving=ocp.options.ArrayOptions.Saving(
-                    storage_options=ocp.options.ArrayOptions.Saving.StorageOptions(
-                        chunk_byte_size=8,  # force divide in two subchunks
-                    )
-                )
-            )
-        ):
+        ctx = ocp.Context()
+        ctx.array.saving.storage_options.chunk_byte_size = 8
+        with ctx:
           ocp.save(self.directory / 'global_setting', pytree)
           metadata = ocp.metadata(self.directory / 'global_setting').metadata
           for k in pytree:
@@ -1225,13 +1196,12 @@ class SaveLoadTestBase:
           return ocp.options.ArrayOptions.Saving.StorageOptions(
               chunk_byte_size=8,  # force divide in 2 subchunks
           )
-        with ocp.Context(
-            array_options=ocp.options.ArrayOptions(
-                saving=ocp.options.ArrayOptions.Saving(
-                    scoped_storage_options_creator=scoped_storage_options_creator
-                )
-            ),
-        ):
+
+        ctx = ocp.Context()
+        ctx.array.saving.scoped_storage_options_creator = (
+            scoped_storage_options_creator
+        )
+        with ctx:
           ocp.save(self.directory / 'per_key_setting', pytree)
           metadata = ocp.metadata(self.directory / 'per_key_setting').metadata
           self.assertEqual(metadata['a'].shape, (32,))

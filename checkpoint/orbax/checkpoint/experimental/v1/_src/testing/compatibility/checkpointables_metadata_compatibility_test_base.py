@@ -126,11 +126,9 @@ class CheckpointablesMetadataCompatibilityTestBase(parameterized.TestCase):
         )
     )
 
-    with ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    ):
+    ctx = ocp.Context()
+    ctx.checkpointables.registry = registry
+    with ctx:
       if error_type is None:
         loaded = ocp.checkpointables_metadata(path)
         # If the state checpointable is missing pytree metadata, then we expect

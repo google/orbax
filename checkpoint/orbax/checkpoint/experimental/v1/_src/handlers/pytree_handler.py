@@ -272,12 +272,13 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
       state_pytree = {'weights': [1.0, 2.0], 'bias': 0.0}
 
-      checkpointables_options = (
-          ocp.options.CheckpointablesOptions.create_with_handlers(
-              model_state=ocp.handlers.PyTreeHandler()
-          )
+      registry = ocp.handlers.local_registry()
+      registry.add(
+          ocp.handlers.PyTreeHandler, checkpointable_name='model_state'
       )
-      with ocp.Context(checkpointables_options=checkpointables_options):
+      ctx = ocp.Context()
+      ctx.checkpointables.registry = registry
+      with ctx:
           ocp.save_checkpointables(path, dict(model_state=state_pytree))
 
   Attributes:
@@ -299,7 +300,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       ) = None,
       partial_save_mode: bool = False,
   ):
-    context = context_lib.get_context(context)
+    context = context if context is not None else context_lib.get_context()
     self._context = context
     self._multiprocessing_options = context.multiprocessing_options
     self._partial_save_mode = partial_save_mode

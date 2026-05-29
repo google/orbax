@@ -95,21 +95,16 @@ class OptionsResolutionTest(parameterized.TestCase):
         shard_axes=(0,),
     )
 
-    context = context_lib.Context(
-        array_options=options_lib.ArrayOptions(
-            saving=options_lib.ArrayOptions.Saving(
-                storage_options=global_storage,
-                scoped_storage_options_creator=callback,
-            )
-        ),
-    )
+    ctx = context_lib.Context()
+    ctx.array.saving.storage_options = global_storage
+    ctx.array.saving.scoped_storage_options_creator = callback
 
     # Dummy param
     keypath = (jax.tree_util.DictKey(key='foo'),)
     value = np.ones((2, 2))
 
     resolved_options = options_resolution.resolve_storage_options(
-        keypath, value, context.array_options.saving
+        keypath, value, ctx.array.saving
     )
 
     self.assertEqual(resolved_options, expected_storage_options)

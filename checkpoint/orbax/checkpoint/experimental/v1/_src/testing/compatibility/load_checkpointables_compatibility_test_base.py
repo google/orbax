@@ -253,11 +253,9 @@ class LoadCheckpointablesCompatibilityTestBase(parameterized.TestCase):
     else:
       abstract_checkpointables = None
 
-    with ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    ):
+    ctx = ocp.Context()
+    ctx.checkpointables.registry = registry
+    with ctx:
       if error_type is None:
         loaded = ocp.load_checkpointables(
             path,

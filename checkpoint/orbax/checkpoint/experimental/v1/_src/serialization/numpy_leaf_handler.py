@@ -163,7 +163,9 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       *,
       context: context_lib.Context | None = None,
   ):
-    self._context = context_lib.get_context(context)
+    self._context = (
+        context if context is not None else context_lib.get_context()
+    )
     self._handler_impl = _create_v0_numpy_handler()
 
     logging.vlog(1, 'NumpyLeafHandler created.')

@@ -36,7 +36,26 @@ _CONTEXT: contextvars.ContextVar[Context] = contextvars.ContextVar(
 
 
 def get_context(default: Context | None = None) -> Context:
-  """Returns the current `Context` or `default` or `Context()` if not set."""
+  """Returns the currently active `Context`, or a default if no context is active.
+
+  If called within a `with ocp.Context(...)` block, this function returns the
+  `Context` object associated with that block (the active context).
+
+  If called outside of any `with` block, this function returns `default`
+  if it is provided. If `default` is not provided or `None`, it returns a
+  new `Context` instance initialized with default options.
+
+  Note: If a context is active, the `default` parameter is ignored, and the
+  active context is always returned. To ensure that an explicitly provided
+  context takes precedence over any active context, use the pattern:
+  `ctx = explicit_context if explicit_context is not None else get_context()`.
+
+  Args:
+    default: A `Context` object to return if no context is active.
+
+  Returns:
+    The active `Context` or a default `Context`.
+  """
   default = default or Context()
   return _CONTEXT.get(default)
 

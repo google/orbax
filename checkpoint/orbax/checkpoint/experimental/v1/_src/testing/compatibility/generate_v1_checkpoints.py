@@ -85,11 +85,9 @@ def generate_v1_checkpoint(path: epath.Path) -> None:
   registry = registration.local_registry()
   registry.add(ocp.handlers.PyTreeHandler, checkpointable_name='state')
   registry.add(ocp.handlers.JsonHandler, checkpointable_name='metadata')
-  with ocp.Context(
-      checkpointables_options=ocp.options.CheckpointablesOptions(
-          registry=registry
-      )
-  ):
+  ctx = ocp.Context()
+  ctx.checkpointables.registry = registry
+  with ctx:
     ocp.save_checkpointables(
         path,
         checkpointables,

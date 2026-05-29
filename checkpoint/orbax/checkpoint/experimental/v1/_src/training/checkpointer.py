@@ -172,7 +172,7 @@ class Checkpointer(epy.ContextManager):
         checkpoint steps present and checkpoint info properties like `time` and
         `metrics` are not needed.
     """
-    self._context = context or context_lib.get_context()
+    self._context = context_lib.Context(context or context_lib.get_context())
 
     default_save_decision_policy = save_decision_policies.AnySavePolicy([
         save_decision_policies.InitialSavePolicy(),

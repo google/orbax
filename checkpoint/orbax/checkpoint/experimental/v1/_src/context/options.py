@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextvars
 import dataclasses
 import enum
-from typing import Any, Callable, Protocol, Type
+from typing import Any, Callable, Protocol
 
 from etils import epath
 import numpy as np
@@ -29,7 +29,6 @@ from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
-from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
@@ -494,19 +493,6 @@ class CheckpointablesOptions(_ActiveContextGuard):
           registration.local_registry(include_global_registry=True)
       )
   )
-
-  @classmethod
-  def create_with_handlers(
-      cls,
-      *handlers: Type[handler_types.CheckpointableHandler],
-      **named_handlers: Type[handler_types.CheckpointableHandler],
-  ) -> CheckpointablesOptions:
-    registry = registration.local_registry(include_global_registry=True)
-    for handler in handlers:
-      registry.add(handler, checkpointable_name=None)
-    for name, handler in named_handlers.items():
-      registry.add(handler, checkpointable_name=name)
-    return cls(registry=registry)
 
 
 @dataclasses.dataclass(kw_only=True)

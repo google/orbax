@@ -76,9 +76,9 @@ class LayoutLoadingTest(parameterized.TestCase):
     )
 
   def test_load_safetensors_checkpoint(self):
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
       pytree = loading.load(self.safetensors_path)
     self.assertIsInstance(pytree, dict)
     np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
@@ -98,7 +98,9 @@ class LayoutLoadingTest(parameterized.TestCase):
   )
   def test_load_bad_path_orbax_ckpt(self, layout_enum):
     # User provides a directory of Orbax checkpoints, not specific one.
-    with context_lib.Context(checkpoint_layout=layout_enum):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = layout_enum
+    with ctx:
       with self.assertRaises(InvalidLayoutError):
         loading.load(
             epath.Path(self.test_dir.full_path),
@@ -109,7 +111,9 @@ class LayoutLoadingTest(parameterized.TestCase):
   )
   def test_load_bad_path_safetensors_ckpt(self, layout_enum):
     # User provides a empty directory of SafeTensors checkpoints, not a file.
-    with context_lib.Context(checkpoint_layout=layout_enum):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = layout_enum
+    with ctx:
       with self.assertRaises(InvalidLayoutError):
         loading.load(
             epath.Path(self.test_dir_safetensors.full_path),
@@ -119,9 +123,9 @@ class LayoutLoadingTest(parameterized.TestCase):
     safetensors_dir = epath.Path(self.test_dir_safetensors.full_path)
     safetensors_path = safetensors_dir / 'model.safetensors'
     np_save_file(self.object_to_save, safetensors_path)
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
       pytree = loading.load(safetensors_dir)
     self.assertIsInstance(pytree, dict)
     np.testing.assert_array_equal(pytree['a'], self.object_to_save['a'])
@@ -179,7 +183,9 @@ class LayoutLoadingTest(parameterized.TestCase):
     else:
       directory = self.orbax_pytree_path
 
-    with context_lib.Context(checkpoint_layout=layout):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = layout
+    with ctx:
       if layout != options_lib.CheckpointLayout.SAFETENSORS:
         with self.assertRaises(NotImplementedError):
           loading.load_async(directory)
@@ -196,9 +202,9 @@ class LayoutLoadingTest(parameterized.TestCase):
   # TODO(b/431045454): Add tests for abstract_checkpointables.
 
   def test_load_auto_resolution_mode_orbax(self):
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.ORBAX
+    with ctx:
       loaded_orbax = loading.load(
           self.orbax_pytree_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
@@ -206,9 +212,9 @@ class LayoutLoadingTest(parameterized.TestCase):
     test_utils.assert_tree_equal(self, self.object_to_save, loaded_orbax)
 
   def test_load_auto_resolution_mode_safetensors(self):
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.SAFETENSORS
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
       loaded_safe = loading.load(
           self.safetensors_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
@@ -225,10 +231,10 @@ class LayoutLoadingTest(parameterized.TestCase):
     multiple_path = epath.Path(self.test_dir.full_path) / 'multi_checkpoint'
     saving.save_checkpointables(multiple_path, checkpointables)
 
-    # Triggering AUTO loading mode should prioritize resolving state.
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
-    ):
+    # Triggering AUTO loading mode should prioritize resolving 'pytree'.
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.ORBAX
+    with ctx:
       loaded = loading.load(multiple_path)
 
     test_utils.assert_tree_equal(
@@ -243,9 +249,9 @@ class LayoutLoadingTest(parameterized.TestCase):
     fallback_path = epath.Path(self.test_dir.full_path) / 'fallback_checkpoint'
     saving.save_checkpointables(fallback_path, custom_checkpointables)
 
-    with context_lib.Context(
-        checkpoint_layout=options_lib.CheckpointLayout.ORBAX
-    ):
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.ORBAX
+    with ctx:
       loaded = loading.load(
           fallback_path,
           checkpointable_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,

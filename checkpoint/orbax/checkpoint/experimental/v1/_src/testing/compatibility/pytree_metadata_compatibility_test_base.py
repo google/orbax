@@ -193,11 +193,9 @@ class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
         is_pytree,
     )
 
-    with ocp.Context(
-        checkpointables_options=ocp.options.CheckpointablesOptions(
-            registry=registry
-        )
-    ):
+    ctx = ocp.Context()
+    ctx.checkpointables.registry = registry
+    with ctx:
       if error_type is None:
         loaded = ocp.metadata(
             path,

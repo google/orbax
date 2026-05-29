@@ -39,10 +39,9 @@ For example::
   # to a new v1 handler class.
   registry.add(BazHandler, secondary_typestrs=['OldBazHandlerTypestr'])
 
-  checkpointables_options = ocp.options.CheckpointablesOptions(
-      registry=registry
-  )
-  with ocp.Context(checkpointables_options=checkpointables_options):
+  ctx = ocp.Context()
+  ctx.checkpointables.registry = registry
+  with ctx:
     ocp.save_checkpointables(...)
 
 Handler resolution for saving/loading follows this logic:
