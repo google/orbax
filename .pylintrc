@@ -37,11 +37,6 @@ extension-pkg-whitelist=
 
 [PARAMETER_DOCUMENTATION]
 
-accept-no-param-doc=yes
-accept-no-return-doc=yes
-accept-no-yields-doc=yes
-accept-no-raise-doc=yes
-
 # Default docstring format.
 default-docstring-type=google
 
@@ -86,6 +81,7 @@ disable=apply-builtin,
         consider-refactoring-into-while-condition,
         consider-ternary-expression,
         consider-using-any-or-all,
+        consider-using-assignment-expr,
         consider-using-augmented-assign,
         consider-using-dict-comprehension,
         consider-using-dict-items,
@@ -125,6 +121,7 @@ disable=apply-builtin,
         input-builtin,
         intern-builtin,
         invalid-str-codec,
+        isinstance-second-argument-not-valid-type,
         locally-disabled,
         long-builtin,
         long-suffix,
@@ -269,7 +266,7 @@ method-rgx=(?x)^(?:(?P<exempt>_[a-z0-9_]+__|runTest|setUp|tearDown|setUpTestCase
 
 # Regular expression which should only match function or class names that do
 # not require a docstring.
-no-docstring-rgx=(__.*__|main|test.*|.*test|.*Test)$
+no-docstring-rgx=(__.*__|main|test.*|.*test|.*Test|_.*)$
 
 # Minimum line length for functions/classes that require docstrings, shorter
 # ones are exempt.
@@ -307,7 +304,7 @@ generated-members=
 [FORMAT]
 
 # Maximum number of characters on a single line.
-max-line-length=80
+max-line-length=125
 
 # TODO(https://github.com/PyCQA/pylint/issues/3352): Direct pylint to exempt
 # lines made too long by directives to pytype.

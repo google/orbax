@@ -15,15 +15,15 @@ jobs:
     if: github.actor != 'copybara-service[bot]'
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          # This reads from .python-version (the minimum Python version that Orbax supports).
-          python-version-file: '.python-version'
+          # This reads from .github-python-version (the minimum Python version that Orbax supports).
+          python-version-file: '.github-python-version'
           cache: 'pip'
 
       - name: Install Pre-commit and PyType

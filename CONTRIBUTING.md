@@ -41,7 +41,6 @@ enforce it, wired together through the
 
 | Tool | Role | Config |
 |---|---|---|
-| [`pyink`](https://github.com/google/pyink) | Formatter (Black fork with Google defaults) | `[tool.pyink]` in `pyproject.toml` |
 | [`pylint`](https://pylint.readthedocs.io/) | Linter | `.pylintrc` |
 | [`isort`](https://pycqa.github.io/isort/) | Import order | `[tool.isort]` in `pyproject.toml` |
 | [`pytype`](https://github.com/google/pytype) | Static Type Inferece & Verification | `.pre-commit-config.yaml` |
