@@ -10,6 +10,7 @@ permissions:
   contents: read
   actions: write  # to cancel previous workflows
   issues: write   # to create failure alerts
+  statuses: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -118,22 +119,35 @@ jobs:
           } else {
             console.log("Did not meet continuous failure criteria.");
           }
+  multiprocess-checkpoint-benchmarks-summary:
+    needs: multiprocess-checkpoint-benchmarks
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
     - name: Report success or failure as github status
-      if: always()
       shell: bash
       run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        if [ "${{ needs.multiprocess-checkpoint-benchmarks.result }}" = "success" ]; then
+          status="success"
+        else
+          status="failure"
+        fi
+
         curl -sS --request POST \
         --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
         --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
         --header 'content-type: application/json' \
         --data '{
-            "state": "'$lowercase_status'",
+            "state": "'$status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "description": "'$status'",
+            "description": "All matrix jobs '$status'",
             "context": "github-actions/multiprocess-checkpoint-benchmarks"
             }'
+
+        if [ "$status" = "failure" ]; then
+          exit 1
+        fi
+
 
   multiprocess-unit-tests:
     name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
@@ -218,19 +232,31 @@ jobs:
             console.log("Did not meet continuous failure criteria.");
           }
 
+  multiprocess-unit-tests-summary:
+    needs: multiprocess-unit-tests
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
     - name: Report success or failure as github status
-      if: always()
       shell: bash
       run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        if [ "${{ needs.multiprocess-unit-tests.result }}" = "success" ]; then
+          status="success"
+        else
+          status="failure"
+        fi
+
         curl -sS --request POST \
         --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
         --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
         --header 'content-type: application/json' \
         --data '{
-            "state": "'$lowercase_status'",
+            "state": "'$status'",
             "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "description": "'$status'",
+            "description": "All matrix jobs '$status'",
             "context": "github-actions/multiprocess-unit-tests"
             }'
+
+        if [ "$status" = "failure" ]; then
+          exit 1
+        fi
