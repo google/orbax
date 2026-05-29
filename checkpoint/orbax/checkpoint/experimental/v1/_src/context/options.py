@@ -135,13 +135,13 @@ class MultiprocessingOptions(_ActiveContextGuard):
     host, only a subset of processes are active, and a custom barrier key is
     used to prevent collisions with other concurrent checkpointers::
 
-      from orbax.checkpoint.v1.options import
-      MultiprocessingOptions
+      from orbax.checkpoint.v1.options import MultiprocessingOptions
 
       options = MultiprocessingOptions(
           primary_host=1,
           active_processes={1, 2, 3},
           barrier_sync_key_prefix="model_a_sync_"
+      )
 
   Attributes:
     primary_host: The host id of the primary host.  Default to 0.  If it's set
@@ -500,7 +500,8 @@ class PathwaysOptions(_ActiveContextGuard):
   """Options used to configure Pathways saving and loading.
 
   Attributes:
-    checkpointing_impl: The implementation to use for Pathways checkpointing.
+    checkpointing_impl: The implementation mode to use for Pathways
+      checkpointing.
   """
 
   checkpointing_impl: pathways_types.CheckpointingImpl | None = None

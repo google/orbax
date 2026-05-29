@@ -50,3 +50,14 @@ MemoryOptions
 ------------------------------------------------------------
 .. autoclass:: MemoryOptions
   :members:
+
+SafetensorsOptions
+------------------------------------------------------------
+.. autoclass:: SafetensorsOptions
+  :members:
+
+CheckpointLayout
+------------------------------------------------------------
+.. autoclass:: CheckpointLayout
+  :members:
+

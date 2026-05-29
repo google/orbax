@@ -113,6 +113,7 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
    :caption: Advanced Usage
 
    guides/checkpoint/v1/customization
+   guides/checkpoint/v1/context
    guides/checkpoint/v1/partial_saving
    guides/checkpoint/v1/model_surgery
 
