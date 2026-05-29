@@ -333,6 +333,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       temporary_path_class: Optional[
           Type[atomicity_types.TemporaryPath]
       ] = None,
+      signals_prefix: Optional[str] = None,
   ):
     jax.monitoring.record_event('/jax/orbax/async_checkpointer/init')
     if not checkpoint_args.has_registered_args(handler):
@@ -360,6 +361,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._file_options = file_options
+    self._signals_prefix = signals_prefix
     self._metadata_store = (
         checkpoint_metadata_store
         or checkpoint.metadata_store(enable_write=True)
@@ -445,7 +447,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       # no longer needed.
       if self._create_directories_asynchronously:
         future.AwaitableSignalsContract.remove_all_awaitable_signals(
-            current_operation_id
+            current_operation_id, prefix=self._signals_prefix
         )
 
     return _callback
@@ -478,6 +480,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
               [tmpdir],
               completion_signals=_DIRECTORY_CREATION_SIGNALS,
               multiprocessing_options=self._multiprocessing_options,
+              signals_prefix=self._signals_prefix,
           )
       )
     else:

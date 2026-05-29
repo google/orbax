@@ -153,6 +153,33 @@ class CheckpointManagerTest(
     test_utils.sync_global_processes('CheckpointManagerTest:tests_complete')
     super().tearDown()
 
+  def test_per_process_directory_creation_prefix(self):
+    options = checkpoint_manager.CheckpointManagerOptions(
+        enable_per_process_directory_creation=True,
+        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+            primary_host=None
+        ),
+    )
+    signals_contract = checkpoint_manager.future.AwaitableSignalsContract
+    original_prefix = signals_contract.awaitable_signals_contract_prefix
+    try:
+      _ = checkpoint_manager.CheckpointManager(self.directory, options=options)
+      self.assertEqual(
+          signals_contract.awaitable_signals_contract_prefix,
+          original_prefix
+      )
+
+      options2 = checkpoint_manager.CheckpointManagerOptions(
+          enable_per_process_directory_creation=False
+      )
+      _ = checkpoint_manager.CheckpointManager(self.directory, options=options2)
+      self.assertEqual(
+          checkpoint_manager.future.AwaitableSignalsContract.awaitable_signals_contract_prefix,
+          original_prefix
+      )
+    finally:
+      pass
+
   def save_params(self, step, manager, params, metrics=None, force=False):
     return manager.save(
         step,

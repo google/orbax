@@ -719,11 +719,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
 
-    if self._options.enable_per_process_directory_creation:
-      future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
-          f'_{multihost.process_index()}'
-      )
-
     self._save_decision_policy = (
         self._options.save_decision_policy
         or _get_default_save_decision_policy(self._options)
@@ -952,6 +947,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       use_async: bool,
   ) -> Checkpointer:
     if use_async:
+      signals_prefix = (
+          f'awaitable_signals_contract_{multihost.process_index()}'
+          if options.enable_per_process_directory_creation
+          else None
+      )
       return async_checkpointer.AsyncCheckpointer(
           handler,
           multiprocessing_options=options.multiprocessing_options,
@@ -959,6 +959,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           file_options=options.file_options,
           checkpoint_metadata_store=self._non_blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
+          signals_prefix=signals_prefix,
       )
     else:
       return Checkpointer(

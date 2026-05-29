@@ -44,30 +44,35 @@ class AwaitableSignalsContract:
       cls,
       signal: synchronization.HandlerAwaitableSignal,
       operation_id: str,
+      prefix: str | None = None,
   ) -> str:
     """Returns a unique barrier key for the signal.
 
     Args:
       signal: The signal to generate a barrier key for.
       operation_id: The operation id to use as a suffix for the barrier key.
+      prefix: The prefix to use for the barrier key. If None, the default is
+        used.
 
     Returns:
       A unique barrier key for the signal with operation id as key directory.
     """
-    return (
-        f'{cls.awaitable_signals_contract_prefix}_{operation_id}/{signal.value}'
-    )
+    prefix = prefix or cls.awaitable_signals_contract_prefix
+    return f'{prefix}_{operation_id}/{signal.value}'
 
   @classmethod
   def get_awaitable_signals_from_contract(
       cls,
       operation_id: str | None = None,
+      prefix: str | None = None,
   ) -> Sequence[synchronization.HandlerAwaitableSignal]:
     """Gets the awaitable signals that may be sent for the current operation id.
 
     Args:
       operation_id: The operation id to use for the barrier keys. If None, the
         current operation id is used.
+      prefix: The prefix to use for the barrier key. If None, the default is
+        used.
 
     Returns:
       A list of awaitable signals that may be sent for the current operation id.
@@ -80,6 +85,7 @@ class AwaitableSignalsContract:
     barrier_key = cls.get_unique_awaitable_singal_key(
         synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
         operation_id,
+        prefix=prefix,
     )
     values_str = client.key_value_try_get(barrier_key)
     if values_str is None:
@@ -103,6 +109,7 @@ class AwaitableSignalsContract:
   def add_to_awaitable_signals_contract(
       cls,
       signals: Sequence[synchronization.HandlerAwaitableSignal],
+      prefix: str | None = None,
   ):
     """Adds awaitable signals to `AWAITABLE_SIGNALS_CONTRACT` for lower checkpointing layers to wait on.
 
@@ -111,11 +118,15 @@ class AwaitableSignalsContract:
 
     Args:
       signals: The signals to add to the list of awaitable signals.
+      prefix: The prefix to use for the barrier key. If None, the default is
+        used.
     """
     if not signals:
       return
 
-    current_signals = list(cls.get_awaitable_signals_from_contract())
+    current_signals = list(
+        cls.get_awaitable_signals_from_contract(prefix=prefix)
+    )
     current_signals.extend(signals)
     keys = ','.join(
         [current_signal.value for current_signal in current_signals]
@@ -127,6 +138,7 @@ class AwaitableSignalsContract:
     barrier_key = cls.get_unique_awaitable_singal_key(
         synchronization.HandlerAwaitableSignal.AWAITABLE_SIGNALS_CONTRACT,
         operation_id,
+        prefix=prefix,
     )
     client.key_value_set(barrier_key, keys, allow_overwrite=True)
     logging.vlog(
@@ -139,15 +151,18 @@ class AwaitableSignalsContract:
     )
 
   @classmethod
-  def remove_all_awaitable_signals(cls, operation_id: str | None = None):
+  def remove_all_awaitable_signals(
+      cls, operation_id: str | None = None, prefix: str | None = None
+  ):
     """Removes all awaitable signals for the current / given operation id."""
     operation_id = (
         operation_id
         or synchronization.OperationIdGenerator.get_current_operation_id()
     )
+    prefix = prefix or cls.awaitable_signals_contract_prefix
     client = signaling_client.get_signaling_client()
     client.key_value_delete(
-        f'{cls.awaitable_signals_contract_prefix}_{operation_id}/'
+        f'{prefix}_{operation_id}/'
     )
     logging.vlog(
         1,

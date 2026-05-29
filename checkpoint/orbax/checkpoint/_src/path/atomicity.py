@@ -731,6 +731,7 @@ def create_all_async(
     *,
     multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
     subdirectories: Sequence[str] | None = None,
+    signals_prefix: str | None = None,
 ) -> future.Future:
   """Creates all temporary paths in parallel asynchronously.
 
@@ -743,6 +744,8 @@ def create_all_async(
     subdirectories: Sequence of subdirectories to create under `paths`. If not
       provided, no subdirectories will be created. The same set of
       subdirectories will be created under each path in `paths`.
+    signals_prefix: The prefix to use for the barrier key. If None, the default
+      is used.
 
   Returns:
     A future that which sends the completion signals when all paths are created.
@@ -775,7 +778,7 @@ def create_all_async(
         timeout_secs=multihost.coordination_timeout(),
     )
     future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
-        completion_signals
+        completion_signals, prefix=signals_prefix
     )
 
   # Sync to enusre that all hosts have the same awaitable signals contract.
