@@ -153,6 +153,7 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
 Quick Links
 ---------------
 .. grid::
+   :class-row: justify-content-center
 
    .. grid-item::
       :columns: 6 6 6 4
@@ -195,6 +196,13 @@ Quick Links
       .. card:: :material-regular:`menu_book;2em` API Reference
          :class-card: sd-text-black sd-bg-light
          :link: api_reference/checkpoint.v1.html
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`description;2em` Research Paper
+         :class-card: sd-text-black sd-bg-light
+         :link: https://arxiv.org/abs/2605.23066
 
 
 Support

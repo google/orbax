@@ -8,10 +8,9 @@
 [![Checkpoint Benchmarks](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/multiprocess-checkpoint-benchmarks&label=checkpoint%20benchmarks)](https://github.com/google/orbax/actions/workflows/multiprocess_tests.yml)
 [![Multiprocess Unit Tests](https://img.shields.io/github/check-runs/google/orbax/main?nameFilter=github-actions/multiprocess-unit-tests&label=multiprocess-unit-tests)](https://github.com/google/orbax/actions/workflows/multiprocess_tests.yml)
 
-[**Installation**](#installation)
-| [**Quickstart**](#quickstart)
-| [**Documentation**](https://orbax.readthedocs.io/en/latest/)
-| [**Support**](#support)
+[**Installation**](#installation) | [**Quickstart**](#quickstart) |
+[**Documentation**](https://orbax.readthedocs.io/en/latest/) |
+[**Support**](#support)
 
 Orbax provides common checkpointing and persistence utilities for JAX users.
 
@@ -30,7 +29,9 @@ Install from [PyPI](https://pypi.org/project/orbax-checkpoint/):
 ```sh
 pip install orbax-checkpoint
 ```
+
 Or install the latest version directly from GitHub at HEAD:
+
 ```sh
 pip install 'git+https://github.com/google/orbax/#subdirectory=checkpoint'
 ```
@@ -42,7 +43,9 @@ Install from [PyPI](https://pypi.org/project/orbax-export/):
 ```sh
 pip install orbax-export
 ```
+
 Or install the latest version directly from GitHub at HEAD:
+
 ```sh
 pip install 'git+https://github.com/google/orbax/#subdirectory=export'
 ```
@@ -73,12 +76,17 @@ flexibility for diverse use cases.
 ## Support
 
 
-Please report any issues or request support using our [issue tracker](https://github.com/google/orbax/issues).
+Please report any issues or request support using our
+[issue tracker](https://github.com/google/orbax/issues).
 
 Please also reach out to orbax-dev@google.com directly for help or with any
 questions about Orbax.
 
 ## Citing Orbax
+
+Our paper is available on [arXiv](https://arxiv.org/abs/2605.23066).
+
+If you use Orbax in your research, please cite:
 
 ```
 @misc{gaffney2026orbaxdistributedcheckpointingjax,
@@ -99,18 +107,27 @@ and model implementations.
 
 ### Google Projects
 
-- [Flax](https://github.com/google/flax) (Google's flexible and expressive neural network library for JAX)
-- [Gemma](https://github.com/google-deepmind/gemma) (Open foundation models by Google DeepMind)
-- [Kauldron](https://github.com/google-research/kauldron) (Google Research training and evaluation framework)
-- [PaxML](https://github.com/google/paxml) (Google's high-performance framework for training large-scale JAX models)
-- [T5X](https://github.com/google-research/t5x) (Google's JAX framework for high-performance sequence models)
-- [MaxText](https://github.com/google/maxtext) (Google's high-performance, scalable JAX LLM implementation)
-- [MaxDiffusion](https://github.com/AI-Hypercomputer/maxdiffusion) (Stable diffusion JAX training library optimized for Cloud TPUs)
-- [Tunix](https://github.com/google/tunix) (Google's JAX-native library for LLM post-training)
-- Numerous Google-internal ML frameworks
+-   [Flax](https://github.com/google/flax) (Google's flexible and expressive
+    neural network library for JAX)
+-   [Gemma](https://github.com/google-deepmind/gemma) (Open foundation models by
+    Google DeepMind)
+-   [Kauldron](https://github.com/google-research/kauldron) (Google Research
+    training and evaluation framework)
+-   [PaxML](https://github.com/google/paxml) (Google's high-performance
+    framework for training large-scale JAX models)
+-   [T5X](https://github.com/google-research/t5x) (Google's JAX framework for
+    high-performance sequence models)
+-   [MaxText](https://github.com/google/maxtext) (Google's high-performance,
+    scalable JAX LLM implementation)
+-   [MaxDiffusion](https://github.com/AI-Hypercomputer/maxdiffusion) (Stable
+    diffusion JAX training library optimized for Cloud TPUs)
+-   [Tunix](https://github.com/google/tunix) (Google's JAX-native library for
+    LLM post-training)
+-   Numerous Google-internal ML frameworks
 
 ### Non-Google Projects
 
-- [AXLearn](https://github.com/apple/axlearn) (Apple's high-performance deep learning library built on top of JAX)
-- [openpi](https://github.com/physical-intelligence/openpi) (Robotics foundation models by Physical Intelligence)
-
+-   [AXLearn](https://github.com/apple/axlearn) (Apple's high-performance deep
+    learning library built on top of JAX)
+-   [openpi](https://github.com/physical-intelligence/openpi) (Robotics
+    foundation models by Physical Intelligence)
