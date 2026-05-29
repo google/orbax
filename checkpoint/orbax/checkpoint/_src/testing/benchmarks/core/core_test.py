@@ -14,7 +14,6 @@
 
 import dataclasses
 import os
-from typing import List
 from unittest import mock
 
 from absl import logging
@@ -36,8 +35,8 @@ import torch.distributed as dist
 
 @dataclasses.dataclass(frozen=True)
 class MyBenchmarkOptions(core.BenchmarkOptions):
-  opt1: int | List[int] = 1
-  opt2: str | List[str] = 'a'
+  opt1: int | list[int] = 1
+  opt2: str | list[str] = 'a'
 
   def is_valid(self) -> bool:
     return not (self.opt1 == 2 and self.opt2 == 'a')
@@ -248,9 +247,7 @@ class BenchmarkTest(parameterized.TestCase):
     )
 
     result = benchmark.run(repeat_index=0)
-    mock_setup_test_directory.assert_called_once_with(
-        'test_benchmark', None, 0
-    )
+    mock_setup_test_directory.assert_called_once_with('test_benchmark', None, 0)
     self.assertEqual(mock_metrics_report.call_count, 2)
     self.assertEqual(result.metrics.name, 'test_benchmark_repeat_0')
 

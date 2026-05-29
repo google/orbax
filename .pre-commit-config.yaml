@@ -13,6 +13,8 @@ repos:
         name: pylint
         types: [python]
         verbose: true
+        additional_dependencies:
+          - pylint-per-file-ignores
         args:
           - --rcfile=.pylintrc
 

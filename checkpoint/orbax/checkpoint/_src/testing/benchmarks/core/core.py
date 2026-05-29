@@ -15,12 +15,12 @@
 """Core classes and functions for benchmarking Orbax."""
 
 import abc
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 import hashlib
 import itertools
 import sys
-from typing import Any, Callable
+from typing import Any
 
 from absl import logging
 from etils import epath
@@ -33,9 +33,23 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class BenchmarkOptions:
-  """Base class for benchmark generator options."""
+  """Base class for benchmark generator options.
+
+  Attributes:
+    enable_trace: Whether to capture a per-operation `jax.profiler` trace for
+      each measured save/load. Off by default.
+    trace_every_repeat: Whether to capture traces on every repeat, or only the
+      first repeat (the default); traces on every repeat overflow the Trace
+      Viewer.
+  """
+
+  # Keyword-only so subclasses keep their own positional / required fields
+  # (e.g. PyTorchCheckpointOptions.reference_checkpoint_path) without tripping
+  # the "non-default argument follows default argument" rule.
+  enable_trace: bool = False
+  trace_every_repeat: bool = False
 
   @classmethod
   def from_dict(cls, options_dict: dict[str, Any]) -> "BenchmarkOptions":
@@ -80,6 +94,10 @@ class TestContext:
     repeat_index: The index of the repeat run, if this test is run multiple
       times.
     local_path: The local path to store the checkpoint data.
+    output_dir: The suite-level output directory. Used by `trace_path` to
+      compose TB Profile-plugin-discoverable trace paths.
+    name: The benchmark's stable hashed name. Used by `trace_path` as the
+      Profile-plugin <run> segment so traces show up alongside scalars.
   """
 
   pytree: Any | None
@@ -88,6 +106,41 @@ class TestContext:
   mesh: jax.sharding.Mesh | None = None
   repeat_index: int | None = None
   local_path: epath.Path | None = None
+  output_dir: epath.Path | str | None = None
+  name: str | None = None
+
+  def trace_path(self, operation: str) -> epath.Path | None:
+    """Trace destination for an operation, or None if no trace is captured.
+
+    Args:
+      operation: The operation label (e.g. `save`, `load`) used as the
+        Profile-plugin run segment so each operation traces as a distinct run.
+
+    Returns:
+      The per-operation run directory under the suite's TensorBoard logdir
+      (`<output_dir>/tensorboard/<name>__<operation>`), beneath which
+      `jax.profiler` writes its `plugins/profile/<timestamp>/` tree so each
+      operation surfaces as a separate Profile-tab run alongside the scalar
+      runs. None when `options.enable_trace` is False, when `repeat_index` > 0
+      and `options.trace_every_repeat` is False (first-repeat-only is the
+      default; traces on every repeat overflow the Trace Viewer), or when
+      `output_dir` or `name` is missing.
+    """
+    if not self.options.enable_trace:
+      return None
+    if (
+        self.repeat_index is not None
+        and self.repeat_index > 0
+        and not self.options.trace_every_repeat
+    ):
+      return None
+    if self.output_dir is None or self.name is None:
+      return None
+    return (
+        epath.Path(self.output_dir)
+        / "tensorboard"
+        / f"{self.name}__{operation}"
+    )
 
 
 @dataclasses.dataclass
@@ -193,6 +246,8 @@ class Benchmark(abc.ABC):
         mesh=self.mesh,
         repeat_index=repeat_index,
         local_path=local_path,
+        output_dir=self.output_dir,
+        name=self.name,
     )
 
     test_context_summary = self._build_test_context_summary(context)

@@ -95,6 +95,8 @@ class ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
         options.reference_sharding_path
     )
 
+    load_trace = context.trace_path("load")
+
     with ocp.Context(context=options.context):
       metadata = ocp.metadata(reference_checkpoint_path)
       abstract_pytree = (
@@ -105,14 +107,14 @@ class ReshardingBenchmark(benchmarks_core.BenchmarksGenerator):
           )
       )
 
-      if options.enable_trace:
-        jax.profiler.start_trace(context.path / "trace_load")
+      if load_trace is not None:
+        jax.profiler.start_trace(str(load_trace))
       with metrics.measure("load", metrics_to_measure):
         restored_pytree = ocp.load(
             reference_checkpoint_path, abstract_state=abstract_pytree
         )
       benchmark.clear_pytree(restored_pytree)
-      if options.enable_trace:
+      if load_trace is not None:
         jax.profiler.stop_trace()
 
     return benchmarks_core.TestResult(metrics=metrics)

@@ -61,7 +61,6 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     use_replica_parallel: Whether to use replica parallel.
     enable_replica_parallel_separate_folder: Whether to enable replica parallel
       separate folder.
-    enable_trace: Whether to enable trace.
   """
 
   async_enabled: bool | Sequence[bool] = True
@@ -76,7 +75,6 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
   chunk_byte_size: int | None | Sequence[int | None] = None
-  enable_trace: bool = False
 
   def is_valid(self) -> bool:
     assert isinstance(self.use_replica_parallel, bool)
@@ -155,9 +153,12 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
     logging.info("Benchmark options: %s", pprint.pformat(options))
     metrics_to_measure = get_metrics_to_measure(options)
 
+    save_trace = context.trace_path("save")
+    load_trace = context.trace_path("load")
+
     with ocp.Context(context=options.context):
-      if options.enable_trace:
-        jax.profiler.start_trace(context.path / "trace_save")
+      if save_trace is not None:
+        jax.profiler.start_trace(str(save_trace))
       if options.async_enabled:
         with metrics.measure("save_blocking", metrics_to_measure):
           f = ocp.save_async(save_path, pytree)
@@ -169,15 +170,15 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
         with metrics.measure("save_background", metrics_to_measure):
           pass
       context.pytree = clear_pytree(context.pytree)
-      if options.enable_trace:
+      if save_trace is not None:
         jax.profiler.stop_trace()
 
-      if options.enable_trace:
-        jax.profiler.start_trace(context.path / "trace_load")
+      if load_trace is not None:
+        jax.profiler.start_trace(str(load_trace))
       with metrics.measure("load", metrics_to_measure):
         restored_pytree = ocp.load(save_path, abstract_state=abstract_pytree)
       clear_pytree(restored_pytree)
-      if options.enable_trace:
+      if load_trace is not None:
         jax.profiler.stop_trace()
 
     return benchmarks_core.TestResult(metrics=metrics)
