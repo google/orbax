@@ -18,6 +18,7 @@ import jax
 import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.futures import future as futures_lib
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args
 from orbax.checkpoint.experimental.emergency.p2p import local
 from orbax.checkpoint.experimental.emergency.p2p import options as options_lib
@@ -33,6 +34,15 @@ class LocalMultiprocessTest(multiprocess_test.MultiProcessTest):
   def setUp(self):
     super().setUp()
     self.mesh = Mesh(np.array(jax.devices()), axis_names=('x',))
+    self._original_prefix = (
+        futures_lib.AwaitableSignalsContract.awaitable_signals_contract_prefix
+    )
+
+  def tearDown(self):
+    super().tearDown()
+    futures_lib.AwaitableSignalsContract.awaitable_signals_contract_prefix = (
+        self._original_prefix
+    )
 
   def test_save_restore(self):
     directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'

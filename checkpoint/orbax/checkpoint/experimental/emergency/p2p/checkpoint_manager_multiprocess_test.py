@@ -48,6 +48,15 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
   def setUp(self):
     super().setUp()
     self.root_dir = self.create_tempdir('p2p_root')
+    self._original_prefix = (
+        future.AwaitableSignalsContract.awaitable_signals_contract_prefix
+    )
+
+  def tearDown(self):
+    super().tearDown()
+    future.AwaitableSignalsContract.awaitable_signals_contract_prefix = (
+        self._original_prefix
+    )
 
   def initial_state(self, mesh):
     jax_processes = jax.process_count()
