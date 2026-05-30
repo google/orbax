@@ -54,5 +54,8 @@ class ObmExportUnitTest(parameterized.TestCase, tf.test.TestCase):
   def test_incorrect_export_version(self):
     pass
 
+  def test_duplicate_component_weights_name_raises_error(self):
+    pass
+
 if __name__ == '__main__':
   absltest.main()
