@@ -232,6 +232,7 @@ class StandardCheckpointDeleter:
     logging.info('Deleted step %d.', step)
 
   def delete_steps(self, steps: Sequence[int]) -> None:
+    logging.info('Queuing deletion of steps: %s.', steps)
     for step in steps:
       self.delete(step)
 
@@ -285,6 +286,7 @@ class ThreadedCheckpointDeleter:
     self._delete_queue.put(step)
 
   def delete_steps(self, steps: Sequence[int]) -> None:
+    logging.info('Queuing deletion of steps: %s.', steps)
     for step in steps:
       self.delete(step)
 
