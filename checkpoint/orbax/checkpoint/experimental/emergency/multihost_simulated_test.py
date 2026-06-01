@@ -47,6 +47,8 @@ class FakeDevice:
     return f"FakeDevice({self.id})"
 
   def __eq__(self, value):
+    if not isinstance(value, FakeDevice):
+      return False
     return self.id == value.id
 
   def __hash__(self):
