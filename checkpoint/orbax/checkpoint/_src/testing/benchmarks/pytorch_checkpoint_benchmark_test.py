@@ -116,9 +116,7 @@ class PyTorchCheckpointBenchmarkTest(parameterized.TestCase):
       self,
   ):
     safetensor_dir = epath.Path(self.create_tempdir('safetensors').full_path)
-    save_file(
-        {'a': torch.arange(10)}, safetensor_dir / 'a.safetensors'
-    )
+    save_file({'a': torch.arange(10)}, safetensor_dir / 'a.safetensors')
     test_path = epath.Path(self.create_tempdir().full_path)
     generator = PyTorchCheckpointBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig()],
@@ -148,8 +146,8 @@ class PyTorchCheckpointBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
-            'save_time_duration',
-            'restore_time_duration',
+            'save_0_basics/time_s',
+            'restore_0_basics/time_s',
         },
         result.metrics.results.keys(),
     )

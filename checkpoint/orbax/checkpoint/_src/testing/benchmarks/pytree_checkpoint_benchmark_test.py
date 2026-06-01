@@ -142,9 +142,9 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
-            'save_time_duration',
-            'wait_until_finished_time_duration',
-            'restore_time_duration',
+            'save_0_basics/time_s',
+            'wait_until_finished_0_basics/time_s',
+            'restore_0_basics/time_s',
         },
         result.metrics.results.keys(),
     )

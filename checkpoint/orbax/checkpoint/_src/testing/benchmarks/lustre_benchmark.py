@@ -39,8 +39,7 @@ GCS_PATH_PREFIX = "gs://"
 def _metrics_to_measure(options: LustreBenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
   del options
-  metrics = ["time", "rss", "io"]
-  return metrics
+  return ["time", "rss"]
 
 
 # ==============================================================================
