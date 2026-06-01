@@ -476,6 +476,35 @@ class _MetricsCollector:
 ################################################################################
 
 
+def _options_to_hparams(options: Any) -> dict[str, bool | int | float | str]:
+  """Flattens a benchmark options object into a TB HParams-acceptable dict.
+
+  HParams values must be primitives (bool / int / float / str). Anything else
+  (None, list, tuple, nested) is rendered via str() so the run still appears
+  in the Parallel Coordinates view rather than getting dropped.
+
+  Args:
+    options: A dataclass instance or dict of benchmark options to flatten;
+      anything else yields an empty dict.
+
+  Returns:
+    A dict of primitive HParam values keyed by option name.
+  """
+  if dataclasses.is_dataclass(options):
+    raw = dataclasses.asdict(options)
+  elif isinstance(options, dict):
+    raw = dict(options)
+  else:
+    return {}
+  out: dict[str, bool | int | float | str] = {}
+  for k, v in raw.items():
+    if isinstance(v, (bool, int, float, str)):
+      out[k] = v
+    else:
+      out[k] = str(v)
+  return out
+
+
 @dataclasses.dataclass
 class AggregatedStats:
   """Statistics aggregated over multiple benchmark repetitions.
@@ -619,6 +648,8 @@ class MetricsManager:
               "configuration": json.dumps(configuration),
           },
       )
+      if hparams_dict := _options_to_hparams(benchmark_options):
+        writer.write_hparams(hparams_dict)
     writer.flush()
 
   def _aggregate_metrics(
@@ -654,101 +685,104 @@ class MetricsManager:
       )
     return aggregated_stats_dict, metric_units
 
+  def _count_runs(self) -> tuple[int, int, int]:
+    total = passed = failed = 0
+    for _, results in self._runs.items():
+      total += len(results)
+      for _, error in results:
+        if error is None:
+          passed += 1
+        else:
+          failed += 1
+    return total, passed, failed
+
+  def _format_stats_lines(
+      self,
+      aggregated_stats_dict: dict[str, AggregatedStats],
+      metric_units: dict[str, str],
+      indent: str,
+  ) -> list[str]:
+    """Formats aggregated stats into human-readable report lines."""
+    lines = []
+    for key, stats in aggregated_stats_dict.items():
+      unit = metric_units[key]
+      lines.append(
+          f"{indent}{key}: {stats.mean:.4f} +/- {stats.std:.4f} {unit} (min:"
+          f" {stats.min:.4f}, max: {stats.max:.4f}, n={stats.count})"
+      )
+    return lines
+
+  def _format_aggregated_report_section(self) -> list[str]:
+    """Builds the per-benchmark aggregated-metrics section of the report."""
+    lines = ["\n" + "-" * 80, "--- Aggregated Metrics per Benchmark ---"]
+    for benchmark_name, results in self._runs.items():
+      if not results:
+        continue
+      lines.append(f"\nBenchmark: {benchmark_name}")
+      aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
+      if not aggregated_stats_dict:
+        lines.append("  No successful runs to aggregate.")
+        continue
+      lines.extend(
+          self._format_stats_lines(aggregated_stats_dict, metric_units, "  ")
+      )
+    return lines
+
+  def _format_failed_runs_section(self) -> list[str]:
+    lines = ["\n" + "-" * 80, "--- Failed Runs ---"]
+    for _, results in self._runs.items():
+      for metrics, error in results:
+        if error is None:
+          continue
+        error_repr = repr(error)
+        # Limit error length to avoid flooding logs.
+        if len(error_repr) > 1000:
+          error_repr = error_repr[:1000] + "..."
+        lines.append(f"Test: {metrics.name}, Error: {error_repr}")
+    return lines
+
+  def _write_aggregated_to_tensorboard(self) -> None:
+    """Writes each benchmark's aggregated metrics to TensorBoard as text."""
+    logging.info("Writing aggregated metrics to TensorBoard...")
+    for benchmark_name, results in self._runs.items():
+      writer = self._get_writer(benchmark_name)
+      aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
+      if not aggregated_stats_dict:
+        aggregated_metrics = ["No successful runs to aggregate."]
+      else:
+        aggregated_metrics = self._format_stats_lines(
+            aggregated_stats_dict, metric_units, ""
+        )
+      aggregated_metrics_str = "\n".join(aggregated_metrics)
+      writer.write_texts(
+          step=0,
+          texts={"aggregated_metrics": f"<pre>{aggregated_metrics_str}</pre>"},
+      )
+      writer.flush()
+      writer.close()
+    # Clear writers after closing to prevent reuse of closed writers if called
+    # again.
+    self._writers.clear()
+    logging.info("Finished writing metrics to TensorBoard.")
+
   def generate_report(self) -> None:
     """Generates a final string report containing aggregated metrics.
 
     And exports aggregated metrics to TensorBoard if configured.
     """
-    report_lines = []
     title = f" Test Suite Report: {self._name} "
-    report_lines.append(f"\n{title:=^80}")
-
-    total_runs = 0
-    passed_runs = 0
-    failed_runs = 0
-    for _, results in self._runs.items():
-      total_runs += len(results)
-      for _, error in results:
-        if error is None:
-          passed_runs += 1
-        else:
-          failed_runs += 1
-
+    report_lines = [f"\n{title:=^80}"]
+    total_runs, passed_runs, failed_runs = self._count_runs()
     report_lines.append(f"Total benchmark configurations: {len(self._runs)}")
     report_lines.append(
         f"Total runs ({self._num_repeats} repeats): {total_runs}, Passed:"
         f" {passed_runs}, Failed: {failed_runs}"
     )
-
-    # Aggregate metrics, add to report, and write aggregates to TensorBoard
     if self._num_repeats > 1:
-      report_lines.append("\n" + "-" * 80)
-      report_lines.append("--- Aggregated Metrics per Benchmark ---")
-      for benchmark_name, results in self._runs.items():
-        if not results:
-          continue
-        report_lines.append(f"\nBenchmark: {benchmark_name}")
-
-        aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
-
-        if not aggregated_stats_dict:
-          report_lines.append("  No successful runs to aggregate.")
-          continue
-
-        for key, stats in aggregated_stats_dict.items():
-          unit = metric_units[key]
-          report_lines.append(
-              f"  {key}: {stats.mean:.4f} +/- {stats.std:.4f} {unit} (min:"
-              f" {stats.min:.4f}, max: {stats.max:.4f}, n={stats.count})"
-          )
-
-    # Report failed runs
+      report_lines.extend(self._format_aggregated_report_section())
     if failed_runs > 0:
-      report_lines.append("\n" + "-" * 80)
-      report_lines.append("--- Failed Runs ---")
-      for _, results in self._runs.items():
-        for metrics, error in results:
-          if error is not None:
-            error_repr = repr(error)
-            # Limit error length to avoid flooding logs.
-            if len(error_repr) > 1000:
-              error_repr = error_repr[:1000] + "..."
-            report_lines.append(f"Test: {metrics.name}, Error: {error_repr}")
-
+      report_lines.extend(self._format_failed_runs_section())
     report_lines.append("\n" + "=" * 80)
     logging.info("\n".join(report_lines))
-
     if self._tensorboard_dir:
-      logging.info("Writing aggregated metrics to TensorBoard...")
-      for benchmark_name, results in self._runs.items():
-        writer = self._get_writer(benchmark_name)
-
-        # Write Aggregated metrics as text
-        aggregated_metrics = []
-        aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
-
-        if not aggregated_stats_dict:
-          aggregated_metrics.append("No successful runs to aggregate.")
-        else:
-          for key, stats in aggregated_stats_dict.items():
-            unit = metric_units[key]
-            aggregated_metrics.append(
-                f"{key}: {stats.mean:.4f} +/- {stats.std:.4f} {unit} (min:"
-                f" {stats.min:.4f}, max: {stats.max:.4f}, n={stats.count})"
-            )
-
-        aggregated_metrics_str = "\n".join(aggregated_metrics)
-        writer.write_texts(
-            step=0,
-            texts={
-                "aggregated_metrics": f"<pre>{aggregated_metrics_str}</pre>"
-            },
-        )
-
-        writer.flush()
-        writer.close()
-
-      # Clear writers after closing to prevent reuse of closed writers if called
-      # again.
-      self._writers.clear()
-      logging.info("Finished writing metrics to TensorBoard.")
+      self._write_aggregated_to_tensorboard()

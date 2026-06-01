@@ -20,7 +20,7 @@ persistent=no
 
 # List of plugins (as comma separated values of python modules names) to load,
 # usually to register additional checkers.
-load-plugins=pylint.extensions.docparams,pylint.extensions.code_style,pylint.extensions.typing,pylint.extensions.mccabe
+load-plugins=pylint.extensions.docparams,pylint.extensions.code_style,pylint.extensions.typing,pylint.extensions.mccabe,pylint.extensions.bad_builtin,pylint_per_file_ignores
 
 # Use multiple processes to speed up Pylint.
 jobs=4
@@ -40,14 +40,20 @@ extension-pkg-whitelist=
 # Default docstring format.
 default-docstring-type=google
 
+# Set to 'yes' to ignore missing 'raises' documentation
+accept-no-raise-doc=yes
+
 
 
 
 [MESSAGES CONTROL]
 
+per-file-ignores =
+    **/*_test.py:missing-module-docstring,missing-class-docstring,missing-function-docstring,missing-any-param-doc,protected-access
+
 # Only show warnings with the listed confidence levels. Leave empty to show
 # all. Valid levels: HIGH, INFERENCE, INFERENCE_FAILURE, UNDEFINED
-confidence=
+confidence=HIGH,INFERENCE,UNDEFINED
 
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option
@@ -64,7 +70,26 @@ confidence=
 # --enable=similarities". If you want to run only the classes checker, but have
 # no Warning level messages displayed, use"--disable=all --enable=classes
 # --disable=W"
-disable=apply-builtin,
+disable=unused-wildcard-import,
+        no-name-in-module,
+        method-hidden,
+        access-member-before-definition,
+        interface-is-not-class,
+        missing-interface-method,
+        unresolved-interface,
+        no-init,
+        maybe-no-member,
+        implicit-str-concat,
+        misplaced-comparison-constant,
+        basestring-builtin,
+        superfluous-parens,
+        pointless-except,
+        redundant-u-string-prefix,
+        unspecified-encoding,
+        unsubscriptable-object,
+        useless-object-inheritance,
+        wrong-import-position,
+        apply-builtin,
         arguments-differ,
         attribute-defined-outside-init,
         backtick,
@@ -183,9 +208,6 @@ disable=apply-builtin,
         wrong-import-order,
         xrange-builtin,
         zip-builtin-not-iterating,
-        missing-module-docstring,
-        missing-function-docstring,
-        missing-class-docstring,
         protected-access,
         invalid-name,
         redefined-outer-name,
@@ -232,25 +254,34 @@ include-naming-hint=no
 
 # List of decorators that produce properties, such as abc.abstractproperty. Add
 # to this list to register other decorators that produce valid properties.
-property-classes=abc.abstractproperty,cached_property.cached_property,cached_property.threaded_cached_property,cached_property.cached_property_with_ttl,cached_property.threaded_cached_property_with_ttl
+property-classes=abc.abstractproperty,cached_property.cached_property,cached_property.threaded_cached_property,cached_property.cached_property_with_ttl,cached_property.threaded_cached_property_with_ttl,functools.cached_property
 
 # Regular expression matching correct function names
 function-rgx=^(?:(?P<exempt>setUp|tearDown|setUpModule|tearDownModule)|(?P<camel_case>_?[A-Z][a-zA-Z0-9]*)|(?P<snake_case>_?[a-z][a-z0-9_]*))$
 
-# Regular expression matching correct variable names
-variable-rgx=^[a-z][a-z0-9_]*$
+# Regular expression matching correct variable names (sanctioned leading underscore for private variables)
+variable-rgx=^[a-z_][a-z0-9_]*$
+
+# Regular expression which should only match correct TypeVar names
+typevar-rgx=^_{0,2}(?:[^\W\da-z_]+|(?:[^\W\da-z_]+[^\WA-Z_]+)+T?)(?:_co(?:ntra)?)?$
+
+# Regular expression which should only match correct TypeAlias names
+typealias-rgx=^_?[A-Z][a-zA-Z0-9]*$
+
+# List of builtins function names that should not be used, separated by a comma
+bad-functions=input,apply,reduce
 
 # Regular expression matching correct constant names
 const-rgx=^(_?[A-Z][A-Z0-9_]*|__[a-z0-9_]+__|_?[a-z][a-z0-9_]*)$
 
-# Regular expression matching correct attribute names
-attr-rgx=^_{0,2}[a-z][a-z0-9_]*$
+# Regular expression matching correct attribute names (allows unittest2 base attributes)
+attr-rgx=^(_{0,2}[a-z][a-z0-9_]*|maxDiff|longMessage|failureException)$
 
 # Regular expression matching correct argument names
 argument-rgx=^[a-z][a-z0-9_]*$
 
-# Regular expression matching correct class attribute names
-class-attribute-rgx=^(_?[A-Z][A-Z0-9_]*|__[a-z0-9_]+__|_?[a-z][a-z0-9_]*)$
+# Regular expression matching correct class attribute names (allows unittest2 base attributes)
+class-attribute-rgx=^(_?[A-Z][A-Z0-9_]*|__[a-z0-9_]+__|_?[a-z][a-z0-9_]*|maxDiff|longMessage|failureException)$
 
 # Regular expression matching correct inline iteration names
 inlinevar-rgx=^[a-z][a-z0-9_]*$
@@ -266,11 +297,11 @@ method-rgx=(?x)^(?:(?P<exempt>_[a-z0-9_]+__|runTest|setUp|tearDown|setUpTestCase
 
 # Regular expression which should only match function or class names that do
 # not require a docstring.
-no-docstring-rgx=(__.*__|main|test.*|.*test|.*Test|_.*)$
+no-docstring-rgx=(__.*__|main|test.*|.*test|.*Test)$
 
 # Minimum line length for functions/classes that require docstrings, shorter
 # ones are exempt.
-docstring-min-length=10
+docstring-min-length=12
 
 
 [TYPECHECK]
@@ -369,6 +400,18 @@ redefining-builtins-modules=six,six.moves,past.builtins,future.builtins,functool
 # Logging modules to check that the string format arguments are in logging
 # function parameter format
 logging-modules=logging,absl.logging
+
+
+[STRING]
+
+# This flag controls whether the implicit-str-concat should
+# generate a warning on implicit string concatenation in sequences defined over
+# several lines.
+check-str-concat-over-line-jumps=yes
+
+# This flag controls whether inconsistent-quotes generates a warning when the
+# character used as a quote delimiter is used inconsistently within a module.
+check-quote-consistency=yes
 
 
 [SIMILARITIES]
