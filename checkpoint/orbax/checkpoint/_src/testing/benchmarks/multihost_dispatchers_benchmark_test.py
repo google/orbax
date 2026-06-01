@@ -25,7 +25,6 @@ from orbax.checkpoint._src.testing.benchmarks import multihost_dispatchers_bench
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import core
 
-
 MultihostDispatchersBenchmarkOptions = (
     multihost_dispatchers_benchmark.MultihostDispatchersBenchmarkOptions
 )

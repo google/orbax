@@ -30,7 +30,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 
-
 EcmBenchmarkOptions = emergency_checkpoint_manager_benchmark.EcmBenchmarkOptions
 EmergencyCheckpointManagerBenchmark = (
     emergency_checkpoint_manager_benchmark.EmergencyCheckpointManagerBenchmark

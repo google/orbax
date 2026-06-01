@@ -26,7 +26,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.v1 import restore_and_broadcast_benchmark
 
-
 RestoreAndBroadcastBenchmarkOptions = (
     restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmarkOptions
 )

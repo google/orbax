@@ -71,6 +71,7 @@ confidence=HIGH,INFERENCE,UNDEFINED
 # no Warning level messages displayed, use"--disable=all --enable=classes
 # --disable=W"
 disable=unused-wildcard-import,
+        unnecessary-default-type-args,
         no-name-in-module,
         method-hidden,
         access-member-before-definition,

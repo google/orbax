@@ -31,7 +31,6 @@ from orbax.checkpoint._src.testing.benchmarks import array_handler_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 
-
 ArrayHandlerBenchmarkOptions = (
     array_handler_benchmark.ArrayHandlerBenchmarkOptions
 )

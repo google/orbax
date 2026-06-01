@@ -24,7 +24,6 @@ from safetensors.torch import save_file
 import torch
 import torch.distributed.checkpoint as dcp
 
-
 PyTorchCheckpointOptions = pytorch_checkpoint_benchmark.PyTorchCheckpointOptions
 
 PyTorchCheckpointBenchmark = (
