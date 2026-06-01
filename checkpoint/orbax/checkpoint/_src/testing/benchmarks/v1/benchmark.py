@@ -26,7 +26,7 @@ import jax
 from orbax.checkpoint import v1 as ocp
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
-from orbax.checkpoint._src.testing.benchmarks.core import metric_jax_monitoring  # noqa: F401  (registers jax_monitoring in METRIC_REGISTRY)
+from orbax.checkpoint._src.testing.benchmarks.core import metric_jax_monitoring  # pylint: disable=unused-import
 
 
 def get_metrics_to_measure(options: BenchmarkOptions) -> list[str]:

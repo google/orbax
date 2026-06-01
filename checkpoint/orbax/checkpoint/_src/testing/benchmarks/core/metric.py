@@ -493,6 +493,15 @@ def _render_configuration_markdown(
   dict in checkpoint_config (typically `spec`) is split out into its own
   fenced-JSON block. Replaces the single-line `json.dumps` blob the
   Text-tab card used to show.
+
+  Args:
+    benchmark_name: Title rendered as the top-level `##` heading.
+    benchmark_options: Flat option name/value pairs, or None to omit the table.
+    checkpoint_config: Checkpoint config; scalar entries form a table and each
+      nested dict becomes its own fenced-JSON block.
+
+  Returns:
+    The configuration rendered as a markdown string.
   """
   lines = [f"## {benchmark_name}", ""]
 
@@ -543,6 +552,14 @@ def _render_aggregated_metrics_markdown(
   numbered prefix (`1_overview/`, `2_save_breakdown/`, …) mirrors the
   Scalars-view navigation so a reader can locate a metric the same way
   in both surfaces.
+
+  Args:
+    benchmark_name: Title rendered as the top-level heading.
+    aggregated_stats_dict: Metric tag -> aggregated stats to tabulate.
+    metric_units: Metric tag -> unit string shown alongside each value.
+
+  Returns:
+    The aggregated metrics rendered as a markdown string.
   """
   if not aggregated_stats_dict:
     return "_No successful runs to aggregate._"

@@ -29,7 +29,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint.experimental.emergency.p2p import checkpoint_manager as p2p_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.p2p import options as p2p_options
 
-
 P2pBenchmarkOptions = p2p_checkpoint_manager_benchmark.P2pBenchmarkOptions
 P2pCheckpointManagerBenchmark = (
     p2p_checkpoint_manager_benchmark.P2pCheckpointManagerBenchmark

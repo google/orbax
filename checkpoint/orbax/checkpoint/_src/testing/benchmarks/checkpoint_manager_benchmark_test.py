@@ -25,7 +25,6 @@ from orbax.checkpoint._src.testing.benchmarks import checkpoint_manager_benchmar
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 
-
 CheckpointManagerBenchmarkOptions = (
     checkpoint_manager_benchmark.CheckpointManagerBenchmarkOptions
 )

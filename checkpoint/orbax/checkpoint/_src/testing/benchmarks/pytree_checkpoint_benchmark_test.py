@@ -23,7 +23,6 @@ from orbax.checkpoint._src.testing.benchmarks import pytree_checkpoint_benchmark
 from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_configs
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 
-
 PyTreeCheckpointOptions = pytree_checkpoint_benchmark.PyTreeCheckpointOptions
 
 PyTreeCheckpointBenchmark = (
