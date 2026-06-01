@@ -548,27 +548,27 @@ class _ReplicatorLocalCheckpointEngine:
       default_item_mode: bool,
   ) -> Any:
     """Restores exactly one checkpoint step."""
-    process_metadata_args = args_lib.Composite(
-        **{
-            _PROCESS_METADATA_NAME: (
-                process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
-            )
-        }
-    )
-    process_metadata_restored = self._impl.restore(
-        step, args=process_metadata_args
-    )
-    previous_distributed_to_device_ids, previous_device_ids = (
-        process_metadata_restored[_PROCESS_METADATA_NAME]
-    )
-
     args = self._materialize_restore_args_from_metadata(step, args)
-    original_args, consistent_args = self._get_mesh_consistent_args(
-        previous_distributed_to_device_ids,
-        previous_device_ids,
-        args,
-    )
-    restored = self._impl.restore(step, args=consistent_args)
+    if self._skip_result_mesh_remap:
+      restored = self._impl.restore(step, args=args)
+    else:
+      process_metadata_args = args_lib.Composite(**{
+          _PROCESS_METADATA_NAME: (
+              process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
+          )
+      })
+      process_metadata_restored = self._impl.restore(
+          step, args=process_metadata_args
+      )
+      previous_distributed_to_device_ids, previous_device_ids = (
+          process_metadata_restored[_PROCESS_METADATA_NAME]
+      )
+      original_args, consistent_args = self._get_mesh_consistent_args(
+          previous_distributed_to_device_ids,
+          previous_device_ids,
+          args,
+      )
+      restored = self._impl.restore(step, args=consistent_args)
 
     if (
         self._persistent_checkpoint_manager is not None
