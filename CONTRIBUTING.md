@@ -24,6 +24,7 @@ use GitHub pull requests for this purpose.
 Here is how the process works for external contributors:
 
 1. **Create a PR**: Submit your changes as a Pull Request on GitHub.
+   * Please consider updating the `CHANGELOG.md` file if your changes are user-facing.
 2. **Automation**: Our automation will automatically add the `"pull ready"`
    label to your PR (for new PRs) and import it into Google's internal code
    review system.
