@@ -78,7 +78,7 @@ except (ImportError, AttributeError):
 
 def _metrics_to_measure(options: "PyTorchCheckpointOptions") -> list[str]:
   """Returns the list of metrics to measure."""
-  metrics = ["time", "rss", "io"]
+  metrics = ["time", "rss"]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
   return metrics

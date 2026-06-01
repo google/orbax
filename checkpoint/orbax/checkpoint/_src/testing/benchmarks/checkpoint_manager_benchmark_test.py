@@ -110,10 +110,10 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
-            'save_0_time_duration',
-            'wait_until_finished_0_time_duration',
-            'restore_0_time_duration',
-            'correctness_check_time_duration',
+            'save_0_0_basics/time_s',
+            'wait_until_finished_0_0_basics/time_s',
+            'restore_0_0_basics/time_s',
+            'correctness_check_0_basics/time_s',
         },
         result.metrics.results.keys(),
     )

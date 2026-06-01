@@ -149,11 +149,11 @@ class MultihostDispatchersBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, core.TestResult)
     self.assertContainsSubset(
         {
-            'dispatch_without_result_specs_time_duration',
-            'dispatch_without_result_specs_block_until_ready_time_duration',
-            'dispatch_with_dummy_result_array_time_duration',
-            'dispatch_with_dummy_result_array_block_until_ready_time_duration',
-            'dispatch_with_result_specs_time_duration',
+            'dispatch_without_result_specs_0_basics/time_s',
+            'dispatch_without_result_specs_block_until_ready_0_basics/time_s',
+            'dispatch_with_dummy_result_array_0_basics/time_s',
+            'dispatch_with_dummy_result_array_block_until_ready_0_basics/time_s',
+            'dispatch_with_result_specs_0_basics/time_s',
         },
         result.metrics.results.keys(),
     )

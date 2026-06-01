@@ -30,7 +30,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 def _metrics_to_measure(options: "PyTreeCheckpointOptions") -> list[str]:
   """Returns the list of metrics to measure."""
-  metrics = ["time", "rss", "io"]
+  metrics = ["time", "rss"]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
   if options.metric_tensorstore_enabled:

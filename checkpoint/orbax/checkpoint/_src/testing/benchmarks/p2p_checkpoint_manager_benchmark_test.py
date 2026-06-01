@@ -128,36 +128,39 @@ class P2pCheckpointManagerBenchmarkTest(parameterized.TestCase):
       self.assertIsInstance(result, benchmarks_core.TestResult)
     with self.subTest('metrics timings'):
       self.assertIn(
-          'create_abstract_pytree_time_duration', result.metrics.results
+          'create_abstract_pytree_0_basics/time_s', result.metrics.results
       )
-      self.assertIn('create_restore_args_time_duration', result.metrics.results)
       self.assertIn(
-          'test_local_restore_create_directories_time_duration',
+          'create_restore_args_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn(
+          'test_local_restore_create_directories_0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_create_checkpoint_manager_time_duration',
+          'test_local_restore_create_checkpoint_manager_0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_train_loop_time_duration', result.metrics.results
-      )
-      self.assertIn(
-          'test_local_restore_save_0_time_duration', result.metrics.results
-      )
-      self.assertIn(
-          'test_local_restore_wait_until_finished_0_time_duration',
+          'test_local_restore_train_loop_0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_save_1_time_duration', result.metrics.results
+          'test_local_restore_save_0_0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'test_local_restore_wait_until_finished_1_time_duration',
+          'test_local_restore_wait_until_finished_0_0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_restore_and_validate_1_time_duration',
+          'test_local_restore_save_1_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn(
+          'test_local_restore_wait_until_finished_1_0_basics/time_s',
+          result.metrics.results,
+      )
+      self.assertIn(
+          'test_local_restore_restore_and_validate_1_0_basics/time_s',
           result.metrics.results,
       )
     with self.subTest('checkpoint manager calls'):
