@@ -50,3 +50,8 @@ BestN
 ------------------------------------------------------------
 .. autoclass:: BestN
   :members:
+
+LatestDuration
+------------------------------------------------------------
+.. autoclass:: LatestDuration
+  :members:

@@ -12,11 +12,6 @@ PreservationPolicy
   :members: should_preserve
   :show-inheritance:
 
-PreservationContext
-----------------------------------------------------------
-.. autoclass:: PreservationContext
-  :members:
-
 PreserveAll
 ----------------------------------------------------------
 .. autoclass:: PreserveAll
@@ -47,7 +42,19 @@ BestN
 .. autoclass:: BestN
   :members: should_preserve
 
+LatestDuration
+----------------------------------------------------------
+.. autoclass:: LatestDuration
+  :members: should_preserve
+
+.. Add new policies here.
+
 AnyPreservationPolicy
 ----------------------------------------------------------
 .. autoclass:: AnyPreservationPolicy
   :members: should_preserve
+
+PreservationContext
+----------------------------------------------------------
+.. autoclass:: PreservationContext
+  :members:

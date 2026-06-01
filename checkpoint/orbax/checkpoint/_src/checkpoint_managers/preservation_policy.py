@@ -298,3 +298,44 @@ class BestN(PreservationPolicy):
         preserve_flags
     )
     return preserve_flags
+
+
+@dataclasses.dataclass
+class LatestDuration(PreservationPolicy):
+  """Preserves checkpoints that are newer than the given duration.
+
+  E.g. retain checkpoints within the last 24 hours::
+
+    import datetime
+    LatestDuration(datetime.timedelta(hours=24))
+  """
+
+  duration: datetime.timedelta
+
+  def should_preserve(
+      self,
+      checkpoints: Sequence[PolicyCheckpointInfo],
+      *,
+      context: PreservationContext,
+  ) -> Sequence[bool]:
+    if not checkpoints:
+      return []
+
+    current_time = datetime.datetime.now(tz=datetime.timezone.utc)
+    first_preserve_idx = -1
+    for i, ckpt in enumerate(checkpoints):
+      if current_time - ckpt.time <= self.duration:
+        first_preserve_idx = i
+        break
+
+    if first_preserve_idx == -1:
+      result = [False] * len(checkpoints)
+    else:
+      result = [False] * first_preserve_idx + [True] * (
+          len(checkpoints) - first_preserve_idx
+      )
+
+    _log_preservation_decision(
+        f"LatestDuration (duration={self.duration})", checkpoints, result
+    )
+    return result

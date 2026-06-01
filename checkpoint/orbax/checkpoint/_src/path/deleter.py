@@ -197,7 +197,7 @@ class StandardCheckpointDeleter:
       destination_parent_path.mkdir(parents=True, exist_ok=True)
 
       # Create a unique name for the destination to avoid collisions.
-      now = datetime.datetime.now()
+      now = datetime.datetime.now(tz=datetime.timezone.utc)
       timestamp_str = now.strftime('%Y%m%d-%H%M%S-%f')
       new_name_with_timestamp = f'{delete_target.name}-{timestamp_str}'
       dest_path = destination_parent_path / new_name_with_timestamp

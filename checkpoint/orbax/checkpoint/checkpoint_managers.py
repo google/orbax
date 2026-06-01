@@ -38,6 +38,7 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     CustomSteps,
     AnyPreservationPolicy,
     BestN,
+    LatestDuration,
 )
 
 from orbax.checkpoint._src.checkpoint_managers.policy_checkpoint_info import PolicyCheckpointInfo

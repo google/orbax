@@ -29,8 +29,10 @@ LatestN = preservation_policy_lib.LatestN
 EveryNSeconds = preservation_policy_lib.EveryNSeconds
 EveryNSteps = preservation_policy_lib.EveryNSteps
 CustomSteps = preservation_policy_lib.CustomSteps
-AnyPreservationPolicy = preservation_policy_lib.AnyPreservationPolicy
 BestN = preservation_policy_lib.BestN
+LatestDuration = preservation_policy_lib.LatestDuration
+
+AnyPreservationPolicy = preservation_policy_lib.AnyPreservationPolicy
 
 
 @typing.runtime_checkable

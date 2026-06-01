@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `LatestDuration` preservation policy to support duration-based (TTL)
+checkpoint retention.
 - Add `SerializationStatusCallback` for save operations to track transfer and
 disk write events.
 

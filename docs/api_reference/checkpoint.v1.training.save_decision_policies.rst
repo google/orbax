@@ -37,6 +37,8 @@ SpecificStepsPolicy
 .. autoclass:: SpecificStepsPolicy
   :members: should_save
 
+.. Add new policies here.
+
 AnySavePolicy
 ----------------------------------------------------------
 .. autoclass:: AnySavePolicy

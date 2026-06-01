@@ -16,6 +16,7 @@
 
 import datetime
 from typing import Sequence
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
@@ -271,6 +272,59 @@ class PreservationPolicyTest(parameterized.TestCase):
             checkpoints, policy
         ),
     )
+
+  @parameterized.parameters(
+      dict(
+          duration=datetime.timedelta(hours=24),
+          expected_preserved_steps=[2, 3],
+      ),
+      dict(
+          duration=datetime.timedelta(hours=28),
+          expected_preserved_steps=[1, 2, 3],
+      ),
+      dict(
+          duration=datetime.timedelta(hours=5),
+          expected_preserved_steps=[],
+      ),
+      dict(
+          duration=datetime.timedelta(hours=100),
+          expected_preserved_steps=[0, 1, 2, 3],
+      ),
+  )
+  def test_latest_duration_policy(self, duration, expected_preserved_steps):
+    fixed_now = datetime.datetime(2026, 5, 29, 12, 0, 0)
+    checkpoints = [
+        checkpoint_info.CheckpointInfo(
+            step=0,
+            time=fixed_now - datetime.timedelta(hours=30),
+            metrics=None,
+        ),
+        checkpoint_info.CheckpointInfo(
+            step=1,
+            time=fixed_now - datetime.timedelta(hours=25),
+            metrics=None,
+        ),
+        checkpoint_info.CheckpointInfo(
+            step=2,
+            time=fixed_now - datetime.timedelta(hours=23),
+            metrics=None,
+        ),
+        checkpoint_info.CheckpointInfo(
+            step=3,
+            time=fixed_now - datetime.timedelta(hours=10),
+            metrics=None,
+        ),
+    ]
+    policy = preservation_policy_lib.LatestDuration(duration=duration)
+    with mock.patch.object(
+        preservation_policy_lib.datetime, 'datetime'
+    ) as mock_datetime:
+      mock_datetime.now.return_value = fixed_now
+      mock_datetime.timedelta = datetime.timedelta
+      self.assertEqual(
+          expected_preserved_steps,
+          self.get_preserved_checkpoints(checkpoints, policy),
+      )
 
 
 if __name__ == '__main__':

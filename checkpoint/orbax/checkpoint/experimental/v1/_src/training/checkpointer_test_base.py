@@ -718,6 +718,12 @@ class CheckpointerTestBase:
             ]),
             [1, 3, 7, 8, 9],
         ),
+        (
+            preservation_policies.LatestDuration(
+                datetime.timedelta(seconds=50)
+            ),
+            [7, 8, 9],
+        ),
     )
     def test_preservation(self, policy, expected_steps):
       num_steps = 10
