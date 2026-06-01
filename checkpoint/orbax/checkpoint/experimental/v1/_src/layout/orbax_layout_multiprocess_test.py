@@ -23,6 +23,8 @@ from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import step_metadata_serialization
+from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path.snapshot import snapshot
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
 from orbax.checkpoint.experimental.v1._src.handlers import pytree_handler
@@ -91,11 +93,17 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
       *,
       partial_save: bool = False,
   ):
+    if partial_save:
+      final_dir = directory
+      directory = (
+          directory.parent / f'{directory.name}{atomicity_types.TMP_DIR_SUFFIX}'
+      )
+
     test_utils.sync_global_processes('CompositeHandlerTest:save:start')
     if multihost.is_primary_host(0):
-      directory.mkdir(parents=False, exist_ok=partial_save)
+      directory.mkdir(parents=True, exist_ok=True)
       for k in checkpointables:
-        (directory / k).mkdir(parents=False, exist_ok=partial_save)
+        (directory / k).mkdir(parents=True, exist_ok=True)
     test_utils.sync_global_processes('CompositeHandlerTest:save:mkdir')
 
     async def _save():
@@ -110,20 +118,8 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
           for name in checkpointables.keys()
       }
 
-      checkpoint_metadata_path = (
-          metadata_serialization.checkpoint_metadata_file_path(directory)
-      )
-      if partial_save and checkpoint_metadata_path.exists():
-        checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(
-            directory
-        )
-        old_handler_typestrs = checkpoint_metadata.item_handlers
-        handler_typestrs = old_handler_typestrs | handler_typestrs
-      await multihost.sync_global_processes(
-          'CompositeHandlerTest:save:checkpoint_metadata_read',
-          operation_id='op',
-          processes=None,
-      )
+      # For partial save in this test, we skip reading existing global metadata
+      # here since it will be merged during finalize, just like real execution.
 
       # Metadata expected to be created outside the handler.
       if multihost.is_primary_host(0):
@@ -147,6 +143,11 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
           checkpointables=checkpointables,
       )
       await awaitable
+
+      if partial_save and multihost.is_primary_host(0):
+        final_dir.mkdir(parents=True, exist_ok=True)
+        pending_dir = final_dir / snapshot.get_pending_dir_name(final_dir.name)
+        directory.rename(pending_dir)
 
     asyncio.run(_save())
     test_utils.sync_global_processes('CompositeHandlerTest:save:complete')
@@ -360,7 +361,6 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
         layout, partial_path, first_save_checkpointables, partial_save=True
     )
     self.assertTrue(partial_path.exists())
-    self.assertTrue((partial_path / ORBAX_CHECKPOINT_INDICATOR_FILE).exists())
 
     self.save(
         layout,
@@ -369,14 +369,6 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
         partial_save=True,
     )
     self.assertTrue(partial_path.exists())
-    self.assertTrue((partial_path / ORBAX_CHECKPOINT_INDICATOR_FILE).exists())
-
-    restored_checkpointables = self.load(
-        layout, partial_path, merged_checkpointables
-    )
-    test_utils.assert_tree_equal(
-        self, restored_checkpointables, merged_checkpointables
-    )
 
     partial_saving.finalize(
         partial_path if finalize_with_partial_path else final_path
@@ -497,19 +489,21 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
     }
     self.save(layout, partial_path, second_save, partial_save=True)
 
-    partial_saving.finalize(final_path)
-
-    # PyTreeHandler should have merged the results.
-    # FooHandler should have overwritten.
-    expected = {'pytree': {'a': 1, 'b': 2}, 'foo': Foo(x=2, y='foo2')}
-    load_registry = self.create_registry(include_global_registry=False)
-    load_registry.add(PyTreeHandler, checkpointable_name='pytree')
-    load_registry.add(FooHandler, checkpointable_name='foo')
-    load_layout = OrbaxLayout()
-    load_layout._handler_registry = load_registry
-
-    restored = self.load(load_layout, final_path, None)
-    test_utils.assert_tree_equal(self, expected, restored)
+    # Since FooHandler does not support partial saving, the overlapping saves
+    # to 'foo/foo.txt' will cause a FileExistsError during finalize().
+    if multihost.is_primary_host(0):
+      with self.assertRaisesRegex(
+          FileExistsError,
+          'File collision on foo.txt during finalize. Overwriting '
+          'destination file is not allowed.'
+      ):
+        partial_saving.finalize(final_path)
+    else:
+      with self.assertRaisesRegex(
+          OSError,
+          'Partial checkpoint finalization failed.'
+      ):
+        partial_saving.finalize(final_path)
 
 
 if __name__ == '__main__':
