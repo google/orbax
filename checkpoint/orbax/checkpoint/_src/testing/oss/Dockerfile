@@ -4,15 +4,7 @@ FROM $BASE_IMAGE
 
 WORKDIR /app
 
-# 1. Install System Dependencies
-# common utils + git (needed for checkout)
-# --no-install-recommends limits bloat
-# python3-pip is standard in python images, no need to install
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    dnsutils \
-    && rm -rf /var/lib/apt/lists/*
-
+# 1. Install System Dependencies (including Google Cloud CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     dnsutils \
@@ -37,6 +29,14 @@ COPY ./checkpoint/orbax/checkpoint/_src/testin[g] /app/orbax_repo/checkpoint/orb
 # 3. Setup Python Environment & Dependencies
 # Uninstall pre-installed orbax if present in base image to avoid conflicts
 RUN pip uninstall -y orbax-checkpoint orbax || true
+
+# Force upgrade dependencies to fix security vulnerabilities
+RUN pip install -U --no-cache-dir \
+    "wheel>=0.46.2" \
+    "aiohttp>=3.13.4" \
+    "urllib3>=2.6.3" \
+    "cryptography>=46.0.7" \
+    "requests>=2.33.0"
 
 # # Create a fake docker binary that always returns success (exit 0)
 # RUN echo '#!/bin/bash\nexit 0' > /usr/local/bin/docker && chmod +x /usr/local/bin/docker

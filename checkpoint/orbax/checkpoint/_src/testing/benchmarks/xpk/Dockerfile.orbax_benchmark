@@ -52,6 +52,14 @@ RUN if [ "$USE_LOCAL_ORBAX" = "true" ]; then \
 # Uninstall pre-installed orbax if present in base image to avoid conflicts
 RUN pip uninstall -y orbax-checkpoint orbax || true
 
+# Force upgrade dependencies to fix security vulnerabilities
+RUN pip install -U --no-cache-dir \
+    "wheel>=0.46.2" \
+    "aiohttp>=3.13.4" \
+    "urllib3>=2.6.3" \
+    "cryptography>=46.0.7" \
+    "requests>=2.33.0"
+
 ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 

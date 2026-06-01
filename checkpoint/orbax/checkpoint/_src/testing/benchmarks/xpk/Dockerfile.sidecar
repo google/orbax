@@ -2,9 +2,14 @@ FROM us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/sidecar:202
 
 WORKDIR /app
 
-# 1. Upgrade pip and build tools
+# Force upgrade dependencies to fix security vulnerabilities
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --upgrade pip setuptools wheel
+    uv pip install --upgrade pip setuptools \
+    "wheel>=0.46.2" \
+    "aiohttp>=3.13.4" \
+    "urllib3>=2.6.3" \
+    "cryptography>=46.0.7" \
+    "requests>=2.33.0"
 
 
 # 2. Checkout Orbax (Optimized Shallow Fetch)
