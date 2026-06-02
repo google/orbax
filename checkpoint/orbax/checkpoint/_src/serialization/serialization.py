@@ -17,8 +17,6 @@
 import asyncio
 import collections
 from collections.abc import Mapping
-import os
-import re
 from typing import Any, Dict, Optional, Sequence, Union
 
 import jax
@@ -63,66 +61,6 @@ def _spec_has_metadata(tree):
   return 'metadata' in tree or any(
       _spec_has_metadata(subtree) for _, subtree in tree.items()
   )
-
-
-def _get_kvstore_for_gcs(ckpt_path: str):
-  """Constructs a TensorStore kvstore spec for a GCS path.
-
-  Args:
-    ckpt_path: A GCS path of the form gs://<bucket>/<path>.
-
-  Returns:
-    A dictionary containing the TensorStore kvstore spec.
-
-  Raises:
-    ValueError: if ckpt_path is not a valid GCS path.
-  """
-  m = re.fullmatch('^gs://([^/]*)/(.*)$', ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  # TODO(stoelinga): Switch to gcs_grpc by default.
-  # gcs_grpc performs roughly twice as fast as gcs backend.
-  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
-  return {
-      'driver': f'{gcs_backend}',
-      'bucket': gcs_bucket,
-      'path': path_without_bucket,
-  }
-
-
-def get_tensorstore_spec(ckpt_path: str, ocdbt: bool = False):
-  """Constructs a TensorStore spec for the given checkpoint path."""
-  # Normalize path to exclude trailing '/'. In GCS path case, we will need to
-  # fix the path prefix to add back the stripped '/'.
-  ckpt_path = os.path.normpath(ckpt_path).replace('gs:/', 'gs://')
-  is_gcs_path = ckpt_path.startswith('gs://')
-  spec = {'driver': 'zarr', 'kvstore': {}}
-  if ocdbt:
-    if not is_gcs_path and not os.path.isabs(ckpt_path):
-      raise ValueError(f'Checkpoint path should be absolute. Got {ckpt_path}')
-    base_path = os.path.dirname(ckpt_path)
-    base_driver_spec = (
-        base_path
-        if is_gcs_path
-        else {'driver': ts_utils.DEFAULT_DRIVER, 'path': base_path}
-    )
-    spec['kvstore'] = {
-        'driver': 'ocdbt',
-        'base': base_driver_spec,
-        'path': os.path.basename(ckpt_path),
-    }
-  else:
-    if is_gcs_path:
-      spec['kvstore'] = _get_kvstore_for_gcs(ckpt_path)
-    else:
-      spec['kvstore'] = {'driver': ts_utils.DEFAULT_DRIVER, 'path': ckpt_path}
-
-  return spec
 
 
 async def async_serialize(

@@ -21,7 +21,6 @@ from absl.testing import parameterized
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
-from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 
 
@@ -171,6 +170,17 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(tspec.metadata.use_ocdbt, use_ocdbt)
     self.assertFalse(tspec.metadata.use_zarr3)
     self.assertEqual(tspec.json['driver'], 'zarr')
+
+  def test_absolute_path_required_for_ocdbt(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Checkpoint path should be absolute'
+    ):
+      self.array_write_spec_constructor(
+          directory='relative/path',
+          relative_array_filename=self.param_name,
+          use_ocdbt=True,
+          process_id=0,
+      )
 
   @parameterized.named_parameters(
       dict(
@@ -789,12 +799,24 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     )
 
   def test_maybe_cloud_storage(self):
-    gs_path = 'gs://some-buck/path'
-    gs_spec = serialization.get_tensorstore_spec(gs_path, ocdbt=True)
+    gs_spec = ts_utils.ArrayWriteSpec(
+        directory='gs://some-buck',
+        relative_array_filename='path',
+        global_shape=(1,),
+        write_shape=(1,),
+        dtype=np.dtype(np.int32),
+        use_ocdbt=True,
+    ).json
     self.assertTrue(ts_utils.is_remote_storage(gs_spec))
 
-    local_path = '/tmp/checkpoint'
-    local_spec = serialization.get_tensorstore_spec(local_path, ocdbt=True)
+    local_spec = ts_utils.ArrayWriteSpec(
+        directory='/tmp',
+        relative_array_filename='checkpoint',
+        global_shape=(1,),
+        write_shape=(1,),
+        dtype=np.dtype(np.int32),
+        use_ocdbt=True,
+    ).json
     self.assertFalse(ts_utils.is_remote_storage(local_spec))
 
     nested_tspec = {

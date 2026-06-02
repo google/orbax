@@ -15,13 +15,13 @@
 import asyncio
 import math
 import os
-import pathlib
 import tracemalloc as tm
 from typing import Any
 import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 import jax
 from jax import dtypes as _dtypes
 import jax.numpy as jnp
@@ -119,8 +119,35 @@ class CheckpointTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.ckpt_dir = pathlib.Path(self.create_tempdir('ckpt').full_path)
+    self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
     test_utils.sync_global_processes('CheckpointTest:setup_complete')
+
+  def _get_write_spec(
+      self,
+      ckpt_path: epath.PathLike,
+      arr: jax.Array,
+      use_ocdbt: bool = False,
+  ) -> dict[str, Any]:
+    path = epath.Path(ckpt_path)
+    return ts_utils.ArrayWriteSpec(
+        directory=path.parent.as_posix(),
+        relative_array_filename=path.name,
+        global_shape=arr.shape,
+        write_shape=arr.sharding.shard_shape(arr.shape),
+        dtype=arr.dtype,
+        use_ocdbt=use_ocdbt,
+    ).json
+
+  def _get_read_spec(
+      self, ckpt_path: epath.PathLike, use_ocdbt: bool = False
+  ) -> dict[str, Any]:
+    path = epath.Path(ckpt_path)
+    return ts_utils.ArrayReadSpec(
+        directory=path.parent.as_posix(),
+        relative_array_filename=path.name,
+        use_zarr3=False,
+        use_ocdbt=use_ocdbt,
+    ).json
 
   def tearDown(self):
     test_utils.sync_global_processes('CheckpointTest:tests_complete')
@@ -178,17 +205,18 @@ class CheckpointTest(parameterized.TestCase):
     inp = jax.make_array_from_callback(
         inp_shape, sharding, lambda idx: src[idx]
     )
-    tspec = serialization.get_tensorstore_spec(str(self.ckpt_dir))
+    tspec_write = self._get_write_spec(str(self.ckpt_dir), inp)
+    tspec_read = self._get_read_spec(str(self.ckpt_dir))
 
     serialize(
         [inp],
-        [tspec],
+        [tspec_write],
     )
 
     async def deserialize_with_byte_limit():
       r = await serialization.async_deserialize(
           sharding,
-          tspec,
+          tspec_read,
           inp_shape,
           byte_limiter=limits.LimitInFlightBytes(4_200_000),
       )
@@ -202,7 +230,7 @@ class CheckpointTest(parameterized.TestCase):
     # less than array size (2048 * 4096 * 4 = 32M)
     self.assertLess(peak_memory_usage - start_memory_usage, 10_000_000)
     deserialize_wo_limit = serialization.async_deserialize(
-        sharding, tspec, inp_shape
+        sharding, tspec_read, inp_shape
     )
     tm.clear_traces()
     _, start_memory_usage = tm.get_traced_memory()
@@ -256,9 +284,13 @@ class CheckpointTest(parameterized.TestCase):
     test_utils.sync_global_processes(
         'test_checkpointing_jax_array:create_arr_paths'
     )
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [
+        self._get_write_spec(path, arr)
+        for path, arr in zip(ckpt_paths, [a1, a2, a3])
+    ]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([a1, a2, a3], tspecs)
+    serialize([a1, a2, a3], tspecs_write)
 
     m1, m2, m3 = deserialize(
         [
@@ -266,7 +298,7 @@ class CheckpointTest(parameterized.TestCase):
             NamedSharding(global_mesh, P('x')),
             NamedSharding(global_mesh1d, P(None)),
         ],
-        tspecs,
+        tspecs_read,
     )
 
     self.assertIsInstance(m1, jax.Array)
@@ -319,13 +351,16 @@ class CheckpointTest(parameterized.TestCase):
         global_input_shape, NamedSharding(global_mesh, P('x', 'y')), cb1
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, arr) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([arr], tspecs)
+    serialize([arr], tspecs_write)
 
     ds = NamedSharding(create_global_mesh((4, 2), ('x', 'y')), P('x', 'y'))
 
-    (m1,) = deserialize([ds], tspecs, [(12, 2)], [np.float32], strict=False)
+    (m1,) = deserialize(
+        [ds], tspecs_read, [(12, 2)], [np.float32], strict=False
+    )
 
     expected_data = {
         0: np.array([[0], [2], [4]], dtype=np.float32),
@@ -342,7 +377,7 @@ class CheckpointTest(parameterized.TestCase):
       self.assertArraysEqual(np.asarray(l.data), expected_data[l.device.id])
 
     new_ds = NamedSharding(global_mesh, P())
-    (m2,) = deserialize([new_ds], tspecs, [(8, 2)], [np.float32])
+    (m2,) = deserialize([new_ds], tspecs_read, [(8, 2)], [np.float32])
     for l in m2.addressable_shards:
       self.assertArraysEqual(l.data, global_input_data1.astype('float32'))
 
@@ -369,14 +404,17 @@ class CheckpointTest(parameterized.TestCase):
         global_input_shape, NamedSharding(global_mesh, P('x', 'y')), cb
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, arr) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([arr], tspecs)
+    serialize([arr], tspecs_write)
 
     ds = NamedSharding(create_global_mesh((4, 2), ('x', 'y')), P('x', 'y'))
 
     target_dtype = jnp.dtype('int4')
-    (m1,) = deserialize([ds], tspecs, [(12, 2)], [target_dtype], strict=False)
+    (m1,) = deserialize(
+        [ds], tspecs_read, [(12, 2)], [target_dtype], strict=False
+    )
 
     # values bigger than 7 are converted properly.
     expected_data = {
@@ -394,7 +432,7 @@ class CheckpointTest(parameterized.TestCase):
       self.assertArraysEqual(np.asarray(l.data), expected_data[l.device.id])
 
     new_ds = NamedSharding(global_mesh, P())
-    (m2,) = deserialize([new_ds], tspecs, [(8, 2)], [target_dtype])
+    (m2,) = deserialize([new_ds], tspecs_read, [(8, 2)], [target_dtype])
     for l in m2.addressable_shards:
       self.assertArraysEqual(l.data, global_input_data.astype(target_dtype))
 
@@ -407,13 +445,14 @@ class CheckpointTest(parameterized.TestCase):
         global_input_shape, s, lambda idx: data[idx]
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, array1) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([array1], tspecs)
+    serialize([array1], tspecs_write)
 
     ds = NamedSharding(global_mesh, P(None))
 
-    (m1,) = deserialize([ds], tspecs, [()], [np.float32])
+    (m1,) = deserialize([ds], tspecs_read, [()], [np.float32])
 
     for l in m1.addressable_shards:
       self.assertArraysEqual(np.asarray(l.data), data.astype(np.float32))
@@ -468,18 +507,25 @@ class CheckpointTest(parameterized.TestCase):
       ('gcs', 'gs://my/ckpt/dir/path'), ('file', '/my/ckpt/dir/path')
   )
   def test_get_tensorstore_spec_ocdbt(self, path):
-    spec = serialization.get_tensorstore_spec(path, ocdbt=True)
+    spec = ts_utils.ArrayWriteSpec(
+        directory=os.path.dirname(path),
+        relative_array_filename=os.path.basename(path),
+        global_shape=(1,),
+        write_shape=(1,),
+        dtype=np.dtype(np.int32),
+        use_ocdbt=True,
+    ).json
     is_gcs_path = path.startswith('gs://')
     if is_gcs_path:
       self.assertEqual(spec['kvstore']['base'], os.path.dirname(path))
     else:
-      self.assertEqual(
-          spec['kvstore']['base'],
-          {
-              'driver': ts_utils.DEFAULT_DRIVER,
-              'path': os.path.dirname(path),
-          },
-      )
+      expected = {
+          'driver': ts_utils.DEFAULT_DRIVER,
+          'path': os.path.dirname(path),
+      }
+      if spec['kvstore']['base'].get('driver') == 'file':
+        expected['file_io_locking'] = {'mode': 'non_atomic'}
+      self.assertEqual(spec['kvstore']['base'], expected)
     self.assertEqual(spec['kvstore']['path'], 'path')
 
   def test_get_tensorstore_spec_not_absolute_path(self):
@@ -487,7 +533,14 @@ class CheckpointTest(parameterized.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Checkpoint path should be absolute'
     ):
-      serialization.get_tensorstore_spec(path, ocdbt=True)
+      ts_utils.ArrayWriteSpec(
+          directory=os.path.dirname(path),
+          relative_array_filename=os.path.basename(path),
+          global_shape=(1,),
+          write_shape=(1,),
+          dtype=np.dtype(np.int32),
+          use_ocdbt=True,
+      )
 
   def test_deserialization_with_int4(self):
     dtype = jnp.int4
@@ -497,14 +550,15 @@ class CheckpointTest(parameterized.TestCase):
     # Run serialization.
     global_mesh = create_global_mesh((len(jax.devices()),), ('x',))
     sharding = NamedSharding(global_mesh, P())
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, [self.ckpt_dir])
+    tspecs_write = [self._get_write_spec(self.ckpt_dir, arr)]
+    tspecs_read = [self._get_read_spec(self.ckpt_dir)]
 
-    serialize([arr], tspecs)
+    serialize([arr], tspecs_write)
 
     # Run deserialization.
     (deserialized_arr,) = deserialize(
         shardings=[sharding],
-        tensorstore_specs=tspecs,
+        tensorstore_specs=tspecs_read,
         global_shapes=[shape],
         dtypes=[dtype],
     )
@@ -523,19 +577,20 @@ class CheckpointTest(parameterized.TestCase):
         save_shape, sharding, lambda idx: data[idx]
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, array) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([array], tspecs)
+    serialize([array], tspecs_write)
 
     restore_shape = (16,)
     if strict:
       with self.assertRaisesRegex(
           ValueError, 'is not compatible with the stored shape'
       ):
-        deserialize([sharding], tspecs, [restore_shape], strict=strict)
+        deserialize([sharding], tspecs_read, [restore_shape], strict=strict)
     else:
       (restored,) = deserialize(
-          [sharding], tspecs, [restore_shape], strict=strict
+          [sharding], tspecs_read, [restore_shape], strict=strict
       )
       for shard in restored.addressable_shards:
         expected = np.arange(16)
@@ -552,19 +607,20 @@ class CheckpointTest(parameterized.TestCase):
         save_shape, sharding, lambda idx: data[idx]
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, array) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([array], tspecs)
+    serialize([array], tspecs_write)
 
     restore_shape = (8,)
     if strict:
       with self.assertRaisesRegex(
           ValueError, 'is not compatible with the stored shape'
       ):
-        deserialize([sharding], tspecs, [restore_shape], strict=strict)
+        deserialize([sharding], tspecs_read, [restore_shape], strict=strict)
     else:
       (restored,) = deserialize(
-          [sharding], tspecs, [restore_shape], strict=strict
+          [sharding], tspecs_read, [restore_shape], strict=strict
       )
       for shard in restored.addressable_shards:
         self.assertArraysEqual(np.asarray(shard.data), np.arange(8))
@@ -583,9 +639,10 @@ class CheckpointTest(parameterized.TestCase):
         global_shape, sharding, lambda idx: data[idx]
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
+    tspecs_write = [self._get_write_spec(path, array) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
 
-    serialize([array], tspecs)
+    serialize([array], tspecs_write)
 
     global_mesh = create_global_mesh((3,), 'x')
     sharding = NamedSharding(
@@ -594,7 +651,7 @@ class CheckpointTest(parameterized.TestCase):
             'x',
         ),
     )
-    (restored,) = deserialize([sharding], tspecs, [global_shape])
+    (restored,) = deserialize([sharding], tspecs_read, [global_shape])
     for i, shard in enumerate(restored.addressable_shards):
       self.assertArraysEqual(np.asarray(shard.data), np.arange(4) + (i * 4))
 
@@ -612,16 +669,17 @@ class CheckpointTest(parameterized.TestCase):
         sharding=arr.sharding,
     )
 
-    ckpt_dir = pathlib.Path(self.create_tempdir('ckpt').full_path)
-    ckpt_path = pathlib.Path(self.create_tempdir(f'{ckpt_dir}/first').full_path)
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, [ckpt_path])
+    ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
+    ckpt_path = epath.Path(self.create_tempdir(f'{ckpt_dir}/first').full_path)
+    tspecs_write = [self._get_write_spec(ckpt_path, arr)]
+    tspecs_read = [self._get_read_spec(ckpt_path)]
 
     serialize(
         [arr],
-        tspecs,
+        tspecs_write,
     )
 
-    (out,) = deserialize([out_layout], tspecs)
+    (out,) = deserialize([out_layout], tspecs_read)
 
     self.assertEqual(out.format, out_layout)
     self.assertIsInstance(out, jax.Array)
@@ -670,12 +728,13 @@ class CheckpointTest(parameterized.TestCase):
         global_shape, sharding, lambda idx: data[idx]
     )
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
-    serialize([array], tspecs)
+    tspecs_write = [self._get_write_spec(path, array) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
+    serialize([array], tspecs_write)
 
     tm.start()
     _, start_memory_usage = tm.get_traced_memory()
-    deserialize([sharding], tspecs, [global_shape])
+    deserialize([sharding], tspecs_read, [global_shape])
     _, peak_memory_usage = tm.get_traced_memory()
     tm.clear_traces()
     # Array size (2048 * 4096 * 4 = 32M)
@@ -691,12 +750,13 @@ class CheckpointTest(parameterized.TestCase):
     arr = jax.make_array_from_callback(shape, sharding, lambda idx: data[idx])
 
     ckpt_paths = [str(self.ckpt_dir)]
-    tspecs = jax.tree.map(serialization.get_tensorstore_spec, ckpt_paths)
-    serialize([arr], tspecs)
+    tspecs_write = [self._get_write_spec(path, arr) for path in ckpt_paths]
+    tspecs_read = [self._get_read_spec(path) for path in ckpt_paths]
+    serialize([arr], tspecs_write)
 
     async def _deserialize():
       return await serialization.async_deserialize(
-          sharding, tspecs[0], shape, dtype
+          sharding, tspecs_read[0], shape, dtype
       )
 
     restored_arr, io_read_byte_size = asyncio_utils.run_sync(_deserialize())
