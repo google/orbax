@@ -21,7 +21,6 @@ from absl import logging
 import numpy as np
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
 
-
 NestedDict = Dict[str, Any]
 PyTree = Any
 PolicyCheckpointInfo = policy_checkpoint_info.PolicyCheckpointInfo
@@ -33,8 +32,7 @@ class PreservationContext:
 
 
 class PreservationPolicy(Protocol):
-  """A policy that defines when checkpoints should be preserved.
-  """
+  """A policy that defines when checkpoints should be preserved."""
 
   def should_preserve(
       self,
@@ -79,11 +77,7 @@ class PreserveAll(PreservationPolicy):
       context: PreservationContext,
   ) -> Sequence[bool]:
     result = [True] * len(checkpoints)
-    _log_preservation_decision(
-        "PreserveAll",
-        checkpoints,
-        result
-    )
+    _log_preservation_decision("PreserveAll", checkpoints, result)
     return result
 
 
@@ -103,11 +97,7 @@ class LatestN(PreservationPolicy):
       result = [True] * len(checkpoints)
     else:
       result = [False] * (len(checkpoints) - self.n) + [True] * self.n
-    _log_preservation_decision(
-        f"LatestN (n={self.n})",
-        checkpoints,
-        result
-    )
+    _log_preservation_decision(f"LatestN (n={self.n})", checkpoints, result)
     return result
 
 
@@ -138,7 +128,7 @@ class EveryNSeconds(PreservationPolicy):
     _log_preservation_decision(
         f"EveryNSeconds (interval_secs={self.interval_secs})",
         checkpoints,
-        result
+        result,
     )
     return result
 
@@ -190,6 +180,68 @@ class EveryNSteps(PreservationPolicy):
 
 
 @dataclasses.dataclass
+class EveryNStepsClosest(PreservationPolicy):
+  """Preserves checkpoints at steps closest to absolute multiples of N.
+
+  This policy maps each checkpoint to its closest nominal target step on a grid
+  defined by `interval_steps` (i.e. `k * interval_steps`). For each nominal
+  target, the closest available checkpoint is preserved.
+
+  This avoids the error accumulation/drift that can occur with
+  `EveryNSteps(exact_interval=False)` when checkpoints are irregular.
+
+  The last checkpoint is always preserved for final model state and efficient
+  recovery.
+  """
+
+  interval_steps: int
+  max_to_keep: int | None = None
+
+  def should_preserve(
+      self,
+      checkpoints: Sequence[PolicyCheckpointInfo],
+      *,
+      context: PreservationContext,
+  ) -> Sequence[bool]:
+    if self.interval_steps == 0:
+      raise ValueError("interval_steps must not be 0.")
+    if not checkpoints:
+      return []
+
+    # Find the best index for each grid bucket
+    best_indices = {}  # k -> idx
+    best_diffs = {}  # k -> diff
+    for i, ckpt in enumerate(checkpoints):
+      k = round(ckpt.step / self.interval_steps)
+      diff = abs(ckpt.step - k * self.interval_steps)
+      # If multiple checkpoints are equally close, keep the later one, which is
+      # likely what most users would expect.
+      if k not in best_diffs or diff <= best_diffs[k]:
+        best_indices[k] = i
+        best_diffs[k] = diff
+
+    result = [False] * len(checkpoints)
+    for idx in best_indices.values():
+      result[idx] = True
+
+    result[-1] = True  # Always keep the last one.
+
+    if self.max_to_keep is not None:
+      true_indices = [i for i, val in enumerate(result) if val]
+      if len(true_indices) > self.max_to_keep:
+        for i in true_indices[: -self.max_to_keep]:
+          result[i] = False
+
+    _log_preservation_decision(
+        f"EveryNStepsClosest (interval_steps={self.interval_steps},"
+        f" max_to_keep={self.max_to_keep})",
+        checkpoints,
+        result,
+    )
+    return result
+
+
+@dataclasses.dataclass
 class CustomSteps(PreservationPolicy):
   """Preserves checkpoints at the given steps."""
 
@@ -208,9 +260,7 @@ class CustomSteps(PreservationPolicy):
   ) -> Sequence[bool]:
     result = [ckpt.step in self._steps_set for ckpt in checkpoints]
     _log_preservation_decision(
-        f"CustomSteps (steps={self._steps_set})",
-        checkpoints,
-        result
+        f"CustomSteps (steps={self._steps_set})", checkpoints, result
     )
     return result
 
@@ -293,9 +343,7 @@ class BestN(PreservationPolicy):
         i in preserve_indices_set for i in range(len(checkpoints))
     ]
     _log_preservation_decision(
-        f"BestN (n={self.n})",
-        checkpoints,
-        preserve_flags
+        f"BestN (n={self.n})", checkpoints, preserve_flags
     )
     return preserve_flags
 

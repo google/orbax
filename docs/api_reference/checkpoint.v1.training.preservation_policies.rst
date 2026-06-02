@@ -47,6 +47,11 @@ LatestDuration
 .. autoclass:: LatestDuration
   :members: should_preserve
 
+EveryNStepsClosest
+----------------------------------------------------------
+.. autoclass:: EveryNStepsClosest
+  :members: should_preserve
+
 .. Add new policies here.
 
 AnyPreservationPolicy

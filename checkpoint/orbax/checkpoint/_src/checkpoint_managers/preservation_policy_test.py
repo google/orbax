@@ -169,6 +169,61 @@ class PreservationPolicyTest(parameterized.TestCase):
         self.get_preserved_checkpoints(self.get_checkpoints(steps), policy),
     )
 
+  @parameterized.parameters(
+      dict(
+          interval_steps=1,
+          steps=[0, 1, 2, 3, 4],
+          expected_preserved_steps=[0, 1, 2, 3, 4],
+      ),
+      dict(
+          interval_steps=3,
+          # 2 and 4 are both 1 step away from the same nominal target step (3).
+          steps=[0, 1, 2, 4],
+          # 4 is kept because it's the more recent and last checkpoint.
+          expected_preserved_steps=[0, 4],
+      ),
+      dict(
+          interval_steps=3,
+          # 2 and 4 are both 1 step away from the same nominal target step (3).
+          steps=[0, 1, 2, 4, 5, 8, 9, 13, 14, 25],
+          # 4 is kept because it's the more recent one.
+          expected_preserved_steps=[0, 4, 5, 9, 13, 14, 25],
+      ),
+      dict(
+          interval_steps=1,
+          steps=[0, 1, 2, 3, 4],
+          expected_preserved_steps=[2, 3, 4],
+          max_to_keep=3,
+      ),
+      dict(
+          interval_steps=3,
+          steps=[0, 1, 2, 4, 5, 8, 9, 13, 14, 25],
+          expected_preserved_steps=[13, 14, 25],
+          max_to_keep=3,
+      ),
+  )
+  def test_every_n_steps_closest_policy(
+      self,
+      interval_steps,
+      steps,
+      expected_preserved_steps,
+      max_to_keep=None,
+  ):
+    policy = preservation_policy_lib.EveryNStepsClosest(
+        interval_steps=interval_steps,
+        max_to_keep=max_to_keep,
+    )
+
+    self.assertEqual(
+        expected_preserved_steps,
+        self.get_preserved_checkpoints(self.get_checkpoints(steps), policy),
+    )
+
+  def test_every_zero_steps_closest_policy_raises_error(self):
+    policy = preservation_policy_lib.EveryNStepsClosest(interval_steps=0)
+    with self.assertRaises(ValueError):
+      self.get_preserved_checkpoints(self.get_checkpoints(), policy)
+
   def test_every_zero_steps_policy_raises_error(self):
     policy = preservation_policy_lib.EveryNSteps(interval_steps=0)
     with self.assertRaises(ValueError):

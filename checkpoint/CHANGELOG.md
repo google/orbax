@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `LatestDuration` preservation policy to support duration-based (TTL)
 checkpoint retention.
+- Add `EveryNStepsClosest` preservation policy, which preserves checkpoints at
+  steps closest to multiples of `interval_steps`.
 - Add `SerializationStatusCallback` for save operations to track transfer and
 disk write events.
 

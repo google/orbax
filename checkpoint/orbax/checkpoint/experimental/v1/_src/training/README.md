@@ -283,6 +283,7 @@ options, can now be combined into a single `preservation_policy` using
 | `best_fn`, <br> `best_mode`, <br> `keep_checkpoints_without_metrics` | **BestN Configuration**: <br> `BestN(` <br> &nbsp;&nbsp;`get_metric_fn=Callable,` <br> &nbsp;&nbsp;`n=int,` <br> &nbsp;&nbsp;`reverse=bool,` <br> &nbsp;&nbsp;`keep_checkpoints_without_metrics=bool` <br> `)` | Maintains checkpoints based on quality metric <br> scores (higher/lower) rather than recency. <br> - `get_metric_fn`: Returns a scalar quality score. <br> - `n`: Map from `max_to_keep`. <br> - `reverse`: `True` for `min`, `False` for `max`. <br> - `keep_checkpoints_without_metrics`: If `False`, <br> checkpoints without metrics are eligible for cleanup. |
 | `Multiple Preservation Rules` | `AnyPreservationPolicy([policy1, policy2])` | Preserves a checkpoint if any underlying <br> child policy suggests preservation. |
 | N/A (New in v1) | `LatestDuration(duration=datetime.timedelta)` | Deletes checkpoints older than the specified duration. |
+| N/A (New in v1) | `EveryNStepsClosest(interval_steps=int)` | Preserves checkpoints at steps closest to multiples <br> of `interval_steps`. |
 
 **Notes:**
 

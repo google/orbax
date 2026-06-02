@@ -35,6 +35,7 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     LatestN,
     EveryNSeconds,
     EveryNSteps,
+    EveryNStepsClosest,
     CustomSteps,
     AnyPreservationPolicy,
     BestN,

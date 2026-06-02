@@ -55,3 +55,8 @@ LatestDuration
 ------------------------------------------------------------
 .. autoclass:: LatestDuration
   :members:
+
+EveryNStepsClosest
+------------------------------------------------------------
+.. autoclass:: EveryNStepsClosest
+  :members:
