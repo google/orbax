@@ -223,6 +223,42 @@ class SerializationTest(
     )
     test_utils.assert_array_equal(self, arr, restored[0])
 
+  @parameterized.parameters((True,), (False,))
+  async def test_array_serialized_with_transaction(self, use_ocdbt: bool):
+    handler = type_handlers.ArrayHandler()
+    sharding = jax.sharding.NamedSharding(
+        mesh=jax.sharding.Mesh(
+            devices=np.asarray(jax.devices()).reshape(2, 4),
+            axis_names=('x', 'y'),
+        ),
+        spec=jax.sharding.PartitionSpec('y'),
+    )
+    arr = jax.device_put(np.arange(32), sharding)
+    info = get_param_info('a', self.directory, is_ocdbt=use_ocdbt).replace(
+        byte_limiter=limits.get_byte_limiter(None)
+    )
+
+    with mock.patch.object(
+        serialization,
+        'async_serialize_from_host',
+        autospec=True,
+        spec_set=True,
+    ) as mock_async_serialize:
+      mock_async_serialize.return_value = [asyncio.Future()]
+      futures = await handler.serialize([arr], [info])
+      for f in futures:
+        f.result()
+
+    mock_async_serialize.assert_called_once()
+    called_kwargs = mock_async_serialize.call_args.kwargs
+    self.assertIsInstance(
+        called_kwargs['byte_limiter'], limits.UnlimitedInFlightBytes
+    )
+    if use_ocdbt:
+      self.assertIsNotNone(called_kwargs['transaction'])
+    else:
+      self.assertIsNone(called_kwargs['transaction'])
+
   @parameterized.product(
       enable_replica_parallel_separate_folder=(True, False),
       use_ocdbt=(True, False),

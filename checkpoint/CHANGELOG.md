@@ -14,11 +14,9 @@ checkpoint retention.
 - Add `EveryNStepsClosest` preservation policy, which preserves checkpoints at
   steps closest to multiples of `interval_steps`.
 - Add `SerializationStatusCallback` for save operations to track transfer and
-disk write events.
-
-While primarily intended as lightweight progress handles, this callback system
-allows the potential to inject custom logic for advanced monitoring and custom
-actions during checkpointing.
+disk write events. While primarily intended as lightweight progress handles,
+this callback system allows the potential to inject custom logic for
+advanced monitoring and custom actions during checkpointing.
 
 ### Changed
 
@@ -29,6 +27,8 @@ Add `deprecations.py` for handling deprecated public functions.
 ### Fixed
 
 - Fix Pathways MTC Colocated worker initialization and save/restore PyTree bugs.
+- Fix bug where TensorStore transaction was never used, due to byte_limiter
+always having a non-None value.
 
 ## [0.11.40] - 2026-05-18
 

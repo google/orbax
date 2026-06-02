@@ -582,12 +582,18 @@ async def _async_serialize_replica_slices(
 ) -> None:
   """This function contains the logic from ArrayHandler._background_serialize."""
   write_coros = []
-  ocdbt_transaction: ts.Transaction | None = None
   array_metadatas = []
+
+  use_transaction = (
+      infos[0].is_ocdbt_checkpoint
+      and (
+          infos[0].byte_limiter is None
+          or isinstance(infos[0].byte_limiter, limits.UnlimitedInFlightBytes)
+      )
+  )
+  ocdbt_transaction = ts.Transaction(atomic=True) if use_transaction else None
+
   for value, info, arg in zip(values, infos, args):
-    if info.is_ocdbt_checkpoint and info.byte_limiter is None:
-      if ocdbt_transaction is None:
-        ocdbt_transaction = ts.Transaction(atomic=True)
     replica_separate_folder = False
     if use_replica_parallel and enable_replica_parallel_separate_folder:
       if info.is_ocdbt_checkpoint:
