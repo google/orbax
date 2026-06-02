@@ -29,7 +29,9 @@ from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
+from orbax.checkpoint._src.testing.benchmarks.core import inventory as inventory_lib
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.core import metrics_manager
 from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
@@ -153,6 +155,7 @@ class TestResult:
   )
   path: epath.Path | None = None
   local_path: epath.Path | None = None
+  inventory: inventory_lib.CheckpointInventory | None = None
 
   def is_successful(self) -> bool:
     """Returns whether the test run was successful."""
@@ -262,6 +265,15 @@ class Benchmark(abc.ABC):
       result = self.test_fn(context)
       result.path = path
       result.local_path = local_path
+      # Inventory captures bytes/files the benchmark wrote under context.path
+      # (the per-run test dir). Only the primary host scans; the result is
+      # suite-level (same across hosts) and parallel walks would race.
+      if (
+          multihost.get_process_index() == 0
+          and result.inventory is None
+          and path is not None
+      ):
+        result.inventory = inventory_lib.scan_checkpoint(path)
     except Exception as e:  # pylint: disable=broad-exception-caught
       # We catch all exceptions to ensure that any error during the test
       # execution is recorded in the TestResult.
@@ -478,7 +490,7 @@ class TestSuite:
     if output_dir:
       tensorboard_dir = epath.Path(output_dir) / "tensorboard"
 
-    self._suite_metrics = metric_lib.MetricsManager(
+    self._suite_metrics = metrics_manager.MetricsManager(
         name=name, num_repeats=num_repeats, tensorboard_dir=tensorboard_dir
     )
 
@@ -538,6 +550,7 @@ class TestSuite:
               benchmark_options=benchmark.options,
               checkpoint_config=benchmark.checkpoint_config,
               error=result.error,
+              inventory=result.inventory,
           )
           if self._remove_repeated_dir:
             multihost.sync_global_processes("test_suite:repeat_cleanup")

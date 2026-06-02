@@ -30,6 +30,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 from orbax.checkpoint._src.testing.benchmarks.core import directory_setup
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.core import metrics_manager
 import torch.distributed as dist
 
 
@@ -383,7 +384,7 @@ class BenchmarksGeneratorTest(parameterized.TestCase):
 
 class TestSuiteTest(parameterized.TestCase):
 
-  @mock.patch.object(metric_lib, 'MetricsManager')
+  @mock.patch.object(metrics_manager, 'MetricsManager')
   def test_init_with_output_dir(self, mock_metrics_manager):
     gen = MyGenerator(
         checkpoint_configs=[configs.CheckpointConfig(spec={})],

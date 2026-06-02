@@ -12,29 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""JaxMonitoringMetric — subscribes to jax.monitoring during a measure() block.
+"""jax.monitoring event-name → dashboard-tag mappings.
 
-Orbax-checkpoint emits ~30 named events through `jax.monitoring` covering
-every save/load stage. Subscribing during a measure() block re-publishes
-them as TB scalars under stable, navigable tag groups (`2_save_breakdown/`,
-`3_load_breakdown/`, `4_throughput/`, `5_inventory/`) without changing any
-production code.
+Kept separate from `metric.py` so the ~30-entry mapping table doesn't bloat the
+metric module; `JaxMonitoringMetric` (in metric.py) consumes these.
 """
 
-from typing import Any
-
-from absl import logging
-import jax
-from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
-
-_PREFIX_FILTER = (
+PREFIX_FILTER = (
     "/jax/orbax/",
     "/jax/checkpoint/",
     "/jax/compilation_cache/",
 )
 
 
-_TAG_MAP: dict[str, tuple[str, str]] = {
+TAG_MAP: dict[str, tuple[str, str]] = {
     # ─── 2_save_breakdown — per-stage save timings ────────────────────────
     "/jax/orbax/write/blocking_duration_secs": (
         "2_save_breakdown/blocking_s",
@@ -167,7 +158,7 @@ _TAG_MAP: dict[str, tuple[str, str]] = {
 }
 
 
-def _default_tag(event: str) -> str:
+def default_tag(event: str) -> str:
   """Tag for an in-prefix event we don't have an explicit mapping for.
 
   Routes into 9_other/ so unmapped events stay visible (queryable in the
@@ -182,53 +173,3 @@ def _default_tag(event: str) -> str:
   """
   stripped = event.removeprefix("/jax/").lstrip("/")
   return "9_other/" + stripped.replace("/", "_")
-
-
-class JaxMonitoringMetric(metric_lib.BaseMetric):
-  """Captures jax.monitoring emissions during a measure() block.
-
-  Result keys are the final, curated TB tags (`2_save_breakdown/blocking_s`,
-  …). Splicing the registry key in between would just create
-  `..._jax_monitoring_2_save_breakdown/...` for no benefit, so this class
-  opts out via OMIT_REGISTRY_KEY_PREFIX.
-  """
-
-  OMIT_REGISTRY_KEY_PREFIX = True
-
-  def start(self) -> None:
-    super().start()
-    self._records: list[tuple[str, Any, str]] = []
-
-    def _on_scalar(event: str, value: float, **_kwargs):
-      if any(event.startswith(p) for p in _PREFIX_FILTER):
-        self._records.append((event, value, "scalar"))
-
-    def _on_duration(event: str, duration: float, **_kwargs):
-      if any(event.startswith(p) for p in _PREFIX_FILTER):
-        self._records.append((event, duration, "duration"))
-
-    self._scalar_cb = _on_scalar
-    self._duration_cb = _on_duration
-    jax.monitoring.register_scalar_listener(_on_scalar)
-    jax.monitoring.register_event_duration_secs_listener(_on_duration)
-
-  def stop(self) -> dict[str, tuple[Any, str]]:
-    results = super().stop()
-    try:
-      jax.monitoring.unregister_scalar_listener(self._scalar_cb)
-      jax.monitoring.unregister_event_duration_listener(self._duration_cb)
-    except (ValueError, AttributeError) as e:
-      logging.warning("Failed to unregister jax.monitoring listener: %s", e)
-
-    for event, value, kind in self._records:
-      tag_unit = _TAG_MAP.get(event)
-      if tag_unit is None:
-        tag = _default_tag(event)
-        unit = "s" if kind == "duration" else ""
-      else:
-        tag, unit = tag_unit
-      results[tag] = (value, unit)
-    return results
-
-
-metric_lib.METRIC_REGISTRY["jax_monitoring"] = JaxMonitoringMetric
