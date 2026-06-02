@@ -36,7 +36,16 @@ import tensorstore as ts
 
 
 class BaseMetric:
-  """Base class for a metric type."""
+  """Base class for a metric type.
+
+  Subclass override knobs:
+    OMIT_REGISTRY_KEY_PREFIX: when True, the metric's result keys are taken
+      as final and the METRIC_REGISTRY key (e.g. "jax_monitoring") is NOT
+      spliced into the TB tag. Use when the metric already namespaces its
+      own keys (e.g. JaxMonitoringMetric returns "2_save_breakdown/...").
+  """
+
+  OMIT_REGISTRY_KEY_PREFIX: bool = False
 
   def __init__(self, name: str):
     self.name = name
@@ -66,16 +75,19 @@ class BaseMetric:
 class TimeMetric(BaseMetric):
   """Measures execution time."""
 
+  OMIT_REGISTRY_KEY_PREFIX = True
+
   def stop(self) -> dict[str, tuple[Any, str]]:
     duration = time.perf_counter() - self._start_time
     results = super().stop()
-    results["duration"] = (duration, "s")
+    results["0_basics/time_s"] = (duration, "s")
     return results
 
 
 class RssMetric(BaseMetric):
   """Measures RSS memory difference."""
 
+  OMIT_REGISTRY_KEY_PREFIX = True
   _start_rss: float = 0
 
   def start(self):
@@ -85,7 +97,7 @@ class RssMetric(BaseMetric):
   def stop(self) -> dict[str, tuple[Any, str]]:
     rss_diff = self._get_process_memory() - self._start_rss
     results = super().stop()
-    results["diff"] = (rss_diff, "MB")
+    results["0_basics/host_rss_diff_mb"] = (rss_diff, "MB")
     return results
 
   def _get_process_memory(self):
@@ -93,49 +105,10 @@ class RssMetric(BaseMetric):
     return process.memory_info().rss / (1024 * 1024)
 
 
-class IOBytesMetric(BaseMetric):
-  """Measures process I/O read/write bytes and throughput."""
-
-  _process: psutil.Process
-  _start_io: Any = None
-
-  def start(self):
-    super().start()
-    self._process = psutil.Process(os.getpid())
-    try:
-      self._start_io = self._process.io_counters()  # pytype: disable=attribute-error
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning("Failed to get initial IO counters: %s", e)
-      self._start_io = None
-
-  def stop(self) -> dict[str, tuple[Any, str]]:
-    results = super().stop()
-    if not self._start_io:
-      return results
-
-    try:
-      end_io = self._process.io_counters()  # pytype: disable=attribute-error
-      duration = time.perf_counter() - self._start_time
-
-      read_bytes = end_io.read_bytes - self._start_io.read_bytes
-      write_bytes = end_io.write_bytes - self._start_io.write_bytes
-
-      results["read_bytes"] = (read_bytes, "bytes")
-      results["write_bytes"] = (write_bytes, "bytes")
-
-      if duration > 0:
-        read_mb_s = (read_bytes / (1024 * 1024)) / duration
-        write_mb_s = (write_bytes / (1024 * 1024)) / duration
-        results["read_throughput"] = (read_mb_s, "MB/s")
-        results["write_throughput"] = (write_mb_s, "MB/s")
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.warning("Failed to get final IO counters: %s", e)
-    return results
-
-
 class TracemallocMetric(BaseMetric):
   """Measures memory allocation differences using tracemalloc."""
 
+  OMIT_REGISTRY_KEY_PREFIX = True
   _lock = threading.Lock()
   _active_count = 0
   _start_snapshot: Any = None
@@ -164,7 +137,7 @@ class TracemallocMetric(BaseMetric):
         tracemalloc.stop()
 
     peak_diff = end_peak - self._start_peak
-    results["peak_diff"] = (peak_diff / (1024**2), "MB")
+    results["7_memory/tracemalloc_peak_diff_mb"] = (peak_diff / (1024**2), "MB")
 
     self._log_tracemalloc_snapshot_diff(
         self.name,
@@ -273,6 +246,7 @@ class TracemallocMetric(BaseMetric):
 class TensorstoreMetric(BaseMetric):
   """Measures tensorstore metrics."""
 
+  OMIT_REGISTRY_KEY_PREFIX = True
   _start_metrics: dict[str, dict[str, Any]]
 
   def start(self):
@@ -309,7 +283,7 @@ class TensorstoreMetric(BaseMetric):
       )
 
     # Log the number of metrics that have a non-zero diff.
-    results["diff_count"] = (len(diff), f"{self.name}_diff_cnt")
+    results["6_tensorstore/diff_count"] = (len(diff), "count")
     return results
 
   def _collect_metrics(self) -> dict[str, dict[str, Any]]:
@@ -376,7 +350,6 @@ class TensorstoreMetric(BaseMetric):
 METRIC_REGISTRY: dict[str, type[BaseMetric]] = {
     "time": TimeMetric,
     "rss": RssMetric,
-    "io": IOBytesMetric,
     "tracemalloc": TracemallocMetric,
     "tensorstore": TensorstoreMetric,
 }
@@ -400,7 +373,10 @@ class Metrics:
       metric_results: dict[str, tuple[Any, str]],
   ):
     for key, (value, unit) in metric_results.items():
-      full_key = f"{metric_name}_{metric_key}_{key}"
+      if metric_key:
+        full_key = f"{metric_name}_{metric_key}_{key}"
+      else:
+        full_key = f"{metric_name}_{key}"
       self.results[full_key] = (value, unit)
 
   @contextlib.contextmanager
@@ -466,7 +442,8 @@ class _MetricsCollector:
     for key, metric in self._metrics.items():
       try:
         metric_results = metric.stop()
-        self.metrics_obj._add_results(metric.name, key, metric_results)
+        tag_key = "" if metric.OMIT_REGISTRY_KEY_PREFIX else key
+        self.metrics_obj._add_results(metric.name, tag_key, metric_results)
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.exception("Error stopping metric %s: %s", metric.name, e)
 
@@ -503,6 +480,113 @@ def _options_to_hparams(options: Any) -> dict[str, bool | int | float | str]:
     else:
       out[k] = str(v)
   return out
+
+
+def _render_configuration_markdown(
+    benchmark_name: str,
+    benchmark_options: dict[str, Any] | None,
+    checkpoint_config: dict[str, Any] | None,
+) -> str:
+  """Renders the run configuration as readable markdown.
+
+  Options + checkpoint_config become two field/value tables; any nested
+  dict in checkpoint_config (typically `spec`) is split out into its own
+  fenced-JSON block. Replaces the single-line `json.dumps` blob the
+  Text-tab card used to show.
+
+  Args:
+    benchmark_name: Title rendered as the top-level `##` heading.
+    benchmark_options: Flat option name/value pairs, or None to omit the table.
+    checkpoint_config: Checkpoint config; scalar entries form a table and each
+      nested dict becomes its own fenced-JSON block.
+
+  Returns:
+    The configuration rendered as a markdown string.
+  """
+  lines = [f"## {benchmark_name}", ""]
+
+  def _table(title: str, items: list[tuple[str, Any]]) -> None:
+    lines.append(f"### {title}")
+    lines.append("")
+    lines.append("| field | value |")
+    lines.append("|---|---|")
+    for k, v in items:
+      lines.append(f"| `{k}` | `{v}` |")
+    lines.append("")
+
+  if benchmark_options:
+    _table(
+        "Benchmark options",
+        [(k, v) for k, v in sorted(benchmark_options.items())],
+    )
+
+  if checkpoint_config:
+    scalar_items = []
+    nested_items = []
+    for k, v in sorted(checkpoint_config.items()):
+      if isinstance(v, dict):
+        nested_items.append((k, v))
+      else:
+        scalar_items.append((k, v))
+    if scalar_items:
+      _table("Checkpoint config", scalar_items)
+    for k, v in nested_items:
+      lines.append(f"### Checkpoint config — `{k}`")
+      lines.append("")
+      lines.append("```json")
+      lines.append(json.dumps(v, indent=2, sort_keys=True))
+      lines.append("```")
+      lines.append("")
+  return "\n".join(lines)
+
+
+# TODO(b/519204863): Move rendering and related changes to a separate file.
+def _render_aggregated_metrics_markdown(
+    benchmark_name: str,
+    aggregated_stats_dict: dict[str, "AggregatedStats"],
+    metric_units: dict[str, str],
+) -> str:
+  """Renders the aggregated metrics as a markdown table grouped by `/` prefix.
+
+  TB's Text dashboard renders markdown — a proper table is dramatically
+  more readable than the previous `<pre>` raw dump, and grouping by
+  numbered prefix (`1_overview/`, `2_save_breakdown/`, …) mirrors the
+  Scalars-view navigation so a reader can locate a metric the same way
+  in both surfaces.
+
+  Args:
+    benchmark_name: Title rendered as the top-level heading.
+    aggregated_stats_dict: Metric tag -> aggregated stats to tabulate.
+    metric_units: Metric tag -> unit string shown alongside each value.
+
+  Returns:
+    The aggregated metrics rendered as a markdown string.
+  """
+  if not aggregated_stats_dict:
+    return "_No successful runs to aggregate._"
+
+  groups: dict[str, list[str]] = collections.defaultdict(list)
+  for key in sorted(aggregated_stats_dict):
+    head, _, _ = key.partition("/")
+    section = head if "/" in key else "_other_"
+    groups[section].append(key)
+
+  lines = [f"## {benchmark_name} — aggregated metrics", ""]
+  for section in sorted(groups):
+    lines.append(f"### {section}")
+    lines.append("")
+    lines.append("| metric | mean | ± std | min | max | n | unit |")
+    lines.append("|---|---:|---:|---:|---:|---:|---|")
+    for key in groups[section]:
+      stats = aggregated_stats_dict[key]
+      unit = metric_units.get(key, "")
+      leaf = key.split("/", 1)[1] if "/" in key else key
+      lines.append(
+          f"| `{leaf}` | {stats.mean:.4f} | {stats.std:.4f} |"
+          f" {stats.min:.4f} | {stats.max:.4f} | {stats.count} | {unit} |"
+      )
+    lines.append("")
+  return "\n".join(lines)
 
 
 @dataclasses.dataclass
@@ -615,7 +699,14 @@ class MetricsManager:
     writer = self._get_writer(benchmark_name)
     if error is None:
       for key, (value, unit) in metrics.results.items():
-        tag = f'{key}_{unit.replace("/", "_")}'
+        # Hierarchical keys (e.g. "2_save_breakdown/blocking_s") already
+        # encode the unit in their suffix; appending "_s" again gives the
+        # ugly "..._blocking_s_s". Skip the suffix for those; flat legacy
+        # keys keep the existing "{key}_{unit}" shape.
+        if "/" in key:
+          tag = key
+        else:
+          tag = f'{key}_{unit.replace("/", "_")}'
         if isinstance(value, (int, float)):
           writer.write_scalars(step=step, scalars={tag: value})
         else:
@@ -633,19 +724,17 @@ class MetricsManager:
 
       if dataclasses.is_dataclass(checkpoint_config):
         config_dict = dataclasses.asdict(checkpoint_config)
-      else:
+      elif isinstance(checkpoint_config, dict):
         config_dict = checkpoint_config
-
-      configuration = {
-          "benchmark_name": benchmark_name,
-          "benchmark_options": opt_dict,
-          "checkpoint_config": config_dict,
-      }
+      else:
+        config_dict = None
 
       writer.write_texts(
           step=0,
           texts={
-              "configuration": json.dumps(configuration),
+              "configuration": _render_configuration_markdown(
+                  benchmark_name, opt_dict, config_dict
+              ),
           },
       )
       if hparams_dict := _options_to_hparams(benchmark_options):
@@ -747,16 +836,12 @@ class MetricsManager:
     for benchmark_name, results in self._runs.items():
       writer = self._get_writer(benchmark_name)
       aggregated_stats_dict, metric_units = self._aggregate_metrics(results)
-      if not aggregated_stats_dict:
-        aggregated_metrics = ["No successful runs to aggregate."]
-      else:
-        aggregated_metrics = self._format_stats_lines(
-            aggregated_stats_dict, metric_units, ""
-        )
-      aggregated_metrics_str = "\n".join(aggregated_metrics)
+      aggregated_metrics_str = _render_aggregated_metrics_markdown(
+          benchmark_name, aggregated_stats_dict, metric_units
+      )
       writer.write_texts(
           step=0,
-          texts={"aggregated_metrics": f"<pre>{aggregated_metrics_str}</pre>"},
+          texts={"aggregated_metrics": aggregated_metrics_str},
       )
       writer.flush()
       writer.close()

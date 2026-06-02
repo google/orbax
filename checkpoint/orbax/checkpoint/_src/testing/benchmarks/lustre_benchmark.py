@@ -30,7 +30,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint.experimental.caching import client
 
-
 SERVICE_URL = "http://service-dns/"
 LUSTRE_PATH_PREFIX = "/lustre/"
 GCS_PATH_PREFIX = "gs://"
@@ -39,8 +38,7 @@ GCS_PATH_PREFIX = "gs://"
 def _metrics_to_measure(options: LustreBenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
   del options
-  metrics = ["time", "rss", "io"]
-  return metrics
+  return ["time", "rss"]
 
 
 # ==============================================================================

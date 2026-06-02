@@ -30,7 +30,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 from orbax.checkpoint.experimental.emergency import checkpoint_manager as emergency_checkpoint_manager
 
-
 EcmBenchmarkOptions = emergency_checkpoint_manager_benchmark.EcmBenchmarkOptions
 EmergencyCheckpointManagerBenchmark = (
     emergency_checkpoint_manager_benchmark.EmergencyCheckpointManagerBenchmark
@@ -119,21 +118,25 @@ class EmergencyCheckpointManagerBenchmarkTest(parameterized.TestCase):
     with self.subTest('benchmark result type'):
       self.assertIsInstance(result, benchmarks_core.TestResult)
     with self.subTest('metrics timings'):
-      self.assertIn('create_directories_time_duration', result.metrics.results)
       self.assertIn(
-          'create_abstract_pytree_time_duration', result.metrics.results
-      )
-      self.assertIn('create_restore_args_time_duration', result.metrics.results)
-      self.assertIn(
-          'create_checkpoint_manager_time_duration', result.metrics.results
-      )
-      self.assertIn('train_loop_time_duration', result.metrics.results)
-      self.assertIn('save_0_time_duration', result.metrics.results)
-      self.assertIn(
-          'wait_until_finished_0_time_duration', result.metrics.results
+          'create_directories_0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'sync_global_processes_0_time_duration', result.metrics.results
+          'create_abstract_pytree_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn(
+          'create_restore_args_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn(
+          'create_checkpoint_manager_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn('train_loop_0_basics/time_s', result.metrics.results)
+      self.assertIn('save_0_0_basics/time_s', result.metrics.results)
+      self.assertIn(
+          'wait_until_finished_0_0_basics/time_s', result.metrics.results
+      )
+      self.assertIn(
+          'sync_global_processes_0_0_basics/time_s', result.metrics.results
       )
     with self.subTest('checkpoint manager calls'):
       mock_checkpoint_manager_cls.assert_called_once()

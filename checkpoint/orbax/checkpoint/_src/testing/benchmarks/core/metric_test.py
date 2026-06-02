@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-import json
 import time
 import tracemalloc
 from unittest import mock
@@ -36,7 +35,9 @@ class MetricsTest(parameterized.TestCase):
       with metrics.measure('test_metric', ['time']):
         pass
 
-    self.assertEqual(metrics.results, {'test_metric_time_duration': (2.0, 's')})
+    self.assertEqual(
+        metrics.results, {'test_metric_0_basics/time_s': (2.0, 's')}
+    )
 
   @mock.patch(
       'orbax.checkpoint._src.testing.benchmarks.core.metric.psutil.Process'
@@ -49,7 +50,9 @@ class MetricsTest(parameterized.TestCase):
     metrics = metric_lib.Metrics()
     with metrics.measure('test_metric', ['rss']):
       pass
-    self.assertEqual(metrics.results, {'test_metric_rss_diff': (2.0, 'MB')})
+    self.assertEqual(
+        metrics.results, {'test_metric_0_basics/host_rss_diff_mb': (2.0, 'MB')}
+    )
 
   @mock.patch(
       'orbax.checkpoint._src.testing.benchmarks.core.metric.tracemalloc'
@@ -70,20 +73,12 @@ class MetricsTest(parameterized.TestCase):
     with metrics.measure('test_metric', ['tracemalloc']):
       self.assertEqual(metric_lib.TracemallocMetric._active_count, 1)
     self.assertEqual(
-        metrics.results, {'test_metric_tracemalloc_peak_diff': (2.0, 'MB')}
+        metrics.results,
+        {'test_metric_7_memory/tracemalloc_peak_diff_mb': (2.0, 'MB')},
     )
     self.assertEqual(metric_lib.TracemallocMetric._active_count, 0)
     mock_tracemalloc.start.assert_called_once()
     mock_tracemalloc.stop.assert_called_once()
-
-  def test_io_metrics(self):
-    metrics = metric_lib.Metrics()
-    with metrics.measure('test_metric', ['io']):
-      pass
-    self.assertIn('test_metric_io_read_bytes', metrics.results)
-    self.assertIn('test_metric_io_write_bytes', metrics.results)
-    self.assertIn('test_metric_io_read_throughput', metrics.results)
-    self.assertIn('test_metric_io_write_throughput', metrics.results)
 
   def test_generate_report(self):
     metrics = metric_lib.Metrics(name='TestMetrics')
@@ -119,7 +114,7 @@ metric2: 4.5600 s
       ).result()
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
-    self.assertIn('test_metric_tensorstore_diff_count', metrics.results)
+    self.assertIn('test_metric_6_tensorstore/diff_count', metrics.results)
 
   def test_all_metrics(self):
     metric_lib.TracemallocMetric._active_count = 0
@@ -144,14 +139,12 @@ metric2: 4.5600 s
       ).result()
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
-    self.assertIn('test_metric_time_duration', metrics.results)
-    self.assertIn('test_metric_rss_diff', metrics.results)
-    self.assertIn('test_metric_tracemalloc_peak_diff', metrics.results)
-    self.assertIn('test_metric_io_read_bytes', metrics.results)
-    self.assertIn('test_metric_io_write_bytes', metrics.results)
-    self.assertIn('test_metric_io_read_throughput', metrics.results)
-    self.assertIn('test_metric_io_write_throughput', metrics.results)
-    self.assertIn('test_metric_tensorstore_diff_count', metrics.results)
+    self.assertIn('test_metric_0_basics/time_s', metrics.results)
+    self.assertIn('test_metric_0_basics/host_rss_diff_mb', metrics.results)
+    self.assertIn(
+        'test_metric_7_memory/tracemalloc_peak_diff_mb', metrics.results
+    )
+    self.assertIn('test_metric_6_tensorstore/diff_count', metrics.results)
 
 
 class MetricsManagerTest(parameterized.TestCase):
@@ -301,37 +294,30 @@ class MetricsManagerTest(parameterized.TestCase):
         step=0, scalars={'loss_none': 0.5}
     )
 
-    # Check configuration texts
-    benchmark_configs = {}
-    for call in mock_writer.write_texts.call_args_list:
-      _, kwargs = call
-      if 'texts' in kwargs and 'configuration' in kwargs['texts']:
-        config_str = kwargs['texts']['configuration']
-        try:
-          config = json.loads(config_str)
-          benchmark_configs[config['benchmark_name']] = config
-        except json.JSONDecodeError:
-          self.fail(f'Configuration string is not JSON loadable: {config_str}')
+    # Configuration is now rendered as markdown; verify the benchmark name
+    # header and each field/value row appears.
+    configuration_blobs = [
+        kwargs['texts']['configuration']
+        for _, kwargs in mock_writer.write_texts.call_args_list
+        if 'texts' in kwargs and 'configuration' in kwargs['texts']
+    ]
+    self.assertLen(configuration_blobs, 2)
 
-    self.assertLen(benchmark_configs, 2)
-    self.assertIn(bench1_name, benchmark_configs)
-    self.assertEqual(
-        benchmark_configs[bench1_name],
-        {
-            'benchmark_name': bench1_name,
-            'benchmark_options': bench1_opts,
-            'checkpoint_config': bench1_ckpt_config,
-        },
-    )
-    self.assertIn(bench2_name, benchmark_configs)
-    self.assertEqual(
-        benchmark_configs[bench2_name],
-        {
-            'benchmark_name': bench2_name,
-            'benchmark_options': bench2_opts,
-            'checkpoint_config': bench2_ckpt_config,
-        },
-    )
+    by_name = {}
+    for blob in configuration_blobs:
+      header_line = blob.splitlines()[0]
+      name = header_line.removeprefix('## ').strip()
+      by_name[name] = blob
+
+    self.assertIn(bench1_name, by_name)
+    self.assertIn('| `opt1` | `1` |', by_name[bench1_name])
+    self.assertIn('| `ckpt1` | `path1` |', by_name[bench1_name])
+
+    self.assertIn(bench2_name, by_name)
+    self.assertIn('| `opt2` | `2` |', by_name[bench2_name])
+    # bench2 has no checkpoint_config — the "Checkpoint config" section
+    # is omitted entirely.
+    self.assertNotIn('Checkpoint config', by_name[bench2_name])
 
     # Check that flush and close were called for each writer instance
     self.assertEqual(mock_writer.flush.call_count, 5)

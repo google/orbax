@@ -26,7 +26,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.v1 import replica_parallel_multislice_benchmark
 
-
 ReplicaParallelMultisliceBenchmarkOptions = (
     replica_parallel_multislice_benchmark.ReplicaParallelMultisliceBenchmarkOptions
 )
@@ -131,8 +130,8 @@ class ReplicaParallelMultisliceBenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
     self.assertIsInstance(result, benchmarks_core.TestResult)
     metrics = result.metrics.results
-    self.assertIn('save_blocking_time_duration', metrics)
-    self.assertIn('save_background_time_duration', metrics)
+    self.assertIn('save_blocking_0_basics/time_s', metrics)
+    self.assertIn('save_background_0_basics/time_s', metrics)
 
 
 if __name__ == '__main__':

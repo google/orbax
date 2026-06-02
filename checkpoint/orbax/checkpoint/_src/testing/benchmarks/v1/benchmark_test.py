@@ -20,7 +20,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.v1 import benchmark
 
-
 BenchmarkOptions = benchmark.BenchmarkOptions
 Benchmark = benchmark.Benchmark
 
@@ -115,20 +114,12 @@ class BenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    # Check for expected metrics keys based on _metrics_to_measure
-    # in benchmark.py and the metric.measure calls.
-    # The benchmark records "save_blocking", "save_background", "load".
-    # Metric "time" is always added.
-
-    # We expect roughly:
-    # save_blocking_time_duration
-    # save_background_time_duration
-    # load_time_duration
-
+    # The benchmark records "save_blocking", "save_background", "load"
+    # measure() blocks. Each block writes a 0_basics/time_s key.
     metrics = result.metrics.results
-    self.assertIn('save_blocking_time_duration', metrics)
-    self.assertIn('save_background_time_duration', metrics)
-    self.assertIn('load_time_duration', metrics)
+    self.assertIn('save_blocking_0_basics/time_s', metrics)
+    self.assertIn('save_background_0_basics/time_s', metrics)
+    self.assertIn('load_0_basics/time_s', metrics)
 
 
 if __name__ == '__main__':

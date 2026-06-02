@@ -21,7 +21,7 @@ import dataclasses
 import gc
 import io
 import os
-from typing import Any, Union, cast
+from typing import Any, cast
 
 from absl import logging
 from etils import epath
@@ -30,7 +30,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 import safetensors
 import torch
 import torch.distributed as dist
-from torch.distributed import device_mesh
 import torch.distributed.checkpoint as dcp
 import torch.distributed.tensor
 
@@ -41,6 +40,7 @@ try:
   from dataflux_pytorch.lightning.gcs_filesystem import GCSDistributedWriter
   from dataflux_pytorch.lightning.path_utils import parse_gcs_path
   from dataflux_pytorch.multipart_upload.multipart import upload_chunks_concurrently_from_bytesio as upload
+
   # pylint: enable=g-import-not-at-top
 except ImportError:
   GCSDistributedReader = None
@@ -61,7 +61,8 @@ BlockingAsyncStager = dcp.staging.BlockingAsyncStager
 try:
   # PyTorch 2.6.0+ usually requires explicit import of the internal module
   # pylint: disable=g-import-not-at-top
-  import torch.distributed.checkpoint._fsspec_filesystem as dcp_fsspec_internal
+  import torch.distributed.checkpoint._fsspec_filesystem as dcp_fsspec_internal  # pylint: disable=ungrouped-imports
+
   # pylint: enable=g-import-not-at-top
   FsspecReader = dcp_fsspec_internal.FsspecReader
   FsspecWriter = dcp_fsspec_internal.FsspecWriter
@@ -78,7 +79,7 @@ except (ImportError, AttributeError):
 
 def _metrics_to_measure(options: "PyTorchCheckpointOptions") -> list[str]:
   """Returns the list of metrics to measure."""
-  metrics = ["time", "rss", "io"]
+  metrics = ["time", "rss"]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
   return metrics
@@ -116,7 +117,7 @@ class ProtectedBytesIO(io.BytesIO):
 
 @contextlib.contextmanager
 def buffered_fsspec_create_stream(
-    path: Union[str, os.PathLike[str]], mode: str
+    path: str | os.PathLike[str], mode: str
 ) -> Generator[io.IOBase, None, None]:
   """Buffered create_stream to support torch.save on non-POSIX filesystems."""
   if mode == "wb":
@@ -151,11 +152,11 @@ if GCSDistributedWriter is not None and GCSDistributedReader:
         cache_staged_state_dict: bool = True,
         **kwargs,
     ):
-      super().__init__(path, project_name=project_name, **kwargs)
+      super().__init__(path, project_name=project_name, **kwargs)  # pytype: disable=attribute-error
       self._stager = BlockingAsyncStager(
           cache_staged_state_dict=cache_staged_state_dict
       )
-      self.fs.create_stream = self._fixed_create_stream
+      self.fs.create_stream = self._fixed_create_stream  # pytype: disable=attribute-error
 
     @contextlib.contextmanager
     def _fixed_create_stream(
@@ -203,7 +204,7 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
   def _build_benchmark_state_dict(
       self,
       path: epath.Path,
-      mesh: device_mesh.DeviceMesh,
+      mesh: dist.device_mesh.DeviceMesh,
       rank: int,
       device: torch.device,
       shard_dim: int = 0,
@@ -260,7 +261,9 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
 
     # 1. Initialize Mesh (Cached)
     if self._cached_mesh is None:
-      self._cached_mesh = device_mesh.init_device_mesh("cuda", (world_size,))
+      self._cached_mesh = dist.device_mesh.init_device_mesh(
+          "cuda", (world_size,)
+      )
 
     safetensor_path = epath.Path(options.reference_checkpoint_path)
 

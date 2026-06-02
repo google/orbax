@@ -26,11 +26,12 @@ import jax
 from orbax.checkpoint import v1 as ocp
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
+from orbax.checkpoint._src.testing.benchmarks.core import metric_jax_monitoring  # pylint: disable=unused-import
 
 
 def get_metrics_to_measure(options: BenchmarkOptions) -> list[str]:
   """Returns the list of metrics to measure."""
-  metrics = ["time", "rss", "io"]
+  metrics = ["time", "rss", "jax_monitoring"]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
   if options.metric_tensorstore_enabled:

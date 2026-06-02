@@ -93,10 +93,10 @@ class LustreBenchmarkTest(parameterized.TestCase):
     # Verify result
     self.assertIsInstance(result, benchmarks_core.TestResult)
     expected_metrics = {
-        'resolve_cache_time_duration',
-        'save_cache_time_duration',
-        'finalize_cache_time_duration',
-        'save_time_duration',
+        'resolve_cache_0_basics/time_s',
+        'save_cache_0_basics/time_s',
+        'finalize_cache_0_basics/time_s',
+        'save_0_basics/time_s',
     }
     self.assertContainsSubset(expected_metrics, result.metrics.results.keys())
 
@@ -171,10 +171,10 @@ class LustreBenchmarkTest(parameterized.TestCase):
     # Verify result
     self.assertIsInstance(result, benchmarks_core.TestResult)
     expected_metrics = {
-        'prefetch_cache_time_duration',
-        'wait_prefetch_cache_time_duration',
-        'restore_cache_time_duration',
-        'restore_time_duration',
+        'prefetch_cache_0_basics/time_s',
+        'wait_prefetch_cache_0_basics/time_s',
+        'restore_cache_0_basics/time_s',
+        'restore_0_basics/time_s',
     }
     self.assertContainsSubset(expected_metrics, result.metrics.results.keys())
 

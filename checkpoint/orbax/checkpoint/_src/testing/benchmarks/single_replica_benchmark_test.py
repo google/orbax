@@ -141,11 +141,11 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
     register_pathways_handlers.assert_called_once()
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('save_time_duration', result.metrics.results)
-    self.assertIn('wait_until_finished_time_duration', result.metrics.results)
-    self.assertIn('restore_time_duration', result.metrics.results)
+    self.assertIn('save_0_basics/time_s', result.metrics.results)
+    self.assertIn('wait_until_finished_0_basics/time_s', result.metrics.results)
+    self.assertIn('restore_0_basics/time_s', result.metrics.results)
     self.assertIn(
-        'construct_restore_args_time_duration', result.metrics.results
+        'construct_restore_args_0_basics/time_s', result.metrics.results
     )
     mock_checkpointer.save.assert_called_once()
     mock_checkpointer.wait_until_finished.assert_called_once()

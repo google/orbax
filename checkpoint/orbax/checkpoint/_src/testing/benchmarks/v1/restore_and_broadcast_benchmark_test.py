@@ -26,7 +26,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs as benchmarks_
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.v1 import restore_and_broadcast_benchmark
 
-
 RestoreAndBroadcastBenchmarkOptions = (
     restore_and_broadcast_benchmark.RestoreAndBroadcastBenchmarkOptions
 )
@@ -135,7 +134,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
     self.assertIsInstance(result, benchmarks_core.TestResult)
     metrics = result.metrics.results
-    self.assertIn('load_time_duration', metrics)
+    self.assertIn('load_0_basics/time_s', metrics)
 
 
 if __name__ == '__main__':
