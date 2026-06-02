@@ -18,7 +18,6 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
-from orbax.checkpoint._src.testing.benchmarks.core import metric_jax_monitoring  # pylint: disable=unused-import
 
 
 class JaxMonitoringMetricTest(parameterized.TestCase):
