@@ -29,7 +29,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 import safetensors
 import torch
-from torch.distributed import device_mesh
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 import torch.distributed.tensor
@@ -205,7 +204,7 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
   def _build_benchmark_state_dict(
       self,
       path: epath.Path,
-      mesh: device_mesh.DeviceMesh,
+      mesh: dist.device_mesh.DeviceMesh,
       rank: int,
       device: torch.device,
       shard_dim: int = 0,
@@ -262,7 +261,7 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
 
     # 1. Initialize Mesh (Cached)
     if self._cached_mesh is None:
-      self._cached_mesh = device_mesh.init_device_mesh("cuda", (world_size,))
+      self._cached_mesh = dist.device_mesh.init_device_mesh("cuda", (world_size,))
 
     safetensor_path = epath.Path(options.reference_checkpoint_path)
 
