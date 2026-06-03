@@ -36,9 +36,20 @@ GCS_PATH_PREFIX = "gs://"
 
 
 def _metrics_to_measure(options: LustreBenchmarkOptions) -> list[str]:
-  """Returns the list of metrics to measure."""
+  """Returns the list of metrics to measure.
+
+  Exercises orbax v1 free-functions through a Lustre/GCS caching path,
+  so the JAX-tier captures (jax_monitoring, device_memory, tensorstore)
+  apply just like the v1 benchmark.
+
+  Args:
+    options: Unused; this benchmark always measures the same metric set.
+
+  Returns:
+    The metric names to capture for each measured operation.
+  """
   del options
-  return ["time", "rss"]
+  return ["time", "rss", "jax_monitoring", "device_memory", "tensorstore"]
 
 
 # ==============================================================================

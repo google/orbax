@@ -78,7 +78,12 @@ except (ImportError, AttributeError):
 
 
 def _metrics_to_measure(options: "PyTorchCheckpointOptions") -> list[str]:
-  """Returns the list of metrics to measure."""
+  """Returns the list of metrics to measure.
+
+  Pure torch / DCP benchmark — the JAX-tier captures (jax_monitoring,
+  device_memory, tensorstore) wouldn't emit anything here, so we keep
+  the metric set scoped to time/rss + opt-in tracemalloc.
+  """
   metrics = ["time", "rss"]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
@@ -322,7 +327,9 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
             state_dict,
             storage_writer=writer,
             planner=planner,
-            async_checkpointer_type=dcp.state_dict_saver.AsyncCheckpointerType.THREAD,
+            async_checkpointer_type=(
+                dcp.state_dict_saver.AsyncCheckpointerType.THREAD
+            ),
         )
         response = cast(futures.Future[Any], future)
       else:

@@ -142,6 +142,15 @@ TAG_MAP: dict[str, tuple[str, str]] = {
         "5_inventory/load_total_gb",
         "GiB",
     ),
+    # ─── 8_jax — compile-cache durations ──────────────────────────────────
+    "/jax/compilation_cache/cache_retrieval_time_sec": (
+        "8_jax/cache_retrieval_s",
+        "s",
+    ),
+    "/jax/compilation_cache/compile_time_saved_sec": (
+        "8_jax/compile_time_saved_s",
+        "s",
+    ),
     # ─── 7_overhead — auxiliary costs (coordination, lifecycle) ───────────
     "/jax/checkpoint/sync_global_devices_duration_sec": (
         "7_overhead/sync_global_devices_s",
@@ -154,6 +163,21 @@ TAG_MAP: dict[str, tuple[str, str]] = {
     "/jax/orbax/checkpoint_manager/standard_checkpoint_deleter/duration": (
         "7_overhead/delete_standard_s",
         "s",
+    ),
+}
+
+
+# /jax/compilation_cache/* events have no value — we count occurrences per
+# event name during the measure block and emit as a scalar.
+EVENT_TAG_MAP: dict[str, str] = {
+    "/jax/compilation_cache/cache_hits": "8_jax/cache_hits_count",
+    "/jax/compilation_cache/cache_misses": "8_jax/cache_misses_count",
+    "/jax/compilation_cache/compile_requests_use_cache": (
+        "8_jax/compile_requests_use_cache_count"
+    ),
+    "/jax/compilation_cache/tasks_using_cache": "8_jax/tasks_using_cache_count",
+    "/jax/compilation_cache/task_disabled_cache": (
+        "8_jax/task_disabled_cache_count"
     ),
 }
 

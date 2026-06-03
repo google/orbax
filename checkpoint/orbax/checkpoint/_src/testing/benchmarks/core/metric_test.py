@@ -112,7 +112,46 @@ metric2: 4.5600 s
       ).result()
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
-    self.assertIn('test_metric_6_tensorstore/diff_count', metrics.results)
+    self.assertIn(
+        'test_metric_6_tensorstore/changed_metric_count', metrics.results
+    )
+
+  @mock.patch.object(metric_lib.TensorstoreMetric, '_collect_metrics')
+  def test_tensorstore_whitelisted_metrics_emit_per_bucket_scalars(
+      self, mock_collect
+  ):
+    # Simulate two collections — start (baseline) then stop. The kvstore
+    # metric grew by 5 (from 10→15) so the diff should be 5; the cache
+    # metric grew by 100 bytes. The internal/thread metric is OUTSIDE the
+    # whitelist and gets filtered out.
+    start = {
+        '/tensorstore/kvstore/file/read': {'count': 10},
+        '/tensorstore/cache/bytes': {'value': 100},
+        '/tensorstore/internal/thread/foo': {'value': 1},
+    }
+    stop = {
+        '/tensorstore/kvstore/file/read': {'count': 15},
+        '/tensorstore/cache/bytes': {'value': 200},
+        '/tensorstore/internal/thread/foo': {'value': 99},  # filtered out
+    }
+    mock_collect.side_effect = [start, stop]
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['tensorstore']):
+      pass
+    self.assertEqual(
+        metrics.results[
+            'op_6_tensorstore/tensorstore_kvstore_file_read_count_diff'
+        ][0],
+        5,
+    )
+    self.assertEqual(
+        metrics.results['op_6_tensorstore/tensorstore_cache_bytes_value_diff'][
+            0
+        ],
+        100,
+    )
+    # Internal metric outside the whitelist not exported.
+    self.assertFalse(any('internal_thread_foo' in k for k in metrics.results))
 
   def test_all_metrics(self):
     metric_lib.TracemallocMetric._active_count = 0
@@ -142,7 +181,77 @@ metric2: 4.5600 s
     self.assertIn(
         'test_metric_7_memory/tracemalloc_peak_diff_mb', metrics.results
     )
-    self.assertIn('test_metric_6_tensorstore/diff_count', metrics.results)
+    self.assertIn(
+        'test_metric_6_tensorstore/changed_metric_count', metrics.results
+    )
+
+
+def _fake_device(peak_bytes):
+  d = mock.Mock()
+  if peak_bytes is None:
+    d.memory_stats.return_value = None
+  else:
+    d.memory_stats.return_value = {
+        'peak_bytes_in_use': peak_bytes,
+        'bytes_in_use': peak_bytes // 2,
+    }
+  return d
+
+
+class DeviceMemoryMetricTest(parameterized.TestCase):
+
+  @mock.patch('jax.live_arrays')
+  @mock.patch('jax.local_devices')
+  def test_live_arrays_delta_captured(self, mock_devices, mock_live):
+    mock_devices.return_value = [_fake_device(None)]
+    mock_live.side_effect = [
+        [mock.Mock()] * 3,
+        [mock.Mock()] * 5,
+    ]
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['device_memory']):
+      pass
+    self.assertIn('op_7_memory/jax_live_arrays_count_delta', metrics.results)
+    val, _ = metrics.results['op_7_memory/jax_live_arrays_count_delta']
+    self.assertEqual(val, 2)
+
+  @mock.patch('jax.live_arrays', return_value=[])
+  @mock.patch('jax.local_devices')
+  def test_hbm_peak_diff_when_memory_stats_available(
+      self, mock_devices, unused_mock_live
+  ):
+    gb = 1024**3
+    d0 = mock.Mock()
+    d0.memory_stats.side_effect = [
+        {'peak_bytes_in_use': 4 * gb},
+        {'peak_bytes_in_use': 5 * gb},
+    ]
+    d1 = mock.Mock()
+    d1.memory_stats.side_effect = [
+        {'peak_bytes_in_use': 4 * gb},
+        {'peak_bytes_in_use': 6 * gb},
+    ]
+    mock_devices.return_value = [d0, d1]
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['device_memory']):
+      pass
+    self.assertIn('op_7_memory/device_hbm_peak_diff_gb', metrics.results)
+    val, unit = metrics.results['op_7_memory/device_hbm_peak_diff_gb']
+    self.assertAlmostEqual(val, 2.0)
+    self.assertEqual(unit, 'GiB')
+
+  @mock.patch('jax.live_arrays', return_value=[])
+  @mock.patch('jax.local_devices')
+  def test_cpu_no_memory_stats_skips_hbm_tag(
+      self, mock_devices, unused_mock_live
+  ):
+    mock_devices.return_value = [_fake_device(None), _fake_device(None)]
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['device_memory']):
+      pass
+    self.assertNotIn('op_7_memory/device_hbm_peak_diff_gb', metrics.results)
+    self.assertIn('op_7_memory/jax_live_arrays_count_delta', metrics.results)
+
 
 if __name__ == '__main__':
   absltest.main()

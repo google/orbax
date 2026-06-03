@@ -29,12 +29,28 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 
 def get_metrics_to_measure(options: BenchmarkOptions) -> list[str]:
-  """Returns the list of metrics to measure."""
-  metrics = ["time", "rss", "jax_monitoring"]
+  """Returns the list of metrics to measure.
+
+  Cheap captures (time, rss, jax_monitoring, device_memory, tensorstore)
+  are always on. Tracemalloc is opt-in because its per-allocation
+  snapshots have measurable runtime overhead.
+
+  Args:
+    options: Benchmark options; tracemalloc is added when
+      metric_tracemalloc_enabled is set.
+
+  Returns:
+    The metric names to capture for each measured operation.
+  """
+  metrics = [
+      "time",
+      "rss",
+      "jax_monitoring",
+      "device_memory",
+      "tensorstore",
+  ]
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
-  if options.metric_tensorstore_enabled:
-    metrics.append("tensorstore")
   return metrics
 
 
@@ -55,8 +71,8 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
     use_compression: Whether to use compression.
     save_concurrent_gb: The number of concurrent GB to use for saving.
     restore_concurrent_gb: The number of concurrent GB to use for restoring.
-    metric_tracemalloc_enabled: Whether to enable tracemalloc metric.
-    metric_tensorstore_enabled: Whether to enable tensorstore metric.
+    metric_tracemalloc_enabled: Whether to enable the tracemalloc metric
+      (opt-in because per-allocation snapshots are expensive).
     use_load_and_broadcast: Whether to use load and broadcast.
     use_replica_parallel: Whether to use replica parallel.
     enable_replica_parallel_separate_folder: Whether to enable replica parallel
@@ -70,7 +86,6 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   save_concurrent_gb: int | None | Sequence[int | None] = None
   restore_concurrent_gb: int | None | Sequence[int | None] = None
   metric_tracemalloc_enabled: bool = False
-  metric_tensorstore_enabled: bool = False
   use_load_and_broadcast: bool | Sequence[bool] = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
