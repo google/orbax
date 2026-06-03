@@ -16,15 +16,15 @@
 
 import functools
 import os
+import pathlib
 from urllib import parse
 from absl import logging
 from etils import epath
 
-
 _GCS_PATH_PREFIX = ('gs://',)
 
 
-def is_gcs_path(path: epath.Path) -> bool:
+def is_gcs_path(path: pathlib.PurePosixPath) -> bool:
   return path.as_posix().startswith(_GCS_PATH_PREFIX)
 
 
