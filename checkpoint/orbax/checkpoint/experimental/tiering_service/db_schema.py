@@ -298,6 +298,7 @@ class TierPath(Base):
     ready_at: Timestamp when the asset became available at this tier path.
     expires_at: Timestamp when the asset is scheduled to expire from this tier
       path.
+    tier_path_uuid: A unique identifier for this tier path.
     asset: SQLAlchemy relationship to the `Asset` object.
     storage_backend: SQLAlchemy relationship to the `StorageBackend` object.
   """
@@ -323,6 +324,12 @@ class TierPath(Base):
   )
   expires_at = sqlalchemy.Column(
       sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  tier_path_uuid = sqlalchemy.Column(
+      sqlalchemy.String,
+      unique=True,
+      nullable=False,
+      default=lambda: str(uuid.uuid4()),
   )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="tier_paths")

@@ -55,6 +55,9 @@ message TierPath {
   // call prefetch again. When this field is absent, indicating it won't expire
   // (e.g., in GCS, the asset path won't expire).
   google.protobuf.Timestamp expires_at = 5;
+
+  // A unique identifier for this tier path.
+  string tier_path_uuid = 6;
 }
 
 message Asset {
@@ -115,7 +118,7 @@ message PrefetchResponse {
 }
 
 message PrefetchKeepAliveRequest {
-  string uuid = 1;
+  string tier_path_uuid = 1;
 }
 
 message PrefetchKeepAliveResponse {

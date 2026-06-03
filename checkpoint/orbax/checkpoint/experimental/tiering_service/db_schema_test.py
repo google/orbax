@@ -164,6 +164,11 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           tp1.storage_backend.multi_regions,
           ["us-central1", "us-east1"],
       )
+      self.assertIsNotNone(tp0.tier_path_uuid)
+      self.assertIsNotNone(tp1.tier_path_uuid)
+      self.assertLen(tp0.tier_path_uuid, 36)
+      self.assertLen(tp1.tier_path_uuid, 36)
+      self.assertNotEqual(tp0.tier_path_uuid, tp1.tier_path_uuid)
 
   async def test_add_tier_path_fails_multiple_locations(self) -> None:
     async with self.session_maker() as session:
@@ -201,6 +206,87 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           "UNIQUE constraint failed: tier_paths.asset_uuid,"
           " tier_paths.storage_backend_id",
       ):
+        await session.commit()
+
+  async def test_tier_path_uuid_nullable(self) -> None:
+    async with self.session_maker() as session:
+      asset = db_schema.Asset(
+          asset_uuid="uuid-tp-uuid-null",
+          path="/experiment/tp_uuid_null",
+          user="testuser",
+      )
+      backend = db_schema.StorageBackend(
+          level=0,
+          zone="us-central1-a",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
+      )
+      session.add_all([asset, backend])
+      await session.flush()
+
+      with self.assertRaises(sqlalchemy.exc.IntegrityError):
+        await session.execute(
+            sqlalchemy.text(
+                "INSERT INTO tier_paths (asset_uuid, storage_backend_id,"
+                " path, tier_path_uuid) "
+                "VALUES (:asset_uuid, :storage_backend_id, :path,"
+                " :tier_path_uuid)"
+            ),
+            {
+                "asset_uuid": "uuid-tp-uuid-null",
+                "storage_backend_id": backend.id,
+                "path": "/path1",
+                "tier_path_uuid": None,
+            },
+        )
+        await session.commit()
+
+  async def test_tier_path_uuid_unique(self) -> None:
+    async with self.session_maker() as session:
+      asset1 = db_schema.Asset(
+          asset_uuid="uuid-tp-uuid-uniq-1",
+          path="/experiment/tp_uuid_uniq1",
+          user="testuser",
+      )
+      asset2 = db_schema.Asset(
+          asset_uuid="uuid-tp-uuid-uniq-2",
+          path="/experiment/tp_uuid_uniq2",
+          user="testuser",
+      )
+      backend1 = db_schema.StorageBackend(
+          level=0,
+          zone="us-central1-a",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket1",
+      )
+      backend2 = db_schema.StorageBackend(
+          level=1,
+          zone="us-central1-b",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket2",
+      )
+      shared_uuid = "fixed-uuid-123"
+      tier_path1 = db_schema.TierPath(
+          asset_uuid="uuid-tp-uuid-uniq-1",
+          storage_backend=backend1,
+          path="/path1",
+          tier_path_uuid=shared_uuid,
+      )
+      tier_path2 = db_schema.TierPath(
+          asset_uuid="uuid-tp-uuid-uniq-2",
+          storage_backend=backend2,
+          path="/path2",
+          tier_path_uuid=shared_uuid,
+      )
+      session.add_all([
+          asset1,
+          asset2,
+          backend1,
+          backend2,
+          tier_path1,
+          tier_path2,
+      ])
+      with self.assertRaises(sqlalchemy.exc.IntegrityError):
         await session.commit()
 
   async def test_storage_backend_fails_multiple_locations_zone(self) -> None:

@@ -16,11 +16,16 @@ import datetime
 import unittest
 
 from absl.testing import absltest
+from absl.testing import parameterized
+import aiosqlite  # pylint: disable=unused-import
+import greenlet  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service import storage_backend as storage_backend_lib
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 
 from google.protobuf import timestamp_pb2
@@ -199,7 +204,7 @@ class AssetsProtoTest(absltest.TestCase):
     self.assertFalse(sb_proto.HasField("region"))
 
 
-class AssetsDbTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
+class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
 
   def _assert_date_time_equal(self, dt1, dt2):
     if dt1 is None or dt2 is None:
@@ -400,6 +405,513 @@ class AssetsDbTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
       )
       self.assertLen(fetched_b_by_uuid, 1)
       self.assertEqual(fetched_b_by_uuid[0].path, "path/B")
+
+  async def _set_a_finalized_asset(
+      self, session: AsyncSession
+  ) -> tuple[
+      db_schema.Asset, db_schema.StorageBackend, db_schema.StorageBackend
+  ]:
+    """Sets up a finalized asset in the database.
+
+    Creates two storage backends and one asset. The asset is initially reserved
+    against one backend and then immediately finalized.
+
+    Args:
+      session: The SQLAlchemy AsyncSession to use for database operations.
+
+    Returns:
+      A tuple (asset, b1, b2), where asset is the finalized db_schema.Asset,
+      b1 is the first db_schema.StorageBackend used for the initial reservation,
+      and b2 is the second db_schema.StorageBackend.
+    """
+    b1 = db_schema.StorageBackend(
+        level=0,
+        backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+        prefix="/mnt/lustre-a",
+        zone="us-central1-a",
+    )
+    b2 = db_schema.StorageBackend(
+        level=0,
+        backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+        prefix="/mnt/lustre-b",
+        zone="us-central1-b",
+    )
+    session.add_all([b1, b2])
+    await session.commit()
+
+    request = tiering_service_pb2.ReserveRequest(
+        path="test/path/finalized_asset",
+        user="test-user",
+        zone="us-central1-a",
+    )
+    reserved_asset = await assets.create_or_fetch_asset(
+        session,
+        request,
+        b1,
+        tiering_service_pb2.ServerConfig(
+            client_keep_alive_interval_seconds=600
+        ),
+    )
+    finalized_asset = await assets.finalize_asset(session, reserved_asset)
+    return finalized_asset, b1, b2
+
+  async def test_create_prefetch_job_returns_created_and_updated_asset(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      self.assertTrue(result.created)
+      self.assertIsNotNone(result.asset)
+
+  async def test_create_prefetch_job_updates_tier_paths(self):
+    async with self.session_maker() as session:
+      asset, b1, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      paths = [tp.path for tp in updated_asset.tier_paths]
+      self.assertCountEqual(
+          paths,
+          [
+              storage_backend_lib.get_storage_path(b1, asset.path),
+              storage_path,
+          ],
+      )
+
+  async def test_create_prefetch_job_db_tier_path_not_ready(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+
+      stmt_tp = select(db_schema.TierPath).filter_by(
+          asset_uuid=asset.asset_uuid, storage_backend_id=b2.id
+      )
+      result_tp = await session.execute(stmt_tp)
+      tp_b = result_tp.scalars().first()
+      self.assertIsNotNone(tp_b)
+      self.assertEqual(tp_b.path, storage_path)
+      self.assertIsNone(tp_b.ready_at)
+
+  async def test_create_prefetch_job_db_queues_copy_job(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+
+      stmt_tp = select(db_schema.TierPath).filter_by(
+          asset_uuid=asset.asset_uuid, storage_backend_id=b2.id
+      )
+      result_tp = await session.execute(stmt_tp)
+      tp_b = result_tp.scalars().first()
+      self.assertIsNotNone(tp_b)
+
+      stmt_job = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset.asset_uuid,
+          target_tier_path_id=tp_b.id,
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+      )
+      result_job = await session.execute(stmt_job)
+      job = result_job.scalars().first()
+      self.assertIsNotNone(job)
+      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_QUEUED)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="same_path",
+          concurrent_path="/mnt/lustre-b/test/path",
+          attempted_path="/mnt/lustre-b/test/path",
+      ),
+      dict(
+          testcase_name="different_path",
+          concurrent_path="/mnt/lustre-b/concurrent/path",
+          attempted_path="/mnt/lustre-b/test/path",
+      ),
+  )
+  async def test_create_prefetch_job_concurrent_fails_gracefully(
+      self, concurrent_path: str, attempted_path: str
+  ):
+    async with self.session_maker() as session1:
+      asset1, _, sb2 = await self._set_a_finalized_asset(session1)
+      asset_uuid = asset1.asset_uuid
+      b2_id = sb2.id
+
+      async with self.session_maker() as session2:
+        tp_b = db_schema.TierPath(
+            asset_uuid=asset_uuid,
+            storage_backend_id=b2_id,
+            path=concurrent_path,
+        )
+        session2.add(tp_b)
+        await session2.flush()
+
+        job_b = db_schema.AssetJob(
+            asset_uuid=asset_uuid,
+            request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+            status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+            target_tier_path_id=tp_b.id,
+        )
+        session2.add(job_b)
+        await session2.commit()
+
+      result = await assets.create_prefetch_job(
+          session1,
+          asset1,
+          backend=sb2,
+          storage_path=attempted_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+
+      self.assertFalse(result.created)
+
+      # Verify DB has only the concurrent TierPath (no new one created)
+      stmt_tp = select(db_schema.TierPath).filter_by(
+          asset_uuid=asset_uuid, storage_backend_id=b2_id
+      )
+      result_tp = await session1.execute(stmt_tp)
+      tps = result_tp.scalars().all()
+      self.assertLen(tps, 1)
+      self.assertEqual(tps[0].path, concurrent_path)
+
+  async def test_create_prefetch_job_sets_expires_at_and_uuid(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      self.assertIsNotNone(tp_b.tier_path_uuid)
+      self.assertIsNotNone(tp_b.expires_at)
+
+  async def test_prefetch_keep_alive_success(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      initial_expires_at = tp_b.expires_at
+
+      extended_asset = await assets.prefetch_keep_alive(
+          session,
+          tier_path_uuid=tp_b.tier_path_uuid,
+          interval=datetime.timedelta(seconds=1200),
+      )
+      self.assertIsNotNone(extended_asset)
+      tp_b_extended = next(
+          tp
+          for tp in extended_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      self.assertGreater(tp_b_extended.expires_at, initial_expires_at)
+
+  async def test_prefetch_keep_alive_not_found(self):
+    async with self.session_maker() as session:
+      result = await assets.prefetch_keep_alive(
+          session,
+          tier_path_uuid="non-existent-uuid",
+          interval=datetime.timedelta(seconds=1200),
+      )
+      self.assertIsNone(result)
+
+  async def test_prefetch_keep_alive_no_op_when_permanent(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      tp_b.expires_at = None
+      await session.commit()
+
+      extended_asset = await assets.prefetch_keep_alive(
+          session,
+          tier_path_uuid=tp_b.tier_path_uuid,
+          interval=datetime.timedelta(seconds=1200),
+      )
+      self.assertIsNotNone(extended_asset)
+      tp_b_extended = next(
+          tp
+          for tp in extended_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      self.assertIsNone(tp_b_extended.expires_at)
+
+  async def test_prefetch_keep_alive_only_extends(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      initial_expires_at = tp_b.expires_at
+
+      extended_asset = await assets.prefetch_keep_alive(
+          session,
+          tier_path_uuid=tp_b.tier_path_uuid,
+          interval=datetime.timedelta(seconds=10),
+      )
+      self.assertIsNotNone(extended_asset)
+      tp_b_extended = next(
+          tp
+          for tp in extended_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      self.assertEqual(tp_b_extended.expires_at, initial_expires_at)
+
+  async def test_prefetch_keep_alive_fails_if_deleting(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+      )
+      session.add(db_job)
+      await session.commit()
+
+      with self.assertRaisesRegex(
+          assets.DeletionPendingError, "marked for deletion"
+      ):
+        await assets.prefetch_keep_alive(
+            session,
+            tier_path_uuid=tp_b.tier_path_uuid,
+            interval=datetime.timedelta(seconds=1200),
+        )
+
+  async def test_prefetch_keep_alive_fails_if_instance_deleting(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+          target_tier_path_id=tp_b.id,
+      )
+      session.add(db_job)
+      await session.commit()
+
+      with self.assertRaisesRegex(
+          assets.DeletionPendingError, "marked for deletion"
+      ):
+        await assets.prefetch_keep_alive(
+            session,
+            tier_path_uuid=tp_b.tier_path_uuid,
+            interval=datetime.timedelta(seconds=1200),
+        )
+
+  async def test_create_prefetch_job_fails_if_deleting(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+      )
+      session.add(db_job)
+      await session.commit()
+
+      with self.assertRaisesRegex(
+          assets.DeletionPendingError, "marked for deletion"
+      ):
+        await assets.create_prefetch_job(
+            session,
+            asset,
+            backend=b2,
+            storage_path=storage_path,
+            client_keep_alive_interval=datetime.timedelta(seconds=600),
+        )
+
+  async def test_is_delete_pending_true(self):
+    async with self.session_maker() as session:
+      asset, _, _ = await self._set_a_finalized_asset(session)
+
+      # Insert a pending delete job
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+      )
+      session.add(db_job)
+      await session.commit()
+
+      self.assertTrue(
+          await assets.is_delete_pending(session, asset_uuid=asset.asset_uuid)
+      )
+
+  async def test_is_delete_pending_false(self):
+    async with self.session_maker() as session:
+      asset, _, _ = await self._set_a_finalized_asset(session)
+      # No job inserted
+      self.assertFalse(
+          await assets.is_delete_pending(session, asset_uuid=asset.asset_uuid)
+      )
+
+  async def test_is_tier_path_delete_pending_true(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      assert updated_asset is not None
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+
+      # Insert a pending delete from instance job
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+          target_tier_path_id=tp_b.id,
+      )
+      session.add(db_job)
+      await session.commit()
+
+      self.assertTrue(
+          await assets.is_tier_path_delete_pending(
+              session, asset_uuid=asset.asset_uuid, tier_path_id=tp_b.id
+          )
+      )
+
+  async def test_is_tier_path_delete_pending_false(self):
+    async with self.session_maker() as session:
+      asset, _, b2 = await self._set_a_finalized_asset(session)
+      storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
+      result = await assets.create_prefetch_job(
+          session,
+          asset,
+          backend=b2,
+          storage_path=storage_path,
+          client_keep_alive_interval=datetime.timedelta(seconds=600),
+      )
+      updated_asset = result.asset
+      self.assertIsNotNone(updated_asset)
+      assert updated_asset is not None
+      tp_b = next(
+          tp
+          for tp in updated_asset.tier_paths
+          if tp.storage_backend_id == b2.id
+      )
+      # No job inserted
+      self.assertFalse(
+          await assets.is_tier_path_delete_pending(
+              session, asset_uuid=asset.asset_uuid, tier_path_id=tp_b.id
+          )
+      )
 
 
 if __name__ == "__main__":

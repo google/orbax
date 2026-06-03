@@ -93,8 +93,34 @@ async def verify_lustre_permissions(token: str | None, path: str) -> bool:
   return token is not None
 
 
+async def has_read_permission(
+    token: str | None,
+    *,
+    backend: db_schema.StorageBackend,
+    path: str,
+) -> bool:
+  """Checks whether bearer token possesses permission scopes for storage read.
+
+  Args:
+    token: The OAuth token of the caller.
+    backend: The StorageBackend target.
+    path: The destination path on the backend.
+
+  Returns:
+    True if read permission is granted, False otherwise.
+  """
+  if backend.backend_type == db_schema.BackendType.BACKEND_TYPE_GCS:
+    return await verify_gcs_permissions(token, path, ["storage.objects.get"])
+  elif backend.backend_type == db_schema.BackendType.BACKEND_TYPE_LUSTRE:
+    return await verify_lustre_permissions(token, path)
+  else:
+    logging.warning("Unknown backend type: %s", backend.backend_type)
+    return False
+
+
 async def has_write_permission(
     token: str | None,
+    *,
     backend: db_schema.StorageBackend,
     path: str,
 ) -> bool:

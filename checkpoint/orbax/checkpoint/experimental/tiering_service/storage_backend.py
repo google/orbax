@@ -20,6 +20,9 @@ backend paths.
 """
 
 from collections.abc import Sequence
+from absl import logging
+import grpc
+from orbax.checkpoint.experimental.tiering_service import auth
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -125,3 +128,53 @@ def get_backend_name(backend: db_schema.StorageBackend) -> str:
     return "Lustre"
   else:
     return "unknown"
+
+
+async def verify_prefetch_permissions(
+    token: str | None,
+    *,
+    db_asset: db_schema.Asset,
+    closest_backend: db_schema.StorageBackend,
+    storage_path: str,
+    context: grpc.aio.ServicerContext,
+) -> None:
+  """Verifies read permissions for Prefetch on source and target backends.
+
+  If verification fails, aborts the gRPC call with PERMISSION_DENIED.
+
+  Args:
+    token: The OAuth token of the caller.
+    db_asset: The asset query target.
+    closest_backend: The target level 0 storage backend.
+    storage_path: The target storage path.
+    context: The gRPC servicer context.
+  """
+  # Check read permissions only on first tier paths, assuming requester
+  # has same read access to the rest.
+  if db_asset.tier_paths:
+    first_tp = db_asset.tier_paths[0]
+    if not await auth.has_read_permission(
+        token, backend=first_tp.storage_backend, path=first_tp.path
+    ):
+      logging.warning(
+          "Permission denied for Prefetch on source path: %s", first_tp.path
+      )
+      backend_name = get_backend_name(first_tp.storage_backend)
+      await context.abort(
+          grpc.StatusCode.PERMISSION_DENIED,
+          f"Insufficient read permissions on source {backend_name}",
+      )
+      return
+
+  # Check read permission on the target level 0 backend.
+  if not await auth.has_read_permission(
+      token, backend=closest_backend, path=storage_path
+  ):
+    logging.warning(
+        "Permission denied for Prefetch on storage path: %s", storage_path
+    )
+    backend_name = get_backend_name(closest_backend)
+    await context.abort(
+        grpc.StatusCode.PERMISSION_DENIED,
+        f"Insufficient read permissions on target {backend_name}",
+    )

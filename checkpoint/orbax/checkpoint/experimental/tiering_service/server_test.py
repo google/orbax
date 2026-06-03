@@ -20,10 +20,13 @@ from absl.testing import parameterized
 import aiosqlite  # pylint: disable=unused-import
 import greenlet  # pylint: disable=unused-import
 import grpc
+from orbax.checkpoint.experimental.tiering_service import auth
 from orbax.checkpoint.experimental.tiering_service import db_lib
+from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import server
 from orbax.checkpoint.experimental.tiering_service import server_config
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
+from sqlalchemy.future import select
 
 from google.protobuf import timestamp_pb2
 
@@ -81,6 +84,49 @@ class TieringServiceTest(
     tmp_file = self.create_tempfile()
     config.db_connection_str = f"sqlite+aiosqlite:///{tmp_file.full_path}"
     return config
+
+  def _get_multi_lustre_config(self, zone_prefixes):
+    """Sets up config with multiple Lustre backends and a default GCS backend."""
+    storage_backends_config = []
+    for zone, suffix in zone_prefixes:
+      storage_backends_config.append({
+          "level": 0,
+          "backend_type": "BACKEND_TYPE_LUSTRE",
+          "prefix": f"/mnt/lustre-{suffix}",
+          "zone": zone,
+      })
+    # Add the default GCS backend.
+    storage_backends_config.append({
+        "level": 1,
+        "backend_type": "BACKEND_TYPE_GCS",
+        "prefix": "gs://my-bucket",
+        "region": "us-central1",
+    })
+    return self._setup_config({"storage_backends": storage_backends_config})
+
+  async def _setup_servicer_and_asset(self):
+    """Sets up a servicer with 2 Lustre backends and reserves/finalizes an asset."""
+    config = self._get_multi_lustre_config([
+        ("us-central1-a", "a"),
+        ("us-central1-b", "b"),
+    ])
+    servicer = server.TieringServiceServicer(config)
+    await server.setup_storage_backends(config)
+    await servicer.initialize()
+    self.addAsyncCleanup(servicer.close)
+
+    # Reserve and Finalize on A.
+    reserve_res = await servicer.Reserve(
+        tiering_service_pb2.ReserveRequest(
+            path="test/path", user="test-user", zone="us-central1-a"
+        ),
+        self.context,
+    )
+    asset_uuid = reserve_res.asset.uuid
+    await servicer.Finalize(
+        tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
+    )
+    return servicer, asset_uuid
 
   async def test_reserve_success(self):
     request = tiering_service_pb2.ReserveRequest(
@@ -148,7 +194,7 @@ class TieringServiceTest(
 
   async def test_finalize_permission_denied(self):
     asset_uuid = await self._reserve_asset()
-    # Remove token from context to simulate missing auth
+    # Remove token from context to simulate missing auth.
     self.context.invocation_metadata.return_value = ()
 
     finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
@@ -164,7 +210,7 @@ class TieringServiceTest(
         tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
     )
 
-    # Try to finalize again
+    # Try to finalize again.
     finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
     await self.servicer.Finalize(finalize_req, self.context)
 
@@ -174,15 +220,6 @@ class TieringServiceTest(
         " ASSET_STATE_ACTIVE_WRITE",
     )
 
-  async def test_delete_unimplemented(self):
-    asset_uuid = await self._reserve_asset()
-    await self.servicer.Delete(
-        tiering_service_pb2.DeleteRequest(uuid=asset_uuid), self.context
-    )
-    self.context.abort.assert_called_once_with(
-        grpc.StatusCode.UNIMPLEMENTED, "Delete Not Implemented"
-    )
-
   async def test_info_success(self):
     asset_uuid = await self._reserve_asset()
     response = await self.servicer.Info(
@@ -190,11 +227,159 @@ class TieringServiceTest(
     )
     self.assertEqual(response.assets[0].uuid, asset_uuid)
 
-  async def test_prefetch_unimplemented(self):
+  async def test_prefetch_success_rpc_response(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid=asset_uuid, zone="us-central1-b"
+    )
+    prefetch_res = await servicer.Prefetch(prefetch_req, self.context)
+
+    self.assertEqual(prefetch_res.asset.uuid, asset_uuid)
+    paths = [tp.path for tp in prefetch_res.asset.tier_paths]
+    self.assertCountEqual(
+        paths,
+        ["/mnt/lustre-a/test/path", "/mnt/lustre-b/test/path"],
+    )
+
+  async def test_prefetch_success_db_job_creation(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid=asset_uuid, zone="us-central1-b"
+    )
+    await servicer.Prefetch(prefetch_req, self.context)
+
+    async with servicer._session_scope() as session:
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+      )
+      result = await session.execute(stmt)
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 1)
+      self.assertEqual(jobs[0].status, db_schema.JobStatus.JOB_STATUS_QUEUED)
+      target_tp_id = jobs[0].target_tier_path_id
+
+      stmt_tp = select(db_schema.TierPath).filter_by(
+          asset_uuid=asset_uuid, path="/mnt/lustre-b/test/path"
+      )
+      result_tp = await session.execute(stmt_tp)
+      tp_b = result_tp.scalars().first()
+      self.assertIsNotNone(tp_b)
+      self.assertEqual(target_tp_id, tp_b.id)
+      self.assertIsNone(tp_b.ready_at)
+
+  async def test_prefetch_idempotent(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # 1. Prefetch from B (first time).
+    await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+
+    # 2. Prefetch from B (second time).
+    await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+
+    # Verify only ONE job was created.
+    async with servicer._session_scope() as session:
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+      )
+      result = await session.execute(stmt)
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 1)
+
+  async def test_prefetch_already_ready(self):
+    # If we prefetch to the same zone where it was reserved and finalized,
+    # it should be already ready, so no job should be created.
     asset_uuid = await self._reserve_asset()
-    # Finalize the asset to STORED state so it is eligible for prefetching
-    finalize_req = tiering_service_pb2.FinalizeRequest(uuid=asset_uuid)
-    await self.servicer.Finalize(finalize_req, self.context)
+    await self.servicer.Finalize(
+        tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
+    )
+
+    # Prefetch to the same zone "us-central1-a"
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid=asset_uuid, zone="us-central1-a"
+    )
+    response = await self.servicer.Prefetch(prefetch_req, self.context)
+
+    # Verify response
+    self.assertEqual(response.asset.uuid, asset_uuid)
+    self.assertLen(response.asset.tier_paths, 1)
+    self.assertIsNotNone(response.asset.tier_paths[0].ready_at.ToDatetime())
+
+    # Verify NO job was created
+    async with self.servicer._session_scope() as session:
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+      )
+      result = await session.execute(stmt)
+      jobs = result.scalars().all()
+      self.assertEmpty(jobs)
+
+  async def test_prefetch_permission_denied(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # Remove token from context to simulate missing auth.
+    self.context.invocation_metadata.return_value = ()
+
+    # Prefetch from B (should fail).
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid=asset_uuid, zone="us-central1-b"
+    )
+    await servicer.Prefetch(prefetch_req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.PERMISSION_DENIED,
+        "Insufficient read permissions on source Lustre",
+    )
+
+  async def test_prefetch_permission_denied_on_target(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # Mock has_read_permission to succeed for source (lustre-a) but fail for
+    # target (lustre-b).
+    async def mock_has_read_permission(unused_token, *, backend, path):
+      del backend  # Unused.
+      if "lustre-b" in path:
+        return False
+      return True
+
+    with mock.patch.object(
+        auth,
+        "has_read_permission",
+        autospec=True,
+        side_effect=mock_has_read_permission,
+    ):
+      prefetch_req = tiering_service_pb2.PrefetchRequest(
+          uuid=asset_uuid, zone="us-central1-b"
+      )
+      await servicer.Prefetch(prefetch_req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.PERMISSION_DENIED,
+        "Insufficient read permissions on target Lustre",
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name="asset_not_finalized", reserve_asset=True),
+      dict(testcase_name="asset_does_not_exist", reserve_asset=False),
+  )
+  async def test_prefetch_not_found(self, reserve_asset):
+    asset_uuid = "invalid-uuid"
+    if reserve_asset:
+      asset_uuid = await self._reserve_asset()
 
     prefetch_req = tiering_service_pb2.PrefetchRequest(
         uuid=asset_uuid, zone="us-central1-a"
@@ -202,17 +387,142 @@ class TieringServiceTest(
     await self.servicer.Prefetch(prefetch_req, self.context)
 
     self.context.abort.assert_called_once_with(
-        grpc.StatusCode.UNIMPLEMENTED, "Prefetch Not Implemented"
+        grpc.StatusCode.NOT_FOUND, "Asset not found"
     )
 
-  async def test_prefetch_keep_alive_unimplemented(self):
+  async def test_prefetch_backend_not_found(self):
     asset_uuid = await self._reserve_asset()
-    req = tiering_service_pb2.PrefetchKeepAliveRequest(uuid=asset_uuid)
-    await self.servicer.PrefetchKeepAlive(req, self.context)
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid=asset_uuid, zone="us-central1-b"
+    )
+    await self.servicer.Prefetch(prefetch_req, self.context)
 
     self.context.abort.assert_called_once_with(
-        grpc.StatusCode.UNIMPLEMENTED, "PrefetchKeepAlive Not Implemented"
+        grpc.StatusCode.NOT_FOUND,
+        "No level 0 storage backend found for zone:us-central1-b / region:None",
     )
+
+  async def test_prefetch_backend_not_found_region_only(self):
+    prefetch_req = tiering_service_pb2.PrefetchRequest(
+        uuid="dummy-uuid", region="us-east1"
+    )
+    await self.servicer.Prefetch(prefetch_req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.NOT_FOUND,
+        "No level 0 storage backend found for zone:None / region:us-east1",
+    )
+
+  async def test_prefetch_keep_alive_grpc_success(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # 1. Prefetch on B (triggers job & creates TierPath on B)
+    prefetch_res = await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+    self.assertLen(prefetch_res.asset.tier_paths, 2)
+    tp_b = next(
+        tp for tp in prefetch_res.asset.tier_paths if "lustre-b" in tp.path
+    )
+    self.assertTrue(tp_b.HasField("expires_at"))
+    initial_expires_at = tp_b.expires_at.ToDatetime()
+
+    # 2. Call PrefetchKeepAlive
+    keep_alive_req = tiering_service_pb2.PrefetchKeepAliveRequest(
+        tier_path_uuid=tp_b.tier_path_uuid
+    )
+    keep_alive_res = await servicer.PrefetchKeepAlive(
+        keep_alive_req, self.context
+    )
+
+    # Verify TTL is extended
+    tp_b_extended = next(
+        tp for tp in keep_alive_res.asset.tier_paths if "lustre-b" in tp.path
+    )
+    self.assertGreater(
+        tp_b_extended.expires_at.ToDatetime(), initial_expires_at
+    )
+
+  async def test_prefetch_keep_alive_not_found_fails(self):
+    req = tiering_service_pb2.PrefetchKeepAliveRequest(
+        tier_path_uuid="non-existent-uuid"
+    )
+    await self.servicer.PrefetchKeepAlive(req, self.context)
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.NOT_FOUND, "TierPath not found"
+    )
+
+  async def test_prefetch_keep_alive_multi_zone_isolation(self):
+    config = self._get_multi_lustre_config([
+        ("us-central1-a", "a"),
+        ("us-central1-b", "b"),
+        ("us-central1-c", "c"),
+    ])
+    servicer = server.TieringServiceServicer(config)
+    await server.setup_storage_backends(config)
+    await servicer.initialize()
+    self.addAsyncCleanup(servicer.close)
+
+    # 1. Reserve and Finalize on C
+    reserve_res = await servicer.Reserve(
+        tiering_service_pb2.ReserveRequest(
+            path="test/path", user="test-user", zone="us-central1-c"
+        ),
+        self.context,
+    )
+    asset_uuid = reserve_res.asset.uuid
+    await servicer.Finalize(
+        tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
+    )
+
+    # 2. Prefetch to A (Zone A)
+    prefetch_res_a = await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-a"
+        ),
+        self.context,
+    )
+    tp_a = next(
+        tp for tp in prefetch_res_a.asset.tier_paths if "lustre-a" in tp.path
+    )
+    expires_at_a_initial = tp_a.expires_at.ToDatetime()
+
+    # 3. Prefetch to B (Zone B)
+    prefetch_res_b = await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+    tp_b = next(
+        tp for tp in prefetch_res_b.asset.tier_paths if "lustre-b" in tp.path
+    )
+    expires_at_b_initial = tp_b.expires_at.ToDatetime()
+
+    # 4. Extend Zone A's TTL
+    keep_alive_req = tiering_service_pb2.PrefetchKeepAliveRequest(
+        tier_path_uuid=tp_a.tier_path_uuid
+    )
+    keep_alive_res = await servicer.PrefetchKeepAlive(
+        keep_alive_req, self.context
+    )
+
+    # Verify Zone A's TTL is extended
+    tp_a_extended = next(
+        tp for tp in keep_alive_res.asset.tier_paths if "lustre-a" in tp.path
+    )
+    self.assertGreater(
+        tp_a_extended.expires_at.ToDatetime(), expires_at_a_initial
+    )
+
+    # Verify Zone B's TTL remains strictly unchanged (isolation)
+    tp_b_post = next(
+        tp for tp in keep_alive_res.asset.tier_paths if "lustre-b" in tp.path
+    )
+    self.assertEqual(tp_b_post.expires_at.ToDatetime(), expires_at_b_initial)
 
   async def test_prefetch_invalid_argument(self):
     asset_uuid = await self._reserve_asset()
@@ -237,7 +547,7 @@ class TieringServiceTest(
     self.assertTrue(tp.HasField("expires_at"))
 
   async def test_reserve_permission_denied(self):
-    # Remove token from context to simulate missing auth
+    # Remove token from context to simulate missing auth.
     self.context.invocation_metadata.return_value = ()
 
     request = tiering_service_pb2.ReserveRequest(

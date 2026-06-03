@@ -62,7 +62,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     self._engine = db_lib.get_async_engine(self._config)
     self._session_maker = sessionmaker(
         self._engine,
-        # Required for async session usage
+        # Required for async session usage.
         expire_on_commit=False,
         class_=AsyncSession,
     )
@@ -107,7 +107,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       )
       return tiering_service_pb2.ReserveResponse()
 
-    # Find the closest level 0 backend
+    # Find the closest level 0 backend.
     if self._level0_backends is None:
       await context.abort(
           grpc.StatusCode.FAILED_PRECONDITION, "Servicer not initialized"
@@ -116,7 +116,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     backend = storage_backend.locate_closest_backend(
         self._level0_backends, request.zone, request.region
     )
-    if not backend:
+    if backend is None:
       zone_val = request.zone
       region_val = request.region
       await context.abort(
@@ -129,7 +129,9 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     # Calculate resolved path and check GCS permission.
     storage_path = storage_backend.get_storage_path(backend, request.path)
     token = await auth.get_oauth_token(context)
-    if not await auth.has_write_permission(token, backend, storage_path):
+    if not await auth.has_write_permission(
+        token, backend=backend, path=storage_path
+    ):
       logging.warning(
           "Permission denied for Reserve on storage path: %s", storage_path
       )
@@ -146,6 +148,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
             session, request, backend, self._config
         )
       except ValueError as e:
+        logging.exception("Failed to reserve asset for path: %s", request.path)
         await context.abort(
             grpc.StatusCode.INTERNAL, f"Failed to reserve asset: {e}"
         )
@@ -172,7 +175,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
               seconds=self._config.client_keep_alive_interval_seconds
           ),
       )
-      if not db_asset:
+      if db_asset is None:
         logging.warning("ReserveKeepAlive: Asset not found: %s", request.uuid)
         await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
         return tiering_service_pb2.ReserveKeepAliveResponse()
@@ -193,7 +196,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     async with self._session_scope() as session:
       db_assets = await assets.fetch_asset_by_uuid(session, request.uuid)
       db_asset = db_assets[0] if db_assets else None
-      if not db_asset:
+      if db_asset is None:
         logging.warning("Finalize: Asset not found: %s", request.uuid)
         await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
         return tiering_service_pb2.FinalizeResponse()
@@ -212,7 +215,6 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         )
         return tiering_service_pb2.FinalizeResponse()
 
-      # Verify write permission before finalizing.
       tier_path = next(iter(db_asset.tier_paths), None)
       if tier_path is None:
         logging.warning(
@@ -227,7 +229,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         return tiering_service_pb2.FinalizeResponse()
 
       if not await auth.has_write_permission(
-          token, tier_path.storage_backend, tier_path.path
+          token, backend=tier_path.storage_backend, path=tier_path.path
       ):
         logging.warning(
             "Permission denied for Finalize on path: %s",
@@ -244,8 +246,8 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
 
       try:
         db_asset = await assets.finalize_asset(session, db_asset)
-        if not db_asset:
-          # This is unlikely to happen since we just finalized the asset
+        if db_asset is None:
+          # This is unlikely to happen since we just finalized the asset.
           raise ValueError("Asset not found after finalize")
       except ValueError as e:
         logging.exception("Finalize failed for UUID: %s", request.uuid)
@@ -270,12 +272,118 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
           grpc.StatusCode.INVALID_ARGUMENT, "No location specified"
       )
       return tiering_service_pb2.PrefetchResponse()
-    # TODO: b/503445654 - Trigger async copy to closest storage tier to user.
 
-    await context.abort(
-        grpc.StatusCode.UNIMPLEMENTED, "Prefetch Not Implemented"
+    if self._level0_backends is None:
+      await context.abort(
+          grpc.StatusCode.FAILED_PRECONDITION, "Servicer not initialized"
+      )
+      return tiering_service_pb2.PrefetchResponse()
+    closest_backend = storage_backend.locate_closest_backend(
+        self._level0_backends, request.zone, request.region
     )
-    return tiering_service_pb2.PrefetchResponse()
+    if closest_backend is None:
+      # No closest backend available to requestor.
+      zone_val = request.zone or None
+      region_val = request.region or None
+      await context.abort(
+          grpc.StatusCode.NOT_FOUND,
+          f"No level 0 storage backend found for zone:{zone_val} /"
+          f" region:{region_val}",
+      )
+      return tiering_service_pb2.PrefetchResponse()
+
+    async with self._session_scope() as session:
+
+      db_assets = await assets.fetch_asset_by_identifier(
+          session,
+          asset_uuid=request.uuid if request.HasField("uuid") else None,
+          path=request.path if request.HasField("path") else None,
+          inclusive_filter=[
+              db_schema.AssetState.ASSET_STATE_STORED,
+          ],
+      )
+      db_asset = db_assets[0] if db_assets else None
+      if db_asset is None:
+        identifier = request.uuid if request.HasField("uuid") else request.path
+        logging.warning(
+            "Prefetch: Asset not found or not STORED: %s", identifier
+        )
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.PrefetchResponse()
+
+      for tp in db_asset.tier_paths:
+        if tp.storage_backend_id == closest_backend.id:
+          # TODO: b/503445463 - Extend the expiration of the existing TierPath
+          # if needed.
+          logging.info(
+              "Prefetch: Asset %s already has a TierPath on backend %s",
+              db_asset.asset_uuid,
+              closest_backend.id,
+          )
+          return tiering_service_pb2.PrefetchResponse(
+              asset=assets.proto_from_db_asset(db_asset),
+              keep_alive_interval_seconds=(
+                  self._config.client_keep_alive_interval_seconds
+              ),
+          )
+
+      # No existing TierPath, we need to prefetch
+      storage_path = storage_backend.get_storage_path(
+          closest_backend, db_asset.path
+      )
+
+      token = await auth.get_oauth_token(context)
+
+      await storage_backend.verify_prefetch_permissions(
+          token,
+          db_asset=db_asset,
+          closest_backend=closest_backend,
+          storage_path=storage_path,
+          context=context,
+      )
+
+      try:
+        result = await assets.create_prefetch_job(
+            session,
+            db_asset,
+            backend=closest_backend,
+            storage_path=storage_path,
+            client_keep_alive_interval=datetime.timedelta(
+                seconds=self._config.client_keep_alive_interval_seconds
+            ),
+        )
+        db_asset = result.asset
+      except assets.DeletionPendingError:
+        identifier = request.uuid if request.HasField("uuid") else request.path
+        error_msg = f"Prefetch: Asset {identifier} is marked for deletion"
+        logging.exception(error_msg)
+        await context.abort(grpc.StatusCode.FAILED_PRECONDITION, error_msg)
+        return tiering_service_pb2.PrefetchResponse()
+      except ValueError:
+        logging.exception(
+            "Failed to create prefetch job for identifier: %s",
+            request.uuid if request.HasField("uuid") else request.path,
+        )
+        await context.abort(
+            grpc.StatusCode.INTERNAL,
+            "Failed to create prefetch job",
+        )
+        return tiering_service_pb2.PrefetchResponse()
+
+      if db_asset is None:
+        identifier = request.uuid if request.HasField("uuid") else request.path
+        logging.warning(
+            "Prefetch: Asset not found after create_prefetch_job for"
+            " identifier: %s",
+            identifier,
+        )
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.PrefetchResponse()
+
+      return tiering_service_pb2.PrefetchResponse(
+          asset=assets.proto_from_db_asset(db_asset),
+          keep_alive_interval_seconds=self._config.client_keep_alive_interval_seconds,
+      )
 
   async def PrefetchKeepAlive(
       self,
@@ -283,12 +391,50 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.PrefetchKeepAliveResponse:
     """Signals that the client is still reading/waiting for promotion."""
-    logging.info("PrefetchKeepAlive requested for UUID: %s", request.uuid)
-
-    await context.abort(
-        grpc.StatusCode.UNIMPLEMENTED, "PrefetchKeepAlive Not Implemented"
+    logging.info(
+        "PrefetchKeepAlive requested for tier_path_uuid: %s",
+        request.tier_path_uuid,
     )
-    return tiering_service_pb2.PrefetchKeepAliveResponse()
+
+    async with self._session_scope() as session:
+      try:
+        db_asset = await assets.prefetch_keep_alive(
+            session,
+            tier_path_uuid=request.tier_path_uuid,
+            interval=datetime.timedelta(
+                seconds=self._config.client_keep_alive_interval_seconds
+            ),
+        )
+      except assets.DeletionPendingError:
+        error_msg = (
+            "PrefetchKeepAlive: TierPath "
+            f"{request.tier_path_uuid} is marked for deletion"
+        )
+        logging.warning(error_msg)
+        await context.abort(grpc.StatusCode.FAILED_PRECONDITION, error_msg)
+        return tiering_service_pb2.PrefetchKeepAliveResponse()
+      except Exception:  # pylint: disable=broad-except
+        logging.exception(
+            "Failed to keep alive prefetch for TierPath: %s",
+            request.tier_path_uuid,
+        )
+        await context.abort(
+            grpc.StatusCode.INTERNAL,
+            "Failed to keep alive prefetch",
+        )
+        return tiering_service_pb2.PrefetchKeepAliveResponse()
+      if db_asset is None:
+        logging.warning(
+            "PrefetchKeepAlive: TierPath not found: %s",
+            request.tier_path_uuid,
+        )
+        await context.abort(grpc.StatusCode.NOT_FOUND, "TierPath not found")
+        return tiering_service_pb2.PrefetchKeepAliveResponse()
+
+      return tiering_service_pb2.PrefetchKeepAliveResponse(
+          asset=assets.proto_from_db_asset(db_asset),
+          keep_alive_interval_seconds=self._config.client_keep_alive_interval_seconds,
+      )
 
   async def Delete(
       self,

@@ -53,48 +53,96 @@ class AuthTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     self.assertIsNone(token)
 
   @parameterized.named_parameters(
-      (
-          "gcs_with_token",
-          db_schema.BackendType.BACKEND_TYPE_GCS,
-          "valid-token",
-          True,
+      dict(
+          testcase_name="gcs_with_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://bucket",
+          token="valid-token",
+          expected=True,
       ),
-      (
-          "gcs_no_token",
-          db_schema.BackendType.BACKEND_TYPE_GCS,
-          None,
-          False,
+      dict(
+          testcase_name="gcs_no_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://bucket",
+          token=None,
+          expected=False,
       ),
-      (
-          "lustre_with_token",
-          db_schema.BackendType.BACKEND_TYPE_LUSTRE,
-          "valid-token",
-          True,
+      dict(
+          testcase_name="lustre_with_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/mnt/lustre",
+          token="valid-token",
+          expected=True,
       ),
-      (
-          "lustre_no_token",
-          db_schema.BackendType.BACKEND_TYPE_LUSTRE,
-          None,
-          False,
+      dict(
+          testcase_name="lustre_no_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/mnt/lustre",
+          token=None,
+          expected=False,
       ),
   )
-  async def test_has_write_permission(self, backend_type, token, expected):
-    backend = db_schema.StorageBackend(
-        backend_type=backend_type,
-        prefix=(
-            "gs://bucket"
-            if backend_type == db_schema.BackendType.BACKEND_TYPE_GCS
-            else "/mnt/lustre"
-        ),
+  async def test_has_write_permission(
+      self, backend_type, prefix, token, expected
+  ):
+    backend = db_schema.StorageBackend(backend_type=backend_type, prefix=prefix)
+    result = await auth.has_write_permission(
+        token, backend=backend, path="path"
     )
-    result = await auth.has_write_permission(token, backend, "path")
     self.assertEqual(result, expected)
 
   async def test_has_write_permission_unknown_backend(self):
     backend = mock.create_autospec(db_schema.StorageBackend, instance=True)
     backend.backend_type = "UNKNOWN"
-    result = await auth.has_write_permission("token", backend, "path")
-    self.assertFalse(result)
+    result = await auth.has_write_permission(
+        "token", backend=backend, path="path"
+    )
+    self.assertIs(result, False)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="gcs_with_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://bucket",
+          token="valid-token",
+          expected=True,
+      ),
+      dict(
+          testcase_name="gcs_no_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://bucket",
+          token=None,
+          expected=False,
+      ),
+      dict(
+          testcase_name="lustre_with_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/mnt/lustre",
+          token="valid-token",
+          expected=True,
+      ),
+      dict(
+          testcase_name="lustre_no_token",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+          prefix="/mnt/lustre",
+          token=None,
+          expected=False,
+      ),
+  )
+  async def test_has_read_permission(
+      self, backend_type, prefix, token, expected
+  ):
+    backend = db_schema.StorageBackend(backend_type=backend_type, prefix=prefix)
+    result = await auth.has_read_permission(token, backend=backend, path="path")
+    self.assertEqual(result, expected)
+
+  async def test_has_read_permission_unknown_backend(self):
+    backend = mock.create_autospec(db_schema.StorageBackend, instance=True)
+    backend.backend_type = "UNKNOWN"
+    result = await auth.has_read_permission(
+        "token", backend=backend, path="path"
+    )
+    self.assertIs(result, False)
 
 
 if __name__ == "__main__":
