@@ -334,7 +334,6 @@ def get_v0_checkpointer_and_args(
       async_options=context.async_options.v0(),
       file_options=context.file_options.v0(),
       multiprocessing_options=context.multiprocessing_options.v0(),
-      temporary_path_class=context.file_options.temporary_path_class,
   )
   ckptr = async_checkpointer.AsyncCheckpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler(
@@ -344,7 +343,6 @@ def get_v0_checkpointer_and_args(
       async_options=context.async_options.v0(),
       multiprocessing_options=context.multiprocessing_options.v0(),
       file_options=context.file_options.v0(),
-      temporary_path_class=context.file_options.temporary_path_class,
   )
   args = composite_checkpoint_handler.CompositeArgs(**{
       name: handler_compatibility.Args(checkpointable)

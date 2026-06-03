@@ -197,7 +197,6 @@ class Checkpointer(epy.ContextManager):
         async_options=self._context.async_options.v0(),
         file_options=self._context.file_options.v0(),
         multiprocessing_options=self._context.multiprocessing_options.v0(),
-        temporary_path_class=self._context.file_options.temporary_path_class,
         # Prevent the checkpoint manager from writing metrics on its own. This
         # class will take responsibility for writing metrics.
         prevent_write_metrics=True,
