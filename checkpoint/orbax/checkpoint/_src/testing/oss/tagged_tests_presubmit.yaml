@@ -26,7 +26,7 @@ processes:4:
 - orbax/checkpoint/_src/testing/tree_verity:checkpoint_manager_test
 - orbax/checkpoint/experimental/emergency/multi_tier_checkpointing:process_metadata_checkpoint_handler_test
 - orbax/checkpoint/experimental/emergency:local_checkpoint_data_debugging_test
-- orbax/checkpoint/experimental/emergency:local_checkpoint_manager_test
+- orbax/checkpoint/experimental/emergency:local_checkpoint_manager_tmp_test
 - orbax/checkpoint/experimental/emergency:single_slice_checkpoint_manager_test
 - orbax/checkpoint/testing:local_path_test
 - orbax/checkpoint:checkpoint_manager_slice_test

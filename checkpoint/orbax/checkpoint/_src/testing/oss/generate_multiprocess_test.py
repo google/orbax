@@ -32,7 +32,7 @@ TEST_RULES = [
 ]
 EXCLUDED_PATHS = [
     'orbax/checkpoint/experimental/model_surgery',
-    'orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py',
+    'orbax/checkpoint/experimental/emergency/checkpoint_manager_tmp_test.py',
     'orbax/checkpoint/experimental/emergency/multi_tier_checkpointing/replicator_checkpoint_manager_test.py',
     'orbax/checkpoint/google',
 ]
