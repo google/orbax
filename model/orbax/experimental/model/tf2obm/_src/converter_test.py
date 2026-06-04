@@ -19,13 +19,13 @@ import os
 from absl.testing import absltest
 from absl.testing import parameterized
 import chex
+from google.protobuf import text_format
 from jax import tree_util as jax_tree_util
 from orbax.experimental.model import core as obm
 from orbax.experimental.model.tf2obm._src import converter
 import tensorflow as tf
 
 from tensorflow.python.util.protobuf import compare
-from google.protobuf import text_format
 
 
 _T1 = tf.TensorSpec((2, 3), tf.float32)

@@ -14,6 +14,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from google.protobuf import text_format
 import jax
 from jax.experimental import layout as jax_layout
 import jax.numpy as jnp
@@ -22,7 +23,6 @@ from orbax.experimental.model import core as obm
 from orbax.experimental.model.jax2obm import jax_specific_info
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 from tensorflow.python.util.protobuf import compare
-from google.protobuf import text_format
 from tensorflow.compiler.xla import xla_data_pb2
 
 

@@ -17,6 +17,7 @@ import os
 from absl.testing import absltest
 from absl.testing import parameterized
 import flax.linen as nn
+from google.protobuf import text_format
 import jax
 from jax import export as jax_export
 from jax.experimental import mesh_utils
@@ -32,7 +33,6 @@ from orbax.experimental.model.test_utils import simple_orchestration
 from orbax.experimental.model.test_utils import simple_orchestration_pb2
 
 from tensorflow.python.util.protobuf import compare
-from google.protobuf import text_format
 
 
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'

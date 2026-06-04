@@ -17,10 +17,9 @@
 import abc
 from collections.abc import Sequence
 import dataclasses
+from google.protobuf import message
 import jaxtyping
 import numpy as np
-
-from google.protobuf import message
 
 
 DTypeLike = str | np.dtype | type[np.generic]
