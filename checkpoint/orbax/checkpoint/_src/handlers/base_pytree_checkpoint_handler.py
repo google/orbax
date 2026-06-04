@@ -871,7 +871,6 @@ class BasePyTreeCheckpointHandler(
                   custom_metadata=custom_metadata,
                   use_ocdbt=self._use_ocdbt,
                   use_zarr3=self._use_zarr3,
-                  partial_save=args.partial_save_mode,
               ),
               name='write_metadata_after_commits',
           )
@@ -1331,9 +1330,7 @@ class BasePyTreeCheckpointHandler(
       custom_metadata: tree_types.JsonType | None,
       use_ocdbt: bool,
       use_zarr3: bool,
-      partial_save: bool,
   ) -> None:
-    del partial_save  # Unused
     if utils.is_primary_host(self._primary_host):
       metadata_write_start_time = time.time()
       path = directory / PYTREE_METADATA_FILE
@@ -1370,7 +1367,6 @@ class BasePyTreeCheckpointHandler(
       custom_metadata: tree_types.JsonType | None,
       use_ocdbt: bool,
       use_zarr3: bool,
-      partial_save: bool,
   ) -> None:
     start_time = time.time()
     if not utils.is_primary_host(self._primary_host):
@@ -1404,7 +1400,6 @@ class BasePyTreeCheckpointHandler(
         custom_metadata=custom_metadata,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
-        partial_save=partial_save,
     )
     end_time = time.time()
     logging.info(
