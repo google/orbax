@@ -188,6 +188,8 @@ def build_manifest_proto(
             "Serializing `ExternalValue.type` is not supported yet."
         )
       manifest.objects[name].value.external.data.CopyFrom(obj.data)
+      if obj.loader_type is not None:
+        manifest.objects[name].value.external.loader_type = obj.loader_type
 
     else:
       raise ValueError(

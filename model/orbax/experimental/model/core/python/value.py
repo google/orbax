@@ -32,3 +32,4 @@ class Value(ABC):
 class ExternalValue(Value):
   data: unstructured_data.UnstructuredData
   type: Optional[Tree[ShloTensorSpec]] = None
+  loader_type: Optional[int] = None

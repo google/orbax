@@ -238,6 +238,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         save_shlo_to_file=jax2obm_kwargs.get(
             constants.SAVE_SHLO_TO_FILE, False
         ),
+        loader_type=jax2obm_kwargs.get(constants.LOADER_TYPE),
     )
 
   def _normalize_apply_fn_map(

@@ -224,7 +224,10 @@ def save_checkpoint(
 
 
 def convert_path_to_value(
-    path: str, mime_type: str | None = None, version: str | None = None
+    path: str,
+    mime_type: str | None = None,
+    version: str | None = None,
+    loader_type: int | None = None,
 ) -> obm.ExternalValue:
   return obm.ExternalValue(
       data=obm.manifest_pb2.UnstructuredData(
@@ -234,4 +237,5 @@ def convert_path_to_value(
           mime_type=mime_type,
           version=version,
       ),
+      loader_type=loader_type,
   )

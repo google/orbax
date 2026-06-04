@@ -327,6 +327,7 @@ class Jax2ObmOptions:
       jax_export.DisabledSafetyCheck
   ] = ()
   save_shlo_to_file: bool = False
+  loader_type: int | None = None
 
 
 @dataclasses.dataclass(kw_only=True)

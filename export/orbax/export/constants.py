@@ -92,6 +92,9 @@ ENABLE_BF16_OPTIMIZATION = 'enable_bf16_optimization'
 # Whether to save stablehlo as an external file.
 SAVE_SHLO_TO_FILE = 'save_shlo_to_file'
 
+# Jax2obm_kwargs key for the loader type.
+LOADER_TYPE = 'loader_type'
+
 ################################################################################
 # Proto field names
 ################################################################################

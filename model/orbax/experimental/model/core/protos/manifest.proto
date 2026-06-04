@@ -69,6 +69,7 @@ message PolymorphicFunction {
 enum LoaderType {
   // The default loader, which loads the data from an Orbax checkpoint.
   LOADER_TYPE_DEFAULT = 0;
+  LEMMING_LOADER = 1;
 }
 
 message ExternalValue {
