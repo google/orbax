@@ -15,6 +15,7 @@
 import functools
 import math
 import os
+import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -86,6 +87,11 @@ class GetBackendOcdbtTargetDataFileSizeTest(parameterized.TestCase):
       dict(
           testcase_name='base_is_gcs_driver_dict',
           kvstore_spec={'base': {'driver': 'gcs', 'bucket': 'bucket'}},
+          expected_size=ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+      ),
+      dict(
+          testcase_name='base_is_gcs_grpc_driver_dict',
+          kvstore_spec={'base': {'driver': 'gcs_grpc', 'bucket': 'bucket'}},
           expected_size=ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
       ),
       dict(
@@ -237,6 +243,28 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         },
     )
 
+  @parameterized.product(gcs_backend=['gcs', 'gcs_grpc'])
+  def test_file_kvstore_with_gcs_path_and_custom_backend(
+      self, gcs_backend: str
+  ):
+    with unittest.mock.patch.dict(
+        os.environ, {'TENSORSTORE_GCS_BACKEND': gcs_backend}
+    ):
+      tspec = self.array_write_spec_constructor(
+          directory='gs://gcs_bucket/object_path',
+          relative_array_filename=self.param_name,
+          use_zarr3=False,
+          use_ocdbt=False,
+      )
+      self.assertEqual(
+          tspec.json['kvstore'],
+          {
+              'driver': gcs_backend,
+              'bucket': 'gcs_bucket',
+              'path': f'object_path/{self.param_name}',
+          },
+      )
+
   @parameterized.named_parameters(
       dict(
           testcase_name='local_fs_path',
@@ -312,7 +340,12 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     kvstore_tspec = tspec.json['kvstore']
     self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     self.assertEqual(
-        kvstore_tspec['base'], 'gs://gcs_bucket/object_path/ocdbt.process_0'
+        kvstore_tspec['base'],
+        {
+            'driver': 'gcs',
+            'bucket': 'gcs_bucket',
+            'path': 'object_path/ocdbt.process_0',
+        },
     )
     self.assertEqual(kvstore_tspec['path'], self.param_name)
     self.assertEqual(
@@ -321,23 +354,69 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     )
     self.assertNotIn('manifest', kvstore_tspec)
 
+  @parameterized.product(gcs_backend=['gcs', 'gcs_grpc'])
+  def test_full_spec_ocdbt_gcs(self, gcs_backend: str):
+    with unittest.mock.patch.dict(
+        os.environ, {'TENSORSTORE_GCS_BACKEND': gcs_backend}
+    ):
+      tspec = self.array_write_spec_constructor(
+          directory='gs://gcs_bucket/object_path',
+          relative_array_filename=self.param_name,
+          use_zarr3=False,
+          use_ocdbt=True,
+          process_id=0,
+      )
+
+      expected_spec = {
+          'driver': 'zarr',
+          'kvstore': {
+              'driver': 'ocdbt',
+              'base': {
+                  'driver': gcs_backend,
+                  'bucket': 'gcs_bucket',
+                  'path': 'object_path/ocdbt.process_0',
+              },
+              'path': self.param_name,
+              'target_data_file_size': (
+                  ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE
+              ),
+              'cache_pool': 'cache_pool#ocdbt',
+              'config': {
+                  'max_inline_value_bytes': 1024,
+                  'max_decoded_node_bytes': 100000000,
+                  'manifest_kind': 'single',
+              },
+              'experimental_read_coalescing_threshold_bytes': 1000000,
+              'experimental_read_coalescing_merged_bytes': 500000000000,
+              'experimental_read_coalescing_interval': '1ms',
+              'assume_config': True,
+          },
+          'metadata': {
+              'chunks': self.write_shape,
+              'compressor': {'id': 'zstd'},
+              'shape': self.shape,
+          },
+          'recheck_cached_data': False,
+          'recheck_cached_metadata': False,
+          'store_data_equal_to_fill_value': True,
+          'dtype': 'int32',
+      }
+      self.assertEqual(tspec.json, expected_spec)
+
 
   @parameterized.named_parameters(
       dict(
           testcase_name='regular_path',
           directory='gs://gcs_bucket/object_path',
-          expected_directory=None,
       ),
       dict(
           testcase_name='path_with_single_slash',
           directory='gs:/gcs_bucket/object_path',
-          expected_directory='gs://gcs_bucket/object_path',
       ),
   )
   def test_ocdbt_kvstore_with_gcs_path(
       self,
       directory: str,
-      expected_directory: str | None,
   ):
     tspec = self.array_write_spec_constructor(
         directory=directory,
@@ -351,7 +430,11 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
     self.assertEqual(
         kvstore_tspec['base'],
-        os.path.join(expected_directory or directory, 'ocdbt.process_0'),
+        {
+            'driver': 'gcs',
+            'bucket': 'gcs_bucket',
+            'path': 'object_path/ocdbt.process_0',
+        },
     )
     self.assertEqual(kvstore_tspec['path'], self.param_name)
     self.assertEqual(
@@ -828,6 +911,33 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         },
     }
     self.assertTrue(ts_utils.is_remote_storage(nested_tspec))
+
+    grpc_spec = {
+        'driver': 'zarr',
+        'kvstore': {
+            'driver': 'gcs_grpc',
+            'bucket': 'some-bucket',
+            'path': 'path',
+        },
+    }
+    self.assertTrue(ts_utils.is_remote_storage(grpc_spec))
+
+    nested_grpc_tspec = {
+        'driver': 'cast',
+        'dtype': 'int32',
+        'base': {
+            'driver': 'zarr',
+            'kvstore': {
+                'driver': 'ocdbt',
+                'base': {
+                    'driver': 'gcs_grpc',
+                    'bucket': 'some-bucket',
+                    'path': 'path',
+                },
+            },
+        },
+    }
+    self.assertTrue(ts_utils.is_remote_storage(nested_grpc_tspec))
 
 
 class BuildArrayTSpecForReadTest(parameterized.TestCase):

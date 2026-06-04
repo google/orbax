@@ -56,7 +56,7 @@ _GCS_OCDBT_TARGET_DATA_FILE_SIZE = 400 * 2**20  # 400 MiB
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
 
-_GCS_PATH_RE = r'^gs://([^/]*)/(.*)$'
+_GCS_PATH_RE = r'^gs://([^/]*)(?:/(.*))?$'
 
 # Even if the data is equal to the fill value, we still want to write it
 # to the checkpoint. This results in unnecessary writes in some edge
@@ -82,6 +82,7 @@ _DEFAULT_OCDBT_TS_CONTEXT = {
 _REMOTE_URL_PREFIXES = ['gs://', 's3://']
 _REMOTE_DRIVER_VALIDATIONS = [
     {'driver': 'gcs', 'path_regex': None},
+    {'driver': 'gcs_grpc', 'path_regex': None},
     {'driver': 's3', 'path_regex': None},
 ]
 
@@ -127,6 +128,7 @@ def get_ts_context(
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
+  """Constructs a TensorStore kvstore spec for a GCS path."""
   m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
   if m is None:
     raise ValueError(
@@ -134,8 +136,15 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
         f'file path inside the bucket. Got: {ckpt_path}'
     )
   gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2)
-  return {'driver': 'gcs', 'bucket': gcs_bucket, 'path': path_without_bucket}
+  path_without_bucket = m.group(2) or ''
+  # TODO(b/518937340): Consider enabling gcs_grpc by default.
+  # TODO(b/518937340): Migrate TENSORSTORE_GCS_BACKEND flag to `Context`.
+  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
+  return {
+      'driver': gcs_backend,
+      'bucket': gcs_bucket,
+      'path': path_without_bucket,
+  }
 
 
 def build_kvstore_tspec(
@@ -186,11 +195,11 @@ def build_kvstore_tspec(
             f'{PROCESS_SUBDIR_PREFIX}{REPLICA_SUBDIR_SUFFIX}{process_id}',
         ]
       directory = os.path.join(*join_paths)
-    base_driver_spec = (
-        directory
-        if is_gcs_path
-        else {'driver': default_driver, 'path': str(directory)}
-    )
+    # Base KVStore spec (nested within OCDBT KVStore spec).
+    if is_gcs_path:
+      base_driver_spec = _get_kvstore_for_gcs(directory)
+    else:
+      base_driver_spec = {'driver': default_driver, 'path': str(directory)}
     # For OCDBT on local filesystems (including GCSFuse), we can safely use
     # non-atomic writes for data files to avoid expensive renames. However,
     # the manifest file still requires atomic writes to avoid corruption.
@@ -285,7 +294,7 @@ def _get_backend_ocdbt_target_data_file_size(
       return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
   elif isinstance(base, dict):
     # OCDBT base can also be a dict with 'driver' and 'path' keys.
-    if base.get('driver') == 'gcs':
+    if base.get('driver') in ('gcs', 'gcs_grpc'):
       return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
     path_str = base.get('path')
     if path_str and gcs_utils.is_gcs_path(epath.Path(path_str)):

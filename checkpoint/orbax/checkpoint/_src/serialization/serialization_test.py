@@ -517,7 +517,12 @@ class CheckpointTest(parameterized.TestCase):
     ).json
     is_gcs_path = path.startswith('gs://')
     if is_gcs_path:
-      self.assertEqual(spec['kvstore']['base'], os.path.dirname(path))
+      expected = {
+          'driver': 'gcs',
+          'bucket': 'my',
+          'path': 'ckpt/dir',
+      }
+      self.assertEqual(spec['kvstore']['base'], expected)
     else:
       expected = {
           'driver': ts_utils.DEFAULT_DRIVER,
