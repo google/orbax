@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Support for `gcs_grpc` driver.
 - #v1 Add stringent validation for state abstract and concrete leaf types.
+- Update MTC w/ Pathways to Support Scale Elasticity.
 
 ## [0.12.0] - 2026-06-02
 

@@ -15,6 +15,8 @@
 """Controller-side colocated orchestration for Pathways MTC."""
 
 from collections.abc import Mapping
+import dataclasses
+import math
 import time
 from typing import Any, Callable
 
@@ -37,6 +39,9 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
     colocated_utils,
 )
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
+    pathways_topology,
+)
 
 
 PyTree = Any
@@ -47,6 +52,40 @@ _RETRIABLE_COLOCATED_CALL_EXCEPTIONS = (
     jax.errors.JaxRuntimeError,
     RuntimeError,
 )
+
+
+def _array_tree_summary(tree: PyTree) -> str:
+  """Returns a compact shape/dtype-only summary without materializing arrays.
+
+  Non-array leaves are ignored because this helper is only used for debug
+  logging. Save-path validation happens outside logging-gated code.
+
+  Args:
+    tree: The PyTree payload block to summarize.
+
+  Returns:
+    A compact shape/dtype-only summary wrapper.
+  """
+  array_leaves = [
+      leaf for leaf in jax.tree.leaves(tree) if isinstance(leaf, jax.Array)
+  ]
+  total_bytes = 0
+  platforms = set()
+  samples = []
+  for leaf in array_leaves:
+    total_bytes += math.prod(leaf.shape) * leaf.dtype.itemsize
+    platforms.update(device.platform for device in leaf.sharding.device_set)
+    if len(samples) < 3:
+      samples.append(
+          f'shape={leaf.shape}, dtype={leaf.dtype}, '
+          f'sharding={type(leaf.sharding).__name__}'
+      )
+  gib = total_bytes / (1024**3)
+  return (
+      f'array_leaves={len(array_leaves)}, estimated_bytes={total_bytes} '
+      f'({gib:.2f} GiB), platforms={sorted(platforms)}, '
+      f'samples={samples}'
+  )
 
 
 def _run_lifecycle_ops(*ops: Callable[[], None]) -> None:
@@ -66,8 +105,44 @@ def _run_lifecycle_ops(*ops: Callable[[], None]) -> None:
     raise first_error
 
 
+def _validate_colocated_options(options: Any) -> None:
+  """Rejects RCM options not yet supported by worker-side colocated MTC."""
+  unsupported_options = [
+      name
+      for name in ('step_name_format', 'should_save_fn', 'preservation_policy')
+      if getattr(options, name, None) is not None
+  ]
+  if unsupported_options:
+    raise NotImplementedError(
+        'Pathways colocated MTC does not support custom '
+        'ReplicatorCheckpointManagerOptions for '
+        f'{unsupported_options}.'
+    )
+
+
 class _MissingShapeDtypeError(ValueError):
   """Raised when a restore spec source cannot provide shape/dtype."""
+
+
+@dataclasses.dataclass(frozen=True)
+class _ExpectedLeaf:
+  """Metadata extracted from a state tree's expected leaf layout."""
+
+  shape: tuple[int, ...] | None
+  dtype: Any | None
+
+
+@dataclasses.dataclass
+class _PendingSave:
+  """Controller-side anchors for an in-flight colocated worker save."""
+
+  step: int
+  force: bool
+  result: Any
+  keepalive: tuple[Any, ...]
+  dataset_args: args_lib.Composite | None
+  start_time: float
+  saved: bool | None = None
 
 
 def _step_arr_on_state_devices(step: int, state: PyTree) -> jax.Array:
@@ -136,6 +211,17 @@ def _scalar_spec_like(
   return jax.ShapeDtypeStruct((), dtype=dtype, sharding=arg_spec.sharding)
 
 
+def _replicated_sharding_like(
+    sharding: jax.sharding.Sharding,
+) -> jax.sharding.Sharding:
+  """Returns a replicated version of the given sharding."""
+  if isinstance(sharding, jax.sharding.NamedSharding):
+    return jax.sharding.NamedSharding(
+        sharding.mesh, jax.sharding.PartitionSpec()
+    )
+  return sharding
+
+
 def _serialize_for_colocated_transport(tree: PyTree) -> PyTree:
   """Canonicalizes a PyTree before it crosses the colocated boundary."""
   return tree_metadata.serialize_tree(
@@ -169,6 +255,166 @@ def _try_deserialize_from_colocated_transport(
     return None
 
 
+def _is_restore_spec_leaf(value: Any) -> bool:
+  """Returns whether the value is a valid restore spec leaf."""
+  return isinstance(
+      value,
+      (
+          jax.Array,
+          jax.ShapeDtypeStruct,
+          type_handlers.ArrayRestoreArgs,
+      ),
+  )
+
+
+def _expected_leaf_from_template(value: Any) -> _ExpectedLeaf | None:
+  """Returns expected shape/dtype based on a restore spec template leaf."""
+  if isinstance(value, (jax.Array, jax.ShapeDtypeStruct)):
+    return _ExpectedLeaf(tuple(value.shape), value.dtype)
+  if isinstance(value, type_handlers.ArrayRestoreArgs):
+    shape = None
+    if value.global_shape is not None:
+      shape = tuple(value.global_shape)
+    return _ExpectedLeaf(shape, value.dtype)
+  shape = getattr(value, 'shape', None)
+  dtype = getattr(value, 'dtype', None)
+  if shape is not None or dtype is not None:
+    return _ExpectedLeaf(None if shape is None else tuple(shape), dtype)
+  return None
+
+
+def _validate_restored_shape_dtype(
+    *,
+    restored_state: PyTree,
+    template_state: PyTree,
+) -> None:
+  """Validates restored leaves against caller-provided shape/dtype specs."""
+  restored_leaves = jax.tree.leaves(restored_state)
+  template_leaves = jax.tree.leaves(
+      template_state, is_leaf=_is_restore_spec_leaf
+  )
+  if len(restored_leaves) != len(template_leaves):
+    raise ValueError(
+        'colocated restore produced a different number of leaves than the '
+        f'restore template: restored={len(restored_leaves)}, '
+        f'template={len(template_leaves)}.'
+    )
+
+  for index, (restored_leaf, template_leaf) in enumerate(
+      zip(restored_leaves, template_leaves)
+  ):
+    expected_leaf = _expected_leaf_from_template(template_leaf)
+    if expected_leaf is None:
+      continue
+    restored_shape = getattr(restored_leaf, 'shape', None)
+    if (
+        expected_leaf.shape is not None
+        and tuple(restored_shape or ()) != expected_leaf.shape
+    ):
+      raise ValueError(
+          'colocated restore produced a leaf with an unexpected shape: '
+          f'leaf={index}, restored_shape={restored_shape}, '
+          f'expected_shape={expected_leaf.shape}.'
+      )
+    restored_dtype = getattr(restored_leaf, 'dtype', None)
+    if (
+        expected_leaf.dtype is not None
+        and restored_dtype != expected_leaf.dtype
+    ):
+      raise ValueError(
+          'colocated restore produced a leaf with an unexpected dtype: '
+          f'leaf={index}, restored_dtype={restored_dtype}, '
+          f'expected_dtype={expected_leaf.dtype}.'
+      )
+
+
+def _validate_restore_template_compatibility(
+    *,
+    item: PyTree,
+    restore_args: PyTree,
+) -> None:
+  """Checks explicit restore_args do not conflict with the restore item."""
+  item_leaves = jax.tree.leaves(item, is_leaf=_is_restore_spec_leaf)
+  restore_arg_leaves = jax.tree.leaves(
+      restore_args, is_leaf=_is_restore_spec_leaf
+  )
+  for index, (item_leaf, restore_arg_leaf) in enumerate(
+      zip(item_leaves, restore_arg_leaves)
+  ):
+    item_expected = _expected_leaf_from_template(item_leaf)
+    restore_arg_expected = _expected_leaf_from_template(restore_arg_leaf)
+    if item_expected is None or restore_arg_expected is None:
+      continue
+    if (
+        restore_arg_expected.shape is not None
+        and item_expected.shape is not None
+        and restore_arg_expected.shape != item_expected.shape
+    ):
+      raise ValueError(
+          'colocated restore does not support restore_args shape transforms; '
+          'item and restore_args shape must agree. '
+          f'leaf={index}, item_shape={item_expected.shape}, '
+          f'restore_args_shape={restore_arg_expected.shape}.'
+      )
+    if (
+        restore_arg_expected.dtype is not None
+        and item_expected.dtype is not None
+        and restore_arg_expected.dtype != item_expected.dtype
+    ):
+      raise ValueError(
+          'colocated restore does not support restore_args dtype casting; '
+          'item and restore_args dtype must agree. '
+          f'leaf={index}, item_dtype={item_expected.dtype}, '
+          f'restore_args_dtype={restore_arg_expected.dtype}.'
+      )
+
+
+def _prepare_restore_target_shardings(
+    state_restore_args: args_lib.PyTreeRestore,
+) -> PyTree:
+  """Resolves target shardings for restore."""
+
+  def _resolve_restore_arg_sharding(ra: Any) -> jax.sharding.Sharding:
+    if not isinstance(ra, type_handlers.ArrayRestoreArgs):
+      raise TypeError(
+          'Colocated restore requires all restore_args leaves to be '
+          f'ArrayRestoreArgs, got {type(ra).__name__}.'
+      )
+    sharding = ra.sharding
+    if isinstance(sharding, sharding_metadata.ShardingMetadata):
+      sharding = sharding.to_jax_sharding()
+    elif sharding is None and ra.mesh is not None and ra.mesh_axes is not None:
+      sharding = jax.sharding.NamedSharding(ra.mesh, ra.mesh_axes)
+    if not isinstance(sharding, jax.sharding.Sharding):
+      raise ValueError(
+          'ArrayRestoreArgs sharding must be a jax.sharding.Sharding, '
+          f'got {type(sharding).__name__}.'
+      )
+    return sharding
+
+  def _resolve_item_sharding(leaf: Any) -> jax.sharding.Sharding:
+    sharding = getattr(leaf, 'sharding', None)
+    if sharding is None:
+      raise ValueError(
+          'Colocated restore requires item leaves to provide sharding when '
+          f'restore_args is not provided. Got: {leaf!r}'
+      )
+    if isinstance(sharding, sharding_metadata.ShardingMetadata):
+      sharding = sharding.to_jax_sharding()
+    if not isinstance(sharding, jax.sharding.Sharding):
+      raise ValueError(
+          'PyTreeRestore.item sharding must be a jax.sharding.Sharding, '
+          f'got {type(sharding).__name__}.'
+      )
+    return sharding
+
+  if state_restore_args.restore_args is not None:
+    return jax.tree.map(
+        _resolve_restore_arg_sharding, state_restore_args.restore_args
+    )
+  return jax.tree.map(_resolve_item_sharding, state_restore_args.item)
+
+
 class ColocatedController:
   """Controller wrapper around the worker-side checkpoint backend."""
 
@@ -184,15 +430,26 @@ class ColocatedController:
           ..., checkpoint_manager.CheckpointManagerOptions
       ],
   ) -> None:
-    from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (  # pylint: disable=line-too-long,g-import-not-at-top
-        sidecar_worker_checkpoint_manager,
-    )
+    # pylint: disable=g-import-not-at-top,consider-using-from-import
+    import orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.sidecar_worker_checkpoint_manager as sidecar_worker_checkpoint_manager  # pytype: disable=import-error
+    # pylint: enable=g-import-not-at-top,consider-using-from-import
 
+    _validate_colocated_options(options)
     self._local_directory = local_directory
     colocated_transport.install_pathways_colocated_serialization_patch()
+    topology = pathways_topology.Topology.from_devices(
+        tuple(global_mesh.devices.flat)
+    )
     colocated_cpu_mesh = colocated_transport.colocated_cpu_mesh(global_mesh)
     colocated_cpu_mesh_device_ids = tuple(
         int(d.id) for d in colocated_cpu_mesh.devices.flat
+    )
+    distributed_to_cpu_device_ids = tuple(
+        tuple(device_ids)
+        for device_ids in topology.remap_distributed_device_ids(
+            tuple(global_mesh.devices.flat),
+            tuple(colocated_cpu_mesh.devices.flat),
+        )
     )
     worker_manager_cls = (
         sidecar_worker_checkpoint_manager.WorkerCheckpointManager
@@ -204,12 +461,14 @@ class ColocatedController:
         mesh_device_ids=colocated_cpu_mesh_device_ids,
         mesh_axis_types=tuple(global_mesh.axis_types),
         save_interval_steps=options.save_interval_steps,
+        distributed_to_device_ids=distributed_to_cpu_device_ids,
+        enable_async_checkpointing=options.enable_async_checkpointing,
+        save_concurrent_gb=options.save_concurrent_gb,
+        restore_concurrent_gb=options.restore_concurrent_gb,
     )
     # Worker-management RPCs should run once per worker VM. State arrays may
     # still use one colocated CPU per accelerator, so keep those ids separate.
-    self._worker_cpu_devices = colocated_utils.colocated_cpu_devices_by_worker(
-        tuple(global_mesh.devices.flat)
-    )
+    self._worker_cpu_devices = topology.worker_cpu_devices()
     state_cpu_devices = []
     seen_cpu_ids = set()
     for device in colocated_cpu_mesh.devices.flat:
@@ -246,6 +505,7 @@ class ColocatedController:
 
     self._worker_save_call = None
     self._worker_save_call_in_specs = None
+    self._pending_save = None
 
   @property
   def directory(self) -> epath.Path:
@@ -260,28 +520,31 @@ class ColocatedController:
     while time.time() < deadline:
       attempt += 1
       try:
-        result = self._worker_manager.latest_step(self._dummy)
+        result = self._worker_manager.all_steps(self._dummy)
         jax.block_until_ready(result)
-        worker_latest_steps = colocated_utils.scalar_result_values(
-            result, op_name='latest_step'
+        worker_step_arrays = colocated_utils.array_result_values(
+            result, op_name='all_steps'
         )
+        if not worker_step_arrays:
+          return None
 
-        if not worker_latest_steps:
-          return None
-        unique_steps = set(int(step) for step in worker_latest_steps)
-        if unique_steps == {colocated_utils.NO_STEP_SENTINEL}:
-          return None
-        if len(unique_steps) != 1:
+        worker_step_sets = []
+        for steps in worker_step_arrays:
+          worker_step_sets.append({
+              int(step)
+              for step in steps.reshape(-1)
+              if int(step) != colocated_utils.NO_STEP_SENTINEL
+          })
+
+        common_steps = set.intersection(*worker_step_sets)
+        if not common_steps:
           logging.vlog(
               1,
-              'Workers reported inconsistent latest steps: %s',
-              sorted(unique_steps),
+              'Workers reported no common checkpoint steps: %s',
+              [sorted(steps) for steps in worker_step_sets],
           )
           return None
-        latest_step = unique_steps.pop()
-        if latest_step == colocated_utils.NO_STEP_SENTINEL:
-          return None
-        return latest_step
+        return max(common_steps)
       except _RETRIABLE_COLOCATED_CALL_EXCEPTIONS as e:
         last_error = e
         logging.vlog(
@@ -298,6 +561,8 @@ class ColocatedController:
 
   def should_save(self, step: int) -> bool:
     """Returns whether workers want to save `step`."""
+    if step == colocated_utils.NO_STEP_SENTINEL:
+      return False
     step_arr = _scalar_on_dummy(step, self._dummy, dtype=jnp.int32)
     result = self._worker_manager.should_save(step_arr)
     jax.block_until_ready(result)
@@ -308,6 +573,8 @@ class ColocatedController:
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether any async save work is in flight."""
+    if self._pending_save is not None:
+      return True
     result = self._worker_manager.is_saving_in_progress(self._dummy)
     jax.block_until_ready(result)
     worker_value = colocated_utils.require_unanimous_scalar_result(
@@ -326,25 +593,88 @@ class ColocatedController:
       *,
       force: bool = False,
   ) -> bool:
-    """Saves state and returns whether a new save occurred."""
-    state = self._prepare_state_for_save(args)
+    """Saves state and returns whether a new save occurred.
+
+    Args:
+      step: The current training step.
+      args: Replicator arguments for saving.
+      force: If True, bypasses the normal save schedule.
+
+    Returns:
+      True if the step was dispatched for saving, False otherwise.
+    """
+    if step == colocated_utils.NO_STEP_SENTINEL:
+      return False
+    save_start = time.time()
+    if not force:
+      should_save_start = time.time()
+      should_save = self.should_save(step)
+      logging.info(
+          'Pathways colocated MTC save step=%s: should_save=%s elapsed=%.3fs.',
+          step,
+          should_save,
+          time.time() - should_save_start,
+      )
+      if not should_save:
+        return False
+
+    pending_start = time.time()
+    had_pending_save = self._pending_save is not None
+    self._finish_pending_save()
+    if had_pending_save:
+      logging.info(
+          'Pathways colocated MTC save step=%s: prior async save finalized '
+          'elapsed=%.3fs.',
+          step,
+          time.time() - pending_start,
+      )
+    logging.info(
+        'Pathways colocated MTC save step=%s force=%s: begin.',
+        step,
+        force,
+    )
+    prepare_start = time.time()
+    state = self._prepare_state_for_save(step, args)
+    logging.info(
+        'Pathways colocated MTC save step=%s: prepared state elapsed=%.3fs.',
+        step,
+        time.time() - prepare_start,
+    )
     step_arr = _step_arr_on_state_devices(step, state)
     force_arr = jax.device_put(
         jnp.array(force, dtype=jnp.bool_), step_arr.sharding
     )
+    specialize_start = time.time()
     save_call = self._get_worker_save_call(step_arr, force_arr, state)
-    result = save_call(step_arr, force_arr, state)
-    jax.block_until_ready(result)
-    value = colocated_utils.require_unanimous_scalar_result(
-        result, op_name='save'
+    logging.info(
+        'Pathways colocated MTC save step=%s: worker save call ready '
+        'elapsed=%.3fs.',
+        step,
+        time.time() - specialize_start,
     )
-    saved = bool(value)
-    if saved:
-      self._save_persistent_dataset(step, args, force=force)
-    # Keep alive anchor to prevent aggressive garbage collection during async
-    # save.
-    del step_arr, force_arr, state
-    return saved
+    dispatch_start = time.time()
+    result = save_call(step_arr, force_arr, state)
+    logging.info(
+        'Pathways colocated MTC save step=%s: save_call returned '
+        'elapsed=%.3fs.',
+        step,
+        time.time() - dispatch_start,
+    )
+    self._pending_save = _PendingSave(
+        step=step,
+        force=force,
+        result=result,
+        keepalive=(step_arr, force_arr, state),
+        dataset_args=self._persistent_dataset_args(args),
+        start_time=save_start,
+    )
+    logging.info(
+        'Pathways colocated MTC save step=%s: dispatched async save '
+        'total_elapsed=%.3fs.',
+        step,
+        time.time() - save_start,
+    )
+    return True
 
   def restore(
       self,
@@ -360,11 +690,18 @@ class ColocatedController:
           'Expected PyTreeRestore for state restore args in colocated mode, '
           f'got {type(state_restore_args).__name__}.'
       )
-    if state_restore_args.restore_args is None:
+    if (
+        state_restore_args.restore_args is None
+        and state_restore_args.item is None
+    ):
       raise NotImplementedError(
-          'colocated restore currently requires explicit restore_args.'
+          'colocated restore requires PyTreeRestore.item or explicit '
+          'restore_args.'
       )
-    if state_restore_args.item is not None:
+    if (
+        state_restore_args.item is not None
+        and state_restore_args.restore_args is not None
+    ):
       restore_treedef = jax.tree.structure(state_restore_args.restore_args)
       item_treedef = jax.tree.structure(state_restore_args.item)
       if restore_treedef != item_treedef:
@@ -372,16 +709,23 @@ class ColocatedController:
             'colocated restore requires restore_args and item to share the '
             'same pytree structure.'
         )
+      _validate_restore_template_compatibility(
+          item=state_restore_args.item,
+          restore_args=state_restore_args.restore_args,
+      )
 
     resolved_step = step
     if resolved_step is None:
       resolved_step = self.latest_step()
       if resolved_step is None:
         raise FileNotFoundError(f'No steps found in {self.directory}.')
+    if resolved_step == colocated_utils.NO_STEP_SENTINEL:
+      raise ValueError(
+          'Pathways colocated MTC cannot restore step 0 because the MTC '
+          'coordinator protocol reserves step 0 as "no checkpoint".'
+      )
 
-    target_shardings = self._prepare_restore_target_shardings(
-        state_restore_args
-    )
+    target_shardings = _prepare_restore_target_shardings(state_restore_args)
     transport_target_shardings = _serialize_for_colocated_transport(
         target_shardings
     )
@@ -393,12 +737,16 @@ class ColocatedController:
     out_specs = self._restore_out_specs(
         resolved_step, state_restore_args, transport_target_shardings
     )
+    partial_restore_arr = jax.device_put(
+        jnp.array(state_restore_args.partial_restore, dtype=jnp.bool_),
+        step_arr.sharding,
+    )
     restore_call = self._worker_manager.restore_infer.specialize(
-        out_specs_fn=lambda _step_spec: out_specs,
+        out_specs_fn=lambda *_unused_specs: out_specs,
         devices=self._state_cpu_devices,
     )
     try:
-      result = restore_call(step_arr)
+      result = restore_call(step_arr, partial_restore_arr)
       jax.block_until_ready(result)
     except _RETRIABLE_COLOCATED_CALL_EXCEPTIONS as e:
       logging.vlog(
@@ -407,14 +755,19 @@ class ColocatedController:
           type(e).__name__,
           e,
       )
-      result = restore_call(step_arr)
+      result = restore_call(step_arr, partial_restore_arr)
       jax.block_until_ready(result)
     # Keep alive anchor to prevent aggressive garbage collection during async
     # restore.
-    del step_arr
+    del step_arr, partial_restore_arr
     colocated_utils.assert_arrays_on_platform(
         result,
         expected_platform='cpu',
+        tree_name='restored_state_from_workers',
+    )
+    colocated_utils.assert_arrays_on_allowed_cpu_ids(
+        result,
+        allowed_ids=self._colocated_cpu_ids,
         tree_name='restored_state_from_workers',
     )
     rebuild_template = (
@@ -423,6 +776,16 @@ class ColocatedController:
         else state_restore_args.restore_args
     )
     state = self._rebuild_restored_state(result, rebuild_template)
+    _validate_restored_shape_dtype(
+        restored_state=state, template_state=rebuild_template
+    )
+    if (
+        state_restore_args.restore_args is not None
+        and state_restore_args.restore_args is not rebuild_template
+    ):
+      _validate_restored_shape_dtype(
+          restored_state=state, template_state=state_restore_args.restore_args
+      )
     final_target_shardings = (
         target_shardings
         if state_restore_args.item is not None
@@ -440,7 +803,20 @@ class ColocatedController:
         state,
         final_target_shardings,
     )
+    final_transfer_start = time.time()
+    logging.info(
+        'Pathways colocated MTC restore step=%s: transferring restored state '
+        'to final target shardings.',
+        resolved_step,
+    )
     state = colocated_transport.to_final_specs(state, target_specs)
+    jax.block_until_ready(state)
+    logging.info(
+        'Pathways colocated MTC restore step=%s: final target shardings ready '
+        'elapsed=%.3fs.',
+        resolved_step,
+        time.time() - final_transfer_start,
+    )
     return self._finalize_restore_result(
         step=resolved_step,
         args=args,
@@ -450,15 +826,17 @@ class ColocatedController:
 
   def wait_until_finished(self) -> None:
     """Blocks until persistent and worker-side async save work finishes."""
-    ops = []
+    pending_save_exists = self._pending_save is not None
+    ops = [self._finish_pending_save]
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.wait_until_finished)
-    ops.append(self._worker_wait_until_finished)
+    if not pending_save_exists:
+      ops.append(self._worker_wait_until_finished)
     _run_lifecycle_ops(*ops)
 
   def check_for_errors(self) -> None:
     """Raises async checkpoint errors from persistent and worker managers."""
-    ops = []
+    ops = [self._drain_pending_save]
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.check_for_errors)
     ops.append(self._worker_check_for_errors)
@@ -466,7 +844,7 @@ class ColocatedController:
 
   def close(self) -> None:
     """Closes worker-side and persistent managers."""
-    ops = []
+    ops = [self._finish_pending_save]
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.close)
     ops.append(self._worker_close)
@@ -494,6 +872,14 @@ class ColocatedController:
 
     self._worker_manager.latest_step = _specialize(
         self._worker_manager.latest_step, jnp.int32
+    )
+    self._worker_manager.all_steps = self._worker_manager.all_steps.specialize(
+        out_specs_fn=lambda arg_spec: jax.ShapeDtypeStruct(
+            (colocated_utils.MAX_TRACKED_STEPS,),
+            dtype=jnp.int32,
+            sharding=_replicated_sharding_like(arg_spec.sharding),
+        ),
+        devices=self._worker_cpu_devices,
     )
     self._worker_manager.should_save = _specialize(
         self._worker_manager.should_save, jnp.bool_
@@ -550,15 +936,24 @@ class ColocatedController:
     self._worker_save_call_in_specs = in_specs
     return self._worker_save_call
 
+  def _persistent_dataset_args(
+      self,
+      args: args_lib.Composite,
+  ) -> args_lib.Composite | None:
+    """Returns dataset-only args for persistent save, if present."""
+    if _DATASET_ITEM_NAME not in args.keys():
+      return None
+    return args_lib.Composite(**{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]})
+
   def _save_persistent_dataset(
       self,
       step: int,
-      args: args_lib.Composite,
+      dataset_args: args_lib.Composite | None,
       *,
       force: bool,
   ) -> None:
     """Saves persistent dataset if present in args."""
-    if _DATASET_ITEM_NAME not in args.keys():
+    if dataset_args is None:
       return
     if self._persistent_checkpoint_manager is None:
       raise NotImplementedError(
@@ -567,13 +962,86 @@ class ColocatedController:
       )
     self._persistent_checkpoint_manager.save(
         step,
-        args=args_lib.Composite(
-            **{_DATASET_ITEM_NAME: args[_DATASET_ITEM_NAME]}
-        ),
+        args=dataset_args,
         force=force,
     )
 
-  def _prepare_state_for_save(self, args: args_lib.Composite) -> PyTree:
+  def _drain_pending_save(self) -> bool | None:
+    """Drains a pending worker save result, if one exists."""
+    pending_save = self._pending_save
+    if pending_save is None:
+      return None
+    if pending_save.saved is not None:
+      return pending_save.saved
+    block_start = time.time()
+    logging.info(
+        'Pathways colocated MTC save step=%s: draining async worker result.',
+        pending_save.step,
+    )
+    jax.block_until_ready(pending_save.result)
+    logging.info(
+        'Pathways colocated MTC save step=%s: async worker result ready '
+        'elapsed=%.3fs total_elapsed=%.3fs.',
+        pending_save.step,
+        time.time() - block_start,
+        time.time() - pending_save.start_time,
+    )
+    value = colocated_utils.require_unanimous_scalar_result(
+        pending_save.result, op_name='save'
+    )
+    saved = bool(value)
+    if saved:
+      self._save_persistent_dataset(
+          pending_save.step,
+          pending_save.dataset_args,
+          force=pending_save.force,
+      )
+    pending_save.saved = saved
+    logging.info(
+        'Pathways colocated MTC save step=%s: drained async save saved=%s.',
+        pending_save.step,
+        saved,
+    )
+    return saved
+
+  def _finish_pending_save(self) -> bool | None:
+    """Finishes pending worker async save work and releases payload anchors."""
+    saved = self._drain_pending_save()
+    pending_save = self._pending_save
+    if pending_save is None:
+      return saved
+    if pending_save.saved:
+      wait_start = time.time()
+      logging.info(
+          'Pathways colocated MTC save step=%s: waiting for worker-side async '
+          'save finalization before releasing payload anchors.',
+          pending_save.step,
+      )
+      self._worker_wait_until_finished()
+      logging.info(
+          'Pathways colocated MTC save step=%s: worker-side async save '
+          'finalizer wait returned wait_elapsed=%.3fs '
+          'payload_anchor_age=%.3fs. This is controller observation time, not '
+          'worker save duration.',
+          pending_save.step,
+          time.time() - wait_start,
+          time.time() - pending_save.start_time,
+      )
+    step = pending_save.step
+    self._pending_save = None
+    # Release keep-alive anchors only after the sidecar result has been drained
+    # and the worker-side async checkpoint finalizer has completed.
+    del pending_save
+    logging.info(
+        'Pathways colocated MTC save step=%s: released async save payload '
+        'anchors.',
+        step,
+    )
+    return saved
+
+  def _prepare_state_for_save(
+      self, step: int, args: args_lib.Composite
+  ) -> PyTree:
     """Prepares state for colocated save, ensuring it is on CPU."""
     state_save_args = args[_STATE_ITEM_NAME]
     if not isinstance(state_save_args, args_lib.PyTreeSave):
@@ -581,8 +1049,31 @@ class ColocatedController:
           'colocated save requires state args of type PyTreeSave, got '
           f'{type(state_save_args).__name__}.'
       )
+    if logging.vlog_is_on(2):
+      logging.vlog(
+          2,
+          'Pathways colocated MTC save step=%s: state before colocated '
+          'transport: %s',
+          step,
+          _array_tree_summary(state_save_args.item),
+      )
+    serialize_start = time.time()
     state = _serialize_for_colocated_transport(state_save_args.item)
+    logging.info(
+        'Pathways colocated MTC save step=%s: serialized state structure '
+        'elapsed=%.3fs.',
+        step,
+        time.time() - serialize_start,
+    )
+    transport_start = time.time()
     state = colocated_transport.to_colocated_python(state)
+    logging.info(
+        'Pathways colocated MTC save step=%s: to_colocated_python returned '
+        'elapsed=%.3fs.',
+        step,
+        time.time() - transport_start,
+    )
+    validate_start = time.time()
     colocated_utils.assert_arrays_on_platform(
         state,
         expected_platform='cpu',
@@ -593,42 +1084,12 @@ class ColocatedController:
         allowed_ids=self._colocated_cpu_ids,
         tree_name='state_for_colocated_save',
     )
+    logging.info(
+        'Pathways colocated MTC save step=%s: state validation elapsed=%.3fs.',
+        step,
+        time.time() - validate_start,
+    )
     return state
-
-  def _prepare_restore_target_shardings(
-      self,
-      state_restore_args: args_lib.PyTreeRestore,
-  ) -> PyTree:
-    """Resolves target shardings for restore."""
-    def _resolve_sharding(ra: Any) -> jax.sharding.Sharding:
-      if not isinstance(ra, type_handlers.ArrayRestoreArgs):
-        raise TypeError(
-            'Colocated restore requires all restore_args leaves to be '
-            f'ArrayRestoreArgs, got {type(ra).__name__}.'
-        )
-
-      sharding = ra.sharding
-      if isinstance(sharding, sharding_metadata.ShardingMetadata):
-        sharding = sharding.to_jax_sharding()
-      elif (
-          sharding is None
-          and ra.mesh is not None
-          and ra.mesh_axes is not None
-      ):
-        sharding = jax.sharding.NamedSharding(ra.mesh, ra.mesh_axes)
-      if sharding is None:
-        raise ValueError(
-            'ArrayRestoreArgs must provide sharding or (mesh, mesh_axes) '
-            f'for colocated restore. Got: {ra}'
-        )
-      if not isinstance(sharding, jax.sharding.Sharding):
-        raise ValueError(
-            'ArrayRestoreArgs sharding must resolve to jax.sharding.Sharding, '
-            f'got {type(sharding).__name__}.'
-        )
-      return sharding
-
-    return jax.tree.map(_resolve_sharding, state_restore_args.restore_args)
 
   def _restore_out_specs(
       self,
@@ -650,14 +1111,15 @@ class ColocatedController:
       except _MissingShapeDtypeError as e:
         errors.append(str(e))
 
-    try:
-      return self._restore_out_specs_from_shape_dtype_tree(
-          _serialize_for_colocated_transport(state_restore_args.restore_args),
-          target_shardings,
-          source_name='restore_args',
-      )
-    except _MissingShapeDtypeError as e:
-      errors.append(str(e))
+    if state_restore_args.restore_args is not None:
+      try:
+        return self._restore_out_specs_from_shape_dtype_tree(
+            _serialize_for_colocated_transport(state_restore_args.restore_args),
+            target_shardings,
+            source_name='restore_args',
+        )
+      except _MissingShapeDtypeError as e:
+        errors.append(str(e))
 
     try:
       return self._restore_out_specs_from_metadata(step, target_shardings)
