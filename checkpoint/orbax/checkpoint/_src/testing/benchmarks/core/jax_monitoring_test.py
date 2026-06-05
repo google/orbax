@@ -156,6 +156,61 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       )
     self.assertIn('op_7_overhead/delete_standard_s', metrics.results)
 
+  def test_compile_cache_hits_counted(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      for _ in range(3):
+        jax.monitoring.record_event('/jax/compilation_cache/cache_hits')
+    self.assertIn('op_8_jax/cache_hits_count', metrics.results)
+    self.assertEqual(metrics.results['op_8_jax/cache_hits_count'][0], 3)
+
+  def test_compile_cache_misses_counted(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
+      jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
+    self.assertEqual(metrics.results['op_8_jax/cache_misses_count'][0], 2)
+
+  def test_compile_cache_hit_rate_derived(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      for _ in range(3):
+        jax.monitoring.record_event('/jax/compilation_cache/cache_hits')
+      jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
+    self.assertIn('op_8_jax/cache_hit_rate', metrics.results)
+    rate, _ = metrics.results['op_8_jax/cache_hit_rate']
+    self.assertAlmostEqual(rate, 0.75)
+
+  def test_compile_cache_durations_mapped(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      jax.monitoring.record_event_duration_secs(
+          '/jax/compilation_cache/cache_retrieval_time_sec', 0.42
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/compilation_cache/compile_time_saved_sec', 1.7
+      )
+    self.assertEqual(metrics.results['op_8_jax/cache_retrieval_s'], (0.42, 's'))
+    self.assertEqual(
+        metrics.results['op_8_jax/compile_time_saved_s'], (1.7, 's')
+    )
+
+  def test_unmapped_discrete_events_are_dropped(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      jax.monitoring.record_event('/jax/orbax/write/start')
+      jax.monitoring.record_event('/jax/orbax/write/success')
+      jax.monitoring.record_event('/jax/orbax/checkpointer/init')
+    bloat = [k for k in metrics.results if '9_other' in k]
+    self.assertEqual(bloat, [], msg=f'unmapped events leaked: {bloat}')
+
+  def test_compile_cache_events_outside_prefix_ignored(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['jax_monitoring']):
+      jax.monitoring.record_event('/jax/some/other/event')
+    leaked = [k for k in metrics.results if 'other_event' in k]
+    self.assertEqual(leaked, [])
+
   def test_multiple_events_in_one_block_all_captured(self):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['jax_monitoring']):

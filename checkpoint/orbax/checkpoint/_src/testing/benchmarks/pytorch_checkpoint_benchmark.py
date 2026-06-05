@@ -322,7 +322,9 @@ class PyTorchCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
             state_dict,
             storage_writer=writer,
             planner=planner,
-            async_checkpointer_type=dcp.state_dict_saver.AsyncCheckpointerType.THREAD,
+            async_checkpointer_type=(
+                dcp.state_dict_saver.AsyncCheckpointerType.THREAD
+            ),
         )
         response = cast(futures.Future[Any], future)
       else:

@@ -26,12 +26,22 @@ from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_cor
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
 def _metrics_to_measure(options: "PyTreeCheckpointOptions") -> list[str]:
-  """Returns the list of metrics to measure."""
-  metrics = ["time", "rss"]
+  """Returns the list of metrics to measure.
+
+  Cheap captures (time, rss, jax_monitoring, device_memory, tensorstore)
+  are always on. Tracemalloc is opt-in because its per-allocation
+  snapshots have measurable runtime overhead.
+
+  Args:
+    options: Benchmark options; tracemalloc is added when
+      metric_tracemalloc_enabled is set.
+
+  Returns:
+    The metric names to capture for each measured operation.
+  """
+  metrics = metric_lib.default_metrics()
   if options.metric_tracemalloc_enabled:
     metrics.append("tracemalloc")
-  if options.metric_tensorstore_enabled:
-    metrics.append("tensorstore")
   return metrics
 
 
@@ -52,8 +62,8 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
     use_compression: Whether to use compression for checkpointing.
     save_concurrent_gb: The number of concurrent GB to use for saving.
     restore_concurrent_gb: The number of concurrent GB to use for restoring.
-    metric_tracemalloc_enabled: Whether to enable tracemalloc metrics.
-    metric_tensorstore_enabled: Whether to enable tensorstore metrics.
+    metric_tracemalloc_enabled: Whether to enable the tracemalloc metric (opt-in
+      because per-allocation snapshots are expensive).
   """
 
   async_enabled: bool | Sequence[bool] = True
@@ -63,7 +73,6 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   save_concurrent_gb: int | None | Sequence[int | None] = None
   restore_concurrent_gb: int | None | Sequence[int | None] = None
   metric_tracemalloc_enabled: bool = False
-  metric_tensorstore_enabled: bool = False
   use_replica_parallel: bool | Sequence[bool] = False
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
   use_colocated_python: bool | Sequence[bool] = False
@@ -104,7 +113,9 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     if not ocp.multihost.is_pathways_backend():
       array_handler = ocp.type_handlers.ArrayHandler(
           use_replica_parallel=options.use_replica_parallel,
-          enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+          enable_replica_parallel_separate_folder=(
+              options.enable_replica_parallel_separate_folder
+          ),
       )
       logging.info("Registering MC-JAX array type handler")
       ocp.type_handlers.register_type_handler(
@@ -119,7 +130,9 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
       ocp.pathways.register_type_handlers(
           checkpointing_impl=checkpointing_impl,
           use_replica_parallel=options.use_replica_parallel,
-          enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+          enable_replica_parallel_separate_folder=(
+              options.enable_replica_parallel_separate_folder
+          ),
       )
 
   def test_fn(

@@ -240,6 +240,14 @@ class TracemallocMetric(BaseMetric):
     )
 
 
+_TS_WHITELIST_PREFIXES: tuple[str, ...] = (
+    "/tensorstore/kvstore/",
+    "/tensorstore/cache/",
+    "/tcmalloc/current_allocated_bytes",
+    "/tcmalloc/peak_memory_usage",
+)
+
+
 class TensorstoreMetric(BaseMetric):
   """Measures tensorstore metrics."""
 
@@ -279,8 +287,18 @@ class TensorstoreMetric(BaseMetric):
           "TensorstoreMetric[%s] diff for %s: %s", self.name, key, values
       )
 
-    # Log the number of metrics that have a non-zero diff.
-    results["6_tensorstore/diff_count"] = (len(diff), "count")
+    # Emit per-bucket scalars for whitelisted metric prefixes. The whitelist
+    # keeps the tensorstore internal-counter firehose from flooding the
+    # dashboard while still surfacing the metrics that diagnose orbax
+    # checkpoint behaviour (kvstore op counts, cache hit/miss, tcmalloc
+    # current allocation).
+    results["6_tensorstore/changed_metric_count"] = (len(diff), "count")
+    for name, diff_vals in diff.items():
+      if not any(name.startswith(p) for p in _TS_WHITELIST_PREFIXES):
+        continue
+      flat = name.lstrip("/").replace("/", "_")
+      for stat_name, value in diff_vals.items():
+        results[f"6_tensorstore/{flat}_{stat_name}_diff"] = (value, "count")
     return results
 
   def _collect_metrics(self) -> dict[str, dict[str, Any]]:
@@ -351,6 +369,11 @@ class JaxMonitoringMetric(BaseMetric):
   `..._jax_monitoring_2_save_breakdown/...` for no benefit, so this class opts
   out via OMIT_REGISTRY_KEY_PREFIX. Event-name → tag mappings live in
   jax_monitoring_tags.py.
+
+  Three listener kinds: scalars (`record_scalar`), durations
+  (`record_event_duration_secs`), and discrete events (`record_event`).
+  Discrete events are counted by name — used for compile-cache hit/miss
+  tallies that JAX emits without a value.
   """
 
   OMIT_REGISTRY_KEY_PREFIX = True
@@ -358,6 +381,7 @@ class JaxMonitoringMetric(BaseMetric):
   def start(self) -> None:
     super().start()
     self._records: list[tuple[str, Any, str]] = []
+    self._event_counts: dict[str, int] = {}
 
     def _on_scalar(event: str, value: float, **unused_kwargs):
       if any(event.startswith(p) for p in jax_monitoring_tags.PREFIX_FILTER):
@@ -367,16 +391,23 @@ class JaxMonitoringMetric(BaseMetric):
       if any(event.startswith(p) for p in jax_monitoring_tags.PREFIX_FILTER):
         self._records.append((event, duration, "duration"))
 
+    def _on_event(event: str, **unused_kwargs):
+      if any(event.startswith(p) for p in jax_monitoring_tags.PREFIX_FILTER):
+        self._event_counts[event] = self._event_counts.get(event, 0) + 1
+
     self._scalar_cb = _on_scalar
     self._duration_cb = _on_duration
+    self._event_cb = _on_event
     jax.monitoring.register_scalar_listener(_on_scalar)
     jax.monitoring.register_event_duration_secs_listener(_on_duration)
+    jax.monitoring.register_event_listener(_on_event)
 
   def stop(self) -> dict[str, tuple[Any, str]]:
     results = super().stop()
     try:
       jax.monitoring.unregister_scalar_listener(self._scalar_cb)
       jax.monitoring.unregister_event_duration_listener(self._duration_cb)
+      jax.monitoring.unregister_event_listener(self._event_cb)
     except (ValueError, AttributeError) as e:
       logging.warning("Failed to unregister jax.monitoring listener: %s", e)
 
@@ -388,6 +419,65 @@ class JaxMonitoringMetric(BaseMetric):
       else:
         tag, unit = tag_unit
       results[tag] = (value, unit)
+
+    for event, count in self._event_counts.items():
+      tag = jax_monitoring_tags.EVENT_TAG_MAP.get(event)
+      if tag is not None:
+        results[tag] = (count, "count")
+
+    # Derived cache hit rate. Useful headline; cheap to compute when both
+    # counts are present.
+    hits = self._event_counts.get("/jax/compilation_cache/cache_hits", 0)
+    misses = self._event_counts.get("/jax/compilation_cache/cache_misses", 0)
+    if hits + misses > 0:
+      results["8_jax/cache_hit_rate"] = (hits / (hits + misses), "")
+    return results
+
+
+def _capture_peaks() -> list[int] | None:
+  """Returns the per-local-device peak_bytes_in_use, or None if unsupported."""
+  peaks: list[int] = []
+  for d in jax.local_devices():
+    try:
+      stats = d.memory_stats()
+    except (AttributeError, TypeError):
+      return None
+    if not stats or "peak_bytes_in_use" not in stats:
+      return None
+    peaks.append(int(stats["peak_bytes_in_use"]))
+  return peaks
+
+
+class DeviceMemoryMetric(BaseMetric):
+  """Captures jax.live_arrays delta + per-device HBM peak diff.
+
+  Two readings per measure() block: jax_live_arrays_count_delta (change in
+  len(jax.live_arrays()) — a cheap leak canary on every backend) and
+  device_hbm_peak_diff_gb (max over local devices of the peak_bytes_in_use
+  delta from device.memory_stats(), skipped where memory_stats is None, e.g.
+  CPU).
+  """
+
+  OMIT_REGISTRY_KEY_PREFIX = True
+
+  def start(self) -> None:
+    super().start()
+    self._start_live = len(jax.live_arrays())
+    self._start_peaks = _capture_peaks()
+
+  def stop(self) -> dict[str, tuple[Any, str]]:
+    results = super().stop()
+    end_live = len(jax.live_arrays())
+    results["7_memory/jax_live_arrays_count_delta"] = (
+        end_live - self._start_live,
+        "count",
+    )
+    end_peaks = _capture_peaks()
+    if self._start_peaks is not None and end_peaks is not None:
+      diffs = [e - s for s, e in zip(self._start_peaks, end_peaks)]
+      if diffs:
+        peak_gb = max(diffs) / (1024**3)
+        results["7_memory/device_hbm_peak_diff_gb"] = (peak_gb, "GiB")
     return results
 
 
@@ -398,9 +488,19 @@ METRIC_REGISTRY: dict[str, type[BaseMetric]] = {
     "tracemalloc": TracemallocMetric,
     "tensorstore": TensorstoreMetric,
     "jax_monitoring": JaxMonitoringMetric,
+    "device_memory": DeviceMemoryMetric,
 }
 
-DEFAULT_METRICS = ["time"]
+
+def default_metrics() -> list[str]:
+  """Returns the default metrics to measure."""
+  return [
+      "time",
+      "rss",
+      "jax_monitoring",
+      "device_memory",
+      "tensorstore",
+  ]
 
 
 @dataclasses.dataclass
@@ -435,7 +535,7 @@ class Metrics:
         metrics (time) will be measured.
     """
     if metric_keys is None:
-      metric_keys = DEFAULT_METRICS
+      metric_keys = default_metrics()
 
     collector = _MetricsCollector(self, operation_name, metric_keys)
     with collector:
