@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 import threading
 import time
 from typing import Awaitable
@@ -45,7 +46,7 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.serialization import registry as serialization_registry
+
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
@@ -344,9 +345,22 @@ class SaveLoadTestSuite:
         ]
         test_utils.assert_tree_equal(self, value, loaded)
 
-    def test_save_unregistered_type_as_pytree(self):
-      with self.assertRaises(serialization_registry.UnregisteredTypeError):
-        ocp.save(self.directory, handler_utils.Foo(1, 'hi'))
+    def test_save_unregistered_type(self):
+      with self.subTest('state'):
+        expected_msg = (
+            'Unsupported leaf type for saving:'
+            f' `{handler_utils.Foo}`.'
+            ' Supported leaf types are:'
+            ' jax.Array | numpy.ndarray | int | float | numpy.number | bytes |'
+            ' bool | str.'
+        )
+        with self.assertRaisesRegex(ValueError, re.escape(expected_msg)):
+          ocp.save(self.directory, handler_utils.Foo(1, 'hi'))
+      with self.subTest('checkpointables'):
+        with self.assertRaises(registration.NoEntryError):
+          ocp.save_checkpointables(
+              self.directory, {'foo': handler_utils.Foo(1, 'hi')}
+          )
 
     @parameterized.parameters(
         ({},),

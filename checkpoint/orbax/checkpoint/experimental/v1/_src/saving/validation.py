@@ -14,13 +14,19 @@
 
 """Validation functions involved in saving."""
 
+import jax
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+from orbax.checkpoint.experimental.v1._src.tree import types_validation as tree_types_validation
 
 RESERVED_CHECKPOINTABLE_KEYS = checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 
-def validate_save_checkpointables(checkpointables):
+def validate_save_checkpointables(
+    checkpointables: dict[str, handler_types.Checkpointable],
+) -> None:
   """Validates the checkpointables dictionary.
 
   Args:
@@ -33,7 +39,7 @@ def validate_save_checkpointables(checkpointables):
       checkpointables, dict
   ):
     raise ValueError(
-        '`checkpointables` must be a valid mapping of checkpointable names to'
+        '`checkpointables` must be a valid dict of checkpointable names to'
         ' desired checkpointables to save, but got'
         f' {type(checkpointables)}'
     )
@@ -51,3 +57,14 @@ def validate_save_checkpointables(checkpointables):
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
+
+
+def validate_state(state: tree_types.PyTreeOf[tree_types.Leaf]) -> None:
+  """Validates that all leaves of the PyTree are supported leaf types."""
+  leaves = jax.tree.leaves(state)
+  for leaf in leaves:
+    if not tree_types_validation.is_supported_leaf(leaf):
+      raise ValueError(
+          f'Unsupported leaf type for saving: `{type(leaf)}`. Supported leaf'
+          f' types are: {tree_types.Leaf}.'
+      )

@@ -197,7 +197,8 @@ def load(
   ).record_start()
 
   abstract_state = _standardize_abstract_checkpointables(abstract_state)
-  validation.validate_pytree_checkpointable_name(checkpointable_name)
+  validation.validate_state_checkpointable_name(checkpointable_name)
+  validation.validate_abstract_state(abstract_state)
 
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
@@ -530,7 +531,8 @@ def load_async(
     )
   path = ctx.file_options.path_class(path)
   abstract_state = _standardize_abstract_checkpointables(abstract_state)
-  validation.validate_pytree_checkpointable_name(checkpointable_name)
+  validation.validate_state_checkpointable_name(checkpointable_name)
+  validation.validate_abstract_state(abstract_state)
 
   async def _blocking_load() -> Any:
     resolver = await layout_registry.CheckpointLayoutResolver.resolve(

@@ -26,12 +26,13 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
+from orbax.checkpoint.experimental.v1._src.loading import validation as loading_validation
 from orbax.checkpoint.experimental.v1._src.metadata import loading as metadata_loading
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import step as path_step_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.saving import saving
-from orbax.checkpoint.experimental.v1._src.saving import validation
+from orbax.checkpoint.experimental.v1._src.saving import validation as saving_validation
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.training import errors
@@ -511,6 +512,7 @@ class Checkpointer(epy.ContextManager):
       bool indicating whether a checkpoint was saved or not, or None if the save
       was skipped by policy.
     """
+    saving_validation.validate_state(state)
     return self.save_checkpointables_async(
         step,
         {checkpointable_name: state},
@@ -564,7 +566,7 @@ class Checkpointer(epy.ContextManager):
         target `step` already exists.
     """
     context = context_lib.get_context(self._context)
-    validation.validate_save_checkpointables(checkpointables)
+    saving_validation.validate_save_checkpointables(checkpointables)
     if overwrite:
       logging.info(
           'Specified `overwrite`: deleting existing checkpoint %d if it'
@@ -659,6 +661,7 @@ class Checkpointer(epy.ContextManager):
     Returns:
       The loaded PyTree.
     """
+    loading_validation.validate_abstract_state(abstract_state)
     return self.load_checkpointables(
         step, {checkpointable_name: abstract_state}
     )[checkpointable_name]

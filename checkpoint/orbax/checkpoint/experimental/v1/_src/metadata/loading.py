@@ -94,7 +94,7 @@ def metadata(
   Returns:
     A `CheckpointMetadata[PyTreeMetadata]` object.
   """
-  validation.validate_pytree_checkpointable_name(checkpointable_name)
+  validation.validate_state_checkpointable_name(checkpointable_name)
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
@@ -115,6 +115,8 @@ def metadata(
     tree_metadata = step_metadata.metadata
   else:
     tree_metadata = step_metadata.metadata[resolved_name]
+
+  validation.validate_abstract_state(tree_metadata)
   return CheckpointMetadata[PyTreeMetadata](
       path=path,
       metadata=tree_metadata,
@@ -170,7 +172,9 @@ def _checkpointables_metadata_impl(
   ):
     return await layout.metadata(path)
 
-  return asyncio_utils.run_sync(_load_metadata())
+  checkpoint_metadata = asyncio_utils.run_sync(_load_metadata())
+  validation.validate_abstract_checkpointables(checkpoint_metadata.metadata)
+  return checkpoint_metadata
 
 
 @deprecated('Use `metadata` instead.')

@@ -14,15 +14,19 @@
 
 """Validation functions involved in loading."""
 
+import jax
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
+from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+from orbax.checkpoint.experimental.v1._src.tree import types_validation as tree_types_validation
 
 RESERVED_CHECKPOINTABLE_KEYS = checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
 EMPTY_CHECKPOINTABLE_KEY = checkpoint_layout.EMPTY_CHECKPOINTABLE_KEY
 
 
-def validate_pytree_checkpointable_name(
+def validate_state_checkpointable_name(
     checkpointable_name: str | None,
-):
+) -> None:
   """Validates the checkpointable name.
 
   Args:
@@ -48,7 +52,11 @@ def validate_pytree_checkpointable_name(
     )
 
 
-def validate_abstract_checkpointables(abstract_checkpointables):
+def validate_abstract_checkpointables(
+    abstract_checkpointables: (
+        dict[str, handler_types.AbstractCheckpointable] | None
+    ),
+) -> None:
   """Validates the abstract_checkpointables dictionary.
 
   Args:
@@ -78,3 +86,19 @@ def validate_abstract_checkpointables(abstract_checkpointables):
     raise ValueError(
         f'Provided reserved checkpointable keys: {provided_reserved_keys}.'
     )
+
+
+def validate_abstract_state(
+    abstract_state: tree_types.PyTreeOf[tree_types.AbstractLeaf] | None,
+) -> None:
+  """Validates an abstract PyTree state before loading."""
+  if abstract_state is None:
+    return
+  leaves = jax.tree.leaves(abstract_state)
+  for leaf in leaves:
+    if not tree_types_validation.is_supported_abstract_leaf(leaf):
+      raise TypeError(
+          f'Unsupported abstract leaf type for loading: `{type(leaf)}`.'
+          f' Supported abstract leaf types are: {tree_types.AbstractLeaf} (or'
+          f' concrete values of {tree_types.Leaf}).'
+      )
