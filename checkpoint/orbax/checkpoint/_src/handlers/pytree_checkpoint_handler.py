@@ -21,7 +21,6 @@ can be customized, and is delegated to the :py:class:`.TypeHandler` class.
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
 import re
@@ -44,6 +43,7 @@ from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -76,13 +76,12 @@ BasePyTreeCheckpointHandler = (
 )
 BasePyTreeSaveArgs = base_pytree_checkpoint_handler.BasePyTreeSaveArgs
 BasePyTreeRestoreArgs = base_pytree_checkpoint_handler.BasePyTreeRestoreArgs
-LimitInFlightBytes = base_pytree_checkpoint_handler.LimitInFlightBytes
-get_param_names = base_pytree_checkpoint_handler.get_param_names
+LimitInFlightBytes = limits.LimitInFlightBytes
+get_param_names = tree_utils.get_param_names
 
-PYTREE_METADATA_FILE = base_pytree_checkpoint_handler.PYTREE_METADATA_FILE
+PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
 _CHECKPOINT_FILE = 'checkpoint'
-_METADATA_FILE = PYTREE_METADATA_FILE
-DEFAULT_CONCURRENT_GB = base_pytree_checkpoint_handler.DEFAULT_CONCURRENT_GB
+DEFAULT_CONCURRENT_GB = 96
 
 
 def _maybe_set_default_restore_args(args):
@@ -714,13 +713,9 @@ class PyTreeCheckpointHandler(
             self._type_handler_registry,
         )
     )
-    deserialized_batches = []
-    deserialized_batches_ops = []
-    for request in batch_requests:
-      deserialized_batches_ops.append(
-          request.handler.deserialize(request.infos, request.args)
-      )
-    deserialized_batches += await asyncio.gather(*deserialized_batches_ops)
+    deserialized_batches = await self._handler_impl._async_io_engine.execute_restore(  # pylint: disable=protected-access
+        batch_requests
+    )
 
     flat_restored = {}
     for request, deserialized in zip(batch_requests, deserialized_batches):
