@@ -36,6 +36,7 @@ from jax.experimental import multihost_utils
 from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
@@ -912,3 +913,38 @@ class MockDeferredWritableTemporaryPath(
   @classmethod
   async def validate_final(cls, final_path):
     pass
+
+
+def swap_slices_in_mesh(
+    mesh: jax.sharding.Mesh, *, replica_axis_index: int = 0
+) -> jax.sharding.Mesh:
+  """Reverses the ordering of devices such that slices swap IDs."""
+  devices = []
+  for slice_id in range(
+      multislice.replica_count(mesh, replica_axis_index=replica_axis_index)
+  ):
+    devices.append(
+        multislice.replica_devices(
+            mesh, replica_id=slice_id, replica_axis_index=replica_axis_index
+        )
+    )
+  devices.reverse()
+  devices = np.stack(devices, axis=replica_axis_index)
+  return jax.sharding.Mesh(devices, mesh.axis_names)
+
+
+def _replace_abstract_array_sharding_with_mesh(
+    sds: jax.ShapeDtypeStruct, mesh: jax.sharding.Mesh
+) -> jax.ShapeDtypeStruct:
+  assert isinstance(sds.sharding, jax.sharding.NamedSharding)
+  return sds.update(
+      sharding=jax.sharding.NamedSharding(mesh, sds.sharding.spec)
+  )
+
+
+def get_composite_save_args(
+    pytree: PyTree,
+) -> args_lib.Composite:
+  return args_lib.Composite(
+      state=pytree_checkpoint_handler.PyTreeSaveArgs(pytree)
+  )

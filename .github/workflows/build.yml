@@ -69,10 +69,10 @@ jobs:
       run: |
         python3 -m pytest --import-mode=importlib \
         --ignore=orbax/checkpoint/experimental/emergency/broadcast_multislice_test.py \
-        --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_tmp_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/single_slice_checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_data_debugging_test.py \
-        --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_tmp_test.py \
+        --ignore=orbax/checkpoint/experimental/emergency/local_checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/multihost_test.py \
         --ignore=orbax/checkpoint/experimental/emergency/multi_tier_checkpointing/replicator_checkpoint_manager_test.py \
         --ignore=orbax/checkpoint/_src/testing/multiprocess_test.py \

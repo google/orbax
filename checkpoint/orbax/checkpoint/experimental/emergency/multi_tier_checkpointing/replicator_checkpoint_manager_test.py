@@ -36,7 +36,6 @@ from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import replicator_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
-from orbax.checkpoint.experimental.emergency.test_utils import test_base as emergency_test_utils
 from orbax.checkpoint.path import atomicity
 from orbax.checkpoint.path import step as step_lib
 
@@ -69,7 +68,7 @@ DatasetIteratorCheckpointHandler = (
 barrier_compatible_test = test_utils.barrier_compatible_test
 assert_tree_equal = test_utils.assert_tree_equal
 get_fake_global_mesh_for_slices = test_utils.get_fake_global_mesh_for_slices
-swap_slices_in_mesh = emergency_test_utils.swap_slices_in_mesh
+swap_slices_in_mesh = test_utils.swap_slices_in_mesh
 STATE = 'state'
 
 
