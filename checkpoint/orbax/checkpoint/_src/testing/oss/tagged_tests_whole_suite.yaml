@@ -45,9 +45,9 @@ processes:2:
 - orbax/checkpoint/experimental/v1/_src/serialization:numpy_leaf_handler_test
 - orbax/checkpoint/experimental/v1/_src/serialization:scalar_leaf_handler_test
 - orbax/checkpoint/experimental/v1/_src/serialization:string_leaf_handler_test
-- orbax/checkpoint/experimental/v1/_src/testing:save_load_tmp_test
+- orbax/checkpoint/experimental/v1/_src/testing:save_load_test
 - orbax/checkpoint/experimental/v1/_src/testing:v1_compatibility_load_test_multiprocess
-- orbax/checkpoint/experimental/v1/_src/training:checkpointer_tmp_test
+- orbax/checkpoint/experimental/v1/_src/training:checkpointer_test
 - orbax/checkpoint/experimental/v1/_src/training:v0v1_compatibility_checkpointer_test
 processes:4:
 - orbax/checkpoint/_src/multihost:multihost_test

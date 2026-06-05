@@ -41,7 +41,7 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class LoadCheckpointablesCompatibilityTestBase(parameterized.TestCase):
+class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
   """Tests for V1 load_checkpointables API against generated Checkpoints."""
 
   def setUp(self) -> None:

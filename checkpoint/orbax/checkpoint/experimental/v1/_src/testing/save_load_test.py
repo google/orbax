@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base class for save/load tests."""
+"""Class for save/load tests for V1 API."""
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
@@ -25,6 +25,7 @@ import time
 from typing import Awaitable
 from unittest import mock
 
+from absl import flags
 from absl.testing import parameterized
 from etils import epath
 import flax
@@ -37,6 +38,7 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost as multihost_v0
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization as serialization_v0
+from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import utils as tree_utils
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -51,6 +53,10 @@ from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
+
+FLAGS = flags.FLAGS
+
+jax.config.update('jax_enable_x64', True)
 
 PyTree = tree_types.PyTree
 Path = path_types.Path
@@ -78,10 +84,8 @@ async def _sleep_and_create_paths(*args, **kwargs):
   await asyncio.sleep(2)
   return await _original_create_paths(*args, **kwargs)
 
-# TODO: b/514807381 - Remove TestBase Pattern from Orbax tests.
 
-
-class SaveLoadTestBase:
+class SaveLoadTestSuite:
 
   class _TestSetup(parameterized.TestCase):
 
@@ -1252,3 +1256,21 @@ class SaveLoadTestBase:
       self.assertIsNotNone(restored)
       post_load_op_id = int(synchronization.get_operation_id())
       self.assertEqual(post_load_op_id, initial_op_id + 2)
+
+
+class SaveLoadTest(
+    SaveLoadTestSuite.SaveLoadTest,
+    multiprocess_test.MultiProcessTest,
+):
+  pass
+
+
+class SynchronizationTest(
+    SaveLoadTestSuite.SynchronizationTest,
+    multiprocess_test.MultiProcessTest,
+):
+  pass
+
+
+if __name__ == '__main__':
+  multiprocess_test.main()

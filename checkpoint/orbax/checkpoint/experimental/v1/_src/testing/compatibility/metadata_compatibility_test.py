@@ -40,7 +40,7 @@ InvalidLayoutError = checkpoint_layout_lib.InvalidLayoutError
 _BASE_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-class PytreeMetadataCompatibilityTestBase(parameterized.TestCase):
+class MetadataCompatibilityTest(parameterized.TestCase):
   """Tests for V1 metadata API against generated Checkpoints."""
 
   def setUp(self) -> None:
