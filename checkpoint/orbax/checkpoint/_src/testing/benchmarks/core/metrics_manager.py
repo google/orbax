@@ -132,9 +132,17 @@ class MetricsManager:
     self._writers: dict[str, Any] = {}
     # Suite-level: first non-None inventory per benchmark wins.
     self._inventories: dict[str, Any] = {}
+    # Cross-host metric aggregate per benchmark; filled by the primary during
+    # generate_report's gather, read by baseline capture/compare.
+    self._cross_host_aggregates: dict[str, dict[str, dict[str, float]]] = {}
     # Captured once so the manifest reflects the reported run, not the machine
     # state at generate_report time.
     self._suite_run_manifest = run_manifest_lib.capture_run_manifest()
+
+  @property
+  def run_manifest(self) -> run_manifest_lib.RunManifest:
+    """The environment snapshot captured once when this manager was created."""
+    return self._suite_run_manifest
 
   def add_result(
       self,
@@ -270,6 +278,34 @@ class MetricsManager:
       )
     return aggregated_stats_dict, metric_units
 
+  def mean_metrics(self, benchmark_name: str) -> dict[str, float]:
+    """Returns each metric's mean across a benchmark's successful repeats.
+
+    Args:
+      benchmark_name: The benchmark configuration to aggregate.
+
+    Returns:
+      Mapping of metric key to its mean value over the successful repeats.
+    """
+    stats, _ = self._aggregate_metrics(self._runs[benchmark_name])
+    return {key: float(value.mean) for key, value in stats.items()}
+
+  def cross_host_aggregates(
+      self, benchmark_name: str
+  ) -> dict[str, dict[str, float]] | None:
+    """Returns the cross-host metric aggregate for a benchmark, if gathered.
+
+    Populated on the primary host during generate_report when a TensorBoard
+    dir is configured (the sidecar gather writes there); None otherwise.
+
+    Args:
+      benchmark_name: The benchmark to look up.
+
+    Returns:
+      Metric key -> {stat: value} across hosts, or None if not gathered.
+    """
+    return self._cross_host_aggregates.get(benchmark_name)
+
   def _count_runs(self) -> tuple[int, int, int]:
     total = passed = failed = 0
     for _, results in self._runs.items():
@@ -382,6 +418,7 @@ class MetricsManager:
     if multihost.get_process_index() == 0:
       aggregates = self._gather_cross_host_aggregates(benchmark_name)
       if aggregates:
+        self._cross_host_aggregates[benchmark_name] = aggregates
         self._write_summary_cards(benchmark_name, results, aggregates)
     # Final barrier so non-primaries don't exit while the primary writes —
     # otherwise the coordinator marks them gone and the shutdown barrier fails.

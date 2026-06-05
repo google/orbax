@@ -25,6 +25,7 @@ from typing import Any
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.testing.benchmarks.core import baseline as baseline_lib
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
@@ -39,19 +40,25 @@ from orbax.checkpoint._src.testing.benchmarks.core import multihost
 class BenchmarkOptions:
   """Base class for benchmark generator options.
 
+  The baseline_* fields are orchestration switches configured once per run
+  (not swept); subclasses inherit them automatically.
+
   Attributes:
     enable_trace: Whether to capture a per-operation `jax.profiler` trace for
       each measured save/load. Off by default.
     trace_every_repeat: Whether to capture traces on every repeat, or only the
       first repeat (the default); traces on every repeat overflow the Trace
       Viewer.
+    baseline_path: Path to a stored baseline to compare this run against, or
+      None to skip comparison.
+    baseline_capture_path: Path to write this run's baseline to, or None to
+      skip capture.
   """
 
-  # Keyword-only so subclasses keep their own positional / required fields
-  # (e.g. PyTorchCheckpointOptions.reference_checkpoint_path) without tripping
-  # the "non-default argument follows default argument" rule.
   enable_trace: bool = False
   trace_every_repeat: bool = False
+  baseline_path: str | None = None
+  baseline_capture_path: str | None = None
 
   @classmethod
   def from_dict(cls, options_dict: dict[str, Any]) -> "BenchmarkOptions":
@@ -515,6 +522,7 @@ class TestSuite:
     )
 
     all_results = []
+    all_benchmarks: list[Benchmark] = []
     for i, generator in enumerate(self._benchmarks_generators):
       logging.info(
           "\n%s Running Generator %d: %s %s",
@@ -534,6 +542,7 @@ class TestSuite:
         continue
 
       for benchmark in generated_benchmarks:
+        all_benchmarks.append(benchmark)
         for i in range(self._num_repeats):
           repeat_index = i if self._num_repeats > 1 else None
           logging.info(
@@ -560,6 +569,97 @@ class TestSuite:
     if not all_results:
       logging.warning("No benchmarks were run for this suite.")
 
+    # Aggregate first (the cross-host gather runs here), then capture/compare
+    # baselines from that aggregate.
     self._suite_metrics.generate_report()
+    for benchmark in all_benchmarks:
+      self._handle_baseline(benchmark)
     multihost.sync_global_processes("test_suite:run_end")
     return all_results
+
+  def _handle_baseline(self, benchmark: "Benchmark") -> None:
+    """Captures and/or compares a baseline for one benchmark, post-aggregation.
+
+    Runs after generate_report, so it reads the cross-host metric aggregate the
+    suite gather produced. Only the primary host writes/reads.
+
+    Args:
+      benchmark: The benchmark whose options select the capture/compare paths
+        and whose name keys the baseline + its aggregated metrics.
+    """
+    if multihost.get_process_index() != 0:
+      return
+    options = benchmark.options
+    capture = options.baseline_capture_path
+    compare = options.baseline_path
+    if not capture and not compare:
+      return
+    metrics = self._baseline_metrics(benchmark.name)
+    if capture:
+      manifest = self._suite_metrics.run_manifest
+      baseline = baseline_lib.Baseline(
+          benchmark_name=benchmark.name,
+          captured_at=manifest.captured_at,
+          captured_at_sha=manifest.git_sha,
+          fixture=str(benchmark.checkpoint_config.path or "generated"),
+          config=dataclasses.asdict(options),
+          metrics=metrics,
+          manifest=dataclasses.asdict(manifest),
+      )
+      out = baseline_lib.BaselineRecorder(capture).write(baseline)
+      logging.info("Wrote baseline for %s to %s", benchmark.name, out)
+    if compare:
+      try:
+        report = baseline_lib.BaselineComparer(compare).compare(metrics)
+      except FileNotFoundError:
+        logging.warning(
+            "baseline_path=%s missing for %s; skipping compare.",
+            compare,
+            benchmark.name,
+        )
+        return
+      lines = [_format_baseline_delta(d) for d in report.deltas]
+      logging.info(
+          "[baseline] %s vs %s:\n%s",
+          benchmark.name,
+          report.baseline.captured_at_sha,
+          "\n".join(lines) if lines else "  (no overlapping metrics)",
+      )
+
+  def _baseline_metrics(
+      self, benchmark_name: str
+  ) -> dict[str, dict[str, float]]:
+    """Cross-host metric aggregate for a benchmark, falling back to rank 0.
+
+    Args:
+      benchmark_name: The benchmark to aggregate.
+
+    Returns:
+      Metric key -> {stat: value}. Uses the all-host gather when available;
+      otherwise wraps rank-0's per-repeat means as a `{"mean": value}` fallback.
+    """
+    aggregate = self._suite_metrics.cross_host_aggregates(benchmark_name)
+    if aggregate is not None:
+      return aggregate
+    logging.warning(
+        "Baseline for %s reflects rank-0 only; enable TensorBoard for the "
+        "cross-host aggregate.",
+        benchmark_name,
+    )
+    means = self._suite_metrics.mean_metrics(benchmark_name)
+    return {key: {"mean": value} for key, value in means.items()}
+
+
+def _format_baseline_delta(d: baseline_lib.MetricDelta) -> str:
+  """Formats one baseline metric delta as a single report line.
+
+  Args:
+    d: The metric delta to render.
+
+  Returns:
+    A line with baseline/current values, plus the speedup ratio when defined.
+  """
+  line = f"  {d.key}: baseline={d.baseline:.4f} current={d.current:.4f}"
+  if d.ratio is not None:
+    line += f" ratio={d.ratio:.3f}x"
+  return line
