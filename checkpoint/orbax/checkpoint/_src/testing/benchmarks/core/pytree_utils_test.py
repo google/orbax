@@ -88,5 +88,107 @@ class PytreeUtilsTest(parameterized.TestCase):
     pytree_utils.assert_pytree_equal(v1, v2)
 
 
+class DigestPytreeTest(absltest.TestCase):
+
+  def test_matching_digests_pass(self):
+    tree = {'w': np.arange(16, dtype=np.float32)}
+    pytree_utils.assert_digests_match(pytree_utils.digest_pytree(tree), tree)
+
+  def test_digest_mismatch_raises(self):
+    ref = {'w': np.arange(16, dtype=np.float32)}
+    other = {'w': np.arange(16, dtype=np.float32)[::-1].copy()}
+    self.assertRaisesRegex(
+        AssertionError,
+        'Digest mismatch',
+        pytree_utils.assert_digests_match,
+        pytree_utils.digest_pytree(ref),
+        other,
+    )
+
+  def test_extra_leaf_raises(self):
+    digests = pytree_utils.digest_pytree({'a': np.zeros(4)})
+    self.assertRaisesRegex(
+        AssertionError,
+        'Digest key mismatch',
+        pytree_utils.assert_digests_match,
+        digests,
+        {'a': np.zeros(4), 'b': np.zeros(4)},
+    )
+
+  def test_digest_is_stable_across_calls(self):
+    tree = {'w': np.arange(16, dtype=np.int32)}
+    self.assertEqual(
+        pytree_utils.digest_pytree(tree), pytree_utils.digest_pytree(tree)
+    )
+
+  def test_digest_differs_for_dtype_change_only(self):
+    a = {'w': np.zeros(4, dtype=np.float32)}
+    b = {'w': np.zeros(4, dtype=np.float64)}
+    self.assertNotEqual(
+        pytree_utils.digest_pytree(a), pytree_utils.digest_pytree(b)
+    )
+
+
+def _linear_apply(params, x):
+  return params['W'] @ x
+
+
+class FunctionalEquivalenceTest(absltest.TestCase):
+
+  def test_identical_params_pass(self):
+    w = {'W': np.eye(4, dtype=np.float32)}
+    pytree_utils.assert_functional_equivalence(
+        _linear_apply, [np.arange(4, dtype=np.float32)], w, w
+    )
+
+  def test_divergence_raises(self):
+    ref = {'W': np.eye(4, dtype=np.float32)}
+    actual = {'W': np.eye(4, dtype=np.float32) * 2}
+    self.assertRaisesRegex(
+        AssertionError,
+        'Functional divergence',
+        pytree_utils.assert_functional_equivalence,
+        _linear_apply,
+        [np.arange(4, dtype=np.float32)],
+        ref,
+        actual,
+    )
+
+  def test_within_tolerance_passes(self):
+    ref = {'W': np.eye(4, dtype=np.float32)}
+    actual = {'W': np.eye(4, dtype=np.float32) + 1e-6}
+    pytree_utils.assert_functional_equivalence(
+        _linear_apply,
+        [np.arange(4, dtype=np.float32)],
+        ref,
+        actual,
+        tolerance=1e-3,
+    )
+
+  def test_shape_change_raises(self):
+    ref = {'W': np.eye(4, dtype=np.float32)}
+    actual = {'W': np.eye(5, 4, dtype=np.float32)}
+    self.assertRaisesRegex(
+        AssertionError,
+        'shape mismatch',
+        pytree_utils.assert_functional_equivalence,
+        _linear_apply,
+        [np.zeros(4, dtype=np.float32)],
+        ref,
+        actual,
+    )
+
+  def test_empty_inputs_raises(self):
+    self.assertRaisesRegex(
+        ValueError,
+        'non-empty',
+        pytree_utils.assert_functional_equivalence,
+        _linear_apply,
+        [],
+        {'W': np.eye(4)},
+        {'W': np.eye(4)},
+    )
+
+
 if __name__ == '__main__':
   absltest.main()
