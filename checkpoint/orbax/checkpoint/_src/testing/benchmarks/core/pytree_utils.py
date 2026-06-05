@@ -86,12 +86,6 @@ def log_pytree(msg: str, pytree: Any):
   )
 
 
-def _leaf_path(keypath: tuple[Any, ...]) -> str:
-  """Formats a jax keypath as one string ('<root>' for the empty path)."""
-  parts = "".join(jax.tree_util.keystr((entry,)) for entry in keypath)
-  return parts or "<root>"
-
-
 def _leaf_to_numpy(leaf: Any) -> np.ndarray:
   """Materialises a leaf to a contiguous numpy array for hashing.
 
@@ -139,7 +133,7 @@ def digest_pytree(pytree: Any) -> dict[str, str]:
     h.update(arr.dtype.str.encode("ascii"))
     h.update(repr(arr.shape).encode("ascii"))
     h.update(arr.tobytes())
-    digests[_leaf_path(keypath)] = h.hexdigest()
+    digests[jax.tree_util.keystr(keypath) or "<root>"] = h.hexdigest()
   return digests
 
 

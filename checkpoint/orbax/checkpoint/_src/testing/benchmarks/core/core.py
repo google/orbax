@@ -573,11 +573,11 @@ class TestSuite:
     # baselines from that aggregate.
     self._suite_metrics.generate_report()
     for benchmark in all_benchmarks:
-      self._handle_baseline(benchmark)
+      self._capture_or_compare_baseline(benchmark)
     multihost.sync_global_processes("test_suite:run_end")
     return all_results
 
-  def _handle_baseline(self, benchmark: "Benchmark") -> None:
+  def _capture_or_compare_baseline(self, benchmark: "Benchmark") -> None:
     """Captures and/or compares a baseline for one benchmark, post-aggregation.
 
     Runs after generate_report, so it reads the cross-host metric aggregate the

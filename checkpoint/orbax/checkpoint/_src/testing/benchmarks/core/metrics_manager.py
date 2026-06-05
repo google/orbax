@@ -28,10 +28,16 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import run_manifest as run_manifest_lib
 
+# Type aliases for cross-host metric aggregation
+MetricStats = dict[
+    str, float
+]  # stat_name -> value (e.g. {"mean": 1.5, "max": 2.0})
+BenchmarkSummary = dict[str, MetricStats]  # metric_key -> MetricStats
+
 
 def _summary_aggregates(
     per_host_matrix: np.ndarray, keys: list[str]
-) -> dict[str, dict[str, float]]:
+) -> BenchmarkSummary:
   """Computes per-metric max/min/mean (p50/p99 with >1 host) across hosts.
 
   NaN entries (a host that didn't report a key) are dropped per column, so
@@ -134,7 +140,7 @@ class MetricsManager:
     self._inventories: dict[str, Any] = {}
     # Cross-host metric aggregate per benchmark; filled by the primary during
     # generate_report's gather, read by baseline capture/compare.
-    self._cross_host_aggregates: dict[str, dict[str, dict[str, float]]] = {}
+    self._cross_host_aggregates: dict[str, BenchmarkSummary] = {}
     # Captured once so the manifest reflects the reported run, not the machine
     # state at generate_report time.
     self._suite_run_manifest = run_manifest_lib.capture_run_manifest()
@@ -292,7 +298,7 @@ class MetricsManager:
 
   def cross_host_aggregates(
       self, benchmark_name: str
-  ) -> dict[str, dict[str, float]] | None:
+  ) -> BenchmarkSummary | None:
     """Returns the cross-host metric aggregate for a benchmark, if gathered.
 
     Populated on the primary host during generate_report when a TensorBoard
@@ -475,7 +481,7 @@ class MetricsManager:
 
   def _gather_cross_host_aggregates(
       self, benchmark_name: str
-  ) -> dict[str, dict[str, float]]:
+  ) -> BenchmarkSummary:
     """Reads every host's sidecar and aggregates the values across hosts.
 
     Keys absent on some hosts become NaN, so primary-only events (e.g.
@@ -533,7 +539,7 @@ class MetricsManager:
       self,
       benchmark_name: str,
       results: list[tuple[metric_lib.Metrics, Exception | None]],
-      aggregates: dict[str, dict[str, float]],
+      aggregates: BenchmarkSummary,
   ) -> None:
     """Writes the __summary__ run: aggregate scalars, text cards, and HParams.
 
