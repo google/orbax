@@ -102,6 +102,62 @@ class LowPriorityBatchOptions:
   max_enqueued_batches: int = 250
 
 
+@enum.unique
+class SchedulerScope(enum.Enum):
+  """Scheduler scope for the batch scheduler.
+
+  Options:
+    LOCAL_TO_PIPELINE: Use a dedicated thread pool for the pipeline.
+    SHARED_GLOBAL: Use a shared global pool for all pipelines.
+  """
+  LOCAL_TO_PIPELINE = "local_to_pipeline"
+  SHARED_GLOBAL = "shared_global"
+
+
+@enum.unique
+class QueueSelectionPolicy(enum.Enum):
+  """Queue selection policy for the batch scheduler.
+
+  Options:
+    ROUND_ROBIN: Scheduler thread picks the next queue in a round-robin manner.
+    PRIORITY_RANKED: Scheduler threads pick the next queue based on priority.
+  """
+  ROUND_ROBIN = "round_robin"
+  PRIORITY_RANKED = "priority_ranked"
+
+
+@dataclasses.dataclass(kw_only=True)
+class SchedulerConfig:
+  """Scheduler config for the batch scheduler.
+
+  Attributes:
+    scheduler_scope: The scheduler scope for the batch scheduler. Default is
+      LOCAL_TO_PIPELINE.
+    queue_selection_policy: The queue selection policy for the batch scheduler.
+      Default is ROUND_ROBIN.
+  """
+
+  scheduler_scope: SchedulerScope = SchedulerScope.LOCAL_TO_PIPELINE
+  queue_selection_policy: QueueSelectionPolicy = (
+      QueueSelectionPolicy.ROUND_ROBIN
+  )
+
+
+@enum.unique
+class PriorityBatchingPolicy(enum.Enum):
+  """Priority batching policy for the batch scheduler.
+
+  Options:
+    STRICT_FIFO: Process requests strictly in FIFO order.
+    PRIORITY_AWARE: Process requests based on a 4-level priority system
+      (Critical+, Critical, Sheddable+, and Sheddable) defined by
+      `tsl::criticality::Criticality`. Tasks are sorted by criticality, then by
+      arrival time. Supports task eviction to prevent priority inversion.
+  """
+  STRICT_FIFO = "strict_fifo"
+  PRIORITY_AWARE = "priority_aware"
+
+
 @dataclasses.dataclass(kw_only=True)
 class BatchOptions:
   """Batch options for the Orbax model.
@@ -127,6 +183,11 @@ class BatchOptions:
     low_priority_batch_options: The batch options for low priority inputs.
     mixed_priority_batching_policy: The mixed priority batching policy for the
       batch scheduler. Default is LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE.
+    scheduler_config: The scheduler config for the batch scheduler which
+      includes SchedulerScope and QueueSelectionPolicy. Default of scheduler
+      scope is LOCAL_TO_PIPELINE and queue selection policy is ROUND_ROBIN.
+    priority_batching_policy: The priority batching policy for the batch
+      scheduler. Default is STRICT_FIFO.
   """
 
   batch_component: BatchComponent
@@ -140,6 +201,12 @@ class BatchOptions:
   low_priority_batch_options: LowPriorityBatchOptions | None = None
   mixed_priority_batching_policy: MixedPriorityBatchingPolicy = (
       MixedPriorityBatchingPolicy.LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE
+  )
+  scheduler_config: SchedulerConfig = dataclasses.field(
+      default_factory=SchedulerConfig
+  )
+  priority_batching_policy: PriorityBatchingPolicy = (
+      PriorityBatchingPolicy.STRICT_FIFO
   )
 
   def _validate_batch_options(

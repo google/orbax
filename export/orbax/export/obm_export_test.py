@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 import contextlib
 import os
 import pathlib
-from typing import Any, Callable
+from typing import Any, Callable, cast
 from unittest import mock
 
 from absl.testing import absltest

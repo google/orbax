@@ -38,7 +38,6 @@ from orbax.export import utils
 from orbax.export.modules import obm_module
 import tensorflow as tf
 
-
 _obm_export_config = config.config
 
 

@@ -107,6 +107,11 @@ name_to_pipeline {
         max_enqueued_batches: 300
       }
       mixed_priority_batching_policy: LOW_PRIORITY_PADDING_WITH_MAX_BATCH_SIZE
+      scheduler_config {
+        scheduler_scope: LOCAL_TO_PIPELINE
+        queue_selection_policy: ROUND_ROBIN
+      }
+      priority_batching_policy: STRICT_FIFO
     }
     components {
       function_name: "__PRE_PROCESSOR_NAME__"
