@@ -25,7 +25,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 import yaml
 
 
-
 @dataclasses.dataclass(frozen=True)
 class MockOptions(core.BenchmarkOptions):
   param1: int = 1
@@ -378,6 +377,42 @@ benchmarks:
         test_suite._benchmarks_generators[0]._checkpoint_configs,
         [config_lib.CheckpointConfig()],
     )
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_baseline_overrides_applied_to_all_generators(
+      self, mock_import, mock_load
+  ):
+    mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config(
+        'fake.yaml',
+        baseline_capture_path='/tmp/caps',
+        baseline_path='/tmp/base.json',
+    )
+
+    self.assertLen(test_suite._benchmarks_generators, 2)
+    for generator in test_suite._benchmarks_generators:
+      options = generator._options
+      assert isinstance(options, core.BenchmarkOptions)
+      self.assertEqual(options.baseline_capture_path, '/tmp/caps')
+      self.assertEqual(options.baseline_path, '/tmp/base.json')
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_baseline_overrides_absent_keeps_defaults(
+      self, mock_import, mock_load
+  ):
+    mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    options = test_suite._benchmarks_generators[0]._options
+    assert isinstance(options, core.BenchmarkOptions)
+    self.assertIsNone(options.baseline_capture_path)
+    self.assertIsNone(options.baseline_path)
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   @mock.patch.object(config_parsing, '_import_class', autospec=True)
