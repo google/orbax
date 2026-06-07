@@ -43,7 +43,7 @@ benchmarks:
 """
 
 import importlib
-from typing import Any, Dict, List, Type
+from typing import Any
 
 from absl import logging
 from etils import epath
@@ -52,8 +52,7 @@ from orbax.checkpoint._src.testing.benchmarks.core import core
 import yaml
 
 
-
-def _import_class(class_path: str) -> Type[Any]:
+def _import_class(class_path: str) -> type[Any]:
   """Dynamically imports a class from a string path."""
   try:
     module_path, class_name = class_path.rsplit('.', 1)
@@ -63,7 +62,7 @@ def _import_class(class_path: str) -> Type[Any]:
     raise ImportError(f'Failed to import class {class_path}: {e}') from e
 
 
-def _load_yaml_config(config_path: str) -> Dict[str, Any]:
+def _load_yaml_config(config_path: str) -> dict[str, Any]:
   """Loads a YAML configuration file."""
   logging.info('Loading configuration from: %s', config_path)
   try:
@@ -77,7 +76,7 @@ def _load_yaml_config(config_path: str) -> Dict[str, Any]:
     raise
 
 
-def _validate_config(config: Dict[str, Any]) -> None:
+def _validate_config(config: dict[str, Any]) -> None:
   """Performs basic validation on the loaded YAML config."""
   required_keys = ['suite_name', 'benchmarks']
   for key in required_keys:
@@ -103,11 +102,37 @@ def _validate_config(config: Dict[str, Any]) -> None:
       )
 
 
+def _parse_checkpoint_configs(
+    config: dict[str, Any],
+) -> list[config_lib.CheckpointConfig]:
+  """Builds the checkpoint configs from the YAML; defaults to a single one."""
+  if 'checkpoint_configs' in config:
+    return [
+        config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
+    ]
+  if 'checkpoint_config' in config:
+    return [config_lib.CheckpointConfig(**config['checkpoint_config'])]
+  return [config_lib.CheckpointConfig()]
+
+
+def _parse_mesh_configs(
+    config: dict[str, Any],
+) -> list[config_lib.MeshConfig] | None:
+  """Builds the mesh configs from the YAML, or None if unspecified."""
+  if 'mesh_configs' in config:
+    return [config_lib.MeshConfig(**mc) for mc in config['mesh_configs']]
+  if 'mesh_config' in config:
+    return [config_lib.MeshConfig(**config['mesh_config'])]
+  return None
+
+
 def create_test_suite_from_config(
     config_path: str,
     output_dir: str | None = None,
     local_directory: str | None = None,
     remove_repeated_dir: bool = False,
+    baseline_capture_path: str | None = None,
+    baseline_path: str | None = None,
 ) -> core.TestSuite:
   """Creates a single TestSuite object from the benchmark configuration.
 
@@ -119,38 +144,27 @@ def create_test_suite_from_config(
       used for ECM benchmarks.
     remove_repeated_dir: Whether to remove the generated repeat_* directories
       after execution.
+    baseline_capture_path: If set, the run captures a baseline into this
+      directory; overrides a `baseline_capture_path` key in the YAML.
+    baseline_path: If set, the run is compared against this stored baseline;
+      overrides a `baseline_path` key in the YAML.
 
   Returns:
     A TestSuite object containing all benchmarks generated from the config.
   """
-
   config = _load_yaml_config(config_path)
-
   _validate_config(config)
 
   suite_name = config['suite_name']
   num_repeats = config.get('num_repeats', 1)
-  if 'checkpoint_configs' in config:
-    checkpoint_configs = [
-        config_lib.CheckpointConfig(**cc) for cc in config['checkpoint_configs']
-    ]
-  elif 'checkpoint_config' in config:
-    checkpoint_configs = [
-        config_lib.CheckpointConfig(**config['checkpoint_config'])
-    ]
-  else:
-    checkpoint_configs = [config_lib.CheckpointConfig()]
+  checkpoint_configs = _parse_checkpoint_configs(config)
+  mesh_configs = _parse_mesh_configs(config)
+  baseline_capture_path = baseline_capture_path or config.get(
+      'baseline_capture_path'
+  )
+  baseline_path = baseline_path or config.get('baseline_path')
 
-  if 'mesh_configs' in config:
-    mesh_configs = [
-        config_lib.MeshConfig(**mc) for mc in config['mesh_configs']
-    ]
-  elif 'mesh_config' in config:
-    mesh_configs = [config_lib.MeshConfig(**config['mesh_config'])]
-  else:
-    mesh_configs = None
-
-  generators: List[core.BenchmarksGenerator] = []
+  generators: list[core.BenchmarksGenerator] = []
 
   for i, benchmark_group in enumerate(config['benchmarks']):
     generator_class_path = benchmark_group['generator']
@@ -204,4 +218,6 @@ def create_test_suite_from_config(
       output_dir=output_dir,
       local_directory=local_directory,
       remove_repeated_dir=remove_repeated_dir,
+      baseline_path=baseline_path,
+      baseline_capture_path=baseline_capture_path,
   )
