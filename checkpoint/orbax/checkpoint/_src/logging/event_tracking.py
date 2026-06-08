@@ -97,6 +97,11 @@ class OperationRecorder:
           '/jax/orbax/write/storage_type',
           storage_type=path_utils.get_storage_type(self._path),
       )
+    if self._operation_type == OperationType.LOAD:
+      jax.monitoring.record_event(
+          '/jax/orbax/read/storage_type',
+          storage_type=path_utils.get_storage_type(self._path),
+      )
 
   def record_blocking_completion(self, duration_secs: float):
     """Records the completion of the blocking part of an operation."""
