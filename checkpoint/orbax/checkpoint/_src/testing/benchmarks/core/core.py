@@ -40,25 +40,16 @@ from orbax.checkpoint._src.testing.benchmarks.core import multihost
 class BenchmarkOptions:
   """Base class for benchmark generator options.
 
-  The baseline_* fields are orchestration switches configured once per run
-  (not swept); subclasses inherit them automatically.
-
   Attributes:
     enable_trace: Whether to capture a per-operation `jax.profiler` trace for
       each measured save/load. Off by default.
     trace_every_repeat: Whether to capture traces on every repeat, or only the
       first repeat (the default); traces on every repeat overflow the Trace
       Viewer.
-    baseline_path: Path to a stored baseline to compare this run against, or
-      None to skip comparison.
-    baseline_capture_path: Path to write this run's baseline to, or None to
-      skip capture.
   """
 
   enable_trace: bool = False
   trace_every_repeat: bool = False
-  baseline_path: str | None = None
-  baseline_capture_path: str | None = None
 
   @classmethod
   def from_dict(cls, options_dict: dict[str, Any]) -> "BenchmarkOptions":
@@ -485,6 +476,8 @@ class TestSuite:
       num_repeats: int = 1,
       local_directory: str | None = None,
       remove_repeated_dir: bool = False,
+      baseline_path: str | None = None,
+      baseline_capture_path: str | None = None,
   ):
     self._name = name
     self._benchmarks_generators = benchmarks_generators
@@ -493,6 +486,8 @@ class TestSuite:
     self._output_dir = output_dir
     self._local_directory = local_directory
     self._remove_repeated_dir = remove_repeated_dir
+    self._baseline_path = baseline_path
+    self._baseline_capture_path = baseline_capture_path
     tensorboard_dir = None
     if output_dir:
       tensorboard_dir = epath.Path(output_dir) / "tensorboard"
@@ -584,14 +579,15 @@ class TestSuite:
     suite gather produced. Only the primary host writes/reads.
 
     Args:
-      benchmark: The benchmark whose options select the capture/compare paths
-        and whose name keys the baseline + its aggregated metrics.
+      benchmark: The benchmark whose name keys the baseline + its aggregated
+        metrics, and whose options snapshot is recorded in a captured baseline.
+        The capture/compare paths themselves are suite-level.
     """
     if multihost.get_process_index() != 0:
       return
     options = benchmark.options
-    capture = options.baseline_capture_path
-    compare = options.baseline_path
+    capture = self._baseline_capture_path
+    compare = self._baseline_path
     if not capture and not compare:
       return
     metrics = self._baseline_metrics(benchmark.name)

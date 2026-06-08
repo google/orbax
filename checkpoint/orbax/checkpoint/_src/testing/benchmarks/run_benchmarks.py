@@ -17,12 +17,11 @@ r"""Main script to run Orbax checkpoint benchmarks based on YAML configurations.
 
 When running in an open-source environment (e.g., on a cluster with mpirun),
 jax.distributed.initialize() will be called to set up the distributed system
-using standard environment variables like JAX_COORDINATOR_ADDRESS, JAX_PROCESS_ID,
-and JAX_NUM_PROCESSES.
+using standard environment variables like JAX_COORDINATOR_ADDRESS,
+JAX_PROCESS_ID and JAX_NUM_PROCESSES.
 """
 
 import os
-from typing import List
 
 from absl import app
 from absl import flags
@@ -30,6 +29,7 @@ from absl import logging
 from etils import epath
 import jax
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
+
 try:
   import pathwaysutils  # pylint: disable=g-import-not-at-top
 
@@ -64,6 +64,18 @@ _REMOVE_REPEATED_DIR = flags.DEFINE_bool(
     'remove_repeated_dir',
     False,
     'Remove the generated repeat_* directories after execution.',
+)
+_BASELINE_CAPTURE_PATH = flags.DEFINE_string(
+    'baseline_capture_path',
+    None,
+    'If set, directory to write each benchmark baseline JSON to after the '
+    'run. Records the cross-host aggregated metrics as the baseline.',
+)
+_BASELINE_PATH = flags.DEFINE_string(
+    'baseline_path',
+    None,
+    'If set, a stored baseline JSON to compare this run against; the '
+    'per-metric delta is logged at the end of the run.',
 )
 
 
@@ -144,6 +156,8 @@ def _run_benchmarks(
     output_directory: str,
     local_directory: str | None = None,
     remove_repeated_dir: bool = False,
+    baseline_capture_path: str | None = None,
+    baseline_path: str | None = None,
 ) -> None:
   """Runs Orbax checkpoint benchmarks based on a generator class and a config file.
 
@@ -154,6 +168,9 @@ def _run_benchmarks(
       benchmarks.
     remove_repeated_dir: Whether to remove the generated repeat_* directories
       after execution.
+    baseline_capture_path: If set, directory each benchmark's captured baseline
+      JSON is written to after the run.
+    baseline_path: If set, a stored baseline the run is compared against.
 
   Raises:
     RuntimeError: If any benchmark test fails.
@@ -175,6 +192,8 @@ def _run_benchmarks(
         output_dir=output_directory,
         local_directory=local_directory,
         remove_repeated_dir=remove_repeated_dir,
+        baseline_capture_path=baseline_capture_path,
+        baseline_path=baseline_path,
     )
   except Exception as e:
     logging.error('Failed to create test suite from config: %s', e)
@@ -198,7 +217,7 @@ def _run_benchmarks(
     raise RuntimeError(exception_message)
 
 
-def main(argv: List[str]) -> None:
+def main(argv: list[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError(f'Too many command-line arguments: {argv[1:]}')
 
@@ -225,6 +244,8 @@ def main(argv: List[str]) -> None:
       _OUTPUT_DIRECTORY.value,
       _LOCAL_DIRECTORY.value,
       remove_repeated_dir=_REMOVE_REPEATED_DIR.value,
+      baseline_capture_path=_BASELINE_CAPTURE_PATH.value,
+      baseline_path=_BASELINE_PATH.value,
   )
 
   logging.info('run_benchmarks.py finished.')

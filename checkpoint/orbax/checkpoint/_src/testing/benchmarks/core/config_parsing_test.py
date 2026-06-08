@@ -347,12 +347,8 @@ benchmarks:
     self.assertEqual(
         test_suite._benchmarks_generators[0]._checkpoint_configs,
         [
-            config_lib.CheckpointConfig(
-                spec={'a': 'numpy.ndarray:float32:10'}
-            ),
-            config_lib.CheckpointConfig(
-                spec={'b': 'numpy.ndarray:float32:20'}
-            ),
+            config_lib.CheckpointConfig(spec={'a': 'numpy.ndarray:float32:10'}),
+            config_lib.CheckpointConfig(spec={'b': 'numpy.ndarray:float32:20'}),
         ],
     )
 
@@ -378,6 +374,51 @@ benchmarks:
         test_suite._benchmarks_generators[0]._checkpoint_configs,
         [config_lib.CheckpointConfig()],
     )
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_baseline_flags_set_on_suite(self, mock_import, mock_load):
+    mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config(
+        'fake.yaml',
+        baseline_capture_path='/tmp/caps',
+        baseline_path='/tmp/base.json',
+    )
+
+    self.assertEqual(test_suite._baseline_capture_path, '/tmp/caps')
+    self.assertEqual(test_suite._baseline_path, '/tmp/base.json')
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_baseline_absent_is_none_on_suite(self, mock_import, mock_load):
+    mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
+    mock_import.return_value = MockGenerator
+
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
+
+    self.assertIsNone(test_suite._baseline_capture_path)
+    self.assertIsNone(test_suite._baseline_path)
+
+  @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
+  @mock.patch.object(config_parsing, '_import_class', autospec=True)
+  def test_baseline_from_yaml_with_flag_override(self, mock_import, mock_load):
+    config = yaml.safe_load(self._get_valid_yaml_content())
+    config['baseline_capture_path'] = '/yaml/caps'
+    config['baseline_path'] = '/yaml/base.json'
+    mock_load.return_value = config
+    mock_import.return_value = MockGenerator
+
+    suite = config_parsing.create_test_suite_from_config('fake.yaml')
+    self.assertEqual(suite._baseline_capture_path, '/yaml/caps')
+    self.assertEqual(suite._baseline_path, '/yaml/base.json')
+
+    suite = config_parsing.create_test_suite_from_config(
+        'fake.yaml', baseline_capture_path='/flag/caps'
+    )
+    self.assertEqual(suite._baseline_capture_path, '/flag/caps')
+    self.assertEqual(suite._baseline_path, '/yaml/base.json')
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   @mock.patch.object(config_parsing, '_import_class', autospec=True)
