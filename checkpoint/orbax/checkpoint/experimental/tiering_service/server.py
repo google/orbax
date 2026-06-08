@@ -441,11 +441,62 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       request: tiering_service_pb2.DeleteRequest,
       context: grpc.aio.ServicerContext,
   ) -> tiering_service_pb2.DeleteResponse:
-    """Deletes an asset from CTS tracking."""
-    logging.info("Delete requested")
+    """Queues a delete job for the asset.
 
-    await context.abort(grpc.StatusCode.UNIMPLEMENTED, "Delete Not Implemented")
-    return tiering_service_pb2.DeleteResponse()
+    Args:
+      request: A DeleteRequest containing the asset identifier (uuid or path).
+      context: The gRPC servicer context.
+
+    Returns:
+      A DeleteResponse.
+    """
+    identifier = request.uuid if request.HasField("uuid") else request.path
+    logging.info("Delete job request received for identifier: %r", identifier)
+    token = await auth.get_oauth_token(context)
+
+    async with self._session_scope() as session:
+      db_assets = await assets.fetch_asset_by_identifier(
+          session,
+          asset_uuid=request.uuid if request.HasField("uuid") else None,
+          path=request.path if request.HasField("path") else None,
+          inclusive_filter=[
+              db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE,
+              db_schema.AssetState.ASSET_STATE_STORED,
+          ],
+      )
+      db_asset = db_assets[0] if db_assets else None
+      if db_asset is None:
+        logging.warning("Delete: Asset not found: %r", identifier)
+        await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
+        return tiering_service_pb2.DeleteResponse()
+
+      for tp in db_asset.tier_paths:
+        if not await auth.has_write_permission(
+            token, backend=tp.storage_backend, path=tp.path
+        ):
+          logging.warning("Permission denied for Delete on path: %r", tp.path)
+          backend_name = storage_backend.get_backend_name(tp.storage_backend)
+          await context.abort(
+              grpc.StatusCode.PERMISSION_DENIED,
+              f"Insufficient {backend_name} permissions",
+          )
+          return tiering_service_pb2.DeleteResponse()
+
+      logging.info(
+          "Delete: Queuing delete job for asset %r", db_asset.asset_uuid
+      )
+      try:
+        await assets.queue_delete_asset_job(session, db_asset)
+      except Exception:  # pylint: disable=broad-except
+        logging.exception(
+            "Failed to queue delete job for asset: %r", db_asset.asset_uuid
+        )
+        await context.abort(
+            grpc.StatusCode.INTERNAL,
+            f"Failed to queue delete job: {db_asset.asset_uuid}",
+        )
+        return tiering_service_pb2.DeleteResponse()
+      return tiering_service_pb2.DeleteResponse()
 
   async def Info(
       self,

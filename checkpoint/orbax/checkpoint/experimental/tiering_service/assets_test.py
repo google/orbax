@@ -253,20 +253,20 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           client_keep_alive_interval_seconds=600
       )
 
-      # Create asset
+      # Create asset.
       asset = await assets.create_or_fetch_asset(
           session, request, backend, config
       )
       self.assertEqual(asset.path, "test/path")
       self.assertLen(asset.tier_paths, 1)
 
-      # Try creating it again (triggers unique conflict fetch fallback)
+      # Try creating it again (triggers unique conflict fetch fallback).
       asset2 = await assets.create_or_fetch_asset(
           session, request, backend, config
       )
       self.assertEqual(asset2.asset_uuid, asset.asset_uuid)
 
-      # Query active asset by path
+      # Query active asset by path.
       fetched_assets = await assets.fetch_asset_by_path(
           session,
           "test/path",
@@ -278,14 +278,14 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       self.assertLen(fetched_assets, 1)
       self.assertEqual(fetched_assets[0].asset_uuid, asset.asset_uuid)
 
-      # Query asset by uuid
+      # Query asset by uuid.
       fetched_uuids = await assets.fetch_asset_by_uuid(
           session, asset.asset_uuid
       )
       self.assertLen(fetched_uuids, 1)
       self.assertEqual(fetched_uuids[0].asset_uuid, asset.asset_uuid)
 
-      # Query asset by identifier (uuid or path)
+      # Query asset by identifier (uuid or path).
       fetched_ids = await assets.fetch_asset_by_identifier(
           session, asset.asset_uuid, ""
       )
@@ -315,7 +315,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           session, request, backend, config
       )
 
-      # Keep alive
+      # Keep alive.
       initial_expires_at = asset.write_expires_at
       updated = await assets.reserve_keep_alive(
           session, asset.asset_uuid, datetime.timedelta(seconds=1200)
@@ -323,7 +323,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       self.assertIsNotNone(updated)
       self.assertGreater(updated.write_expires_at, initial_expires_at)
 
-      # Verify keep alive persistence
+      # Verify keep alive persistence.
       async with self.session_maker() as session2:
         fetched = await assets.fetch_asset_by_uuid(session2, asset.asset_uuid)
         self.assertLen(fetched, 1)
@@ -331,14 +331,14 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
             fetched[0].write_expires_at, updated.write_expires_at
         )
 
-      # Finalize
+      # Finalize.
       finalized = await assets.finalize_asset(session, asset)
       self.assertIsNotNone(finalized)
       self.assertEqual(finalized.state, db_schema.AssetState.ASSET_STATE_STORED)
       self.assertLen(finalized.tier_paths, 1)
       self.assertEqual(finalized.tier_paths[0].ready_at, finalized.finalized_at)
 
-      # Verify finalize persistence
+      # Verify finalize persistence.
       async with self.session_maker() as session3:
         fetched3 = await assets.fetch_asset_by_uuid(session3, asset.asset_uuid)
         self.assertLen(fetched3, 1)
@@ -364,7 +364,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           client_keep_alive_interval_seconds=600
       )
 
-      # Create Asset A
+      # Create Asset A.
       request_a = tiering_service_pb2.ReserveRequest(
           path="path/A",
           user="user-a",
@@ -374,7 +374,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           session, request_a, backend, config
       )
 
-      # Create Asset B
+      # Create Asset B.
       request_b = tiering_service_pb2.ReserveRequest(
           path="path/B",
           user="user-b",
@@ -384,7 +384,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           session, request_b, backend, config
       )
 
-      # Verify fetch_asset_by_path only returns the matched asset
+      # Verify fetch_asset_by_path only returns the matched asset.
       fetched_a_by_path = await assets.fetch_asset_by_path(session, "path/A")
       self.assertLen(fetched_a_by_path, 1)
       self.assertEqual(fetched_a_by_path[0].asset_uuid, asset_a.asset_uuid)
@@ -393,7 +393,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       self.assertLen(fetched_b_by_path, 1)
       self.assertEqual(fetched_b_by_path[0].asset_uuid, asset_b.asset_uuid)
 
-      # Verify fetch_asset_by_uuid only returns the matched asset
+      # Verify fetch_asset_by_uuid only returns the matched asset.
       fetched_a_by_uuid = await assets.fetch_asset_by_uuid(
           session, asset_a.asset_uuid
       )
@@ -589,7 +589,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
 
       self.assertFalse(result.created)
 
-      # Verify DB has only the concurrent TierPath (no new one created)
+      # Verify DB has only the concurrent TierPath (no new one created).
       stmt_tp = select(db_schema.TierPath).filter_by(
           asset_uuid=asset_uuid, storage_backend_id=b2_id
       )
@@ -748,13 +748,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           if tp.storage_backend_id == b2.id
       )
 
-      db_job = db_schema.AssetJob(
-          asset_uuid=asset.asset_uuid,
-          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
-          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
-      )
-      session.add(db_job)
-      await session.commit()
+      await assets.queue_delete_asset_job(session, asset)
 
       with self.assertRaisesRegex(
           assets.DeletionPendingError, "marked for deletion"
@@ -807,13 +801,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       asset, _, b2 = await self._set_a_finalized_asset(session)
       storage_path = storage_backend_lib.get_storage_path(b2, asset.path)
 
-      db_job = db_schema.AssetJob(
-          asset_uuid=asset.asset_uuid,
-          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
-          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
-      )
-      session.add(db_job)
-      await session.commit()
+      await assets.queue_delete_asset_job(session, asset)
 
       with self.assertRaisesRegex(
           assets.DeletionPendingError, "marked for deletion"
@@ -830,7 +818,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     async with self.session_maker() as session:
       asset, _, _ = await self._set_a_finalized_asset(session)
 
-      # Insert a pending delete job
+      # Insert a pending delete job.
       db_job = db_schema.AssetJob(
           asset_uuid=asset.asset_uuid,
           request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
@@ -846,7 +834,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
   async def test_is_delete_pending_false(self):
     async with self.session_maker() as session:
       asset, _, _ = await self._set_a_finalized_asset(session)
-      # No job inserted
+      # No job inserted.
       self.assertFalse(
           await assets.is_delete_pending(session, asset_uuid=asset.asset_uuid)
       )
@@ -871,7 +859,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           if tp.storage_backend_id == b2.id
       )
 
-      # Insert a pending delete from instance job
+      # Insert a pending delete from instance job.
       db_job = db_schema.AssetJob(
           asset_uuid=asset.asset_uuid,
           request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
@@ -906,12 +894,70 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           for tp in updated_asset.tier_paths
           if tp.storage_backend_id == b2.id
       )
-      # No job inserted
+      # No job inserted.
       self.assertFalse(
           await assets.is_tier_path_delete_pending(
               session, asset_uuid=asset.asset_uuid, tier_path_id=tp_b.id
           )
       )
+
+  async def test_queue_delete_asset_job_success(self):
+    async with self.session_maker() as session:
+      asset, _, _ = await self._set_a_finalized_asset(session)
+
+      await assets.queue_delete_asset_job(session, asset)
+
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      result = await session.execute(stmt)
+      job = result.scalars().first()
+      self.assertIsNotNone(job)
+      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_QUEUED)
+
+  async def test_queue_delete_asset_job_duplicate(self):
+    async with self.session_maker() as session:
+      asset, _, _ = await self._set_a_finalized_asset(session)
+
+      await assets.queue_delete_asset_job(session, asset)
+
+      with self.assertRaisesRegex(ValueError, "has pending delete"):
+        await assets.queue_delete_asset_job(session, asset)
+
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      result = await session.execute(stmt)
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 1)
+
+  async def test_queue_delete_asset_job_already_deleted(self):
+    async with self.session_maker() as session:
+      asset, _, _ = await self._set_a_finalized_asset(session)
+
+      # Simulate another process deleting the asset in the DB.
+      async with self.session_maker() as session2:
+        db_assets = await assets.fetch_asset_by_uuid(session2, asset.asset_uuid)
+        db_asset2 = db_assets[0]
+        db_asset2.state = db_schema.AssetState.ASSET_STATE_DELETED
+        await session2.commit()
+
+      # Now try to queue delete job using the stale 'asset' object (which is
+      # still STORED in memory).
+      # But queue_delete_asset_job will re-fetch it with lock and see it is
+      # DELETED.
+      with self.assertRaisesRegex(ValueError, "is already deleted"):
+        await assets.queue_delete_asset_job(session, asset)
+
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset.asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      res = await session.execute(stmt)
+      jobs = res.scalars().all()
+      self.assertEmpty(jobs)
 
 
 if __name__ == "__main__":

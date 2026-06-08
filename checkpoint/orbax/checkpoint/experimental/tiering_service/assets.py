@@ -604,3 +604,44 @@ async def prefetch_keep_alive(
 
   db_assets = await fetch_asset_by_uuid(session, tp.asset_uuid)
   return db_assets[0] if db_assets else None
+
+
+async def queue_delete_asset_job(
+    session: AsyncSession,
+    db_asset: db_schema.Asset,
+) -> None:
+  """Queues a delete job for the asset.
+
+  Args:
+    session: The database session.
+    db_asset: The asset to delete.
+
+  Raises:
+    ValueError: If the asset is not found, is already deleted, or already has a
+      pending delete job.
+  """
+  stmt = (
+      select(db_schema.Asset)
+      .where(db_schema.Asset.asset_uuid == db_asset.asset_uuid)
+      .with_for_update()  # Locks the row until session.commit().
+      .execution_options(populate_existing=True)
+  )
+  res = await session.execute(stmt)
+  locked_asset = res.scalars().first()
+  if locked_asset is None:
+    raise ValueError(f"Asset {db_asset.asset_uuid} not found for locking")
+
+  if locked_asset.state == db_schema.AssetState.ASSET_STATE_DELETED:
+    raise ValueError(f"Asset {db_asset.asset_uuid} is already deleted.")
+
+  if await is_delete_pending(session, asset_uuid=locked_asset.asset_uuid):
+    raise ValueError(f"Asset {db_asset.asset_uuid} has pending delete.")
+
+  db_job = db_schema.AssetJob(
+      asset_uuid=locked_asset.asset_uuid,
+      request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+  )
+  session.add(db_job)
+
+  await session.commit()

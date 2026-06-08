@@ -20,6 +20,7 @@ from absl.testing import parameterized
 import aiosqlite  # pylint: disable=unused-import
 import greenlet  # pylint: disable=unused-import
 import grpc
+from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import auth
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
@@ -29,6 +30,71 @@ from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_
 from sqlalchemy.future import select
 
 from google.protobuf import timestamp_pb2
+
+
+async def _setup_prefetch_req(
+    servicer: server.TieringServiceServicer,
+    asset_uuid: str,
+    context: grpc.aio.ServicerContext,
+) -> tiering_service_pb2.PrefetchRequest:
+  del servicer, context
+  return tiering_service_pb2.PrefetchRequest(
+      uuid=asset_uuid, zone="us-central1-b"
+  )
+
+
+async def _setup_prefetch_keep_alive_req(
+    servicer: server.TieringServiceServicer,
+    asset_uuid: str,
+    context: grpc.aio.ServicerContext,
+) -> tiering_service_pb2.PrefetchKeepAliveRequest:
+  """Sets up a prefetch keep-alive request by prefetching to zone B first."""
+  prefetch_res = await servicer.Prefetch(
+      tiering_service_pb2.PrefetchRequest(
+          uuid=asset_uuid, zone="us-central1-b"
+      ),
+      context,
+  )
+  tp_b = next(
+      tp for tp in prefetch_res.asset.tier_paths if "lustre-b" in tp.path
+  )
+  return tiering_service_pb2.PrefetchKeepAliveRequest(
+      tier_path_uuid=tp_b.tier_path_uuid
+  )
+
+
+async def _setup_delete_invalid_uuid_req(
+    servicer: server.TieringServiceServicer,
+    asset_uuid: str,
+    context: grpc.aio.ServicerContext,
+) -> tiering_service_pb2.DeleteRequest:
+  del servicer, asset_uuid, context
+  return tiering_service_pb2.DeleteRequest(uuid="invalid-uuid")
+
+
+async def _setup_delete_invalid_path_req(
+    servicer: server.TieringServiceServicer,
+    asset_uuid: str,
+    context: grpc.aio.ServicerContext,
+) -> tiering_service_pb2.DeleteRequest:
+  del servicer, asset_uuid, context
+  return tiering_service_pb2.DeleteRequest(path="non-existent/path")
+
+
+async def _setup_delete_already_deleted_req(
+    servicer: server.TieringServiceServicer,
+    asset_uuid: str,
+    context: grpc.aio.ServicerContext,
+) -> tiering_service_pb2.DeleteRequest:
+  await servicer.Delete(
+      tiering_service_pb2.DeleteRequest(uuid=asset_uuid), context
+  )
+  # Simulate job processed (mark state as DELETED).
+  async with servicer._session_scope() as session:
+    db_assets = await assets.fetch_asset_by_uuid(session, asset_uuid)
+    db_assets[0].state = db_schema.AssetState.ASSET_STATE_DELETED
+    await session.commit()
+  return tiering_service_pb2.DeleteRequest(uuid=asset_uuid)
 
 
 class TieringServiceTest(
@@ -220,6 +286,184 @@ class TieringServiceTest(
         " ASSET_STATE_ACTIVE_WRITE",
     )
 
+  async def test_delete_by_uuid_success(self):
+    asset_uuid = await self._reserve_asset()
+    request = tiering_service_pb2.DeleteRequest(uuid=asset_uuid)
+    response = await self.servicer.Delete(request, self.context)
+
+    with self.subTest("Response is not None"):
+      self.assertIsNotNone(response)
+
+    with self.subTest("Database asset state"):
+      async with self.servicer._session_scope() as session:
+        db_assets = await assets.fetch_asset_by_uuid(session, asset_uuid)
+        self.assertLen(db_assets, 1)
+        self.assertEqual(
+            db_assets[0].state, db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE
+        )
+        self.assertIsNone(db_assets[0].deleted_at)
+
+    with self.subTest("Delete job queued"):
+      async with self.servicer._session_scope() as session:
+        stmt = select(db_schema.AssetJob).filter_by(
+            asset_uuid=asset_uuid,
+            request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+        )
+        result = await session.execute(stmt)
+        jobs = result.scalars().all()
+        self.assertLen(jobs, 1)
+        self.assertEqual(jobs[0].status, db_schema.JobStatus.JOB_STATUS_QUEUED)
+
+  async def test_delete_by_path_success(self):
+    asset_uuid = await self._reserve_asset()
+    request = tiering_service_pb2.DeleteRequest(path="test/path")
+    response = await self.servicer.Delete(request, self.context)
+
+    self.assertIsNotNone(response)
+
+    # Verify DB state (should not change state immediately).
+    async with self.servicer._session_scope() as session:
+      db_assets = await assets.fetch_asset_by_uuid(session, asset_uuid)
+      self.assertLen(db_assets, 1)
+      self.assertEqual(
+          db_assets[0].state, db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE
+      )
+
+      # Verify AssetJob is queued.
+      stmt = select(db_schema.AssetJob).filter_by(
+          asset_uuid=asset_uuid,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      result = await session.execute(stmt)
+      jobs = result.scalars().all()
+      self.assertLen(jobs, 1)
+      self.assertEqual(jobs[0].status, db_schema.JobStatus.JOB_STATUS_QUEUED)
+
+  async def test_delete_finalized_success(self):
+    asset_uuid = await self._reserve_asset()
+    await self.servicer.Finalize(
+        tiering_service_pb2.FinalizeRequest(uuid=asset_uuid), self.context
+    )
+
+    request = tiering_service_pb2.DeleteRequest(uuid=asset_uuid)
+    response = await self.servicer.Delete(request, self.context)
+    self.assertIsNotNone(response)
+
+    # Verify state remains STORED.
+    async with self.servicer._session_scope() as session:
+      db_assets = await assets.fetch_asset_by_uuid(session, asset_uuid)
+      self.assertLen(db_assets, 1)
+      self.assertEqual(
+          db_assets[0].state, db_schema.AssetState.ASSET_STATE_STORED
+      )
+
+  async def test_delete_prefetched_success(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # Prefetch to zone B (creates a second tier path).
+    await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+
+    # Delete the asset.
+    response = await servicer.Delete(
+        tiering_service_pb2.DeleteRequest(uuid=asset_uuid), self.context
+    )
+
+    with self.subTest("Delete response is not None"):
+      self.assertIsNotNone(response)
+
+    async with servicer._session_scope() as session:
+      with self.subTest("DB state is STORED"):
+        db_assets = await assets.fetch_asset_by_uuid(session, asset_uuid)
+        self.assertLen(db_assets, 1)
+        self.assertEqual(
+            db_assets[0].state, db_schema.AssetState.ASSET_STATE_STORED
+        )
+
+      with self.subTest("Delete job is queued"):
+        stmt = select(db_schema.AssetJob).filter_by(
+            asset_uuid=asset_uuid,
+            request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+        )
+        result = await session.execute(stmt)
+        jobs = result.scalars().all()
+        self.assertLen(jobs, 1)
+
+  async def test_delete_permission_denied(self):
+    asset_uuid = await self._reserve_asset()
+    # Remove token from context to simulate missing auth.
+    self.context.invocation_metadata.return_value = ()
+
+    request = tiering_service_pb2.DeleteRequest(uuid=asset_uuid)
+    await self.servicer.Delete(request, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.PERMISSION_DENIED, "Insufficient Lustre permissions"
+    )
+
+  async def test_delete_prefetched_permission_denied_on_any_backend(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # Prefetch to zone B.
+    await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+
+    # Mock OAuth verification failing for zone B's prefix but passing for
+    # zone A.
+    async def mock_has_write_permission(unused_token, *, backend, path):
+      del unused_token, backend  # Unused
+      if "lustre-b" in path:
+        return False
+      return True
+
+    with mock.patch.object(
+        auth,
+        "has_write_permission",
+        autospec=True,
+        side_effect=mock_has_write_permission,
+    ):
+      await servicer.Delete(
+          tiering_service_pb2.DeleteRequest(uuid=asset_uuid), self.context
+      )
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.PERMISSION_DENIED, "Insufficient Lustre permissions"
+    )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="invalid_uuid",
+          setup_req_func=_setup_delete_invalid_uuid_req,
+      ),
+      dict(
+          testcase_name="invalid_path",
+          setup_req_func=_setup_delete_invalid_path_req,
+      ),
+      dict(
+          testcase_name="already_deleted",
+          setup_req_func=_setup_delete_already_deleted_req,
+      ),
+  )
+  async def test_delete_not_found_parameterized(self, setup_req_func):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    req = await setup_req_func(servicer, asset_uuid, self.context)
+
+    self.context.abort.reset_mock()
+    await servicer.Delete(req, self.context)
+
+    self.context.abort.assert_called_once_with(
+        grpc.StatusCode.NOT_FOUND, "Asset not found"
+    )
+
   async def test_info_success(self):
     asset_uuid = await self._reserve_asset()
     response = await self.servicer.Info(
@@ -351,7 +595,7 @@ class TieringServiceTest(
     # Mock has_read_permission to succeed for source (lustre-a) but fail for
     # target (lustre-b).
     async def mock_has_read_permission(unused_token, *, backend, path):
-      del backend  # Unused.
+      del unused_token, backend  # Unused.
       if "lustre-b" in path:
         return False
       return True
@@ -640,6 +884,36 @@ class TieringServiceTest(
         ValueError, "Configuration expects StorageBackend with key"
     ):
       await server.setup_storage_backends(config_mod)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="prefetch",
+          rpc_name="Prefetch",
+          setup_req_func=_setup_prefetch_req,
+      ),
+      dict(
+          testcase_name="prefetch_keep_alive",
+          rpc_name="PrefetchKeepAlive",
+          setup_req_func=_setup_prefetch_keep_alive_req,
+      ),
+  )
+  async def test_rpc_fails_if_delete_pending(self, rpc_name, setup_req_func):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    req = await setup_req_func(servicer, asset_uuid, self.context)
+
+    await servicer.Delete(
+        tiering_service_pb2.DeleteRequest(uuid=asset_uuid), self.context
+    )
+
+    self.context.abort.reset_mock()
+    rpc_method = getattr(servicer, rpc_name)
+    await rpc_method(req, self.context)
+
+    self.context.abort.assert_called_once()
+    status_code, message = self.context.abort.call_args[0]
+    self.assertEqual(status_code, grpc.StatusCode.FAILED_PRECONDITION)
+    self.assertIn("marked for deletion", message)
 
 
 if __name__ == "__main__":
