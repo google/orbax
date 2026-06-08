@@ -140,6 +140,9 @@ def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   # TODO(b/518937340): Consider enabling gcs_grpc by default.
   # TODO(b/518937340): Migrate TENSORSTORE_GCS_BACKEND flag to `Context`.
   gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
+  logging.vlog(
+      1, 'Using GCS backend (TENSORSTORE_GCS_BACKEND): %s', gcs_backend
+  )
   return {
       'driver': gcs_backend,
       'bucket': gcs_bucket,
