@@ -396,9 +396,24 @@ class AssetJob(Base):
   # Target tier path for COPY and DELETE_FROM_INSTANCE requests
   target_tier_path_id = sqlalchemy.Column(
       sqlalchemy.Integer,
-      sqlalchemy.ForeignKey("tier_paths.id", ondelete="CASCADE"),
+      sqlalchemy.ForeignKey("tier_paths.id", ondelete="SET NULL"),
       nullable=True,
   )
+  request_id = sqlalchemy.Column(
+      sqlalchemy.String,
+      nullable=False,
+      unique=True,
+      default=lambda: str(uuid.uuid4()),
+  )
+  transfer_status = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
+  expiration_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  last_updated_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  worker_host = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+  worker_pid = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
 
   created_at = sqlalchemy.Column(
       sqlalchemy.DateTime(timezone=True),
@@ -413,12 +428,15 @@ class AssetJob(Base):
   target_tier_path = sqlalchemy.orm.relationship("TierPath")
 
   __table_args__ = (
-      # target_tier_path is required in COPY and DELETE_FROM_INSTANCE requests.
+      # target_tier_path is required in COPY and DELETE_FROM_INSTANCE requests,
+      # except when the job has failed and its target tier path was cleaned up.
       sqlalchemy.CheckConstraint(
           """
-          (request_type IN ('REQUEST_TYPE_COPY', 'REQUEST_TYPE_DELETE_FROM_INSTANCE') AND target_tier_path_id IS NOT NULL)
+          (request_type IN ('REQUEST_TYPE_COPY', 'REQUEST_TYPE_DELETE_FROM_INSTANCE')
+           AND (status = 'JOB_STATUS_FAILED' OR target_tier_path_id IS NOT NULL))
           OR
-          (request_type IN ('REQUEST_TYPE_DELETE_FROM_ALL_TIERS', 'REQUEST_TYPE_UNSPECIFIED') AND target_tier_path_id IS NULL)
+          (request_type IN ('REQUEST_TYPE_DELETE_FROM_ALL_TIERS', 'REQUEST_TYPE_UNSPECIFIED')
+           AND target_tier_path_id IS NULL)
           """,
           name="check_asset_job_valid_payload",
       ),
@@ -430,5 +448,6 @@ class AssetJob(Base):
         f" request_type='{self.request_type.name}',"
         f" status='{self.status.name}',"
         f" target_tier_path_id={self.target_tier_path_id},"
+        f" request_id='{self.request_id}',"
         f" created_at={self.created_at}, completed_at={self.completed_at})"
     )

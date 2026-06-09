@@ -150,6 +150,7 @@ message ServerConfig {
   int64 client_keep_alive_interval_seconds = 1 [default = 1800];
   string db_connection_str = 2 [default = "sqlite+aiosqlite:///:memory:"];
   repeated StorageBackend storage_backends = 3;
+  int64 max_active_jobs_per_backend = 4 [default = 1];
 }
 
 service TieringService {

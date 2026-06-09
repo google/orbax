@@ -17,12 +17,24 @@
 import contextlib
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+  """Enables foreign key constraints on SQLite database connections."""
+  del connection_record
+  if hasattr(dbapi_connection, "create_function"):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:

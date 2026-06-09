@@ -124,6 +124,16 @@ def _parse_storage_backends(
     _parse_storage_backend(b_data, backend)
 
 
+def _parse_max_active_jobs_per_backend(
+    data: Mapping[str, Any], config: tiering_service_pb2.ServerConfig
+) -> None:
+  """Parses max active jobs per backend into ServerConfig."""
+  if "max_active_jobs_per_backend" in data:
+    config.max_active_jobs_per_backend = int(
+        data["max_active_jobs_per_backend"]
+    )
+
+
 def parse_config(data: Mapping[str, Any]) -> tiering_service_pb2.ServerConfig:
   """Parses a dictionary into a ServerConfig proto.
 
@@ -138,6 +148,7 @@ def parse_config(data: Mapping[str, Any]) -> tiering_service_pb2.ServerConfig:
   _parse_client_keep_alive(data, config)
   _parse_db_connection(data, config)
   _parse_storage_backends(data, config)
+  _parse_max_active_jobs_per_backend(data, config)
   return config
 
 
