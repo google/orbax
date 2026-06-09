@@ -161,6 +161,14 @@ class DefaultSnapshotTest(absltest.TestCase):
     # It should contain original source data.
     self.assertEqual('data', (recovery_path / 'data.txt').read_text())
 
+  def test_create_snapshot_records_read_event(self):
+    default_snapshot = DefaultSnapshot(self.source_path, self.dest_path)
+    with mock.patch.object(
+        snapshot.event_tracking, 'record_read_metadata_event'
+    ) as mock_record:
+      asyncio.run(default_snapshot.create_snapshot())
+      mock_record.assert_called_once_with(self.source_path)
+
 
 class EmptySnapshotTest(absltest.TestCase):
 
@@ -316,6 +324,14 @@ class EmptySnapshotTest(absltest.TestCase):
     empty_snapshot = EmptySnapshot(epath.Path('relative/path'), self.dest_path)
     with self.assertRaisesRegex(ValueError, 'Snapshot source must be absolute'):
       asyncio.run(empty_snapshot.replace_source())
+
+  def test_create_snapshot_does_not_record_read_event(self):
+    empty_snapshot = EmptySnapshot(self.source_path, self.dest_path)
+    with mock.patch.object(
+        snapshot.event_tracking, 'record_read_metadata_event'
+    ) as mock_record:
+      asyncio.run(empty_snapshot.create_snapshot())
+      mock_record.assert_not_called()
 
 
 if __name__ == '__main__':

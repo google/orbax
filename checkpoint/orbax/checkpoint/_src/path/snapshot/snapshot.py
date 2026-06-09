@@ -22,6 +22,7 @@ import uuid
 
 from absl import logging
 from etils import epath
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import utils as ocp_path_utils
 
@@ -90,6 +91,8 @@ class _DefaultSnapshot(Snapshot):
       )
     if not await async_path.exists(self._source):
       raise ValueError(f"Snapshot source does not exist: {self._source}'.")
+
+    event_tracking.record_read_metadata_event(self._source)
 
     t = ocp_path_utils.Timer()
     await asyncio.to_thread(
