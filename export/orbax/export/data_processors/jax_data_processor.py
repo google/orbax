@@ -20,10 +20,11 @@ from typing import Any
 
 import jax
 import jaxtyping
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export.data_processors import data_processor_base
+
+from .third_party.neptune.protos import manifest_pb2
 
 
 def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct | Any:

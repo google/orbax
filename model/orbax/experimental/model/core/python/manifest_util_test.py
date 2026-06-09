@@ -14,11 +14,11 @@
 
 import os
 from absl.testing import absltest
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import manifest_util
 from orbax.experimental.model.core.python import serializable_function
 from orbax.experimental.model.core.python import unstructured_data
+from .third_party.neptune.protos import manifest_pb2
 
 
 class ManifestUtilTest(absltest.TestCase):

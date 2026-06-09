@@ -20,11 +20,11 @@ import re
 
 from google.protobuf import descriptor
 import jax
-from orbax.experimental.model.core.protos import manifest_pb2
 
 from .google.protobuf import any_pb2
 from .platforms.xla.service.jellyfish import tpu_compilation_environment_pb2 as tpu_comp_env_pb2
 from .platforms.xla.service.jellyfish.python import tpu_compilation_environment as tpu_comp_env
+from .third_party.neptune.protos import manifest_pb2
 from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.compiler.xla import xla_pb2  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.compiler.xla.pjrt.proto import compile_options_pb2  # pylint: disable=g-direct-tensorflow-import

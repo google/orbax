@@ -15,12 +15,13 @@
 """Some utilities for type.proto ."""
 
 import jax
-from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python.function import ShloDimSize
 from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloShape
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.tree_util import Tree
+from .third_party.neptune.protos import type_pb2
+
 # TODO(wangpeng): Replace all "manifest" with "type_proto" in this file.
 
 

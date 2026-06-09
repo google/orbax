@@ -18,7 +18,6 @@
 
 from collections.abc import Mapping, Sequence
 from absl import logging
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import function
 from orbax.experimental.model.core.python import saveable
@@ -27,6 +26,7 @@ from orbax.experimental.model.core.python import shlo_function
 from orbax.experimental.model.core.python import type_proto_util
 from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python import value
+from .third_party.neptune.protos import manifest_pb2
 
 
 def _build_function(

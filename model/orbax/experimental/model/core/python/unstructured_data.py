@@ -18,8 +18,9 @@ import dataclasses
 import os
 import pathlib
 
-from orbax.experimental.model.core.protos.manifest_pb2 import UnstructuredData  # pylint: disable=g-importing-member
 from orbax.experimental.model.core.python import file_utils
+
+from .third_party.neptune.protos.manifest_pb2 import UnstructuredData  # pylint: disable=g-importing-member
 
 
 @dataclasses.dataclass

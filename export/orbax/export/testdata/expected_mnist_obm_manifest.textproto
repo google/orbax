@@ -1,4 +1,4 @@
-# proto-file: //orbax/experimental/model/core/protos/manifest.proto
+# proto-file: //third_party/neptune/protos/manifest.proto
 # proto-message: Manifest
 objects {
   key: "__MODEL_FUNCTION_NAME__"

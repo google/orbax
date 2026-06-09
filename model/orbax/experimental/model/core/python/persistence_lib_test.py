@@ -17,8 +17,6 @@
 import os
 
 from absl.testing import absltest
-from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import function
@@ -30,6 +28,8 @@ from orbax.experimental.model.core.python import unstructured_data
 from orbax.experimental.model.core.python import value
 
 from tensorflow.python.util.protobuf import compare
+from .third_party.neptune.protos import manifest_pb2
+from .third_party.neptune.protos import type_pb2
 
 
 class PersistenceLibTest(absltest.TestCase):

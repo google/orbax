@@ -17,7 +17,6 @@ import textwrap
 from absl.testing import absltest
 from absl.testing import parameterized
 from google.protobuf import text_format
-from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import test_utils
 from orbax.experimental.model.core.python import type_proto_util
 from orbax.experimental.model.core.python.function import Sharding
@@ -25,6 +24,7 @@ from orbax.experimental.model.core.python.function import ShloDType
 from orbax.experimental.model.core.python.function import ShloTensorSpec
 from orbax.experimental.model.core.python.tree_util import Tree
 
+from .third_party.neptune.protos import type_pb2
 from tensorflow.compiler.xla import xla_data_pb2  # pylint: disable=g-direct-tensorflow-import
 
 

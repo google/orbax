@@ -14,8 +14,8 @@
 
 """Pipeline: pre-processor + model-function + post-processor."""
 
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.test_utils import simple_orchestration_pb2
+from .third_party.neptune.protos import manifest_pb2
 
 TEST_ORCHESTRATION_MIME_TYPE: str = "simple_orchestration"
 TEST_ORCHESTRATION_VERSION: str = "0.0.1"

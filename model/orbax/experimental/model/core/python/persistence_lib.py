@@ -23,7 +23,6 @@ import dataclasses
 import os
 
 from absl import logging
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.core.python import device_assignment
 from orbax.experimental.model.core.python import file_utils
 from orbax.experimental.model.core.python import manifest_constants
@@ -31,6 +30,8 @@ from orbax.experimental.model.core.python import manifest_util
 from orbax.experimental.model.core.python import metadata
 from orbax.experimental.model.core.python import saveable
 from orbax.experimental.model.core.python import unstructured_data
+
+from .third_party.neptune.protos import manifest_pb2
 
 
 @dataclasses.dataclass

@@ -18,8 +18,8 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.experimental.model.cli import printer
 from orbax.experimental.model.cli import redaction_test_pb2
-from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.protos import type_pb2
+from .third_party.neptune.protos import manifest_pb2
+from .third_party.neptune.protos import type_pb2
 
 
 class PrinterTest(parameterized.TestCase):

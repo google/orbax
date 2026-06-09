@@ -13,10 +13,10 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from orbax.experimental.model.core.protos import manifest_pb2
 from orbax.experimental.model.test_utils import simple_orchestration
 from orbax.experimental.model.test_utils import simple_orchestration_pb2
 from absl.testing import absltest
+from .third_party.neptune.protos import manifest_pb2
 
 
 class SimpleOrchestrationTest(googletest.TestCase):

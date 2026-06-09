@@ -22,8 +22,6 @@ many ML frameworks such as TF, JAX and PyTorch.
 """
 
 # pylint: disable=g-importing-member
-from orbax.experimental.model.core.protos import manifest_pb2
-from orbax.experimental.model.core.protos import type_pb2
 from orbax.experimental.model.core.python import tree_util
 from orbax.experimental.model.core.python.constants import *
 from orbax.experimental.model.core.python.function import Function
@@ -51,6 +49,9 @@ from orbax.experimental.model.core.python.unstructured_data import UnstructuredD
 from orbax.experimental.model.core.python.unstructured_data import UnstructuredDataWithExtName
 from orbax.experimental.model.core.python.value import ExternalValue
 from orbax.experimental.model.core.python.value import Value
+from .third_party.neptune.protos import manifest_pb2
+from .third_party.neptune.protos import type_pb2
+
 # pylint: enable=g-importing-member
 
 OpSharding = Sharding
