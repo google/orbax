@@ -549,7 +549,9 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
     if self._snapshot is not None:
       await self._snapshot.replace_source()
     else:
-      await async_path.rename(self._tmp_path, self._final_path)  # pyrefly: ignore[bad-argument-type]
+      rename_src = self._tmp_path
+      rename_dst = self._final_path
+      await async_path.rename(rename_src, rename_dst)
 
   def __repr__(self) -> str:
     return (

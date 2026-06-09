@@ -74,6 +74,38 @@ class FileOptions:
   path_permission_mode: int | None = None
 
 
+# TODO: b/425293362 - Remove this once the migration to TemporaryPath is
+# complete.
+def ensure_cns_file_options(
+    file_options: FileOptions,
+) -> FileOptions:
+  """Ensures CNS file options exist, creating them if they don't.
+
+  Args:
+    file_options: Existing file options.
+
+  Returns:
+    File options with CNS file options populated.
+  """
+  if file_options.cns_file_options:
+    return file_options
+  else:
+    # For backward compatibility, file_options.cns_file_options is created
+    # from deprecated fields in file_options.
+    cns_file_options = ColossusFileOptions(
+        data_governance_annotations=file_options.data_governance_annotations,
+        cns2_storage_options=file_options.cns2_storage_options,
+    )
+    return dataclasses.replace(
+        file_options,
+        cns_file_options=cns_file_options,
+        cns2_storage_options=None,
+        data_governance_annotations=None,
+    )
+
+
+
+
 @dataclasses.dataclass
 class MemoryLimitOptions:
   """Options for configuring memory limits for save.

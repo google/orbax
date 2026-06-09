@@ -72,7 +72,6 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 
-
 CheckpointArgs = checkpoint_args.CheckpointArgs
 Future = future.Future
 CheckpointArgs = checkpoint_args.CheckpointArgs
@@ -1044,10 +1043,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         # Not an error, as some items may not have been saved.
         continue
       handler.finalize(tmp_dir.get())
-      asyncio_utils.run_sync(
-          tmp_dir.finalize(
-          )
-      )
+      asyncio_utils.run_sync(tmp_dir.finalize())
 
       # Remove the temporary path once it has been finalized.
       self._current_temporary_paths.pop(item_name)

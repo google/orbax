@@ -14,6 +14,7 @@
 
 """Synchronous Checkpointer implementation."""
 
+import dataclasses
 import time
 from typing import Any, Iterable, Optional, Type
 
@@ -155,10 +156,11 @@ class Checkpointer(
         self._temporary_path_class
         or atomicity_defaults.get_default_temporary_path_class(directory)
     )
+    file_options = self._file_options
     tmpdir = temporary_path_class.from_final(
         directory,
         checkpoint_metadata_store=self._metadata_store,
-        file_options=self._file_options,
+        file_options=file_options,
     )
     return tmpdir
 
