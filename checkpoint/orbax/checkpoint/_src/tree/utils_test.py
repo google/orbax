@@ -14,6 +14,7 @@
 
 """Test for utils module."""
 
+import dataclasses
 from typing import Any, Mapping, Sequence
 
 from absl.testing import absltest
@@ -27,7 +28,6 @@ import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
-
 
 PyTree = tree_utils.PyTree
 
@@ -486,6 +486,48 @@ class SelectByTreePathTest(parameterized.TestCase):
     tree = FlaxRecord(alpha=1, beta=2)
     with self.assertRaisesRegex(ValueError, 'Path .* does not exist'):
       tree_utils.select_by_tree_path(tree, ('gamma',))
+
+  def test_deserialize_standard_dataclass(self):
+    @jtu.register_dataclass
+    @dataclasses.dataclass
+    class StandardDataclass:
+      a: int
+      b: str
+
+    target = StandardDataclass(a=1, b='test')
+
+    # When support_rich_types=True, the serialized tree is not flattened into a
+    # dict, it remains as the dataclass instance.
+    serialized = StandardDataclass(a=1, b='test')
+
+    # Should not raise a TypeError: object is not subscriptable
+    deserialized = tree_utils.deserialize_tree(
+        serialized, target=target, keep_empty_nodes=False
+    )
+    test_utils.assert_tree_equal(self, target, deserialized)
+
+  def test_deserialize_custom_registered_node(self):
+    class CustomRegisteredNode:
+
+      def __init__(self, a, b):
+        self.a = a
+        self.b = b
+
+    jtu.register_pytree_node(
+        CustomRegisteredNode,
+        lambda x: ((x.a, x.b), None),
+        lambda aux, leaves: CustomRegisteredNode(*leaves),
+    )
+
+    target = CustomRegisteredNode(a=1, b='test')
+    serialized = CustomRegisteredNode(a=1, b='test')
+
+    deserialized = tree_utils.deserialize_tree(
+        serialized, target=target, keep_empty_nodes=False
+    )
+    self.assertIsInstance(deserialized, CustomRegisteredNode)
+    self.assertEqual(deserialized.a, 1)
+    self.assertEqual(deserialized.b, 'test')
 
 
 if __name__ == '__main__':
