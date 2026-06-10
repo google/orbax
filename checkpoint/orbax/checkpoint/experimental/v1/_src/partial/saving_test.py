@@ -301,12 +301,16 @@ class PartialSavingTest(parameterized.TestCase):
       self.assertIn('arr2', restored)
 
   def test_empty_initial_save(self):
-    """Tests that save() raises an error if the initial save is empty."""
+    """Tests that save() is functional if the initial save is empty."""
     final_path = self.directory / 'empty_initial_save'
 
     # First save - empty.
-    with self.assertRaisesRegex(ValueError, 'Found empty item.'):
-      saving.save(final_path, {})
+    saving.save(final_path, {})
+    saving.finalize(final_path)
+    self.assertTrue(final_path.exists())
+
+    restored_pytree = loading.load(final_path)
+    self.assertDictEqual({}, restored_pytree)
 
   @parameterized.named_parameters(
       ('none_then_meta', None, {'meta1': 'val1'}, {'meta1': 'val1'}),

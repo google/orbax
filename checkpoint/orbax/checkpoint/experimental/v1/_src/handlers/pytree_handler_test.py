@@ -1033,6 +1033,7 @@ class PyTreeHandlerTest(
           [],
           [1, [], 2],
           {'a': [], 'b': 3},
+          (),
       ),
       array_metadata_store=(None, ARRAY_METADATA_STORE),
   )
@@ -1045,8 +1046,11 @@ class PyTreeHandlerTest(
     with handler_with_options(
         use_ocdbt=use_ocdbt, array_metadata_store=array_metadata_store
     ) as checkpoint_handler:
-      if not data:
-        with self.assertRaisesRegex(ValueError, 'Found empty item'):
+      # Only `None` is unsaveable. Empty containers ({}, [], ()) are stored as
+      # a metadata-only entry at the root keypath and restore to the same
+      # empty container.
+      if data is None:
+        with self.assertRaisesRegex(ValueError, 'None is not saveable'):
           checkpoint_handler.save(
               self.directory,
               data,
@@ -1063,6 +1067,31 @@ class PyTreeHandlerTest(
           pytree_metadata_options=self.pytree_metadata_options,
           array_metadata_store=array_metadata_store,
       )
+
+  @parameterized.product(
+      use_ocdbt=(True, False),
+      array_metadata_store=(None, ARRAY_METADATA_STORE),
+  )
+  def test_empty_custom_object(
+      self,
+      use_ocdbt: bool,
+      array_metadata_store: array_metadata_store_lib.Store | None,
+  ):
+    """Tests saving and restoring an empty custom object like optax.EmptyState."""
+    data = optax.EmptyState()
+    with handler_with_options(
+        use_ocdbt=use_ocdbt, array_metadata_store=array_metadata_store
+    ) as checkpoint_handler:
+      checkpoint_handler.save(self.directory, data)
+      # When loaded without a target item structure and
+      # support_rich_types=False, a custom empty object restores as None because
+      # it was assigned typestr='None'.
+      restored = checkpoint_handler.load(self.directory)
+      self.assertIsNone(restored)
+
+      # When loaded with a target item structure, it restores perfectly.
+      restored_with_item = checkpoint_handler.load(self.directory, data)
+      self.assertEqual(restored_with_item, data)
 
   @parameterized.product(
       use_ocdbt=(True, False),
@@ -1517,8 +1546,14 @@ class PyTreeHandlerTest(
         lambda keys, values: PyTreeDict(dict(zip(keys, values))),
     )
 
-    with self.assertRaisesRegex(ValueError, 'Found empty item'):
-      self.handler.save(self.directory, PyTreeDict())
+    # A top-level empty custom node saves as a metadata-only entry and, like
+    # the nested case below, restores as a plain dict (the custom container
+    # type is not preserved for empty nodes).
+    top_level_dir = self.directory / 'top_level_empty'
+    top_level_dir.mkdir(parents=True, exist_ok=True)
+    self.handler.save(top_level_dir, PyTreeDict())
+    restored = self.handler.load(top_level_dir)
+    self.assertDictEqual({}, restored)
 
     self.handler.save(self.directory, {'a': PyTreeDict()})
     restored = self.handler.load(self.directory)
