@@ -55,7 +55,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import concurrent.futures
-import pickle
+import json
 import threading
 import time
 from typing import Awaitable, Protocol, Sequence, TypeVar
@@ -318,10 +318,10 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     Returns:
       The serialized object.
     """
-    return pickle.dumps({
-        'tmp_path': self._tmp_path,
-        'final_path': self._final_path,
-    })
+    return json.dumps({
+        'tmp_path': str(self._tmp_path),
+        'final_path': str(self._final_path),
+    }).encode('utf-8')
 
   @classmethod
   def from_bytes(
@@ -336,10 +336,10 @@ class ReadOnlyTemporaryPath(atomicity_types.TemporaryPath):
     Returns:
       A ReadOnlyTemporaryPath instance.
     """
-    data = pickle.loads(data)
+    parsed_data = json.loads(data.decode('utf-8'))
     return cls(
-        temporary_path=data['tmp_path'],
-        final_path=data['final_path'],
+        temporary_path=epath.Path(parsed_data['tmp_path']),
+        final_path=epath.Path(parsed_data['final_path']),
     )
 
   @classmethod
