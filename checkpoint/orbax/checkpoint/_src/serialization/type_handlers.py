@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import sys
+import threading
 from typing import Any, Dict, Optional, Sequence, Tuple, TypeAlias, Union
 
 from absl import logging
@@ -145,7 +146,22 @@ class NumpyHandler(types.TypeHandler):
       if multihost.process_index() == 0:
         ts_context = info.ts_context
         write_coros.append(self._open_and_write(value, tspec, ts_context))
-    await asyncio.gather(*write_coros)
+    gather_future = asyncio.gather(*write_coros)
+    threading.current_thread().gather_future = gather_future
+    threading.current_thread().loop = asyncio.get_running_loop()
+    try:
+      await gather_future
+    except asyncio.CancelledError:
+      logging.info(
+          '[process=%s] Numpy handler gather was cancelled.',
+          multihost.process_index(),
+      )
+      raise
+    finally:
+      if hasattr(threading.current_thread(), 'gather_future'):
+        delattr(threading.current_thread(), 'gather_future')
+      if hasattr(threading.current_thread(), 'loop'):
+        delattr(threading.current_thread(), 'loop')
 
   async def serialize(
       self,
@@ -344,8 +360,37 @@ class StringHandler(types.TypeHandler):
             context=self._ts_context,
         )
         write_coros.append(t.with_transaction(txn).write(value))  # pytype: disable=attribute-error
-    await asyncio.gather(*write_coros)
-    await txn.commit_async()
+
+    gather_future = asyncio.gather(*write_coros)
+    threading.current_thread().gather_future = gather_future
+    threading.current_thread().loop = asyncio.get_running_loop()
+    try:
+      await gather_future
+    except asyncio.CancelledError:
+      logging.info(
+          '[process=%s] String handler gather was cancelled.',
+          multihost.process_index(),
+      )
+      raise
+    finally:
+      if hasattr(threading.current_thread(), 'gather_future'):
+        delattr(threading.current_thread(), 'gather_future')
+      if hasattr(threading.current_thread(), 'loop'):
+        delattr(threading.current_thread(), 'loop')
+
+    commit_future = txn.commit_async()
+    threading.current_thread().ts_commit_future = commit_future
+    try:
+      await commit_future
+    except asyncio.CancelledError:
+      logging.info(
+          '[process=%s] String handler commit was cancelled.',
+          multihost.process_index(),
+      )
+      raise
+    finally:
+      if hasattr(threading.current_thread(), 'ts_commit_future'):
+        delattr(threading.current_thread(), 'ts_commit_future')
 
   async def serialize(
       self,
