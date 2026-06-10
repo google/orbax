@@ -124,6 +124,32 @@ def _parse_storage_backends(
     _parse_storage_backend(b_data, backend)
 
 
+def _parse_max_active_jobs_per_backend(
+    data: Mapping[str, Any], config: tiering_service_pb2.ServerConfig
+) -> None:
+  """Parses max active jobs per backend into ServerConfig."""
+  if "max_active_jobs_per_backend" in data:
+    config.max_active_jobs_per_backend = int(
+        data["max_active_jobs_per_backend"]
+    )
+
+
+def _parse_gcp_project(
+    data: Mapping[str, Any], config: tiering_service_pb2.ServerConfig
+) -> None:
+  """Parses gcp_project into ServerConfig."""
+  if "gcp_project" in data and data["gcp_project"] is not None:
+    config.gcp_project = str(data["gcp_project"])
+
+
+def _parse_service_account(
+    data: Mapping[str, Any], config: tiering_service_pb2.ServerConfig
+) -> None:
+  """Parses service_account into ServerConfig."""
+  if "service_account" in data and data["service_account"] is not None:
+    config.service_account = str(data["service_account"])
+
+
 def parse_config(data: Mapping[str, Any]) -> tiering_service_pb2.ServerConfig:
   """Parses a dictionary into a ServerConfig proto.
 
@@ -138,6 +164,9 @@ def parse_config(data: Mapping[str, Any]) -> tiering_service_pb2.ServerConfig:
   _parse_client_keep_alive(data, config)
   _parse_db_connection(data, config)
   _parse_storage_backends(data, config)
+  _parse_max_active_jobs_per_backend(data, config)
+  _parse_gcp_project(data, config)
+  _parse_service_account(data, config)
   return config
 
 

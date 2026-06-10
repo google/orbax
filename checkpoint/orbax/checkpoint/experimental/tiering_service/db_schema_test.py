@@ -22,10 +22,20 @@ import aiosqlite  # pylint: disable=unused-import
 import greenlet  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.tiering_service import db_schema
 import sqlalchemy
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+  del connection_record
+  cursor = dbapi_connection.cursor()
+  cursor.execute("PRAGMA foreign_keys=ON")
+  cursor.close()
 
 
 class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
@@ -441,6 +451,115 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       self.assertEqual(
           fetched_job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
       )
+
+  async def test_tier_path_deletion_fails_when_referenced_by_job(self) -> None:
+    async with self.session_maker() as session:
+      asset = db_schema.Asset(
+          asset_uuid="uuid-delete-tp-fail",
+          path="/experiment/delete-tp-fail",
+          user="testuser",
+      )
+      backend = db_schema.StorageBackend(
+          level=0,
+          zone="us-central1-a",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
+      )
+      tier_path = db_schema.TierPath(
+          asset_uuid="uuid-delete-tp-fail",
+          storage_backend=backend,
+          path="/path1",
+      )
+      session.add_all([asset, backend, tier_path])
+      await session.commit()
+
+      job = db_schema.AssetJob(
+          asset_uuid="uuid-delete-tp-fail",
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+          status=db_schema.JobStatus.JOB_STATUS_COMPLETED,
+          target_tier_path_id=tier_path.id,
+      )
+      session.add(job)
+      await session.commit()
+
+      # Deleting the tier path should fail with IntegrityError because the job
+      # still references it.
+      await session.delete(tier_path)
+      with self.assertRaises(sqlalchemy.exc.IntegrityError):
+        await session.commit()
+
+  async def test_tier_path_conditional_uniqueness(self) -> None:
+    async with self.session_maker() as session:
+      asset = db_schema.Asset(
+          asset_uuid="uuid-cond-uniq",
+          path="/experiment/cond-uniq",
+          user="testuser",
+      )
+      backend = db_schema.StorageBackend(
+          level=0,
+          zone="us-central1-a",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://gcs-bucket",
+      )
+      session.add_all([asset, backend])
+      await session.commit()
+
+      # 1. We can insert one PENDING tier path
+      tp_pending = db_schema.TierPath(
+          asset_uuid="uuid-cond-uniq",
+          storage_backend=backend,
+          path="/path-pending",
+          state=db_schema.TierPathState.PENDING,
+      )
+      session.add(tp_pending)
+      await session.commit()
+
+      # 2. Trying to insert another IN_PROGRESS tier path should fail
+      tp_in_progress = db_schema.TierPath(
+          asset_uuid="uuid-cond-uniq",
+          storage_backend=backend,
+          path="/path-inprogress",
+          state=db_schema.TierPathState.IN_PROGRESS,
+      )
+      session.add(tp_in_progress)
+      with self.assertRaises(sqlalchemy.exc.IntegrityError):
+        await session.commit()
+      await session.rollback()
+
+      # 3. Transition the first one to FAILED
+      result = await session.execute(
+          select(db_schema.TierPath).filter_by(asset_uuid="uuid-cond-uniq")
+      )
+      tp = result.scalars().first()
+      tp.state = db_schema.TierPathState.FAILED
+      await session.commit()
+
+      # 4. Now we can insert a new PENDING tier path for the same backend!
+      tp_new_pending = db_schema.TierPath(
+          asset_uuid="uuid-cond-uniq",
+          storage_backend=backend,
+          path="/path-new-pending",
+          state=db_schema.TierPathState.PENDING,
+      )
+      session.add(tp_new_pending)
+      await session.commit()
+
+      # 5. And we can also insert a DELETED tier path for the same backend!
+      tp_deleted = db_schema.TierPath(
+          asset_uuid="uuid-cond-uniq",
+          storage_backend=backend,
+          path="/path-deleted",
+          state=db_schema.TierPathState.DELETED,
+      )
+      session.add(tp_deleted)
+      await session.commit()
+
+      # Verify all 3 rows exist (FAILED, DELETED, PENDING)
+      result = await session.execute(
+          select(db_schema.TierPath).filter_by(asset_uuid="uuid-cond-uniq")
+      )
+      paths = result.scalars().all()
+      self.assertLen(paths, 3)
 
   async def test_create_asset_duplicates_allowed_for_deleted_incomplete(self):
     # Verify we can have duplicate path for DELETED or INCOMPLETE states
