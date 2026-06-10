@@ -2416,5 +2416,153 @@ class PyTreeHandlerTest(
     )
 
 
+class PyTreeHandlerLeafTest(
+    parameterized.TestCase,
+    multiprocess_test.MultiProcessTest,
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(
+        self.multiprocess_create_tempdir(name='leaf_checkpointing_test')
+    )
+    mesh = jax.sharding.Mesh(jax.devices(), 'x')
+    mesh_axes = jax.sharding.PartitionSpec(
+        'x',
+    )
+    self.sharded_arr = test_utils.create_sharded_array(
+        np.arange(8), mesh, mesh_axes
+    )
+
+    self.values_and_abstract_values = [
+        (
+            self.sharded_arr,
+            abstract_arrays.to_shape_dtype_struct(self.sharded_arr),
+            (
+                array_leaf_handler.ArrayMetadata,
+                {'shape': (8,), 'dtype': np.int64},
+            ),
+        ),
+        (
+            self.sharded_arr,
+            jax.ShapeDtypeStruct,
+            (
+                array_leaf_handler.ArrayMetadata,
+                {'shape': (8,), 'dtype': np.int64},
+            ),
+        ),
+        (
+            np.arange(8),
+            np.empty_like(np.arange(8)),
+            (
+                numpy_leaf_handler.NumpyMetadata,
+                {'shape': (8,), 'dtype': np.int64},
+            ),
+        ),
+        (123, int, (int, {})),
+        (123, 0, (int, {})),
+        (123.456, float, (float, {})),
+        (123.456, 0.0, (float, {})),
+        ('test', str, (str, {})),
+        ('test', '_', (str, {})),
+    ]
+    test_utils.sync_global_processes('PyTreeHandlerLeafTest:setup_complete')
+
+  def tearDown(self):
+    test_utils.sync_global_processes('PyTreeHandlerLeafTest:tests_complete')
+    super().tearDown()
+
+  def validate_load(
+      self,
+      handler: Any,
+      value: Any,
+      abstract_value: Any,
+      directory: Path | None = None,
+  ):
+    directory = directory or self.directory
+    with self.subTest('load_with_abstract'):
+      restored = handler.load(directory, abstract_value)
+      test_utils.assert_tree_equal(self, value, restored)
+    with self.subTest('load_without_abstract'):
+      restored = handler.load(directory)
+      test_utils.assert_tree_equal(self, value, restored)
+
+  @parameterized.parameters((True,), (False,))
+  def test_save_load(self, use_zarr3):
+    with handler_with_options(use_zarr3=use_zarr3) as handler:
+      self.assertFalse(
+          handler.is_handleable(handler_test_utils.Foo(1, 'hi'))
+      )
+      self.assertFalse(
+          handler.is_abstract_handleable(handler_test_utils.AbstractFoo())
+      )
+
+      for i, (value, abstract_value, expected_meta) in enumerate(
+          self.values_and_abstract_values
+      ):
+        name = str(i)
+        with self.subTest(f'value={value}, abstract_value={abstract_value}'):
+          self.assertTrue(handler.is_handleable(value))
+          self.assertTrue(handler.is_abstract_handleable(abstract_value))
+          handler.save(self.directory / name, value)
+
+          meta = handler.metadata(self.directory / name)
+          self.assertIsNotNone(meta)
+          expected_meta_type, expected_meta_attrs = expected_meta
+          self.assertIsInstance(meta, expected_meta_type)
+          for k, v in expected_meta_attrs.items():
+            self.assertEqual(getattr(meta, k), v)
+          if expected_meta_type is str:
+            self.assertEqual(meta, 'string')
+
+          self.validate_load(
+              handler, value, abstract_value, directory=self.directory / name
+          )
+
+  @parameterized.parameters((True,), (False,))
+  def test_unregistered_type(self, use_zarr3):
+    with handler_with_options(use_zarr3=use_zarr3) as handler:
+      with self.assertRaises(registry.UnregisteredTypeError):
+        handler.save(self.directory, handler_test_utils.Foo(1, 'hi'))
+
+      with self.assertRaises(registry.UnregisteredTypeError):
+        handler.load(self.directory, handler_test_utils.AbstractFoo())
+
+  @parameterized.parameters((True,), (False,))
+  def test_load_tree_structure_mismatch(self, use_zarr3):
+    with handler_with_options(use_zarr3=use_zarr3) as handler:
+      value = self.sharded_arr
+      handler.save(self.directory, value)
+
+      mismatched_abstract = {'a': jax.ShapeDtypeStruct((8,), jnp.int64)}
+
+      with self.assertRaises(ValueError):
+        handler.load(self.directory, mismatched_abstract)
+
+  @parameterized.parameters((True,), (False,))
+  def test_custom_leaf(self, use_zarr3):
+    custom_registry = registry.StandardLeafHandlerRegistry()
+    custom_registry.add(
+        Point,
+        AbstractPoint,
+        PointLeafHandler,
+    )
+    with handler_with_options(
+        leaf_handler_registry=custom_registry, use_zarr3=use_zarr3
+    ) as handler:
+      value = Point(1, 2.0)
+      abstract_value = AbstractPoint()
+      self.assertTrue(handler.is_handleable(value))
+      self.assertTrue(handler.is_abstract_handleable(abstract_value))
+      handler.save(self.directory, value)
+
+      with self.subTest('load_with_abstract'):
+        restored = handler.load(self.directory, abstract_value)
+        self.assertEqual(value, restored)
+      with self.subTest('load_without_abstract'):
+        restored = handler.load(self.directory)
+        self.assertEqual(value, restored)
+
+
 if __name__ == '__main__':
   multiprocess_test.main()

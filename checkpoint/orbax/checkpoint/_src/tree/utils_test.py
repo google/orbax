@@ -172,6 +172,22 @@ class UtilsTest(parameterized.TestCase):
   def test_from_flat_dict_without_target(self, expected, flat_dict):
     self.assertDictEqual(expected, tree_utils.from_flat_dict(flat_dict))
 
+  @parameterized.product(
+      leaf=(7, 0, 'test', 1.5),
+      inplace=(True, False),
+  )
+  def test_from_flat_dict_without_target_bare_leaf(self, leaf, inplace):
+    # A bare top-level leaf flattens to the empty keypath (); with no target it
+    # must reconstruct to the bare value, not silently drop it (returning {}).
+    self.assertEqual(
+        leaf, tree_utils.from_flat_dict({(): leaf}, inplace=inplace)
+    )
+
+  def test_from_flat_dict_empty_keypath_must_be_sole_key(self):
+    # A bare leaf has no siblings, so () cannot coexist with other keys.
+    with self.assertRaises(ValueError):
+      tree_utils.from_flat_dict({(): 1, ('a',): 2})
+
   @parameterized.parameters(
       ({'a': 1, 'b': {'d': 2}}, {'a': 1, 'b/d': 2}),
       ({'a': 1, 'b': 2}, {'b': 2, 'a': 1}),

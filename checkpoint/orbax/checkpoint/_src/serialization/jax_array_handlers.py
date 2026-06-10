@@ -754,7 +754,7 @@ async def _deserialize_shardings(
           ' checkpoint was saved with.'
       )
       assert info.parent_dir is not None
-      if info.name:
+      if info.name is not None:
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
             info.parent_dir.as_posix(), info.name
         )
@@ -1171,7 +1171,7 @@ class ArrayHandler(types.TypeHandler):
 
       assert info.parent_dir is not None
       sharding_op = None
-      if info.name:
+      if info.name is not None:
         tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
             info.parent_dir.as_posix(), info.name
         )

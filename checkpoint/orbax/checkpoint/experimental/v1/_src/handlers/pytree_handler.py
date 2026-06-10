@@ -198,7 +198,7 @@ def create_v0_restore_args(
 ) -> base_pytree_checkpoint_handler.BasePyTreeRestoreArgs:
   """Creates v0 CheckpointArgs for restoration."""
 
-  if abstract_checkpointable:
+  if abstract_checkpointable is not None:
     restore_args = jax.tree.map(
         lambda checkpointable: compatibility.V0RestoreArgs(
             restore_type=_restore_type_by_abstract_type(checkpointable),
@@ -522,14 +522,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
 
   def is_handleable(self, checkpointable: Any) -> bool:
     try:
-      # If it's a leaf it's not handleable.
-      tree_structure = jax.tree.structure(checkpointable)
-      return not (
-          jax.tree_util.treedef_is_leaf(tree_structure)
-          and tree_structure.num_leaves == 1
-      )
+      self.validate_leaves_handleable(checkpointable)
+      return True
     except Exception:  # pylint: disable=broad-exception-caught
       return False
 
   def is_abstract_handleable(self, abstract_checkpointable: Any) -> bool:
-    return self.is_handleable(abstract_checkpointable)
+    try:
+      self.validate_abstract_leaves_handleable(abstract_checkpointable)
+      return True
+    except Exception:  # pylint: disable=broad-exception-caught
+      return False

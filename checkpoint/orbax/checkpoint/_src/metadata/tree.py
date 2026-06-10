@@ -914,9 +914,34 @@ class _TreeMetadataImpl(TreeMetadata):
     self._use_zarr3 = use_zarr3
     self._validate_tree_type(tree)
 
+  def _is_bare_leaf(self, tree: PyTree) -> bool:
+    """Whether `tree` is a single top-level leaf (empty-keypath checkpointable).
+
+    A bare leaf is a checkpointable that is a single value rather than a
+    container (e.g. ``save_pytree(dir, jnp.arange(5))``). Its lone leaf has the
+    empty keypath ``()``. This is distinct from an *empty* registered pytree
+    (0 leaves, e.g. an empty flax module), which is not a leaf and remains
+    unsupported here.
+
+    None is explicitly excluded: JAX treats it as an empty pytree yet
+    treedef_is_leaf(tree_structure(None)) is True; None is not a valid
+    checkpointable and must not be held here.
+
+    Args:
+      tree: A PyTree object to inspect.
+
+    Returns:
+      True if `tree` is a bare leaf, False otherwise.
+    """
+    return tree is not None and not isinstance(tree, (dict, list, tuple)) and (
+        jax.tree_util.treedef_is_leaf(jax.tree_util.tree_structure(tree))
+    )
+
   def _validate_tree_type(self, tree: PyTree):
     # Note: NamedTuple is a subclass of tuple.
-    if not isinstance(tree, (dict, list, tuple)):
+    if not isinstance(tree, (dict, list, tuple)) and not self._is_bare_leaf(
+        tree
+    ):
       raise ValueError(f'Unsupported tree type: {type(tree)}')
 
   def __repr__(self):
@@ -960,6 +985,9 @@ class _TreeMetadataImpl(TreeMetadata):
     elif isinstance(self._tree, (list, tuple)):
       tree_keys = [jax.tree_util.SequenceKey(i) for i in range(len(self._tree))]
       tree_values = self._tree
+    elif self._is_bare_leaf(self._tree):
+      tree_keys = [jax.tree_util.GetAttrKey('tree')]
+      tree_values = [self._tree]
     else:
       raise ValueError(f'Unsupported tree type: {type(self._tree)}')
 
@@ -989,6 +1017,9 @@ class _TreeMetadataImpl(TreeMetadata):
       })
     elif issubclass(tree_type, (list, tuple)):
       tree = tree_type(flat_tree)
+    elif not issubclass(tree_type, (dict, list, tuple)):
+      assert len(flat_tree) == 1
+      tree = flat_tree[0]
     else:
       raise ValueError(f'Unsupported tree type: {tree_type}')
 

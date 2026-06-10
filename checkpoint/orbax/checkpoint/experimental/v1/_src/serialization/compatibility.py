@@ -83,6 +83,8 @@ def _keypath_from_param_name(param_name: str) -> tree_types.PyTreeKeyPath:
   Returns:
     A PyTreeKeyPath representing the parameter name.
   """
+  if not param_name:
+    return ()
   return tuple([jtu.GetAttrKey(s) for s in param_name.split('.')])
 
 

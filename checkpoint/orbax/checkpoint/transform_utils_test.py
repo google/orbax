@@ -62,6 +62,14 @@ class TransformUtilsTest(absltest.TestCase):
             'e': 3,
         }
     }
+    self.bare_leaves = [
+        np.arange(3),
+        jnp.arange(3),
+        7,
+        0,
+        'test',
+        1.5,
+    ]
 
   def test_empty(self):
     self.assertDictEqual({}, apply_transformations({}, {}, {}))
@@ -578,6 +586,31 @@ class TransformUtilsTest(absltest.TestCase):
 
   def test_merge_trees_empty(self):
     self.assertDictEqual({}, transform_utils.merge_trees({}, {}))
+
+  def test_merge_trees_bare_leaf(self):
+    # A bare top-level leaf (empty keypath) must not be silently dropped to {}.
+    for leaf in self.bare_leaves:
+      with self.subTest(leaf=leaf):
+        merged = transform_utils.merge_trees(leaf)
+        test_utils.assert_tree_equal(self, leaf, merged)
+
+  def test_intersect_trees_bare_leaf(self):
+    for leaf in self.bare_leaves:
+      with self.subTest(leaf=leaf):
+        intersected = transform_utils.intersect_trees(leaf, leaf)
+        test_utils.assert_tree_equal(self, leaf, intersected)
+
+  def test_apply_transformations_bare_leaf(self):
+    # The empty-tree guard must admit a one-leaf tree (bare/falsy leaf), not
+    # raise on a bare array or silently drop a falsy scalar.
+    for leaf in self.bare_leaves:
+      with self.subTest(leaf=leaf):
+        transformed = transform_utils.apply_transformations(leaf, {}, leaf)
+        test_utils.assert_tree_equal(self, leaf, transformed)
+
+  def test_apply_transformations_empty(self):
+    # A genuinely empty tree is still rejected (returns {}).
+    self.assertDictEqual({}, transform_utils.apply_transformations({}, {}, {}))
 
 
 if __name__ == '__main__':

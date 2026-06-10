@@ -233,7 +233,9 @@ def apply_transformations(original_tree: PyTree,
       ' will no longer be actively worked on.',
   )
   jax.monitoring.record_event('/jax/orbax/deprecation/apply_transformations')
-  if not new_tree:
+  # Reject only zero-leaf items (empty containers, None). A single falsy leaf
+  # (0, '', zero-array) is a valid one-leaf tree and must be allowed.
+  if not jax.tree.leaves(new_tree) and not new_tree:
     return {}
 
   original = tree_utils.to_flat_dict(original_tree, sep='/')

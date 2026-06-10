@@ -20,6 +20,7 @@ import chex
 from etils import epath
 import jax
 import numpy as np
+import optax
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import types
@@ -30,6 +31,10 @@ from orbax.checkpoint._src.tree import utils as tree_utils
 InternalTreeMetadata = tree_metadata_lib.InternalTreeMetadata
 TreeMetadata = tree_metadata_lib.TreeMetadata
 _TreeMetadataImpl = tree_metadata_lib._TreeMetadataImpl
+
+
+class MyEmptyNamedTuple(NamedTuple):
+  pass
 
 
 def _to_param_infos(
@@ -331,13 +336,67 @@ class TreeMetadataTest(parameterized.TestCase):
     self._check_tree_property(tree, metadata)
 
   @parameterized.parameters(
-      (1,),
-      (test_tree_utils.MyDataClass(),),
+      # An empty registered pytree (0 leaves, not a container) is unsupported
+      # because it is neither a container nor a single leaf.
       (test_tree_utils.MyFlax(),),
+      (None,),
   )
   def test_invalid_tree_type(self, tree):
     with self.assertRaises(ValueError):
       _TreeMetadataImpl(tree=tree)
+
+  @parameterized.parameters(
+      (1,),
+      (test_tree_utils.MyDataClass(),),
+      (
+          tree_metadata_lib.value_metadata.ScalarMetadata(
+              name='', directory=epath.Path('dir'), dtype=int
+          ),
+      ),
+      (
+          tree_metadata_lib.value_metadata.StringMetadata(
+              name='', directory=epath.Path('dir')
+          ),
+      ),
+      (
+          tree_metadata_lib.value_metadata.ArrayMetadata(
+              name='',
+              directory=epath.Path('dir'),
+              shape=(5,),
+              dtype=np.int64,
+              sharding=None,
+              storage=None,
+          ),
+      ),
+      (
+          tree_metadata_lib.value_metadata_entry.ValueMetadataEntry(
+              value_type='MyDataClass', skip_deserialize=False
+          ),
+      ),
+  )
+  def test_bare_leaf_tree_type(self, tree):
+    # A single top level leaf is a valid tree: it is the checkpointable produced
+    # by `save_pytree(dir, jnp.arange(5))`. `.tree` holds the bare leaf, and the
+    # metadata tree is that leaf at the empty keypath (), no special structure.
+    metadata = _TreeMetadataImpl(tree=tree)
+    self.assertEqual(metadata.tree, tree)
+    flat_with_path = jax.tree_util.tree_flatten_with_path(metadata.tree)[0]
+    self.assertEqual(flat_with_path, [((), tree)])
+
+  @parameterized.parameters(
+      ({},),
+      ([],),
+      ((),),
+      (optax.EmptyState(),),
+      (MyEmptyNamedTuple(),),
+  )
+  def test_empty_container_tree_type(self, tree):
+    # Empty containers are valid pytrees structurally at the _TreeMetadataImpl
+    # layer, but rejected by the BasePytreeHandler.
+    metadata = _TreeMetadataImpl(tree=tree)
+    self.assertEqual(metadata.tree, tree)
+    flat_with_path = jax.tree_util.tree_flatten_with_path(metadata.tree)[0]
+    self.assertEqual(flat_with_path, [])
 
 
   @parameterized.parameters(({'a': 1, 'b': 2},), ([1, 2],), ((1, 2),))

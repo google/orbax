@@ -25,9 +25,11 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
-_SHARDING_SUFFIX_RE = r'/\d+(\.\d+)*$'  # /0, /0.0, /1.0.1, etc.
-_ZARRAY_SUFFIX_RE = r'/\.zarray$'
-_ZARRAY_SUFFIX = '/.zarray'
+# Optional separator `(?:^|/)` so a bare top-level leaf (empty param name '')
+# parses correctly: its keys are prefix-less (`.zarray`, `0`, …) rather
+# than `name/.zarray`, `name/0`. Both strip to the empty param name ''.
+_SHARDING_SUFFIX_RE = r'(?:^|/)\d+(\.\d+)*$'
+_ZARRAY_SUFFIX_RE = r'(?:^|/)\.zarray$'
 
 
 async def _validate_params(
@@ -79,30 +81,33 @@ async def _validate_params(
           current_thread_name,
           ts_param,
       )
-    # b/0.0 -> b, a/0 -> a, a/.zarray -> a/.zarray
-    ts_param = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
-    if ts_param.endswith(_ZARRAY_SUFFIX):
-      # a/.zarray -> a
-      ts_param = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
-      with_zarray.add(ts_param)
+    # Classify params as either having a .zarray suffix or not.
+    # For a bare leaf (`.zarray`), `name` strips to `''`. For a container
+    # (`a/.zarray`), `name` strips to `'a'`.
+    if re.search(_ZARRAY_SUFFIX_RE, ts_param):
+      name = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
+      with_zarray.add(name)
       if logging.vlog_is_on(1):
         logging.vlog(
             1,
             '[process=%s][thread=%s] Collecting param with .zarray: %s',
             process_index,
             current_thread_name,
-            ts_param,
+            name,
         )
     else:
-      # b -> b
-      without_zarray.add(ts_param)
+      # Extract parameter name from data chunks. For a bare leaf chunk (`0`),
+      # `_SHARDING_SUFFIX_RE` strips `^0$` to `''`. For a container chunk
+      # (`a/0`), it strips `/0$` to `'a'`.
+      name = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
+      without_zarray.add(name)
       if logging.vlog_is_on(1):
         logging.vlog(
             1,
             '[process=%s][thread=%s] Collecting param without .zarray: %s',
             process_index,
             current_thread_name,
-            ts_param,
+            name,
         )
 
   unique = with_zarray | without_zarray

@@ -631,6 +631,47 @@ class UtilsTest(
           use_zarr3=True,
           expected_error=None,  # zarr3 not yet implemented.
       ),
+      # Bare top-level leaf: empty param name '' -> prefix-less keys.
+      dict(
+          testcase_name='bare_leaf_valid',
+          ts_params=['.zarray', '0'],
+          use_zarr3=False,
+          expected_error=None,
+      ),
+      dict(
+          testcase_name='bare_leaf_sharded_valid',
+          ts_params=['.zarray', '0.0', '0.1', '1.0'],
+          use_zarr3=False,
+          expected_error=None,
+      ),
+      dict(
+          testcase_name='bare_leaf_missing_zarray',
+          ts_params=['0'],
+          use_zarr3=False,
+          expected_error=r'1\/1 params are missing \.zarray',
+      ),
+      dict(
+          testcase_name='bare_leaf_missing_data',
+          ts_params=['.zarray'],
+          use_zarr3=False,
+          expected_error=r'1\/1 params are missing in checkpoint',
+      ),
+      # A param literally named `.zarray` (dict key '.zarray') must NOT be
+      # confused with the bare leaf zarray (classify-by-ending, not strip).
+      dict(
+          testcase_name='param_named_dot_zarray_valid',
+          ts_params=['.zarray/.zarray', '.zarray/0'],
+          use_zarr3=False,
+          expected_error=None,
+      ),
+      # Adversarial: a list-index param '0' (keys 0/.zarray, 0/0) must not
+      # collide with the bare leaf's '' name.
+      dict(
+          testcase_name='param_named_0_valid',
+          ts_params=['0/.zarray', '0/0'],
+          use_zarr3=False,
+          expected_error=None,
+      ),
   )
   async def test_validate_params(
       self, ts_params: list[str], use_zarr3: bool, expected_error: Optional[str]

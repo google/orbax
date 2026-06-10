@@ -641,7 +641,9 @@ class BasePyTreeCheckpointHandler(
     """
     start_time = time.time()
     item = args.item
-    if not item:
+    # Reject only zero-leaf items (empty containers, None). A single falsy leaf
+    # (0, '', False, zero-array) is a valid one-leaf tree and must be allowed.
+    if not jax.tree.leaves(item) and not item:
       raise ValueError('Found empty item.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
