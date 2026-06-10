@@ -23,7 +23,7 @@ from orbax.experimental.model import core as obm
 from orbax.experimental.model.cli import constants
 from orbax.experimental.model.jax2obm import jax_supplemental_pb2
 
-_BatchComponent = oex_orchestration_pb2.BatchOptions.BatchComponent
+_BatchComponent = orchestration_pb2.BatchOptions.BatchComponent
 
 
 def top_level_object(obj: obm.manifest_pb2.TopLevelObject) -> str:

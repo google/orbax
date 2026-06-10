@@ -31,7 +31,6 @@ import numpy as np
 from orbax.export import serving_config as osc
 import tensorflow as tf
 
-
 ConfigProto = Any
 PyTree = jaxtyping.PyTree
 SignatureDef = Any
