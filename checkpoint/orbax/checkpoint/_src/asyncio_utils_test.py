@@ -15,7 +15,9 @@
 """Tests for asyncio_utils module."""
 
 import asyncio
+from concurrent import futures
 import functools
+import threading
 import timeit
 
 from absl import logging
@@ -290,6 +292,91 @@ class AsyncioUtilsTest(parameterized.TestCase):
         number=number,
     )  # ~1.5503s
     logging.info("time: run_sync_time=%s", run_sync_time)
+
+
+class AsyncRunnerTest(absltest.TestCase):
+
+  _TIMEOUT = 2
+
+  def setUp(self):
+    """Instantiate the runner before each test."""
+    super().setUp()
+    self.runner = asyncio_utils.AsyncRunner()
+
+  def tearDown(self):
+    """Ensure the runner is shut down after each test to free resources."""
+    super().tearDown()
+    self.runner.shutdown()
+
+  def test_run_coroutine_success(self):
+    """Test that a coroutine executes and returns the correct result."""
+    async def simple_coro(value):
+      await asyncio.sleep(0.1)
+      return value * 2
+
+    future = self.runner.run_coroutine(simple_coro(5))
+    result = future.result(timeout=self._TIMEOUT)
+    self.assertEqual(result, 10)
+    self.assertTrue(future.done())
+
+  def test_run_coroutine_exception(self):
+    """Test that exceptions raised inside the coroutine propagate to the future."""
+    async def failing_coro():
+      await asyncio.sleep(0.1)
+      raise ValueError("Something went wrong inside the async task!")
+
+    future = self.runner.run_coroutine(failing_coro())
+
+    # Assert that calling result() raises the embedded exception
+    with self.assertRaises(ValueError):
+      future.result(timeout=self._TIMEOUT)
+
+    # Alternatively, check the exception object directly
+    self.assertIsInstance(future.exception(timeout=self._TIMEOUT), ValueError)
+
+  def test_multiple_concurrent_coroutines(self):
+    """Test submitting multiple coroutines concurrently."""
+    async def quick_coro(x):
+      return x
+
+    fs = [self.runner.run_coroutine(quick_coro(i)) for i in range(10)]
+
+    # Gather results
+    results = [f.result(timeout=self._TIMEOUT) for f in fs]
+
+    self.assertEqual(results, list(range(10)))
+
+  def test_shutdown_waits_for_tasks_to_complete(self):
+    """Test that shutdown() stops the event loop and waits for tasks to finish."""
+    task_can_complete = threading.Event()
+
+    async def long_running_coro() -> None:
+      await asyncio.to_thread(task_can_complete.wait)
+
+    future = self.runner.run_coroutine(long_running_coro())
+    self.assertFalse(future.done())
+
+    # Verify by that the shutdown call blocks until we allow the coroutine
+    # to complete.
+    executor = self.enter_context(futures.ThreadPoolExecutor(max_workers=1))
+    shutdown_future = executor.submit(self.runner.shutdown)
+    self.assertFalse(shutdown_future.done())
+    # Allow the coroutine to complete.
+    task_can_complete.set()
+    shutdown_future.result(timeout=self._TIMEOUT)
+    # Coroutine should now be done.
+    self.assertTrue(future.done())
+    self.assertIsNone(future.result(timeout=self._TIMEOUT))
+
+  def test_submit_after_shutdown(self):
+    """Test that submitting a coroutine after shutdown raises RuntimeError."""
+    self.runner.shutdown()
+
+    async def dummy():
+      pass
+
+    with self.assertRaises(RuntimeError):
+      self.runner.run_coroutine(dummy())
 
 
 if __name__ == "__main__":
