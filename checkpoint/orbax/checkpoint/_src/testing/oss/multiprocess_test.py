@@ -32,6 +32,7 @@ from absl import flags
 from absl.testing import absltest
 import jax
 from jax import config
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 import portpicker
 
@@ -305,6 +306,7 @@ class MultiProcessTest(absltest.TestCase):
   def setUp(self):
     """Start distributed service."""
     super().setUp()
+    synchronization.OperationIdGenerator.reset()
     if multihost.is_pathways_backend():
       assert (
           jax.process_count() == 1

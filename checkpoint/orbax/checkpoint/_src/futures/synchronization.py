@@ -65,6 +65,12 @@ class OperationIdGenerator:
     """Returns the current operation id."""
     return str(cls._operation_id)
 
+  @classmethod
+  def reset(cls) -> None:
+    """Resets the operation id counter."""
+    cls._operation_id_counter = itertools.count()
+    cls._operation_id = next(cls._operation_id_counter)
+
 
 class MultihostSynchronizedValue(Generic[_T]):
   """A thread-safe value that is synchronized across all processes."""
@@ -112,10 +118,11 @@ class MultihostSynchronizedValue(Generic[_T]):
   def set(self, value: _T) -> None:
     """Sets the value across all processes."""
     start_time = time.time()
+    operation_id = OperationIdGenerator.next_operation_id()
     thread_safe_barrier_sync_fn = self._create_thread_safe_barrier_sync_fn()
     thread_safe_barrier_sync_fn(
         multihost.unique_barrier_key(
-            "ThreadSaveMultiHostValueHolder:set_value_start",
+            f"{operation_id}_ThreadSaveMultiHostValueHolder:set_value_start",
             prefix=self._multiprocessing_options.barrier_sync_key_prefix,
         ),
     )
@@ -123,7 +130,7 @@ class MultihostSynchronizedValue(Generic[_T]):
       self._value = value
       thread_safe_barrier_sync_fn(
           multihost.unique_barrier_key(
-              "ThreadSaveMultiHostValueHolder:set_value_end",
+              f"{operation_id}_ThreadSaveMultiHostValueHolder:set_value_end",
               prefix=self._multiprocessing_options.barrier_sync_key_prefix,
           ),
       )

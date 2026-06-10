@@ -17,6 +17,7 @@
 import os
 
 import jax
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 
 from orbax.checkpoint._src.testing.oss import multiprocess_test
@@ -29,6 +30,7 @@ class MultiProcessTest(multiprocess_test.MultiProcessTest):
 
   def setUp(self):
     """Start distributed service."""
+    synchronization.OperationIdGenerator.reset()
     if multihost.is_pathways_backend():
       assert (
           jax.process_count() == 1
