@@ -15,7 +15,8 @@
 """Higher-level utilities for working with tree structures."""
 
 from collections import abc
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+import dataclasses
 import functools
 import operator
 from typing import Any, Callable, Generic, Literal, NamedTuple, Protocol, Type, TypeVar, overload
@@ -27,6 +28,24 @@ from orbax.checkpoint._src.tree import utils
 T = TypeVar('T')
 PyTree = Any
 PyTreeOf = PyTree | T
+
+
+@dataclasses.dataclass(frozen=True)
+class _FlattenedNode:
+  """Holds the flattened representation of a JAX internal node or mapping.
+
+  Attributes:
+    child_node_by_clean_key: A mapping from string keys (obtained by cleaning
+      JAX key paths) to child nodes.
+    original_key_by_clean_key: A mapping from clean string keys back to the
+      original string representation of the JAX keys (used to preserve key path
+      types on reconstruction).
+    tree_def: The original JAX PyTreeDef of the node, used for reconstruction.
+  """
+
+  child_node_by_clean_key: Mapping[str, Any]
+  original_key_by_clean_key: Mapping[str, str]
+  tree_def: jax.tree_util.PyTreeDef
 
 
 class Diff(NamedTuple):
@@ -180,6 +199,7 @@ def tree_trim(
     *,
     trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
     strict: Literal[False],
+    allow_sequence_mapping_alignment: bool = False,
 ) -> parts_of.PartsOf[PyTreeOf[T]]:
   ...
 
@@ -191,6 +211,7 @@ def tree_trim(
     *,
     trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
     strict: Literal[True] = True,
+    allow_sequence_mapping_alignment: bool = False,
 ) -> PyTreeOf[T]:
   ...
 
@@ -201,6 +222,7 @@ def tree_trim(
     *,
     trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
     strict: bool = True,
+    allow_sequence_mapping_alignment: bool = False,
 ) -> PyTreeOf[T] | parts_of.PartsOf[PyTreeOf[T]]:
   """Removes nodes in `structure` so that its shape matches that of `template`.
 
@@ -221,6 +243,9 @@ def tree_trim(
       value of, any node that is removed from `structure`.
     strict: Require every element of `template` to be matched by an element of
       `structure`.
+    allow_sequence_mapping_alignment: If True, allows matching a Mapping
+      template node with a Sequence structure node (converting the sequence to a
+      dict first).
 
   Returns:
     A subset of `structure` that has the same shape as `template`.
@@ -239,8 +264,43 @@ def tree_trim(
       structure,
       trimmed_structure_callback=trimmed_structure_callback,
       strict=strict,
+      allow_sequence_mapping_alignment=allow_sequence_mapping_alignment,
   )
   return result.full_structure if strict else result
+
+
+def _jax_internal_node_to_dict(node: Any) -> _FlattenedNode:
+  """Converts JAX internal node to dict with clean keys and returns key mapping and tree_def."""
+  keys_and_children, tree_def = utils.tree_flatten_with_path_one_level(node)
+  original_key_by_clean_key = {}
+  child_node_by_clean_key = {}
+  for k, v in keys_and_children:
+    clean_key = str(utils.get_key_name(k[0]))
+    orig_key = jax.tree_util.keystr(k)
+    original_key_by_clean_key[clean_key] = orig_key
+    child_node_by_clean_key[clean_key] = v
+  return _FlattenedNode(
+      child_node_by_clean_key=child_node_by_clean_key,
+      original_key_by_clean_key=original_key_by_clean_key,
+      tree_def=tree_def,
+  )
+
+
+def _wrap_callback_for_conversion(
+    callback: TrimmedStructureCallback[T],
+    path: tuple[str | int, ...],
+    original_key_by_clean_key: Mapping[str, str],
+) -> TrimmedStructureCallback[T]:
+  """Wraps callback to restore original keys in path after conversion."""
+  t_len = len(path)
+
+  def wrapped_callback(callback_path, val):
+    clean_k = callback_path[t_len]
+    orig_k = original_key_by_clean_key[clean_k]
+    mapped_path = callback_path[:t_len] + (orig_k,) + callback_path[t_len + 1 :]
+    callback(mapped_path, val)
+
+  return wrapped_callback
 
 
 def _tree_trim(
@@ -249,16 +309,32 @@ def _tree_trim(
     structure: PyTreeOf[T],
     trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
     strict: bool = True,
+    allow_sequence_mapping_alignment: bool = False,
 ) -> PyTreeOf[T]:
   match template:
     # This wants to be `case abc.Mapping()` but http://b/283787842.
     case mapping if isinstance(mapping, abc.Mapping):
-      if utils.isinstance_of_namedtuple(structure):
-        structure_dict = structure._asdict()  # pytype:disable=attribute-error
-      elif isinstance(structure, abc.Mapping):
+      is_list = isinstance(structure, list)
+      is_standard_tuple = isinstance(
+          structure, tuple
+      ) and not utils.isinstance_of_namedtuple(structure)
+      is_standard_sequence = is_list or is_standard_tuple
+
+      if isinstance(structure, abc.Mapping):
         structure_dict = structure
       elif structure is None:
         structure_dict = {}
+      elif utils.is_jax_internal_node(structure) and (
+          allow_sequence_mapping_alignment or not is_standard_sequence
+      ):
+        flat_node = _jax_internal_node_to_dict(structure)
+        structure_dict = flat_node.child_node_by_clean_key
+        if trimmed_structure_callback:
+          trimmed_structure_callback = _wrap_callback_for_conversion(
+              trimmed_structure_callback,
+              path,
+              flat_node.original_key_by_clean_key,
+          )
       else:
         raise TypeError(
             f'Type mismatch at key path {path}: template has type'
@@ -290,7 +366,12 @@ def _tree_trim(
 
       keep_dict = {
           k: _tree_trim(
-              (*path, k), template[k], v, trimmed_structure_callback, strict
+              (*path, k),
+              template[k],
+              v,
+              trimmed_structure_callback,
+              strict,
+              allow_sequence_mapping_alignment,
           )
           for k, v in keep_items
       }
@@ -305,6 +386,7 @@ def _tree_trim(
             structure,
             trimmed_structure_callback,
             strict,
+            allow_sequence_mapping_alignment,
         )
         return type(template)(**children_dict)
       elif isinstance(structure, abc.Sequence):
@@ -314,6 +396,7 @@ def _tree_trim(
             structure,
             trimmed_structure_callback,
             strict,
+            allow_sequence_mapping_alignment,
         )
         return type(template)(*children_sequence)
       else:
@@ -338,19 +421,27 @@ def _tree_trim(
             f' {len(template)}, but structure has length {len(structure)}'
         )
       elements = (
-          _tree_trim((*path, i), t, s, trimmed_structure_callback, strict)
+          _tree_trim(
+              (*path, i),
+              t,
+              s,
+              trimmed_structure_callback,
+              strict,
+              allow_sequence_mapping_alignment,
+          )
           for i, (t, s) in enumerate(zip(template, structure))
       )
       return type(template)(elements)  # pytype:disable=wrong-arg-count
     case n if n is not None and utils.is_jax_internal_node(n):
-      s_children_dict = utils._internal_node_as_dict(structure)  # pylint: disable=protected-access
+      s_flat = _jax_internal_node_to_dict(structure)
+      t_flat = _jax_internal_node_to_dict(template)
 
-      t_keys_and_children, t_tree_def = utils.tree_flatten_with_path_one_level(
-          template
-      )
-      t_children_dict = {
-          jax.tree_util.keystr(k): v for k, v in t_keys_and_children
-      }
+      if trimmed_structure_callback:
+        wrapped_callback = _wrap_callback_for_conversion(
+            trimmed_structure_callback, path, s_flat.original_key_by_clean_key
+        )
+      else:
+        wrapped_callback = None
 
       # Note: unlike other cases, this does not treat the children
       # individually. Instead we have effectively cast the structure and
@@ -358,16 +449,17 @@ def _tree_trim(
       # by reusing the mapping case.
       children_dict = _tree_trim(
           path,
-          t_children_dict,
-          s_children_dict,
-          trimmed_structure_callback,
+          t_flat.child_node_by_clean_key,
+          s_flat.child_node_by_clean_key,
+          wrapped_callback,
           strict,
+          allow_sequence_mapping_alignment,
       )
       # Now cast back to the result type.
       children = [
-          children_dict[jax.tree_util.keystr(k)] for k, _ in t_keys_and_children
+          children_dict[k] for k in t_flat.child_node_by_clean_key.keys()
       ]
-      return jax.tree_util.tree_unflatten(t_tree_def, children)
+      return jax.tree_util.tree_unflatten(t_flat.tree_def, children)
     case None:
       # None is special: it's the only type of template tree node that can
       # match both leaves and internal nodes of the structure to be trimmed.
@@ -376,9 +468,14 @@ def _tree_trim(
           trimmed_structure_callback(path, structure)
         return None
       else:
-        # Make sure any callback is called appropriately on all elements of
-        # `structure`.
-        _tree_trim(path, {}, structure, trimmed_structure_callback, strict)
+        _tree_trim(
+            path,
+            {},
+            structure,
+            trimmed_structure_callback,
+            strict,
+            allow_sequence_mapping_alignment,
+        )
       return None
     case v if utils.is_leaf_node(v):
       if not utils.is_leaf_node_or_none(structure):
@@ -400,6 +497,7 @@ def _tree_trim_impl(
     *,
     trimmed_structure_callback: TrimmedStructureCallback[T] | None = None,
     strict: bool = True,
+    allow_sequence_mapping_alignment: bool = False,
 ) -> parts_of.PartsOf[PyTreeOf[T]]:
   """Implementation of `tree_trim()` that always returns a `PartsOf`."""
   # To avoid a self-referential recursion, we create a partial that captures
@@ -409,6 +507,7 @@ def _tree_trim_impl(
       _tree_trim,
       trimmed_structure_callback=trimmed_structure_callback,
       strict=strict,
+      allow_sequence_mapping_alignment=allow_sequence_mapping_alignment,
   )
   return parts_of.PartsOf(template, tree_trim_fn((), template, structure))
 
@@ -475,23 +574,20 @@ def _recursive_merge(
       return merged
 
   if utils.is_jax_internal_node(t1):
-    t1_keys_and_children, t1_treedef = utils.tree_flatten_with_path_one_level(
-        t1
-    )
-    t1_children_dict = {
-        jax.tree_util.keystr(k): v for k, v in t1_keys_and_children
-    }
-    t2_children_dict = utils._internal_node_as_dict(t2)  # pylint: disable=protected-access
+    t1_flat = _jax_internal_node_to_dict(t1)
+    t2_flat = _jax_internal_node_to_dict(t2)
 
     merged_children_dict = _recursive_merge(
-        t1_children_dict, t2_children_dict, overwrite, is_leaf
+        t1_flat.child_node_by_clean_key,
+        t2_flat.child_node_by_clean_key,
+        overwrite,
+        is_leaf,
     )
 
     children = [
-        merged_children_dict[jax.tree_util.keystr(k)]
-        for k, _ in t1_keys_and_children
+        merged_children_dict[k] for k in t1_flat.child_node_by_clean_key.keys()
     ]
-    return jax.tree_util.tree_unflatten(t1_treedef, children)
+    return jax.tree_util.tree_unflatten(t1_flat.tree_def, children)
 
   return t1
 

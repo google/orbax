@@ -14,6 +14,7 @@
 
 """Test for tree structure utils module."""
 
+import dataclasses
 from typing import Any, NamedTuple
 from unittest import mock
 
@@ -47,6 +48,13 @@ class FlaxWiderRecord:
   alpha: Any
   beta: Any
   gamma: Any
+
+
+@jax.tree_util.register_dataclass
+@dataclasses.dataclass(frozen=True)
+class JaxRegisteredRecord:
+  alpha: Any
+  beta: Any
 
 
 def _as_string_equality(a, b) -> bool:
@@ -388,6 +396,81 @@ class TreeTrimTest(parameterized.TestCase):
 
     result = structure_utils.tree_trim(template, structure)
     test_utils.assert_tree_equal(self, expected, result)
+
+  def test_tree_trim_dataclass_dict_matching(self):
+    # Template is Flax dataclass, structure is dict
+    template = FlaxRecord(alpha=100, beta=200)
+    structure = {'alpha': 1, 'beta': 2, 'extra': 3}
+    expected = FlaxRecord(alpha=1, beta=2)
+
+    result = structure_utils.tree_trim(template, structure)
+    test_utils.assert_tree_equal(self, expected, result)
+
+    # Template is dict, structure is Flax dataclass
+    template_dict = {'alpha': 100, 'beta': 200}
+    structure_dc = FlaxRecord(alpha=1, beta=2)
+    expected_dict = {'alpha': 1, 'beta': 2}
+
+    result_dict = structure_utils.tree_trim(template_dict, structure_dc)
+    self.assertDictEqual(expected_dict, result_dict)
+
+  def test_tree_trim_jax_registered_dataclass_dict_matching(self):
+    # Template is Jax registered dataclass, structure is dict
+    template = JaxRegisteredRecord(alpha=100, beta=200)
+    structure = {'alpha': 1, 'beta': 2, 'extra': 3}
+    expected = JaxRegisteredRecord(alpha=1, beta=2)
+
+    result = structure_utils.tree_trim(template, structure)
+    test_utils.assert_tree_equal(self, expected, result)
+
+    # Template is dict, structure is Jax registered dataclass
+    template_dict = {'alpha': 100, 'beta': 200}
+    structure_dc = JaxRegisteredRecord(alpha=1, beta=2)
+    expected_dict = {'alpha': 1, 'beta': 2}
+
+    result_dict = structure_utils.tree_trim(template_dict, structure_dc)
+    self.assertDictEqual(expected_dict, result_dict)
+
+  def test_tree_trim_namedtuple_dict_matching(self):
+    # Template is NamedTuple, structure is dict
+    template = Record(first=100, second=200)
+    structure = {'first': 1, 'second': 2, 'extra': 3}
+    expected = Record(first=1, second=2)
+
+    result = structure_utils.tree_trim(template, structure)
+    test_utils.assert_tree_equal(self, expected, result)
+
+    # Template is dict, structure is NamedTuple
+    template_dict = {'first': 100, 'second': 200}
+    structure_nt = Record(first=1, second=2)
+    expected_dict = {'first': 1, 'second': 2}
+
+    result_dict = structure_utils.tree_trim(template_dict, structure_nt)
+    self.assertDictEqual(expected_dict, result_dict)
+
+  def test_tree_trim_allow_sequence_mapping_alignment(self):
+    # Template has dict structure (e.g. from to_state_dict of a tuple)
+    template = {'a': {'0': 100, '1': 200}}
+    # Structure has tuple structure
+    structure = {'a': (1, 2)}
+    expected = {'a': {'0': 1, '1': 2}}
+
+    # Should succeed with the flag enabled
+    result = structure_utils.tree_trim(
+        template, structure, allow_sequence_mapping_alignment=True
+    )
+    self.assertEqual(expected, result)
+
+    # Should also work with lists
+    structure_list = {'a': [1, 2]}
+    result_list = structure_utils.tree_trim(
+        template, structure_list, allow_sequence_mapping_alignment=True
+    )
+    self.assertEqual(expected, result_list)
+
+    # Should fail if flag is False (default)
+    with self.assertRaises(TypeError):
+      structure_utils.tree_trim(template, structure)
 
   def test_recursively_trims_structure_to_match_template(self):
     structure = {
