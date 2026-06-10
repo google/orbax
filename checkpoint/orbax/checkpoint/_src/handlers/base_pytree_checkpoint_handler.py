@@ -640,6 +640,9 @@ class BasePyTreeCheckpointHandler(
       the data from its source will be awaited in this function.
     """
     start_time = time.time()
+    initial_ts_metrics = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
     item = args.item
     # Reject only zero-leaf items (empty containers, None). A single falsy leaf
     # (0, '', False, zero-array) is a valid one-leaf tree and must be allowed.
@@ -742,6 +745,7 @@ class BasePyTreeCheckpointHandler(
                 start_time,
                 '/jax/orbax/write/gbytes_per_sec',
                 '/jax/orbax/write/gbytes',
+                initial_ts_metrics=initial_ts_metrics,
             ),
         )
     ]

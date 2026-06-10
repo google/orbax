@@ -126,6 +126,10 @@ TAG_MAP: dict[str, tuple[str, str]] = {
         "5_inventory/save_total_gb",
         "GiB",
     ),
+    "/jax/orbax/write/compressed_gbytes": (
+        "5_inventory/save_compressed_gb",
+        "GiB",
+    ),
     "/jax/orbax/write/replicated_array_gb": (
         "5_inventory/replicated_array_gb",
         "GiB",

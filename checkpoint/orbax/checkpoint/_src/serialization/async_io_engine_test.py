@@ -17,6 +17,7 @@ import unittest
 from unittest import mock
 
 from absl.testing import absltest
+import numpy as np
 from orbax.checkpoint._src.serialization import async_io_engine
 from orbax.checkpoint._src.serialization import types
 
@@ -210,6 +211,83 @@ class AsyncIoEngineTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
         [req1, req2], deserialized_batches
     )
     self.assertEqual(tree_memory_size, 200)
+
+  @mock.patch.object(async_io_engine.jax.monitoring, 'record_scalar')
+  def test_log_io_metrics_compression_ratio(self, mock_record_scalar):
+    initial_ts_metrics = (
+        async_io_engine.ts.experimental_collect_matching_metrics(
+            '/tensorstore/'
+        )
+    )
+
+    # Perform actual TensorStore write to increment bytes_written.
+    ts_spec = async_io_engine.ts.Spec({
+        'driver': 'zarr',
+        'kvstore': {
+            'driver': 'file',
+            'path': self.create_tempdir().full_path,
+        },
+        'metadata': {
+            'compressor': {'id': 'zstd'},
+        },
+    })
+    ts_store = async_io_engine.ts.open(
+        ts_spec,
+        create=True,
+        delete_existing=True,
+        dtype=np.int32,
+        shape=(10000,),
+    ).result()
+    ts_store.write(np.ones((10000,), dtype=np.int32)).result()
+
+    async_io_engine.log_io_metrics(
+        size=40000,
+        start_time=12345.0,
+        gbytes_per_sec_metric='/jax/orbax/write/gbytes_per_sec',
+        initial_ts_metrics=initial_ts_metrics,
+    )
+
+    ratio_calls = [
+        call
+        for call in mock_record_scalar.call_args_list
+        if call[0][0] == '/jax/orbax/write/compression_ratio'
+    ]
+    self.assertNotEmpty(ratio_calls)
+    ratio = ratio_calls[0][0][1]
+    # Verifies that compression actually reduced size
+    self.assertGreater(ratio, 0.0)
+    self.assertLess(ratio, 1.0)
+
+    compressed_calls = [
+        call
+        for call in mock_record_scalar.call_args_list
+        if call[0][0] == '/jax/orbax/write/compressed_gbytes'
+    ]
+    self.assertNotEmpty(compressed_calls)
+    self.assertGreater(compressed_calls[0][0][1], 0.0)
+
+  @mock.patch.object(async_io_engine.jax.monitoring, 'record_scalar')
+  def test_log_io_metrics_compression_ratio_no_compression(
+      self, mock_record_scalar
+  ):
+    # Capture initial_ts_metrics, but perform no TensorStore writes,
+    # so compressed_bytes will be 0.
+    initial_ts_metrics = (
+        async_io_engine.ts.experimental_collect_matching_metrics(
+            '/tensorstore/'
+        )
+    )
+
+    async_io_engine.log_io_metrics(
+        size=4000,
+        start_time=12345.0,
+        gbytes_per_sec_metric='/jax/orbax/write/gbytes_per_sec',
+        initial_ts_metrics=initial_ts_metrics,
+    )
+
+    # Ensure compression_ratio was NOT recorded
+    for call in mock_record_scalar.call_args_list:
+      self.assertNotEqual(call[0][0], '/jax/orbax/write/compression_ratio')
 
 
 if __name__ == '__main__':

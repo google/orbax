@@ -42,7 +42,7 @@ import dataclasses
 import sys
 import threading
 import time
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Sequence, Tuple, Union
 
 from absl import logging
 import humanize
@@ -52,6 +52,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import memory_regulator
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
+import tensorstore as ts
 
 TypeHandler = types.TypeHandler
 ParamInfo = types.ParamInfo
@@ -87,11 +88,25 @@ def get_batch_memory_size(
   return sum(write_sizes), sum(read_sizes)
 
 
+def _get_total_bytes_written_from_tensorstore(
+    metrics: Sequence[dict[str, Any]],
+) -> int:
+  total = 0
+  for m in metrics:
+    if m['name'].startswith('/tensorstore/kvstore/') and m['name'].endswith(
+        '/bytes_written'
+    ):
+      for val in m['values']:
+        total += val['value']
+  return total
+
+
 def log_io_metrics(
     size: int,
     start_time: float,
     gbytes_per_sec_metric: str,
-    gbytes_metric: Optional[str] = None,
+    gbytes_metric: str | None = None,
+    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
 ):
   """Logs the bytes per second metric."""
   time_elapsed = time.time() - start_time
@@ -113,6 +128,27 @@ def log_io_metrics(
   )
   if gbytes_metric is not None:
     jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
+  if initial_ts_metrics is not None:
+    final_ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
+    initial_bytes = _get_total_bytes_written_from_tensorstore(
+        initial_ts_metrics
+    )
+    final_bytes = _get_total_bytes_written_from_tensorstore(final_ts_metrics)
+    compressed_bytes = final_bytes - initial_bytes
+
+    if compressed_bytes > 0 and size > 0:
+      ratio = float(compressed_bytes) / size
+      logging.info(
+          '[process=%d] Compression ratio: %.3f (%s / %s)',
+          multihost.process_index(),
+          ratio,
+          humanize.naturalsize(compressed_bytes, binary=True),
+          humanize.naturalsize(size, binary=True),
+      )
+      jax.monitoring.record_scalar('/jax/orbax/write/compression_ratio', ratio)
+      jax.monitoring.record_scalar(
+          '/jax/orbax/write/compressed_gbytes', compressed_bytes / (1024**3)
+      )
 
 
 async def logging_serialize(
