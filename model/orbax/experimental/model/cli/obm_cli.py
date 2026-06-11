@@ -22,11 +22,11 @@ from collections.abc import Sequence
 import sys
 
 from absl import app
-from orbax.experimental.model.cli import constants
-from orbax.experimental.model.cli import show
 import rich
 import typer
 
+from .third_party.neptune.neptune_model.cli import constants
+from .third_party.neptune.neptune_model.cli import show
 
 cli = typer.Typer(pretty_exceptions_enable=False)
 cli.command(name='show')(show.show)
