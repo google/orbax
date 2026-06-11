@@ -250,6 +250,51 @@ class AsyncioUtilsTest(parameterized.TestCase):
     ):
       asyncio_utils.run_sync(with_run(one))
 
+  def test_cancellable_success(self):
+    async def foo():
+      return 42
+
+    result = asyncio_utils.run_sync(
+        asyncio_utils.cancellable(foo(), "cancelled message")
+    )
+    self.assertEqual(result, 42)
+
+  def test_cancellable_cancel_reraise(self):
+    async def cancel_task():
+      raise asyncio.CancelledError()
+
+    with self.assertRaises(asyncio.CancelledError):
+      asyncio_utils.run_sync(
+          asyncio_utils.cancellable(
+              cancel_task(), "cancelled message", reraise=True
+          )
+      )
+
+  def test_cancellable_cancel_suppress(self):
+    async def cancel_task():
+      raise asyncio.CancelledError()
+
+    result = asyncio_utils.run_sync(
+        asyncio_utils.cancellable(
+            cancel_task(),
+            "cancelled message %s",
+            process_index=1,
+            reraise=False,
+        )
+    )
+    self.assertIsNone(result)
+
+  def test_cancellable_cancel_suppress_no_process_index(self):
+    async def cancel_task():
+      raise asyncio.CancelledError()
+
+    result = asyncio_utils.run_sync(
+        asyncio_utils.cancellable(
+            cancel_task(), "cancelled message", reraise=False
+        )
+    )
+    self.assertIsNone(result)
+
   @absltest.skip("benchmark asyncio.get_running_loop().")
   def test_benchmark_get_running_loop(self):
     def _is_event_loop_present():
@@ -396,6 +441,59 @@ class AsyncRunnerTest(absltest.TestCase):
     with self.assertRaises(RuntimeError):
       self.runner.run_coroutine(dummy())
 
+  def test_shutdown_duration(self):
+    """Test that measures how long shutdown takes with and without active tasks."""
+    # 1. Shutdown with no active tasks.
+    runner = asyncio_utils.AsyncRunner()
+    start_time = timeit.default_timer()
+    runner.shutdown()
+    duration = timeit.default_timer() - start_time
+    logging.info("Shutdown with no active tasks took %f seconds.", duration)
+    # Assert it is relatively fast (less than 0.5s).
+    self.assertLess(duration, 0.5)
+
+    # 2. Shutdown with a running task that takes specific time.
+    runner = asyncio_utils.AsyncRunner()
+    task_duration = 0.5
+
+    async def sleeping_coro():
+      await asyncio.sleep(task_duration)
+
+    runner.run_coroutine(sleeping_coro())
+    start_time = timeit.default_timer()
+    runner.shutdown()
+    duration = timeit.default_timer() - start_time
+    logging.info(
+        "Shutdown with a %f-second task took %f seconds.",
+        task_duration,
+        duration,
+    )
+    # The shutdown should block until the sleeping task is finished.
+    self.assertGreaterEqual(duration, task_duration - 0.05)
+
+  def test_shutdown_cancel_duration(self):
+    """Test that measures how fast shutdown is when cancel=True."""
+    runner = asyncio_utils.AsyncRunner()
+    task_duration = 0.5
+
+    async def sleeping_coro():
+      await asyncio.sleep(task_duration)
+
+    runner.run_coroutine(sleeping_coro())
+    start_time = timeit.default_timer()
+    # Call shutdown with cancel=True. It should cancel the task instantly.
+    runner.shutdown(cancel=True)
+    duration = timeit.default_timer() - start_time
+    logging.info(
+        "Shutdown with cancel=True and a %f-second task took %f seconds.",
+        task_duration,
+        duration,
+    )
+    # The shutdown should return almost instantly and definitely in less than
+    # 1 second.
+    self.assertLess(duration, 1.0)
+
 
 if __name__ == "__main__":
   absltest.main()
+

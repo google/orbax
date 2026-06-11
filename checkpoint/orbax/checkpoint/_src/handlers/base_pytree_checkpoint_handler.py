@@ -721,8 +721,7 @@ class BasePyTreeCheckpointHandler(
               name='write_metadata_after_commits',
           )
       )
-    else:
-      save_futures += commit_futures
+    save_futures += commit_futures
 
     tree_memory_size = async_io_engine.compute_memory_size(
         [req.values for req in requests_to_save]
