@@ -15,8 +15,11 @@
 """Provides helper async functions."""
 
 import asyncio
+from concurrent import futures
 import threading
 from typing import Any, Coroutine, TypeVar
+
+from absl import logging
 
 try:
   import uvloop  # pylint: disable=g-import-not-at-top
@@ -69,3 +72,73 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
       finally:
         event_loop.call_soon_threadsafe(event_loop.stop)
         thread.join()
+
+
+class AsyncRunner:
+  """Executor that allows running coroutines in a separate thread.
+
+  It creates and manages a new event loop in a dedicated thread, which can then
+  be used to run coroutines from other threads using run_coroutine().
+  """
+
+  def __init__(self):
+    self._loop = asyncio.new_event_loop()
+    self._loop_running = threading.Event()
+    self._thread = threading.Thread(target=self._run_loop, daemon=True)
+    self._thread.start()
+    # Wait until the background thread confirms the event loop is running
+    self._loop_running.wait()
+
+  def _run_loop(self) -> None:
+    asyncio.set_event_loop(self._loop)
+    # Signal that the loop has successfully started
+    self._loop.call_soon_threadsafe(self._loop_running.set)
+    self._loop.run_forever()
+    self._loop.close()
+
+  def run_coroutine(self, coro: Coroutine[Any, Any, _T]) -> futures.Future[_T]:
+    """Schedules a coroutine to run in the background thread's event loop.
+
+    Args:
+        coro: The coroutine object to run.
+
+    Returns:
+        A concurrent.futures.Future object representing the coroutine's result.
+
+    Raises:
+        RuntimeError: If the event loop is not running.
+    """
+    if not self._loop.is_running():
+      raise RuntimeError('Event loop is not running.')
+    return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+  def shutdown(self) -> None:
+    """Stops the event loop, waiting for tasks to complete."""
+    if not self._loop.is_running() or self._loop.is_closed():
+      return
+
+    async def _shutdown_tasks():
+      current_task = asyncio.current_task(self._loop)
+      tasks_to_wait_for = {
+          t for t in asyncio.all_tasks(self._loop) if t is not current_task
+      }
+
+      if tasks_to_wait_for:
+        logging.info(
+            'AsyncRunner: Waiting for %d tasks to complete...',
+            len(tasks_to_wait_for),
+        )
+        # return_exceptions=True ensures gather waits for all tasks even if some
+        # raise exceptions.
+        await asyncio.gather(*tasks_to_wait_for, return_exceptions=True)
+        logging.info('AsyncRunner: All tasks finished.')
+      else:
+        logging.info('AsyncRunner: No active tasks to wait for.')
+      logging.info('AsyncRunner: Stopping event loop.')
+
+    asyncio.run_coroutine_threadsafe(_shutdown_tasks(), self._loop).result()
+
+    # Place the stop command gracefully at the end of the event queue.
+    self._loop.call_soon_threadsafe(self._loop.stop)
+    # Wait for the thread to exit.
+    self._thread.join()
