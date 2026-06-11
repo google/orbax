@@ -23,6 +23,12 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import utils as path_utils
 
 
+
+def _seconds_to_milliseconds(seconds: float) -> float:
+  """Converts seconds to milliseconds."""
+  return seconds * 1000.0
+
+
 def record_read_event(directory: epath.Path):
   """Records a dataread event for the checkpoint."""
   return None
@@ -65,7 +71,7 @@ class OperationRecorder:
     self._primary_host = primary_host
     self._storage_type = path_utils.get_storage_type(self._path)
 
-  def record_start(self):
+  def record_start(self, start_time: float):
     """Records the start of an operation."""
     logging.info(
         '[process=%s] [%s] Started %s checkpoint @ %s.',
@@ -75,22 +81,34 @@ class OperationRecorder:
         self._path,
     )
 
+    record_start_time_name = None
     match self._operation_type:
       case OperationType.SAVE:
-        event_name = (
+        record_event_name = (
             '/jax/orbax/write/async/start'
             if self._async_origin
             else '/jax/orbax/write/start'
         )
+        record_start_time_name = (
+            '/jax/checkpoint/write/async/start_time'
+            if self._async_origin
+            else '/jax/orbax/write/start_time'
+        )
       case OperationType.LOAD:
-        event_name = (
+        record_event_name = (
             '/jax/orbax/read/async/start'
             if self._async_origin
             else '/jax/orbax/read/start'
         )
 
     if multihost.is_primary_host(self._primary_host):
-      jax.monitoring.record_event(event_name)
+      jax.monitoring.record_event(record_event_name)
+      if record_start_time_name is not None:
+        jax.monitoring.record_scalar(
+            record_start_time_name,
+            _seconds_to_milliseconds(start_time),
+            storage_type=self._storage_type,
+        )
 
     if self._operation_type == OperationType.SAVE:
       jax.monitoring.record_event(
@@ -103,7 +121,7 @@ class OperationRecorder:
           storage_type=path_utils.get_storage_type(self._path),
       )
 
-  def record_blocking_completion(self, duration_secs: float):
+  def record_blocking_completion(self, duration_secs: float, end_time: float):
     """Records the completion of the blocking part of an operation."""
     match self._operation_type:
       case OperationType.SAVE:
@@ -121,10 +139,20 @@ class OperationRecorder:
                 duration_secs,
                 storage_type=self._storage_type,
             )
+            jax.monitoring.record_scalar(
+                '/jax/checkpoint/write/async/blocking_end_time',
+                _seconds_to_milliseconds(end_time),
+                storage_type=self._storage_type,
+            )
           else:
             jax.monitoring.record_event_duration_secs(
                 '/jax/orbax/write/blocking_duration_secs',
                 duration_secs,
+                storage_type=self._storage_type,
+            )
+            jax.monitoring.record_scalar(
+                '/jax/orbax/write/blocking_end_time',
+                _seconds_to_milliseconds(end_time),
                 storage_type=self._storage_type,
             )
       case OperationType.LOAD:

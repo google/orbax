@@ -235,7 +235,7 @@ class Checkpointer(
         async_origin=False,
         primary_host=self._primary_host,
     )
-    operation_recorder.record_start()
+    operation_recorder.record_start(checkpoint_start_time)
     self.synchronize_next_awaitable_signal_operation_id()
 
     if directory.exists():
@@ -265,8 +265,10 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
+    blocking_end_time = time.time()
     operation_recorder.record_blocking_completion(
-        time.time() - checkpoint_start_time
+        blocking_end_time - checkpoint_start_time,
+        blocking_end_time,
     )
 
     # Ensure save operation atomicity and record time saved by checkpoint.
@@ -299,15 +301,17 @@ class Checkpointer(
         async_origin=False,
         primary_host=self._primary_host,
     )
-    operation_recorder.record_start()
+    operation_recorder.record_start(restore_start_time)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
     if not step_lib.is_path_finalized(directory):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
+    blocking_end_time = time.time()
     operation_recorder.record_blocking_completion(
-        time.time() - restore_start_time
+        blocking_end_time - restore_start_time,
+        blocking_end_time,
     )
     restored = self._restore(directory, args=ckpt_args)
     multihost.sync_global_processes(

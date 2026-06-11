@@ -438,9 +438,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           async_origin=True,
           primary_host=self._primary_host,
       )
-      operation_recorder.record_completion(
-          time.time() - checkpoint_start_time
-      )
+      operation_recorder.record_completion(time.time() - checkpoint_start_time)
       # Clean up all awaitable signals for the current operation id as they are
       # no longer needed.
       if self._create_directories_asynchronously:
@@ -550,7 +548,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         async_origin=True,
         primary_host=self._primary_host,
     )
-    operation_recorder.record_start()
+    operation_recorder.record_start(start_time=checkpoint_start_time)
     tmpdir = self.get_temporary_path(directory)
     self.wait_until_finished()
     self.synchronize_next_awaitable_signal_operation_id()
@@ -565,8 +563,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
             **kwargs,
         )
     )
+    blocking_end_time = time.time()
     operation_recorder.record_blocking_completion(
-        time.time() - checkpoint_start_time
+        blocking_end_time - checkpoint_start_time,
+        end_time=blocking_end_time,
     )
     self._async_manager.start_async_commit(
         directory,

@@ -128,12 +128,15 @@ class _SaveResponse(AsyncResponse[None]):
       partial_save: bool = False,
   ) -> _SaveResponse:
     """Creates and returns the final AsyncResponse for a save operation."""
-    blocking_duration_secs = time.time() - start_time
+    blocking_end_time = time.time()
     event_tracking.OperationRecorder(
         temporary_path.temporary_path.get_final(),
         operation_type=event_tracking.OperationType.SAVE,
         async_origin=async_origin,
-    ).record_blocking_completion(blocking_duration_secs)
+    ).record_blocking_completion(
+        blocking_end_time - start_time,
+        blocking_end_time,
+    )
 
     handler_typestrs = {
         name: handler_types.typestr(type(handler))
@@ -382,7 +385,7 @@ def save_checkpointables_impl(
       path,
       operation_type=event_tracking.OperationType.SAVE,
       async_origin=async_origin,
-  ).record_start()
+  ).record_start(start_time)
   context = context_lib.get_context()
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
