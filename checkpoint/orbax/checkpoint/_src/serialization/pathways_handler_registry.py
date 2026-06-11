@@ -23,6 +23,8 @@ import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.multihost import dispatchers
+from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.serialization import cloud_pathways_array_handler
 from orbax.checkpoint._src.serialization import jax_array_handlers
 from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint._src.serialization import type_handler_registry
@@ -32,6 +34,21 @@ from orbax.checkpoint._src.serialization import type_handlers
 CheckpointingImpl = pathways_types.CheckpointingImpl
 
 
+
+
+def _get_pathways_persistence_array_handler(
+    **kwargs,
+) -> type_handlers.ArrayHandler:
+  """Returns the Pathways persistence array handler."""
+  if multihost.is_proxy_pathways_backend():
+    logging.info('Using CloudPathwaysArrayHandler for jax.Array.')
+    return cloud_pathways_array_handler.CloudPathwaysArrayHandler(**kwargs)
+
+  # pylint:disable=unreachable
+  raise NotImplementedError(
+      'Pathways persistence array handler is not supported on this backend.'
+  )
+  # pylint:enable=unreachable
 
 
 def _get_array_hander_with_dispatcher(
@@ -94,11 +111,15 @@ def get_pathways_array_handler(
   # If not set, use whichever dispatcher implementation is available.
   checkpointing_impl = checkpointing_impl or CheckpointingImpl.from_options(
       use_colocated_python=True,
+      use_persistence_array_handler=True,
   )
   match checkpointing_impl:
     case CheckpointingImpl.COLOCATED_PYTHON:
       logging.info('Using ColocatedPythonDispatcher')
       dispatcher = dispatchers.ColocatedPythonDispatcher()
+    case CheckpointingImpl.PERSISTENCE:
+      logging.info('Using persistence array handler for jax.Array.')
+      return _get_pathways_persistence_array_handler(**kwargs)
     case CheckpointingImpl.NO_DISPATCHER:
       logging.info('Not using dispatcher')
       dispatcher = None
