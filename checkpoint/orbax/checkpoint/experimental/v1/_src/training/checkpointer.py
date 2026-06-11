@@ -596,6 +596,25 @@ class Checkpointer(epy.ContextManager):
         return None
       return _AsyncSaveResponse(self._manager)
 
+  def cancel(self, step: int | CheckpointMetadata | None = None):
+    """Cancels any ongoing background save processes and deletes saved files for the step."""
+    resolved_step = None
+    if step is not None:
+      try:
+        resolved_step = self._resolve_existing_checkpoint(step).step
+      except errors.StepNotFoundError:
+        if isinstance(step, int):
+          resolved_step = step
+    logging.info('V1 Checkpointer.cancel() called.')
+    if hasattr(self._manager._checkpointer, 'cancel'):  # pylint: disable=protected-access
+      logging.info('V1 Checkpointer delegating to V0 checkpointer.cancel()')
+      self._manager._checkpointer.cancel()  # pylint: disable=protected-access
+    if resolved_step is not None:
+      try:
+        self._manager.delete(resolved_step)
+      except FileNotFoundError:
+        pass
+
   def load(
       self,
       step: int | CheckpointMetadata | None = None,

@@ -20,6 +20,7 @@ import asyncio
 import dataclasses
 import functools
 import os
+import threading
 import time
 from typing import Any, Callable, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
@@ -168,35 +169,55 @@ async def _async_serialize_shardings(
     primary_host: int | None,
 ):
   """Serializes sharding metadata."""
-  sharding_metadata_txn = ts.Transaction()
+  async def _run_sharding_serialization():
+    sharding_metadata_txn = ts.Transaction()
 
-  for sharding, info in zip(shardings, infos):
-    if sharding is None:
-      continue
-    await info.await_path_creation()
-    if info.parent_dir is None:
-      raise ValueError('parent_dir cannot be None')
-    tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
-        info.parent_dir.as_posix(), info.name
-    )
-    if multihost.is_primary_host(primary_host):
-      # OCDBT is not used for sharding metadata.
-      sharding_ts_context = info.ts_context
-      t = await ts.open(
-          tspec_sharding,
-          open=True,
-          context=sharding_ts_context,
+    for sharding, info in zip(shardings, infos):
+      if sharding is None:
+        continue
+      await info.await_path_creation()
+      if info.parent_dir is None:
+        raise ValueError('parent_dir cannot be None')
+      tspec_sharding = ts_utils.get_sharding_tensorstore_spec(
+          info.parent_dir.as_posix(), info.name
       )
-      serialized_sharding = None
-      sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
-      if sharding_metadata_value is not None:
-        serialized_sharding = sharding_metadata_value.to_serialized_string()
-      if serialized_sharding is not None:
-        await t.with_transaction(sharding_metadata_txn).write(  # pytype: disable=attribute-error
-            serialized_sharding
+      if multihost.is_primary_host(primary_host):
+        # OCDBT is not used for sharding metadata.
+        sharding_ts_context = info.ts_context
+        t = await ts.open(
+            tspec_sharding,
+            open=True,
+            context=sharding_ts_context,
         )
+        serialized_sharding = None
+        sharding_metadata_value = sharding_metadata.from_jax_sharding(sharding)
+        if sharding_metadata_value is not None:
+          serialized_sharding = sharding_metadata_value.to_serialized_string()
+        if serialized_sharding is not None:
+          await t.with_transaction(sharding_metadata_txn).write(  # pytype: disable=attribute-error
+              serialized_sharding
+          )
 
-  await sharding_metadata_txn.commit_async()
+    commit_future = sharding_metadata_txn.commit_async()
+    threading.current_thread().ts_commit_future = commit_future
+    try:
+      await commit_future
+    finally:
+      if hasattr(threading.current_thread(), 'ts_commit_future'):
+        delattr(threading.current_thread(), 'ts_commit_future')
+
+  try:
+    await _run_sharding_serialization()
+  except BaseException as e:
+    import asyncio as _asyncio  # pylint: disable=g-import-not-at-top,reimported
+    import concurrent.futures as _futures  # pylint: disable=g-import-not-at-top,reimported
+    if isinstance(e, (_futures.CancelledError, _asyncio.CancelledError)):
+      logging.info(
+          '[process=%s] Sharding metadata commit was safely cancelled.',
+          multihost.process_index(),
+      )
+      return
+    raise
 
 
 def _get_replica_slices(
@@ -484,7 +505,7 @@ def _serialize_arrays(
     )
   else:
 
-    def _serialize_batch(
+    async def _serialize_batch(
         batch_infos: Sequence[types.ParamInfo],
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
@@ -547,7 +568,7 @@ def _serialize_arrays(
         await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
-        _serialize_batch(infos, args, arrays)
+        await _serialize_batch(infos, args, arrays)
       if deprioritized:
         assert device_host_max_bytes is not None
         for (
@@ -560,7 +581,7 @@ def _serialize_arrays(
             replica_id=replica_id,
             dispatcher=dispatcher,
         ):
-          _serialize_batch(b_infos, b_args, b_arrays)
+          await _serialize_batch(b_infos, b_args, b_arrays)
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(),
@@ -653,9 +674,43 @@ async def _async_serialize_replica_slices(
         )
     )
 
-  await asyncio.gather(*write_coros)
+  gather_future = asyncio.gather(*write_coros)
+  threading.current_thread().gather_future = gather_future
+  threading.current_thread().loop = asyncio.get_running_loop()
+  try:
+    await gather_future
+  except asyncio.CancelledError:
+    if ocdbt_transaction is not None:
+      logging.info(
+          '[process=%s] Aborting OCDBT transaction', multihost.process_index()
+      )
+      ocdbt_transaction.abort()
+    logging.info(
+        '[process=%s] Array handler gather was cancelled.',
+        multihost.process_index(),
+    )
+    raise
+  finally:
+    if hasattr(threading.current_thread(), 'gather_future'):
+      delattr(threading.current_thread(), 'gather_future')
+    if hasattr(threading.current_thread(), 'loop'):
+      delattr(threading.current_thread(), 'loop')
+
   if ocdbt_transaction is not None:
-    await ocdbt_transaction.commit_async()
+    commit_future = ocdbt_transaction.commit_async()
+    threading.current_thread().ts_commit_future = commit_future
+    try:
+      await commit_future
+    except asyncio.CancelledError:
+      logging.info(
+          '[process=%s] OCDBT transaction commit was cancelled.',
+          multihost.process_index(),
+      )
+      ocdbt_transaction.abort()
+      raise
+    finally:
+      if hasattr(threading.current_thread(), 'ts_commit_future'):
+        delattr(threading.current_thread(), 'ts_commit_future')
 
 
 def _wrap_random_key_data(
