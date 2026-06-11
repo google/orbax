@@ -350,9 +350,7 @@ class SaveLoadTestSuite:
         expected_msg = (
             'Unsupported leaf type for saving:'
             f' `{handler_utils.Foo}`.'
-            ' Supported leaf types are:'
-            ' jax.Array | numpy.ndarray | int | float | numpy.number | bytes |'
-            ' bool | str.'
+            f' Supported leaf types are: {tree_types.Leaf}.'
         )
         with self.assertRaisesRegex(ValueError, re.escape(expected_msg)):
           ocp.save(self.directory, handler_utils.Foo(1, 'hi'))
