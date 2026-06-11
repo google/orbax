@@ -19,9 +19,11 @@ deserialization for scalar values.
 """
 
 import asyncio
+import concurrent.futures
 from typing import Awaitable, Sequence, Type
 
 from absl import logging
+import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.futures import future
@@ -31,12 +33,11 @@ from orbax.checkpoint.experimental.v1._src.serialization import options_resoluti
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
 
+
 Scalar = types.Scalar
 AbstractScalar = types.AbstractScalar
 ScalarSerializationParam = types.SerializationParam[Scalar]
-ScalarDeserializationParam = types.DeserializationParam[
-    AbstractScalar
-]
+ScalarDeserializationParam = types.DeserializationParam[AbstractScalar]
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
@@ -132,7 +133,27 @@ def _np_dtype_to_python_type(dtype):
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+  """Waits for futures and cleanly cancels them on abort."""
+  try:
+    await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+  except BaseException as e:
+    if isinstance(
+        e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+    ):
+      logging.info(
+          "[process=%s] ScalarLeafHandler._async_futures was safely cancelled.",
+          jax.process_index(),
+      )
+      for f in commit_futures:
+        if hasattr(f, "cancel"):
+          try:
+            f.cancel()
+          except Exception as inner_e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                "Error cancelling future in _async_futures: %s", inner_e
+            )
+      return
+    raise
 
 
 class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
@@ -177,7 +198,9 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
     )
     assert commit_futures
 
-    return _async_futures(commit_futures)
+    return types.FuturesAwaitable(
+        commit_futures, lambda: _async_futures(commit_futures)
+    )
 
   async def deserialize(
       self,

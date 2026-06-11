@@ -39,7 +39,10 @@ class BackgroundThreadRunner(Generic[T]):
   def result(self, timeout: float | None = None) -> T:
     r = self._future.result(timeout=timeout)
     if self._runner:
-      self._runner.shutdown()
+      try:
+        self._runner.shutdown()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
       self._runner = None
     return r
 
@@ -50,3 +53,11 @@ class BackgroundThreadRunner(Generic[T]):
       callback(fut.result())
 
     self._future.add_done_callback(_callback)
+
+  def __del__(self):
+    if self._runner:
+      try:
+        self._runner.shutdown()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
+      self._runner = None

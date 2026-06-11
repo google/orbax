@@ -727,8 +727,7 @@ class BasePyTreeCheckpointHandler(
               name='write_metadata_after_commits',
           )
       )
-    else:
-      save_futures += commit_futures
+    save_futures += commit_futures
 
 
     async_io_engine.log_io_metrics(

@@ -34,10 +34,52 @@ except ImportError:
 _T = TypeVar('_T')
 
 
+async def cancellable(
+    coro: Any,
+    message: str | None = None,
+    *,
+    process_index: Any = None,
+    reraise: bool = True,
+) -> Any:
+  """Runs a coroutine, logging and optionally raising if cancelled.
+
+  Args:
+    coro: The coroutine/awaitable to run.
+    message: The logging message to print if cancelled.
+    process_index: The process index to format the message with.
+    reraise: Whether to re-raise the CancelledError.
+
+  Returns:
+    The result of the coroutine, or None if it was cancelled.
+  """
+  try:
+    return await coro
+  except BaseException as e:
+    if isinstance(e, (futures.CancelledError, asyncio.CancelledError)):
+      if hasattr(coro, 'cancel') and callable(coro.cancel):
+        try:
+          coro.cancel()
+        except Exception:  # pylint: disable=broad-exception-caught
+          pass
+      if message is not None:
+        logging.info(message, process_index)
+      if reraise:
+        raise
+      return None
+    raise
+
+
 def _run_event_loop(loop: asyncio.AbstractEventLoop) -> None:
   """Runs the event loop until stop() is called."""
-  loop.run_forever()
-  loop.close()
+  try:
+    loop.run_forever()
+  except BaseException as e:  # pylint: disable=broad-exception-caught
+    logging.info('Background event loop ended: %r', e)
+  finally:
+    try:
+      loop.close()
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass
 
 
 def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
@@ -48,9 +90,21 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
   except RuntimeError:
     loop = None
 
+  async def _coro_with_registration():
+    current_thread = threading.current_thread()
+    current_thread.loop = asyncio.get_running_loop()
+    current_thread.main_task = asyncio.current_task()
+    try:
+      return await coro
+    finally:
+      if hasattr(current_thread, 'loop'):
+        delattr(current_thread, 'loop')
+      if hasattr(current_thread, 'main_task'):
+        delattr(current_thread, 'main_task')
+
   if loop is None:
     # No event loop is running, so we can safely use asyncio.run.
-    return asyncio.run(coro)
+    return asyncio.run(_coro_with_registration())
   else:
     # An event loop is already running.
     if uvloop is None:
@@ -60,7 +114,7 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
             ' with an existing event loop.'
         )
       nest_asyncio.apply()
-      return asyncio.run(coro)
+      return asyncio.run(_coro_with_registration())
     else:
       event_loop = uvloop.new_event_loop()
       thread = threading.Thread(
@@ -68,7 +122,9 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
       )
       thread.start()
       try:
-        return asyncio.run_coroutine_threadsafe(coro, event_loop).result()
+        return asyncio.run_coroutine_threadsafe(
+            _coro_with_registration(), event_loop
+        ).result()
       finally:
         event_loop.call_soon_threadsafe(event_loop.stop)
         thread.join()
@@ -100,11 +156,19 @@ class AsyncRunner:
     self._is_closed = False
 
   def _run_loop(self) -> None:
+    """Runs the event loop in the background thread."""
     asyncio.set_event_loop(self._loop)
     # Signal that the loop has successfully started
     self._loop.call_soon_threadsafe(self._loop_running.set)
-    self._loop.run_forever()
-    self._loop.close()
+    try:
+      self._loop.run_forever()
+    except BaseException as e:  # pylint: disable=broad-exception-caught
+      logging.info('AsyncRunner background loop ended: %r', e)
+    finally:
+      try:
+        self._loop.close()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
 
   def run_coroutine(self, coro: Coroutine[Any, Any, _T]) -> futures.Future[_T]:
     """Schedules a coroutine to run in the background thread's event loop.
@@ -122,7 +186,7 @@ class AsyncRunner:
       raise RuntimeError('AsyncRunner has been shut down.')
     return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
-  def shutdown(self, wait: bool = True) -> None:
+  def shutdown(self, wait: bool = True, cancel: bool = False) -> None:
     """Stops the event loop, waiting for tasks to complete.
 
     See the note in the class docstring regarding thread-safety.
@@ -130,6 +194,7 @@ class AsyncRunner:
     Args:
       wait: If True, wait for all tasks to complete before shutting down.
         Otherwise, the shutdown will be non-blocking.
+      cancel: If True, cancel all tasks before waiting for them to complete.
     """
     if self._is_closed:
       return
@@ -137,35 +202,50 @@ class AsyncRunner:
     self._is_closed = True
 
     async def _shutdown_tasks():
-      current_task = asyncio.current_task(self._loop)
-      tasks_to_wait_for = {
-          t for t in asyncio.all_tasks(self._loop) if t is not current_task
-      }
+      try:
+        current_task = asyncio.current_task(self._loop)
+        tasks_to_wait_for = {
+            t for t in asyncio.all_tasks(self._loop) if t is not current_task
+        }
 
-      if tasks_to_wait_for:
-        logging.info(
-            'AsyncRunner: Waiting for %d tasks to complete...',
-            len(tasks_to_wait_for),
-        )
-        # return_exceptions=True ensures gather waits for all tasks even if some
-        # raise exceptions.
-        await asyncio.gather(*tasks_to_wait_for, return_exceptions=True)
-        logging.info('AsyncRunner: All tasks finished.')
-      else:
-        logging.info('AsyncRunner: No active tasks to wait for.')
+        if tasks_to_wait_for:
+          if cancel:
+            logging.info(
+                'AsyncRunner: Cancelling %d tasks...',
+                len(tasks_to_wait_for),
+            )
+            for t in tasks_to_wait_for:
+              t.cancel()
+          logging.info(
+              'AsyncRunner: Waiting for %d tasks to complete...',
+              len(tasks_to_wait_for),
+          )
+          # return_exceptions=True ensures gather waits for all tasks even if
+          # some raise exceptions.
+          await asyncio.gather(*tasks_to_wait_for, return_exceptions=True)
+          logging.info('AsyncRunner: All tasks finished.')
+        else:
+          logging.info('AsyncRunner: No active tasks to wait for.')
+        logging.info('AsyncRunner: Stopping event loop.')
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
 
     logging.info('AsyncRunner: Shutting down (wait=%s)...', wait)
     shutdown_future = asyncio.run_coroutine_threadsafe(
         _shutdown_tasks(), self._loop
     )
 
-    if wait:
-      shutdown_future.result()
-      # Place the stop command gracefully at the end of the event queue.
-      self._loop.call_soon_threadsafe(self._loop.stop)
-      # Wait for the thread to exit.
-      self._thread.join()
-    else:
-      # Only signal the event loop to stop, but do not wait for it to exit.
-      self._loop.call_soon_threadsafe(self._loop.stop)
-    logging.info('AsyncRunner: Stopped.')
+    try:
+      if wait:
+        shutdown_future.result()
+        # Place the stop command gracefully at the end of the event queue.
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        # Wait for the thread to exit.
+        self._thread.join()
+      else:
+        # Only signal the event loop to stop, but do not wait for it to exit.
+        self._loop.call_soon_threadsafe(self._loop.stop)
+      logging.info('AsyncRunner: Shutdown complete.')
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass
+
