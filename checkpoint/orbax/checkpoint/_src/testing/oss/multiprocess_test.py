@@ -32,6 +32,7 @@ from absl import flags
 from absl.testing import absltest
 import jax
 from jax import config
+from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 import portpicker
 
@@ -318,6 +319,15 @@ class MultiProcessTest(absltest.TestCase):
           f"multiprocess_test_ensure_all_processes_arrive_at_test_case_{self._testMethodName}",
           10000,
       )
+      sync_key = f"sync_op_id_{self._testMethodName}"
+      if jax.process_index() == 0:
+        client.key_value_set(
+            sync_key,
+            synchronization.OperationIdGenerator.get_current_operation_id(),
+            allow_overwrite=True,
+        )
+      max_op_id = int(client.blocking_key_value_get(sync_key, 10000))
+      synchronization.OperationIdGenerator.set_operation_id(max_op_id)
 
   def multiprocess_create_tempdir(self, name: str | None = None) -> str:
     """Creates a temporary directory for the test."""
