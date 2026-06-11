@@ -71,8 +71,15 @@ async def cancellable(
 
 def _run_event_loop(loop: asyncio.AbstractEventLoop) -> None:
   """Runs the event loop until stop() is called."""
-  loop.run_forever()
-  loop.close()
+  try:
+    loop.run_forever()
+  except BaseException as e:  # pylint: disable=broad-exception-caught
+    logging.info('Background event loop ended: %r', e)
+  finally:
+    try:
+      loop.close()
+    except Exception:  # pylint: disable=broad-exception-caught
+      pass
 
 
 def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
@@ -90,10 +97,14 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
     try:
       return await coro
     finally:
-      if hasattr(current_thread, 'loop'):
+      try:
         delattr(current_thread, 'loop')
-      if hasattr(current_thread, 'main_task'):
+      except AttributeError:
+        pass
+      try:
         delattr(current_thread, 'main_task')
+      except AttributeError:
+        pass
 
   if loop is None:
     # No event loop is running, so we can safely use asyncio.run.
@@ -149,11 +160,19 @@ class AsyncRunner:
     self._is_closed = False
 
   def _run_loop(self) -> None:
+    """Runs the event loop in the background thread."""
     asyncio.set_event_loop(self._loop)
     # Signal that the loop has successfully started
     self._loop.call_soon_threadsafe(self._loop_running.set)
-    self._loop.run_forever()
-    self._loop.close()
+    try:
+      self._loop.run_forever()
+    except BaseException as e:  # pylint: disable=broad-exception-caught
+      logging.info('AsyncRunner background loop ended: %r', e)
+    finally:
+      try:
+        self._loop.close()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass
 
   def run_coroutine(self, coro: Coroutine[Any, Any, _T]) -> futures.Future[_T]:
     """Schedules a coroutine to run in the background thread's event loop.

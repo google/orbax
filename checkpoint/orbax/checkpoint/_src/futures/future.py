@@ -297,7 +297,7 @@ class _SignalingThread(threading.Thread):
   target function has completed with the same operation id.
   """
 
-  _exception: Optional[Exception] = None
+  _exception: Optional[BaseException] = None
   loop: Optional[asyncio.AbstractEventLoop] = None
   main_task: Optional[asyncio.Task[Any]] = None
 
@@ -377,7 +377,7 @@ class _SignalingThread(threading.Thread):
         return
       super().run()
       self._set_signals()
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except BaseException as e:  # pylint: disable=broad-exception-caught
       if self._cancelled or isinstance(
           e, (concurrent.futures.CancelledError, asyncio.CancelledError)
       ):

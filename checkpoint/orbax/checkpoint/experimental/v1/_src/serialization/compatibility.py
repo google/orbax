@@ -14,7 +14,10 @@
 
 """Compatibility wrapper to help leaf handlers to work as V0 type_handlers."""
 
+import asyncio
+import concurrent.futures
 import dataclasses
+import threading
 from typing import Any, Generic, Sequence, Type, cast, get_args
 
 from absl import logging
@@ -25,6 +28,7 @@ import numpy as np
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint._src.serialization import types as types_v0
@@ -271,6 +275,43 @@ def _convert_v1_metadata_to_v0(
   )
 
 
+class _CompatibilityCompositeFuture(future.Future):
+  """A future that waits on _background_save during result(), but cancels commit_futures during cancel()."""
+
+  def __init__(
+      self,
+      commit_futures: list[future.Future],
+      background_future: future.Future,
+  ):
+    super().__init__()
+    self._commit_futures = commit_futures
+    self._background_future = background_future
+    self.name = 'CompatibilityCompositeFuture'
+
+  def result(self, timeout: float | None = None) -> Any:
+    # During normal execution, rely on _background_save (which uses
+    # asyncio.gather/to_thread)
+    # to wait for commit_futures, preserving exact depot timing behavior.
+    return self._background_future.result(timeout=timeout)
+
+  def cancel(self) -> None:
+    logging.info(
+        '[process=%s] _CompatibilityCompositeFuture.cancel() called.',
+        multihost.process_index(),
+    )
+    for f in self._commit_futures:
+      if hasattr(f, 'cancel'):
+        try:
+          f.cancel()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          logging.warning('Error cancelling commit future: %s', e)
+    if hasattr(self._background_future, 'cancel'):
+      try:
+        self._background_future.cancel()
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('Error cancelling background future: %s', e)
+
+
 class CompatibleTypeHandler(
     types_v0.TypeHandler, Generic[types.Leaf, types.AbstractLeaf]
 ):
@@ -304,16 +345,46 @@ class CompatibleTypeHandler(
     serialization_task = await self._leaf_handler.serialize(
         params, serialization_context
     )
+    commit_futures = []
+    if hasattr(serialization_task, 'commit_futures'):
+      commit_futures = serialization_task.commit_futures
+    logging.info('commit_futures: %s', commit_futures)
 
     async def _background_serialize():
-      await serialization_task
+
+      current_thread = threading.current_thread()
+      current_task = asyncio.current_task()
+      setattr(current_thread, 'gather_future', current_task)
+      setattr(current_thread, 'loop', asyncio.get_running_loop())
+      try:
+        await serialization_task
+      except BaseException as e:
+
+        if isinstance(
+            e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+        ):
+          logging.info(
+              '[process=%s] _background_serialize was safely cancelled.',
+              jax.process_index(),
+          )
+          return
+        raise
+      finally:
+        if hasattr(current_thread, 'gather_future'):
+          delattr(current_thread, 'gather_future')
+        if hasattr(current_thread, 'loop'):
+          delattr(current_thread, 'loop')
 
     operation_id = synchronization.get_operation_id()
 
     return [
-        future.CommitFuture(
-            coro=_background_serialize(),
-            operation_id=operation_id,
+        _CompatibilityCompositeFuture(
+            commit_futures,
+            future.CommitFuture(
+                coro=_background_serialize(),
+                operation_id=operation_id,
+                name='v1_leaf_handler',
+            ),
         )
     ]
 
