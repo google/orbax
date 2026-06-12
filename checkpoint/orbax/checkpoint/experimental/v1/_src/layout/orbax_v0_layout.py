@@ -15,7 +15,7 @@
 """Defines `V0Layout`, a class to handle Orbax V0 checkpoint formats."""
 
 import asyncio
-import logging
+from absl import logging
 from typing import Any, Awaitable
 
 from orbax.checkpoint._src import asyncio_utils
