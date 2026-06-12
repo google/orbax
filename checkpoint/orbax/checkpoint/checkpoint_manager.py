@@ -389,6 +389,7 @@ class CheckpointManagerOptions:
   todelete_subdir: Optional[str] = None
   todelete_full_path: Optional[str] = None
   enable_background_delete: bool = False
+  num_deletion_threads: int = 1
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None
@@ -914,6 +915,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             todelete_subdir=self._options.todelete_subdir,
             todelete_full_path=self._options.todelete_full_path,
             enable_background_delete=self._options.enable_background_delete,
+            num_threads=self._options.num_deletion_threads,
         )
     )
 
