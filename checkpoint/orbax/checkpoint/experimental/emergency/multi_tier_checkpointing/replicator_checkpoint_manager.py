@@ -19,7 +19,7 @@ subject to change without notice.
 """
 
 import dataclasses
-from typing import Any, Callable, Iterable, List, Sequence, Tuple
+from typing import Any, Callable, Iterable, Sequence
 
 from absl import logging
 from etils import epath
@@ -51,6 +51,7 @@ from typing_extensions import Self  # for Python version < 3.11
 
 
 PyTree = Any
+
 DefaultCheckpointHandlerRegistry = (
     handler_registration.DefaultCheckpointHandlerRegistry
 )
@@ -116,11 +117,22 @@ def _restore_sharding_from_metadata(
 
 def _local_checkpoint_handler(
     multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
-    distributed_to_device_ids_fn: (
-        Callable[[], List[List[int]]] | None
-    ) = None,
-) -> Tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
-  """Create a PyTreeCheckpointHandler for local checkpoints."""
+    distributed_to_device_ids_fn: Callable[[], list[list[int]]] | None = None,
+    save_concurrent_gb: int | None = None,
+    restore_concurrent_gb: int | None = None,
+) -> tuple[PyTreeCheckpointHandler, ProcessMetadataCheckpointHandler]:
+  """Creates a PyTreeCheckpointHandler for local checkpoints.
+
+  Args:
+    multiprocessing_options: Options for distributed coordination.
+    distributed_to_device_ids_fn: Function to dynamically fetch mapping of
+      distributed indices to local device indices.
+    save_concurrent_gb: Limit for save concurrency in GB.
+    restore_concurrent_gb: Limit for restore concurrency in GB.
+
+  Returns:
+    A tuple of (PyTree checkpoint handler, process metadata handler).
+  """
   if multiprocessing_options.primary_host is not None:
     raise ValueError(
         'multiprocessing_options.primary_host must be set to None for local'
@@ -139,6 +151,8 @@ def _local_checkpoint_handler(
       use_zarr3=True,
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=local_registry,
+      save_concurrent_gb=save_concurrent_gb,
+      restore_concurrent_gb=restore_concurrent_gb,
   )
   metadata_handler = ProcessMetadataCheckpointHandler(
       multiprocessing_options=multiprocessing_options,
@@ -149,11 +163,39 @@ def _local_checkpoint_handler(
 
 @dataclasses.dataclass
 class ReplicatorCheckpointManagerOptions:
+  """Options for configuring the replicator checkpoint backend.
+
+  Attributes:
+    save_interval_steps: Number of steps between saves.
+    step_name_format: Step name formatter.
+    should_save_fn: Function to override conditional saving.
+    preservation_policy: Preservation policy to keep checkpoints.
+    use_colocated_python: True to enable colocated Python pathways scaling.
+    enable_async_checkpointing: True to enable background threading.
+    save_concurrent_gb: Local limit for save concurrency in GB.
+    restore_concurrent_gb: Local limit for restore concurrency in GB.
+  """
+
   save_interval_steps: int = 1
   step_name_format: step_lib.NameFormat[step_lib.Metadata] | None = None
   should_save_fn: Callable[[int, int | None], bool] | None = None
   preservation_policy: preservation_policy_lib.PreservationPolicy | None = None
+  # Pathways single-controller only. Multi-controller MTC must use the
+  # standard backend path with colocated Python disabled.
   use_colocated_python: bool = False
+  enable_async_checkpointing: bool = True
+  save_concurrent_gb: int | None = None
+  restore_concurrent_gb: int | None = None
+
+
+def _validate_colocated_python_runtime() -> None:
+  """Validates that colocated Python MTC is not used for multi-controller."""
+  if jax.process_count() != 1:
+    raise ValueError(
+        'Pathways colocated Python MTC requires a single-controller runtime. '
+        'Multi-controller MTC must use the standard '
+        'ReplicatorCheckpointManager path with use_colocated_python=False.'
+    )
 
 
 def _get_checkpoint_manager_options(
@@ -170,9 +212,39 @@ def _get_checkpoint_manager_options(
       create=True,
       cleanup_tmp_directories=False,  # Handled separately below.
       enable_background_delete=True,
-      enable_async_checkpointing=True,
+      enable_async_checkpointing=options.enable_async_checkpointing,
       preservation_policy=options.preservation_policy,
       enable_per_process_directory_creation=per_process_directory_creation,
+  )
+
+
+def _can_use_mesh_consistency(
+    previous_distributed_to_device_ids: list[list[int]],
+    current_distributed_to_device_ids: list[list[int]],
+    previous_device_ids: list[int],
+) -> bool:
+  """Returns whether mesh consistency applies.
+
+  Args:
+    previous_distributed_to_device_ids: The mapping stored in the checkpoint.
+    current_distributed_to_device_ids: The runtime mapping of the environment.
+    previous_device_ids: Global physical order of the past workers.
+
+  Returns:
+    True if the checkpoint's physical topology matches the runtime, else
+    False.
+  """
+  previous_device_count = sum(
+      len(device_ids) for device_ids in previous_distributed_to_device_ids
+  )
+  current_device_count = sum(
+      len(device_ids) for device_ids in current_distributed_to_device_ids
+  )
+  return (
+      len(previous_distributed_to_device_ids)
+      == len(current_distributed_to_device_ids)
+      and previous_device_count == current_device_count
+      and len(previous_device_ids) == current_device_count
   )
 
 
@@ -187,11 +259,8 @@ class _ReplicatorLocalCheckpointEngine:
       global_mesh: jax.sharding.Mesh,
       multiprocessing_options: checkpoint_manager.MultiprocessingOptions,
       persistent_directory: epath.Path | None,
-      handler_registry: (
-          handler_registration.CheckpointHandlerRegistry
-          | None
-      ),
-      distributed_to_device_ids_fn: Callable[[], List[List[int]]],
+      handler_registry: handler_registration.CheckpointHandlerRegistry | None,
+      distributed_to_device_ids_fn: Callable[[], list[list[int]]],
       is_sidecar: bool,
   ) -> None:
     self._global_mesh = global_mesh
@@ -221,6 +290,8 @@ class _ReplicatorLocalCheckpointEngine:
         distributed_to_device_ids_fn=(
             distributed_to_device_ids_fn if is_sidecar else None
         ),
+        save_concurrent_gb=options.save_concurrent_gb,
+        restore_concurrent_gb=options.restore_concurrent_gb,
     )
     self._state_handler = state_handler
     self._process_metadata_handler = process_metadata_handler
@@ -287,8 +358,9 @@ class _ReplicatorLocalCheckpointEngine:
     """Remove steps that might be left over from previous runs."""
     logging.info('Running initial garbage collection at %s.', self.directory)
     logging.info('Cleaning up existing temporary directories.')
-    tmp_paths = step_lib.all_temporary_paths(self.directory)
-    logging.info('Found tmp files: %s', tmp_paths)
+    tmp_paths = list(step_lib.all_temporary_paths(self.directory))
+    logging.info('Found %d tmp files.', len(tmp_paths))
+    logging.vlog(1, 'Found tmp files: %s', tmp_paths)
     for tmp_path in tmp_paths:
       tmp_path.get().rmtree()
 
@@ -367,10 +439,10 @@ class _ReplicatorLocalCheckpointEngine:
 
   def _get_mesh_consistent_args(
       self,
-      previous_distributed_to_device_ids: List[List[int]],
-      previous_device_ids: List[int],
+      previous_distributed_to_device_ids: list[list[int]],
+      previous_device_ids: list[int],
       args: args_lib.Composite,
-  ) -> Tuple[args_lib.Composite, args_lib.Composite]:
+  ) -> tuple[args_lib.Composite, args_lib.Composite]:
     """Computes mesh-consistent restore args.
 
     Args:
@@ -472,6 +544,78 @@ class _ReplicatorLocalCheckpointEngine:
       )
     return args_lib.Composite(**updated_args)
 
+  def _restore_process_metadata(
+      self, step: int
+  ) -> tuple[list[list[int]], list[int]]:
+    """Restores process metadata.
+
+    Args:
+      step: The checkpoint step to restore metadata from.
+
+    Returns:
+      A tuple (distributed_to_device_ids, node_devices), where
+      distributed_to_device_ids is the mapping of distributed device IDs to
+      local device IDs and node_devices is the list of node devices from the
+      checkpoint.
+    """
+    process_metadata_args = args_lib.Composite(**{
+        _PROCESS_METADATA_NAME: (
+            process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
+        )
+    })
+    process_metadata_restored = self._impl.restore(
+        step, args=process_metadata_args
+    )
+    return process_metadata_restored[_PROCESS_METADATA_NAME]
+
+  def _restore_placement_plan(
+      self,
+      step: int,
+      args: args_lib.Composite,
+  ) -> tuple[args_lib.Composite, args_lib.Composite, bool]:
+    """Builds the shared topology-aware restore placement plan."""
+    previous_distributed_to_device_ids, previous_device_ids = (
+        self._restore_process_metadata(step)
+    )
+    current_distributed_to_device_ids = self._get_distributed_to_device_ids()
+    mesh_consistency_supported = _can_use_mesh_consistency(
+        previous_distributed_to_device_ids,
+        current_distributed_to_device_ids,
+        previous_device_ids,
+    )
+    logging.info(
+        'MTC restore placement: sidecar=%s, mesh_consistency_supported=%s, '
+        'previous_processes=%d, current_processes=%d, previous_devices=%d, '
+        'current_devices=%d, previous_mesh_devices=%d',
+        self._skip_result_mesh_remap,
+        mesh_consistency_supported,
+        len(previous_distributed_to_device_ids),
+        len(current_distributed_to_device_ids),
+        sum(len(ids) for ids in previous_distributed_to_device_ids),
+        sum(len(ids) for ids in current_distributed_to_device_ids),
+        len(previous_device_ids),
+    )
+    if not mesh_consistency_supported:
+      if self._skip_result_mesh_remap:
+        logging.info(
+            'Skipping local mesh-consistency remap for colocated restore '
+            'because saved/current topologies differ. MTC staging and the '
+            'Pathways controller remain responsible for final placement.'
+        )
+        return args, args, False
+      raise ValueError(
+          'Saved and current process metadata are not compatible with '
+          'mesh-consistency restore. Multi-controller MTC does not support '
+          'elastic scale up/down.'
+      )
+
+    original_args, consistent_args = self._get_mesh_consistent_args(
+        previous_distributed_to_device_ids,
+        previous_device_ids,
+        args,
+    )
+    return original_args, consistent_args, True
+
   def _get_mesh_consistent_result(
       self,
       original_args: args_lib.Composite,
@@ -548,27 +692,11 @@ class _ReplicatorLocalCheckpointEngine:
       default_item_mode: bool,
   ) -> Any:
     """Restores exactly one checkpoint step."""
-    process_metadata_args = args_lib.Composite(
-        **{
-            _PROCESS_METADATA_NAME: (
-                process_metadata_checkpoint_handler.ProcessMetadataRestoreArgs()
-            )
-        }
-    )
-    process_metadata_restored = self._impl.restore(
-        step, args=process_metadata_args
-    )
-    previous_distributed_to_device_ids, previous_device_ids = (
-        process_metadata_restored[_PROCESS_METADATA_NAME]
-    )
-
     args = self._materialize_restore_args_from_metadata(step, args)
-    original_args, consistent_args = self._get_mesh_consistent_args(
-        previous_distributed_to_device_ids,
-        previous_device_ids,
-        args,
+    original_args, restore_args, uses_mesh_consistency = (
+        self._restore_placement_plan(step, args)
     )
-    restored = self._impl.restore(step, args=consistent_args)
+    restored = self._impl.restore(step, args=restore_args)
 
     if (
         self._persistent_checkpoint_manager is not None
@@ -589,6 +717,11 @@ class _ReplicatorLocalCheckpointEngine:
     if self._skip_result_mesh_remap:
       # Pathways sidecars only own worker-local colocated CPU devices. The
       # single controller performs the final transfer to caller shardings.
+      if uses_mesh_consistency:
+        logging.info(
+            'Colocated restore used mesh-consistent local restore args and '
+            'will let the Pathways controller perform the final transfer.'
+        )
       return restored[_STATE_ITEM_NAME] if default_item_mode else restored
 
     return self._get_mesh_consistent_result(
@@ -674,7 +807,7 @@ class ReplicatorCheckpointManager(
           handler_registration.CheckpointHandlerRegistry | None
       ) = None,
       _distributed_to_device_ids_fn: (
-          Callable[[], List[List[int]]] | None
+          Callable[[], list[list[int]]] | None
       ) = None,
       _is_sidecar: bool = False,
   ) -> None:
@@ -689,7 +822,7 @@ class ReplicatorCheckpointManager(
     if self._is_sidecar and _distributed_to_device_ids_fn is None:
       # Sidecars do not initialize JAX distributed client. Use a Pathways-aware
       # local mapping by default if caller did not inject one.
-      def _default_sidecar_device_ids() -> List[List[int]]:
+      def _default_sidecar_device_ids() -> list[list[int]]:
         return colocated_utils.compute_distributed_to_device_ids(jax.devices())
 
       _distributed_to_device_ids_fn = _default_sidecar_device_ids
@@ -707,6 +840,7 @@ class ReplicatorCheckpointManager(
     self._local_engine = None
 
     if options.use_colocated_python:
+      _validate_colocated_python_runtime()
       self._init_colocated(
           local_directory,
           options,
@@ -914,10 +1048,10 @@ class ReplicatorCheckpointManager(
 
   def _get_mesh_consistent_args(
       self,
-      previous_distributed_to_device_ids: List[List[int]],
-      previous_device_ids: List[int],
+      previous_distributed_to_device_ids: list[list[int]],
+      previous_device_ids: list[int],
       args: args_lib.Composite,
-  ) -> Tuple[args_lib.Composite, args_lib.Composite]:
+  ) -> tuple[args_lib.Composite, args_lib.Composite]:
     return (
         self._non_null_local_engine._get_mesh_consistent_args(  # pylint: disable=protected-access
             previous_distributed_to_device_ids,
