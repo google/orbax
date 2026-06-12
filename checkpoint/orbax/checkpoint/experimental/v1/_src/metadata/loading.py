@@ -170,7 +170,7 @@ def _checkpointables_metadata_impl(
   async def _load_metadata() -> (
       metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]
   ):
-    return await layout.metadata(path)
+    return await layout.checkpointables_metadata(path)
 
   checkpoint_metadata = asyncio_utils.run_sync(_load_metadata())
   validation.validate_abstract_checkpointables(checkpoint_metadata.metadata)

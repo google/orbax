@@ -70,24 +70,24 @@ class OrbaxV0LayoutTest(
 
   async def test_valid_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
-    await layout.validate(self.orbax_path / '0')
+    await layout.validate_checkpointables(self.orbax_path / '0')
 
   async def test_invalid_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(self.safetensors_path)
+      await layout.validate_checkpointables(self.safetensors_path)
 
   async def test_validate_fails_not_directory(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(self.orbax_path / '1')
+      await layout.validate_checkpointables(self.orbax_path / '1')
 
   async def test_validate_no_metadata_file(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
     metadata_path = self.orbax_path / '0' / '_CHECKPOINT_METADATA'
     self.assertTrue(metadata_path.exists())
     metadata_path.rmtree()
-    await layout.validate(self.orbax_path / '0')
+    await layout.validate_checkpointables(self.orbax_path / '0')
 
   async def test_validate_no_metadata_files(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
@@ -95,7 +95,7 @@ class OrbaxV0LayoutTest(
     metadata_path.rmtree()
     pytree_metadata_path = self.orbax_path / '0' / 'state' / '_METADATA'
     pytree_metadata_path.rmtree()
-    await layout.validate(self.orbax_path / '0')
+    await layout.validate_checkpointables(self.orbax_path / '0')
 
   async def test_load_v0_checkpoint(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
@@ -112,13 +112,15 @@ class OrbaxV0LayoutTest(
   async def test_metadata(self):
     with self.subTest('PyTree checkpoint with _CHECKPOINT_METADATA in path'):
       layout = orbax_v0_layout.OrbaxV0Layout()
-      metadata = await layout.metadata(self.orbax_path / '0')
+      metadata = await layout.checkpointables_metadata(self.orbax_path / '0')
       self.assertIsNotNone(metadata.init_timestamp_nsecs)
 
     with self.subTest('PyTree Checkpoint with no _CHECKPOINT_METADATA'):
       await async_path.unlink(self.orbax_path / '0' / '_CHECKPOINT_METADATA')
       layout = orbax_v0_layout.OrbaxV0Layout()
-      metadata = await layout.metadata(self.orbax_path / '0' / 'state')
+      metadata = await layout.checkpointables_metadata(
+          self.orbax_path / '0' / 'state'
+      )
       self.assertIsNotNone(metadata)
       self.assertIsNone(metadata.init_timestamp_nsecs)
 
@@ -151,12 +153,16 @@ class V0ValidationTest(
 
   async def test_nonexistent_path(self):
     with self.assertRaises(FileNotFoundError):
-      await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory / 'foo')
+      await orbax_v0_layout.OrbaxV0Layout()._validate_checkpointables(
+          self.directory / 'foo'
+      )
 
   async def test_not_a_directory(self):
     await async_path.write_text(self.directory / 'foo', 'foo')
     with self.assertRaises(NotADirectoryError):
-      await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory / 'foo')
+      await orbax_v0_layout.OrbaxV0Layout()._validate_checkpointables(
+          self.directory / 'foo'
+      )
 
   async def test_no_checkpoint_metadata(self):
     await async_path.unlink(
@@ -165,26 +171,24 @@ class V0ValidationTest(
     )
 
     # Passes since it contains a pytree checkpointable with _METADATA file.
-    await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory)
-    await orbax_v0_layout.OrbaxV0Layout()._validate_pytree(
-        self.directory, 'state'
+    await orbax_v0_layout.OrbaxV0Layout()._validate_checkpointables(
+        self.directory
     )
+    await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory, 'state')
 
   async def test_deleted_pytree(self):
     (self.directory / 'state').rmtree()
 
     # Passes since it contains checkpoint metadata.
-    await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory)
+    await orbax_v0_layout.OrbaxV0Layout()._validate_checkpointables(
+        self.directory
+    )
     with self.assertRaises(FileNotFoundError):
-      await orbax_v0_layout.OrbaxV0Layout()._validate_pytree(
-          self.directory, 'state'
-      )
+      await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory, 'state')
 
   async def test_missing_checkpointable_matching_name(self):
     with self.assertRaises(FileNotFoundError):
-      await orbax_v0_layout.OrbaxV0Layout()._validate_pytree(
-          self.directory, 'foo'
-      )
+      await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory, 'foo')
 
   async def test_no_pytree_metadata(self):
     await async_path.unlink(
@@ -193,17 +197,15 @@ class V0ValidationTest(
     )
 
     # Passes because it contains checkpoint metadata.
-    await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory)
+    await orbax_v0_layout.OrbaxV0Layout()._validate_checkpointables(
+        self.directory
+    )
     with self.assertRaises(FileNotFoundError):
       # Fails because it does not contain pytree metadata.
-      await orbax_v0_layout.OrbaxV0Layout()._validate_pytree(
-          self.directory, 'state'
-      )
+      await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory, 'state')
 
   async def test_valid_pytree(self):
-    await orbax_v0_layout.OrbaxV0Layout()._validate_pytree(
-        self.directory, 'state'
-    )
+    await orbax_v0_layout.OrbaxV0Layout()._validate(self.directory, 'state')
 
   async def test_load(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
@@ -244,7 +246,7 @@ class V0ValidationTest(
     )
     layout = orbax_v0_layout.OrbaxV0Layout()
 
-    await orbax_v0_layout.OrbaxV0Layout()._validate(self.v0_pytree_directory)
+    await layout._validate_checkpointables(self.v0_pytree_directory)
 
     loaded = await (
         await layout.load(
@@ -261,7 +263,7 @@ class V0ValidationTest(
     )
     layout = orbax_v0_layout.OrbaxV0Layout()
     with self.assertRaises(FileNotFoundError):
-      await layout._validate_pytree(self.v0_pytree_directory, None)
+      await layout._validate(self.v0_pytree_directory, None)
 
 
 class IsOrbaxV0CheckpointTest(parameterized.TestCase):

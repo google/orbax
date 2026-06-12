@@ -60,12 +60,12 @@ class SafetensorsLayoutTest(
 
   async def test_valid_safetensors_checkpoint(self):
     layout = SafetensorsLayout()
-    await layout.validate(self.safetensors_path)
+    await layout.validate_checkpointables(self.safetensors_path)
 
   async def test_invalid_safetensors_checkpoint_orbax(self):
     layout = SafetensorsLayout()
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(self.orbax_path / '0')
+      await layout.validate_checkpointables(self.orbax_path / '0')
 
   async def test_validate_fails_wrong_suffix(self):
     wrong_suffix_path = (
@@ -73,7 +73,7 @@ class SafetensorsLayoutTest(
     )
     layout = SafetensorsLayout()
     with self.assertRaises(InvalidLayoutError):
-      await layout.validate(wrong_suffix_path)
+      await layout.validate_checkpointables(wrong_suffix_path)
 
   @parameterized.product(
       dtype=[
@@ -135,7 +135,7 @@ class SafetensorsLayoutTest(
 
   async def test_metadata(self):
     layout = SafetensorsLayout()
-    metadata = await layout.metadata(self.safetensors_path)
+    metadata = await layout.checkpointables_metadata(self.safetensors_path)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
         metadata.metadata,
@@ -154,7 +154,7 @@ class SafetensorsLayoutTest(
     layout = SafetensorsLayout()
     mock_path = mock.Mock(spec=types.PathAwaitingCreation)
     with self.assertRaises(NotImplementedError):
-      await layout.save(mock_path, checkpointables={})
+      await layout.save_checkpointables(mock_path, checkpointables={})
 
 
 class SafetensorsLayoutDirectoryTest(
@@ -184,14 +184,14 @@ class SafetensorsLayoutDirectoryTest(
 
   async def test_validate_directory(self):
     layout = SafetensorsLayout()
-    await layout.validate(self.checkpoint_dir)
+    await layout.validate_checkpointables(self.checkpoint_dir)
 
   async def test_validate_directory_fails_empty(self):
     empty_dir = epath.Path(self.test_dir.full_path) / 'empty'
     empty_dir.mkdir()
     layout = SafetensorsLayout()
     with self.assertRaisesRegex(InvalidLayoutError, 'does not contain any'):
-      await layout.validate(empty_dir)
+      await layout.validate_checkpointables(empty_dir)
 
   async def test_load_directory(self):
     layout = SafetensorsLayout()
@@ -204,7 +204,7 @@ class SafetensorsLayoutDirectoryTest(
 
   async def test_metadata_directory(self):
     layout = SafetensorsLayout()
-    metadata = await layout.metadata(self.checkpoint_dir)
+    metadata = await layout.checkpointables_metadata(self.checkpoint_dir)
     pytree_meta = metadata.metadata[STATE_CHECKPOINTABLE_KEY]
     self.assertIn('a', pytree_meta)
     self.assertIn('b', pytree_meta)
