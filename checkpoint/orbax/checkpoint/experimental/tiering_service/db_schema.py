@@ -63,6 +63,17 @@ class RequestType(enum.IntEnum):
   REQUEST_TYPE_DELETE_FROM_ALL_TIERS = 3
 
 
+class TierPathState(enum.IntEnum):
+  """The state of an asset's storage location (tier path)."""
+
+  UNSPECIFIED = 0
+  PENDING = 1
+  IN_PROGRESS = 2
+  READY = 3
+  FAILED = 4
+  DELETED = 5
+
+
 class Asset(Base):
   """A CTS asset representing a complete checkpoint.
 
@@ -331,6 +342,11 @@ class TierPath(Base):
       nullable=False,
       default=lambda: str(uuid.uuid4()),
   )
+  state = sqlalchemy.Column(
+      sqlalchemy.Enum(TierPathState),
+      default=TierPathState.PENDING,
+      nullable=False,
+  )
 
   asset = sqlalchemy.orm.relationship("Asset", back_populates="tier_paths")
   storage_backend = sqlalchemy.orm.relationship(
@@ -338,11 +354,23 @@ class TierPath(Base):
   )
 
   __table_args__ = (
-      # An asset can have at most one TierPath for a given storage backend.
-      sqlalchemy.UniqueConstraint(
+      # Enforce uniqueness of (asset, backend) only for active tier paths
+      # (PENDING, IN_PROGRESS, READY).
+      sqlalchemy.Index(
+          "uq_tier_path_active_backend",
           "asset_uuid",
           "storage_backend_id",
-          name="uq_tier_path_asset_backend",
+          unique=True,
+          sqlite_where=sqlalchemy.column("state").in_([
+              TierPathState.PENDING.name,
+              TierPathState.IN_PROGRESS.name,
+              TierPathState.READY.name,
+          ]),
+          postgresql_where=sqlalchemy.column("state").in_([
+              TierPathState.PENDING.name,
+              TierPathState.IN_PROGRESS.name,
+              TierPathState.READY.name,
+          ]),
       ),
   )
 
@@ -350,7 +378,8 @@ class TierPath(Base):
     return (
         f"TierPath(id={self.id}, asset_uuid='{self.asset_uuid}',"
         f" storage_backend_id={self.storage_backend_id}, path='{self.path}',"
-        f" ready_at={self.ready_at}, expires_at={self.expires_at})"
+        f" state={self.state.name}, ready_at={self.ready_at},"
+        f" expires_at={self.expires_at})"
     )
 
 
@@ -367,6 +396,13 @@ class AssetJob(Base):
     status: Current execution status of the job, an instance of JobStatus.
     target_tier_path_id: Foreign key to the targeted TierPath for operations
       such as COPY or DELETE_FROM_INSTANCE.
+    request_id: A unique identifier (UUID) for this job execution request.
+    transfer_status: JSON dictionary containing progress and GCP operation
+      details.
+    expiration_at: Timestamp when the worker's lease on this job expires.
+    last_updated_at: Timestamp of the last status update or heartbeat.
+    worker_host: Hostname of the worker processing this job.
+    worker_pid: Process ID of the worker processing this job.
     created_at: Timestamp when the job was created.
     completed_at: Timestamp when the job was completed.
     asset: Relationship to the associated Asset.
@@ -396,9 +432,24 @@ class AssetJob(Base):
   # Target tier path for COPY and DELETE_FROM_INSTANCE requests
   target_tier_path_id = sqlalchemy.Column(
       sqlalchemy.Integer,
-      sqlalchemy.ForeignKey("tier_paths.id", ondelete="CASCADE"),
+      sqlalchemy.ForeignKey("tier_paths.id"),
       nullable=True,
   )
+  request_id = sqlalchemy.Column(
+      sqlalchemy.String,
+      nullable=False,
+      unique=True,
+      default=lambda: str(uuid.uuid4()),
+  )
+  transfer_status = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
+  expiration_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  last_updated_at = sqlalchemy.Column(
+      sqlalchemy.DateTime(timezone=True), nullable=True
+  )
+  worker_host = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+  worker_pid = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
 
   created_at = sqlalchemy.Column(
       sqlalchemy.DateTime(timezone=True),
@@ -416,9 +467,11 @@ class AssetJob(Base):
       # target_tier_path is required in COPY and DELETE_FROM_INSTANCE requests.
       sqlalchemy.CheckConstraint(
           """
-          (request_type IN ('REQUEST_TYPE_COPY', 'REQUEST_TYPE_DELETE_FROM_INSTANCE') AND target_tier_path_id IS NOT NULL)
+          (request_type IN ('REQUEST_TYPE_COPY', 'REQUEST_TYPE_DELETE_FROM_INSTANCE')
+           AND target_tier_path_id IS NOT NULL)
           OR
-          (request_type IN ('REQUEST_TYPE_DELETE_FROM_ALL_TIERS', 'REQUEST_TYPE_UNSPECIFIED') AND target_tier_path_id IS NULL)
+          (request_type IN ('REQUEST_TYPE_DELETE_FROM_ALL_TIERS', 'REQUEST_TYPE_UNSPECIFIED')
+           AND target_tier_path_id IS NULL)
           """,
           name="check_asset_job_valid_payload",
       ),
@@ -430,5 +483,6 @@ class AssetJob(Base):
         f" request_type='{self.request_type.name}',"
         f" status='{self.status.name}',"
         f" target_tier_path_id={self.target_tier_path_id},"
+        f" request_id='{self.request_id}',"
         f" created_at={self.created_at}, completed_at={self.completed_at})"
     )

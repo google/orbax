@@ -30,6 +30,7 @@ from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import auth
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service import job_worker
 from orbax.checkpoint.experimental.tiering_service import server_config
 from orbax.checkpoint.experimental.tiering_service import storage_backend
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
@@ -67,6 +68,11 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         class_=AsyncSession,
     )
     self._level0_backends: Sequence[db_schema.StorageBackend] | None = None
+
+  @property
+  def session_maker(self) -> sessionmaker:
+    """The session maker for the database."""
+    return self._session_maker
 
   async def initialize(self) -> None:
     """Initializes the servicer, loading static data."""
@@ -541,17 +547,21 @@ async def setup_storage_backends(
 class CtsServer:
   """Checkpoint Tiering Service (CTS) Server CLI."""
 
-  async def serve(self, yaml_path: str) -> None:
+  async def serve(
+      self, yaml_path: str, start_tiering_service_worker: bool = False
+  ) -> None:
     """Starts the gRPC server.
 
     Args:
       yaml_path: Path to the YAML configuration file.
+      start_tiering_service_worker: Whether to start the tiering service worker.
     """
     config = server_config.load_config(yaml_path)
     await setup_storage_backends(config)
 
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     servicer = TieringServiceServicer(config)
+    worker = None
     try:
       await servicer.initialize()
       tiering_service_pb2_grpc.add_TieringServiceServicer_to_server(
@@ -563,11 +573,17 @@ class CtsServer:
       server.add_secure_port("[::]:50051", server_creds)
       await server.start()
 
-      # TODO: b/503445463 - Start background garbage collection task to handle
-      # expired assets.
+      # Start background worker
+      if start_tiering_service_worker:
+        worker = await job_worker.run_tiering_service_worker_loop(
+            servicer.session_maker, config
+        )
 
       await server.wait_for_termination()
     finally:
+      await server.stop(grace=0)
+      if worker:
+        await worker.stop()
       await servicer.close()
 
 
