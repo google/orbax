@@ -14,6 +14,7 @@
 
 from collections.abc import Mapping
 import pathlib
+import re
 from typing import Any
 
 import jax
@@ -165,6 +166,122 @@ class JaxDataProcessorTest(parameterized.TestCase):
         processor.obm_function.lowering_platforms,  # pytype: disable=attribute-error
         ('cpu', 'tpu'),
     )
+
+  def test_prepare_with_polymorphic_shapes(self):
+    def add(x: jax.Array) -> jax.Array:
+      return x + 1.0
+
+    processor = jax_data_processor.JaxDataProcessor(add, name='add')
+    processor.prepare(
+        jax.ShapeDtypeStruct(('b', 3), jnp.float32),
+    )
+
+    self.assertIsNotNone(processor.obm_function)
+    self.assertIsNotNone(processor.input_signature)
+    self.assertIsNotNone(processor.output_signature)
+
+  def test_prepare_with_polymorphic_shapes_signatures(self):
+    def add(x: jax.Array) -> jax.Array:
+      return x + 1.0
+
+    processor = jax_data_processor.JaxDataProcessor(add, name='add')
+    processor.prepare(
+        jax.ShapeDtypeStruct(('b', 3), jnp.float32),
+    )
+
+    self.assertEqual(
+        processor.input_signature, jax.ShapeDtypeStruct(('b', 3), jnp.float32)
+    )
+
+    # Note: The underlying OBM Function signature uses None for dynamic
+    # dimensions, regardless of the symbolic string provided by the user.
+    out_spec = processor.output_signature
+    self.assertEqual(list(out_spec.shape), [None, 3])  # pytype: disable=attribute-error
+
+  def test_prepare_with_polymorphic_shapes_none(self):
+    def add(x: jax.Array) -> jax.Array:
+      return x + 1.0
+
+    processor = jax_data_processor.JaxDataProcessor(add, name='add')
+    processor.prepare(
+        jax.ShapeDtypeStruct((None, 3), jnp.float32),
+    )
+
+    self.assertEqual(
+        processor.input_signature, jax.ShapeDtypeStruct((None, 3), jnp.float32)
+    )
+
+    out_spec = processor.output_signature
+    self.assertEqual(list(out_spec.shape), [None, 3])  # pytype: disable=attribute-error
+
+
+class JaxShapeSpecGeneratorTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(testcase_name='empty_shape', shape=(), expected='()'),
+      dict(testcase_name='one_dim_none', shape=(None,), expected='(b,)'),
+      dict(testcase_name='one_dim_int', shape=(4,), expected='(4,)'),
+      dict(
+          testcase_name='multi_dim_first_none',
+          shape=(None, 4),
+          expected='(b, 4)',
+      ),
+      dict(
+          testcase_name='multi_dim_second_none',
+          shape=(4, None),
+          expected='(4, d_0)',
+      ),
+      dict(
+          testcase_name='multi_dim_both_none',
+          shape=(None, None),
+          expected='(b, d_0)',
+      ),
+      dict(
+          testcase_name='multi_dim_all_none',
+          shape=(None, None, None, 256),
+          expected='(b, d_0, d_1, 256)',
+      ),
+      dict(testcase_name='string_dims', shape=('foo', 4), expected='(foo, 4)'),
+      dict(
+          testcase_name='string_and_none',
+          shape=('foo', None),
+          expected='(foo, d_0)',
+      ),
+  )
+  def test_jax_shape_spec_generator(self, expected, shape=None):
+    spec = jax.ShapeDtypeStruct(shape, jnp.float32)
+    generator = jax_data_processor._JaxShapeSpecGenerator()
+    self.assertEqual(generator(spec), expected)
+
+  def test_jax_shape_spec_generator_unsupported_type(self):
+    spec = object()
+    generator = jax_data_processor._JaxShapeSpecGenerator()
+    with self.assertRaisesRegex(
+        ValueError, f'Unsupported spec type: {re.escape(str(type(spec)))}'
+    ):
+      generator(spec)
+
+  def test_jax_shape_spec_generator_multiple_calls(self):
+    spec1 = jax.ShapeDtypeStruct((None, None), jnp.float32)
+    spec2 = jax.ShapeDtypeStruct((None, None, 256), jnp.float32)
+    generator = jax_data_processor._JaxShapeSpecGenerator()
+    self.assertEqual(generator(spec1), '(b, d_0)')
+    self.assertEqual(generator(spec2), '(b, d_1, 256)')
+
+  def test_jax_shape_spec_generator_none_shape(self):
+    class NoneShape:
+      shape = None
+
+    generator = jax_data_processor._JaxShapeSpecGenerator()
+    self.assertEqual(generator(NoneShape()), '...')
+
+  def test_jax_shape_spec_generator_uniterable_shape(self):
+    class UniterableShape:
+      shape = 4
+
+    generator = jax_data_processor._JaxShapeSpecGenerator()
+    with self.assertRaisesRegex(ValueError, 'spec.shape must be iterable'):
+      generator(UniterableShape())
 
 
 if __name__ == '__main__':
