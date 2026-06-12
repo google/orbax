@@ -343,11 +343,6 @@ def load_checkpointables(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
-  if not hasattr(layout, 'load_checkpointables'):
-    raise NotImplementedError(
-        f'Layout {type(layout)} does not support loading checkpointables.'
-    )
-
   return _load_impl(
       path,
       functools.partial(

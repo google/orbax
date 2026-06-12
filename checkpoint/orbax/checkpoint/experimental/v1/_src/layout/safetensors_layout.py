@@ -36,6 +36,8 @@ STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = types.Path
+Checkpointable = checkpoint_layout.Checkpointable
+AbstractCheckpointable = checkpoint_layout.AbstractCheckpointable
 
 HEADER_NUM_BYTES = 8
 SAFETENSORS_SUFFIX = ".safetensors"
@@ -710,7 +712,7 @@ class _MultiFileLoader:
         metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
 
     logging.info("[safetensors] Loaded metadata in %.0fs", time.time() - start)
-    return metadata_types.CheckpointMetadata[dict[str, Any]](
+    return metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]](
         path=self.path,
         metadata={STATE_CHECKPOINTABLE_KEY: metadata},
         commit_timestamp_nsecs=commit_timestamp_nsecs,
@@ -735,14 +737,32 @@ class SafetensorsLayout(CheckpointLayout):
           "SafetensorsLayout is not supported on Pathways backend."
       )
 
-  async def metadata(
+  async def checkpointables_metadata(
       self, path: Path
-  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
     """Returns the metadata of the SafeTensors checkpoint."""
     loader = _MultiFileLoader(path)
     return await loader.load_metadata()
 
-  async def validate(self, path: Path):
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata describing a single checkpointable in the Safetensors checkpoint."""
+    checkpointables_metadata = await self.checkpointables_metadata(path)
+    key = checkpointable_name or STATE_CHECKPOINTABLE_KEY
+    if key not in checkpointables_metadata.metadata:
+      raise InvalidLayoutError(
+          f"Checkpointable '{key}' not found in checkpoint metadata."
+      )
+    return metadata_types.CheckpointMetadata(
+        path=checkpointables_metadata.path,
+        metadata=checkpointables_metadata.metadata[key],
+        init_timestamp_nsecs=checkpointables_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=checkpointables_metadata.commit_timestamp_nsecs,
+        custom_metadata=checkpointables_metadata.custom_metadata,
+    )
+
+  async def validate_checkpointables(self, path: Path):
     if await async_path.is_file(path):
       if path.suffix == SAFETENSORS_SUFFIX:
         return
@@ -767,17 +787,15 @@ class SafetensorsLayout(CheckpointLayout):
   async def get_checkpointable_names(self, path: Path) -> list[str]:
     return [STATE_CHECKPOINTABLE_KEY]
 
-  async def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  async def validate(self, path: Path, checkpointable_name: str | None) -> None:
     return
 
   async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_state: Any | None = None,
-  ) -> Awaitable[Any]:
+      abstract_state: AbstractCheckpointable | None = None,
+  ) -> Awaitable[Checkpointable]:
     """Loads a NumPy checkpoint file.
 
     If `abstract_state` is provided, it attempts to load numpy arrays as
@@ -797,11 +815,20 @@ class SafetensorsLayout(CheckpointLayout):
     self._loader = _MultiFileLoader(path)
     return self._loader.load_safetensors(abstract_state)
 
-  async def save(
+  async def load_checkpointables(
+      self,
+      path: Path,
+      abstract_checkpointables: dict[str, AbstractCheckpointable] | None = None,
+  ) -> Awaitable[dict[str, Checkpointable]]:
+    raise NotImplementedError(
+        "SafetensorsLayout does not support `load_checkpointables.`"
+    )
+
+  async def save_checkpointables(
       self,
       path: types.PathAwaitingCreation,
       *,
-      checkpointables: dict[str, Any],
+      checkpointables: dict[str, Checkpointable],
   ) -> Awaitable[None]:
     """Saves the checkpoint to the given directory."""
     raise NotImplementedError(
