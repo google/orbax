@@ -106,23 +106,17 @@ def metadata(
   layout = resolver.layout
   resolved_name = resolver.pytree_name
 
-  # TODO(b/477603241): This logic currently accounts for the V0
-  # metadata function returning a pytree for direct pytree checkpoints, while
-  # V1 returns a dictionary. This logic should be cleaned up once we roll up
-  # the composite handler into the layout themselves.
-  step_metadata = _checkpointables_metadata_impl(layout, path)
-  if resolved_name is None:
-    tree_metadata = step_metadata.metadata
-  else:
-    tree_metadata = step_metadata.metadata[resolved_name]
+  async def _load_metadata() -> CheckpointMetadata[PyTreeMetadata]:
+    return await layout.metadata(path, resolved_name)
 
-  validation.validate_abstract_state(tree_metadata)
+  state_metadata = asyncio_utils.run_sync(_load_metadata())
+  validation.validate_abstract_state(state_metadata.metadata)
   return CheckpointMetadata[PyTreeMetadata](
       path=path,
-      metadata=tree_metadata,
-      init_timestamp_nsecs=step_metadata.init_timestamp_nsecs,
-      commit_timestamp_nsecs=step_metadata.commit_timestamp_nsecs,
-      custom_metadata=step_metadata.custom_metadata,
+      metadata=state_metadata.metadata,
+      init_timestamp_nsecs=state_metadata.init_timestamp_nsecs,
+      commit_timestamp_nsecs=state_metadata.commit_timestamp_nsecs,
+      custom_metadata=state_metadata.custom_metadata,
   )
 
 
@@ -170,7 +164,7 @@ def _checkpointables_metadata_impl(
   async def _load_metadata() -> (
       metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]
   ):
-    return await layout.metadata(path)
+    return await layout.checkpointables_metadata(path)
 
   checkpoint_metadata = asyncio_utils.run_sync(_load_metadata())
   validation.validate_abstract_checkpointables(checkpoint_metadata.metadata)
