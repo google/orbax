@@ -191,6 +191,11 @@ class PyTreeCheckpointableResolutionAsyncTest(
             checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
         )
 
+  async def test_roc_not_linked_error(self):
+    with self.assertRaises(ImportError) as cm:
+      await registry.get_layout_class(CheckpointLayoutEnum.ROC)
+    self.assertIn('Roc support may not be linked', str(cm.exception))
+
 
 class IsOrbaxCheckpointTest(parameterized.TestCase):
 

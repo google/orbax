@@ -16,7 +16,7 @@
 
 import asyncio
 import logging
-from typing import Any, Awaitable
+from typing import Awaitable
 
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import async_path
@@ -28,12 +28,13 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = path_types.Path
 CheckpointLayout = checkpoint_layout.CheckpointLayout
+Checkpointable = checkpoint_layout.Checkpointable
+AbstractCheckpointable = checkpoint_layout.AbstractCheckpointable
 
 
 def is_orbax_v0_checkpoint(path: path_types.PathLike) -> bool:
@@ -48,7 +49,7 @@ def is_orbax_v0_checkpoint(path: path_types.PathLike) -> bool:
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
   try:
-    asyncio_utils.run_sync(OrbaxV0Layout().validate(path))
+    asyncio_utils.run_sync(OrbaxV0Layout().validate_checkpointables(path))
     return True
   except InvalidLayoutError:
     return False
@@ -91,7 +92,7 @@ class OrbaxV0Layout(CheckpointLayout):
       self,
       path: Path,
       metadata: handler_resolution.InternalCheckpointMetadata,
-  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
     handler_for_load = (
         await handler_resolution.get_handler_for_load_direct_pytree(
             path.name,
@@ -117,9 +118,9 @@ class OrbaxV0Layout(CheckpointLayout):
         custom_metadata=custom_metadata,
     )
 
-  async def metadata(
+  async def checkpointables_metadata(
       self, path: Path
-  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
     """Returns the metadata describing the Orbax checkpoint.
 
     Args:
@@ -139,9 +140,28 @@ class OrbaxV0Layout(CheckpointLayout):
     # If there is no checkpoint metadata, we assume it is a composite
     # checkpoint, and even if it is a direct pytree checkpoint it will load as
     # a composite checkpoint as there is no metadata to indicate otherwise.
-    return await self._orbax_layout.metadata(path)
+    return await self._orbax_layout.checkpointables_metadata(path)
 
-  async def _validate(self, path: Path) -> None:
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata describing a single checkpointable in the V0 checkpoint."""
+    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
+    if (
+        checkpoint_metadata
+        and isinstance(checkpoint_metadata.item_handlers, str)
+        or await orbax_layout.has_pytree_metadata_file(path)
+    ):
+      if checkpointable_name is not None:
+        raise InvalidLayoutError(
+            "V0 direct PyTree checkpoints only support loading with"
+            f" `checkpointable_name=None`. Got: '{checkpointable_name}'"
+        )
+      return await self._load_pytree_metadata(path, checkpoint_metadata)
+
+    return await self._orbax_layout.metadata(path, checkpointable_name)
+
+  async def _validate_checkpointables(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
 
     Must be:
@@ -202,7 +222,7 @@ class OrbaxV0Layout(CheckpointLayout):
             f" checkpoint subdirectories: {checkpoint_subdirectories}"
         )
 
-  async def _validate_pytree(self, path: Path, checkpointable_name: str | None):
+  async def _validate(self, path: Path, checkpointable_name: str | None):
     """Validates that V0 checkpoint has pytree in 'checkpointable_name' subdir.
 
     Checks if checkpoint is either a top-level pytree checkpoint or has a
@@ -261,7 +281,7 @@ class OrbaxV0Layout(CheckpointLayout):
           path,
       )
 
-  async def validate(self, path: Path) -> None:
+  async def validate_checkpointables(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
 
     Args:
@@ -272,7 +292,7 @@ class OrbaxV0Layout(CheckpointLayout):
         incomplete.
     """
     try:
-      await self._validate(path)
+      await self._validate_checkpointables(path)
     except (
         FileNotFoundError,
         NotADirectoryError,
@@ -283,9 +303,7 @@ class OrbaxV0Layout(CheckpointLayout):
           f"Failed to interpret path {path} as a V0 Orbax checkpoint."
       ) from e
 
-  async def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  async def validate(self, path: Path, checkpointable_name: str | None) -> None:
     """Validates the given path as a V0 PyTree checkpoint.
 
     Args:
@@ -300,7 +318,7 @@ class OrbaxV0Layout(CheckpointLayout):
         incomplete.
     """
     try:
-      await self._validate_pytree(path, checkpointable_name)
+      await self._validate(path, checkpointable_name)
     except (
         FileNotFoundError,
         NotADirectoryError,
@@ -315,10 +333,8 @@ class OrbaxV0Layout(CheckpointLayout):
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_state: (
-          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
-      ) = None,
-  ) -> Awaitable[Any]:
+      abstract_state: AbstractCheckpointable | None = None,
+  ) -> Awaitable[Checkpointable]:
     """Loads a V0 PyTree checkpoint.
 
     Attempts to load `checkpointable_name` pytree by finding its corresponding
@@ -378,8 +394,8 @@ class OrbaxV0Layout(CheckpointLayout):
   async def load_checkpointables(
       self,
       path: Path,
-      abstract_checkpointables: dict[str, Any] | None = None,
-  ) -> Awaitable[dict[str, Any]]:
+      abstract_checkpointables: dict[str, AbstractCheckpointable] | None = None,
+  ) -> Awaitable[dict[str, Checkpointable]]:
     """Loads checkpointables specified by `abstract_checkpointables`.
 
     Args:
@@ -393,3 +409,12 @@ class OrbaxV0Layout(CheckpointLayout):
         path, abstract_checkpointables
     )
     return load_awaitable
+
+  async def save_checkpointables(
+      self,
+      path: path_types.PathAwaitingCreation,
+      *,
+      checkpointables: dict[str, Checkpointable],
+  ) -> Awaitable[None]:
+    """Saves the checkpoint to the given directory."""
+    raise NotImplementedError("Saving to Orbax V0 format is not supported.")

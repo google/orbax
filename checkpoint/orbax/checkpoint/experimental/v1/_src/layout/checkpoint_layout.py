@@ -15,11 +15,12 @@
 """Defines `CheckpointLayout`, a broader protocol used to save and load different checkpoint formats."""
 
 import abc
-from typing import Any, Awaitable, Protocol
+from typing import Awaitable, Protocol
+from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
-from orbax.checkpoint.experimental.v1._src.path import types
+from orbax.checkpoint.experimental.v1._src.path import types as path_types
 
-Path = types.Path
+Path = path_types.Path
 
 
 ### Constants shared by all layouts. ###
@@ -34,6 +35,9 @@ RESERVED_CHECKPOINTABLE_KEYS = frozenset({
     METRICS_CHECKPOINTABLE_KEY,
     AUTO_CHECKPOINTABLE_KEY,
 })
+
+Checkpointable = handler_types.Checkpointable
+AbstractCheckpointable = handler_types.AbstractCheckpointable
 
 
 class InvalidLayoutError(ValueError):
@@ -52,7 +56,8 @@ class CheckpointLayout(Protocol):
     delegating to the resolved handlers.
   """
 
-  async def get_checkpointable_names(self, path: Path) -> list[str]:
+  @abc.abstractmethod
+  async def get_checkpointable_names(self, path: Path) -> list[str | None]:
     """Returns a list of candidate checkpointable names to use for loading.
 
     Attempts to resolve checkpointable names for by inspecting the checkpoint
@@ -67,9 +72,12 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def metadata(
+  @abc.abstractmethod
+  async def checkpointables_metadata(
       self, path: Path
-  ) -> metadata_types.CheckpointMetadata[dict[str, Any]]:
+  ) -> metadata_types.CheckpointMetadata[
+      dict[str, handler_types.AbstractCheckpointable]
+  ]:
     """Returns the metadata of the checkpoint.
 
     Args:
@@ -83,7 +91,22 @@ class CheckpointLayout(Protocol):
     ...
 
   @abc.abstractmethod
-  async def validate(self, path: Path) -> None:
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata of a single checkpointable in the checkpoint.
+
+    Args:
+      path: The path to the checkpoint.
+      checkpointable_name: The name of the checkpointable to inspect.
+
+    Returns:
+      The metadata structure for the given checkpointable.
+    """
+    ...
+
+  @abc.abstractmethod
+  async def validate_checkpointables(self, path: Path) -> None:
     """Validates the path, determining if it conforms to this instance.
 
     Args:
@@ -95,9 +118,7 @@ class CheckpointLayout(Protocol):
     ...
 
   @abc.abstractmethod
-  async def validate_pytree(
-      self, path: Path, checkpointable_name: str | None
-  ) -> None:
+  async def validate(self, path: Path, checkpointable_name: str | None) -> None:
     """Validates the path as a PyTree checkpoint.
 
     Args:
@@ -107,13 +128,14 @@ class CheckpointLayout(Protocol):
     """
     ...
 
+  @abc.abstractmethod
   async def load(
       self,
       path: Path,
       checkpointable_name: str | None = None,
-      abstract_state: Any | None = None,
-  ) -> Awaitable[Any]:
-    """Loads a PyTree from the checkpoint.
+      abstract_state: AbstractCheckpointable | None = None,
+  ) -> Awaitable[Checkpointable]:
+    """Loads a PyTree state from the checkpoint.
 
     Args:
       path: The path to the checkpoint.
@@ -125,11 +147,30 @@ class CheckpointLayout(Protocol):
     """
     ...
 
-  async def save(
+  @abc.abstractmethod
+  async def load_checkpointables(
       self,
-      path: types.PathAwaitingCreation,
+      path: Path,
+      abstract_checkpointables: dict[str, AbstractCheckpointable] | None = None,
+  ) -> Awaitable[dict[str, Checkpointable]]:
+    """Loads checkpointables specified by `abstract_checkpointables`.
+
+    Args:
+      path: The path to the checkpoint.
+      abstract_checkpointables: The abstract structures to load.
+
+    Returns:
+      An awaitable containing a dictionary mapping checkpointable names to
+      loaded checkpointable values.
+    """
+    ...
+
+  @abc.abstractmethod
+  async def save_checkpointables(
+      self,
+      path: path_types.PathAwaitingCreation,
       *,
-      checkpointables: dict[str, Any],
+      checkpointables: dict[str, Checkpointable],
   ) -> Awaitable[None]:
     """Saves the checkpoint to the given directory.
 

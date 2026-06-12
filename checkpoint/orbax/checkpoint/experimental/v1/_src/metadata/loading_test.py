@@ -99,6 +99,12 @@ class PyTreeMetadataTest(absltest.TestCase):
     with self.assertRaises(InvalidLayoutError):
       ocp.metadata(pytree_dir, checkpointable_name=None)
 
+  def test_metadata_invalid_checkpointable_name(self):
+    with self.assertRaises(InvalidLayoutError):
+      ocp.metadata(
+          self.directory, checkpointable_name='nonexistent_checkpointable'
+      )
+
   def test_load_with_metadata(self):
     metadata = ocp.metadata(self.directory)
 

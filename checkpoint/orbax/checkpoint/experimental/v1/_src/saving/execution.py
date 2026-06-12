@@ -289,7 +289,7 @@ async def _run_blocking_save(
     )
 
   # Delegate to the handler to get the background awaitable.
-  background_awaitable = await layout.save(
+  background_awaitable = await layout.save_checkpointables(
       path=temporary_path.path_awaiting_creation,
       checkpointables=checkpointables,
   )
