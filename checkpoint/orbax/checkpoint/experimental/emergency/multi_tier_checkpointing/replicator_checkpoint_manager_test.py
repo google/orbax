@@ -209,6 +209,7 @@ class ReplicatorCheckpointManagerTest(
     )
     if not multihost.is_runtime_to_distributed_ids_initialized():
       multihost.initialize_runtime_to_distributed_ids()
+    if not multihost.is_distributed_to_device_ids_initialized():
       multihost.initialize_distributed_to_device_ids()
 
     self.global_mesh = self.make_global_mesh()
