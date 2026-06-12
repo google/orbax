@@ -803,7 +803,7 @@ class ArrayHandlerCallbackTest(
     super().setUp()
     self.pytree, _, _ = test_utils.setup_sharded_pytree()
 
-  class TestCallback(types.NoopSerializationStatusCallback):
+  class TestCallback(types.DefaultSerializationStatusCallback):
 
     def __init__(self, priority: types.TransferPriority):
       self.priority = priority

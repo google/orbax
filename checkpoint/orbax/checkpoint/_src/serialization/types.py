@@ -67,6 +67,10 @@ class TransferPriority(enum.Enum):
 class SerializationStatusCallback(Protocol):
   """Callback for tracking serialization status of PyTree parameters.
 
+  NOTE: Callback methods can be called concurrently from parallel background
+  threads. Implementations must ensure thread safety if they access or modify
+  shared state.
+
   Usage:
     Users can implement this protocol to customize parameter serialization
     behavior, such as transfer prioritization from device to host or to
@@ -79,7 +83,7 @@ class SerializationStatusCallback(Protocol):
     from orbax.checkpoint._src.serialization import types as serialization_types
     from orbax.checkpoint._src.tree import types as tree_types
 
-    class MyCallback(serialization_types.NoopSerializationStatusCallback):
+    class MyCallback(serialization_types.SerializationStatusCallback):
       def key_priority(self, keypath: tree_types.PyTreePath):
         if 'large_param' in jax.tree_util.keystr(keypath):
           return serialization_types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
@@ -147,7 +151,7 @@ class SerializationStatusCallback(Protocol):
     ...
 
 
-class NoopSerializationStatusCallback:
+class DefaultSerializationStatusCallback(SerializationStatusCallback):
   """Default no-op callback for serialization and deserialization."""
 
   def key_priority(self, _: tree_types.PyTreePath) -> TransferPriority:

@@ -1108,7 +1108,7 @@ class ArrayHandler(types.TypeHandler):
     self._callback = (
         callback
         if callback is not None
-        else types.NoopSerializationStatusCallback()
+        else types.DefaultSerializationStatusCallback()
     )
 
     logging.vlog(
