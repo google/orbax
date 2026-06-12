@@ -65,6 +65,12 @@ class OperationIdGenerator:
     """Returns the current operation id."""
     return str(cls._operation_id)
 
+  @classmethod
+  def set_operation_id(cls, operation_id: int) -> None:
+    """Synchronizes the operation id counter to allow lagging ranks to catch up."""
+    cls._operation_id = operation_id
+    cls._operation_id_counter = itertools.count(operation_id + 1)
+
 
 class MultihostSynchronizedValue(Generic[_T]):
   """A thread-safe value that is synchronized across all processes."""

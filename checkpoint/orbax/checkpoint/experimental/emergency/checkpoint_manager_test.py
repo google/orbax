@@ -99,6 +99,7 @@ class CheckpointManagerTestSuite:
       )
       if not multihost.is_runtime_to_distributed_ids_initialized():
         multihost.initialize_runtime_to_distributed_ids()
+      if not multihost.is_distributed_to_device_ids_initialized():
         multihost.initialize_distributed_to_device_ids()
 
       # make sure each process is working on different directories

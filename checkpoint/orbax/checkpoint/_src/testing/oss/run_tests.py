@@ -22,6 +22,9 @@ import sys
 from absl import app
 from absl import flags
 from absl import logging
+import jax
+from orbax.checkpoint._src.futures import synchronization
+from orbax.checkpoint._src.multihost import multihost
 import pytest
 import yaml
 
@@ -130,7 +133,27 @@ def main(argv: Sequence[str]) -> None:
 
     logging.info('Running test: %s (found from %s)', test_path, test_file_yaml)
     try:
-      exit_code = pytest.main([test_path])
+      try:
+        client = multihost.get_jax_distributed_client()
+        if client is not None:
+          normalized_name = (
+              test_file_yaml.replace('/', '_').replace(':', '_')
+          )
+          sync_key = f'sync_op_id_file_{normalized_name}'
+          if jax.process_index() == 0:
+            client.key_value_set(
+                sync_key,
+                synchronization.OperationIdGenerator.get_current_operation_id(),
+                allow_overwrite=True,
+            )
+          max_op_id = int(client.blocking_key_value_get(sync_key, 10000))
+          synchronization.OperationIdGenerator.set_operation_id(max_op_id)
+      except Exception as sync_e:  # pylint: disable=broad-exception-caught
+        logging.warning(
+            'Could not synchronize OperationIdGenerator for file: %s', sync_e
+        )
+
+      exit_code = pytest.main(['--import-mode=importlib', test_path])
       if exit_code == 0:
         results[test_file_yaml] = 'PASSED'
         logging.info('%s: PASSED', test_path)
