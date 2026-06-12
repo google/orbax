@@ -70,10 +70,14 @@ class CompatibilityCheckpointHandler(
     )
     save_awaitable = await self._handler.save(async_path, args.checkpointable)
 
+    commit_futures = []
+    if hasattr(save_awaitable, 'commit_futures'):
+      commit_futures = save_awaitable.commit_futures
+
     async def _background_save():
       await save_awaitable
 
-    return [future.CommitFuture(_background_save())]
+    return commit_futures + [future.CommitFuture(_background_save())]
 
   def save(self, directory: path_types.Path, *args, **kwargs):
     async def async_save(*args, **kwargs):

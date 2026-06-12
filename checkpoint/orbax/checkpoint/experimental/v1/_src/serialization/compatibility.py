@@ -14,8 +14,11 @@
 
 """Compatibility wrapper to help leaf handlers to work as V0 type_handlers."""
 
+import asyncio
+import concurrent.futures
 import dataclasses
-from typing import Any, Generic, Sequence, Tuple, Type, cast, get_args
+import threading
+from typing import Any, cast, Generic, get_args, Sequence, Tuple, Type
 
 from absl import logging
 import jax
@@ -34,6 +37,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import array_leaf_handl
 from orbax.checkpoint.experimental.v1._src.serialization import numpy_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types
+
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -304,16 +308,42 @@ class CompatibleTypeHandler(
     serialization_task = await self._leaf_handler.serialize(
         params, serialization_context
     )
-
+    commit_futures = []
+    if hasattr(serialization_task, 'commit_futures'):
+      commit_futures = serialization_task.commit_futures
+    logging.info('commit_futures: %s', commit_futures)
     async def _background_serialize():
-      await serialization_task
+
+      current_thread = threading.current_thread()
+      current_task = asyncio.current_task()
+      setattr(current_thread, 'gather_future', current_task)
+      setattr(current_thread, 'loop', asyncio.get_running_loop())
+      try:
+        await serialization_task
+      except BaseException as e:
+
+        if isinstance(
+            e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+        ):
+          logging.info(
+              '[process=%s] _background_serialize was safely cancelled.',
+              jax.process_index(),
+          )
+          return
+        raise
+      finally:
+        if hasattr(current_thread, 'gather_future'):
+          delattr(current_thread, 'gather_future')
+        if hasattr(current_thread, 'loop'):
+          delattr(current_thread, 'loop')
 
     operation_id = synchronization.get_operation_id()
 
-    return [
+    return commit_futures + [
         future.CommitFuture(
             coro=_background_serialize(),
             operation_id=operation_id,
+            name='v1_leaf_handler',
         )
     ]
 

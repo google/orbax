@@ -19,6 +19,7 @@ deserialization for jax.Arrays.
 """
 
 import asyncio
+import concurrent.futures
 import dataclasses
 import typing
 from typing import Awaitable, Sequence, cast
@@ -186,7 +187,27 @@ def _create_v0_restorearg(
 
 
 async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+  """Waits for commit futures to complete."""
+  try:
+    await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
+  except BaseException as e:
+    if isinstance(
+        e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+    ):
+      logging.info(
+          '[process=%s] ArrayLeafHandler._async_futures was safely cancelled.',
+          jax.process_index(),
+      )
+      for f in commit_futures:
+        if hasattr(f, 'cancel'):
+          try:
+            f.cancel()
+          except Exception as inner_e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                'Error cancelling future in _async_futures: %s', inner_e
+            )
+      return
+    raise
 
 
 class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
@@ -227,12 +248,16 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
     ]
     saveargs = [_create_v0_savearg(p, self._context) for p in params]
 
+    logging.info('ArrayLeafHandler.serialize: %r', self._handler_impl)
+
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs
     )
     assert commit_futures
 
-    return _async_futures(commit_futures)
+    return types.FuturesAwaitable(
+        commit_futures, lambda: _async_futures(commit_futures)
+    )
 
   async def deserialize(
       self,

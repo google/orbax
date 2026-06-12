@@ -15,7 +15,7 @@
 """Define types for :py:class:`.LeafHandler`."""
 
 import dataclasses
-from typing import Any, Awaitable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
+from typing import Any, Awaitable, Callable, Generic, Protocol, Sequence, Tuple, Type, TypeVar
 
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import types as serialization_types
@@ -241,6 +241,24 @@ class DeserializationContext:
   zarr3_checkpoint: bool
   ts_context: ts.Context | None = None
   byte_limiter: limits.LimitInFlightBytes | None = None
+
+
+class FuturesAwaitable:
+  """An awaitable that transparently wraps and exposes a list of orbax futures.
+
+  This is a helper for bridging `Awaitable[None]` interfaces with underlying
+  orbax `future.Future` lists, permitting cancellation propagation in V0.
+  """
+
+  def __init__(self, commit_futures, coro_fn: Callable[[], Awaitable[None]]):
+    self.commit_futures = commit_futures
+    self.coro_fn = coro_fn
+    self._coro = None
+
+  def __await__(self):
+    if self._coro is None:
+      self._coro = self.coro_fn()
+    return self._coro.__await__()
 
 
 class LeafHandler(Protocol[Leaf, AbstractLeaf]):
