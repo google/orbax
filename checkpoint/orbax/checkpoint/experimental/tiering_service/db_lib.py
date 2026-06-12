@@ -15,14 +15,45 @@
 """Database initialization utilities for Tiering Service."""
 
 import contextlib
+import datetime
+import sqlite3
+
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
+import sqlalchemy
+from sqlalchemy import event
+from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.future import select
+import sqlalchemy.orm
 from sqlalchemy.orm import sessionmaker
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+  """Enables foreign key constraints on SQLite database connections.
+
+  This is SQLite-specific because other databases (like PostgreSQL) enforce
+  foreign keys by default and do not support SQLite's PRAGMA syntax.
+  We perform an isinstance check against the standard sqlite3.Connection
+  and SQLAlchemy's aiosqlite adapter wrapper to verify if this is an SQLite
+  connection.
+
+  Args:
+    dbapi_connection: The database connection to configure.
+    connection_record: Metadata about the connection.
+  """
+  del connection_record
+  connection_types = (sqlite3.Connection, AsyncAdapt_aiosqlite_connection)
+
+  if isinstance(dbapi_connection, connection_types):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
@@ -200,3 +231,140 @@ async def async_verify_db(config: tiering_service_pb2.ServerConfig) -> None:
           f" prefix: DB has {db_backend.prefix!r}, config expects"
           f" {instance.prefix!r}"
       )
+
+
+async def get_active_jobs(
+    session: AsyncSession, hostname: str, pid: int
+) -> list[db_schema.AssetJob]:
+  """Returns all active PROCESSING jobs owned by this worker."""
+  stmt = (
+      select(db_schema.AssetJob)
+      .options(
+          sqlalchemy.orm.selectinload(
+              db_schema.AssetJob.target_tier_path
+          ).selectinload(db_schema.TierPath.storage_backend),
+          sqlalchemy.orm.selectinload(db_schema.AssetJob.asset)
+          .selectinload(db_schema.Asset.tier_paths)
+          .selectinload(db_schema.TierPath.storage_backend),
+      )
+      .where(
+          db_schema.AssetJob.status
+          == db_schema.JobStatus.JOB_STATUS_PROCESSING,
+          db_schema.AssetJob.worker_host == hostname,
+          db_schema.AssetJob.worker_pid == pid,
+      )
+  )
+  result = await session.execute(stmt)
+  return list(result.scalars().all())
+
+
+async def acquire_next_job(
+    session: AsyncSession,
+    backend_id: int | None,
+    lease_duration: datetime.timedelta,
+    hostname: str,
+    pid: int,
+    max_active: int,
+) -> db_schema.AssetJob | None:
+  """Queries the database for the next eligible job on the given backend and claims it."""
+  now = datetime.datetime.now(datetime.timezone.utc)
+
+  if backend_id is not None:
+    # Lock only this specific backend to avoid race conditions.
+    backend_stmt = (
+        select(db_schema.StorageBackend)
+        .where(db_schema.StorageBackend.id == backend_id)
+        .with_for_update()
+    )
+    await session.execute(backend_stmt)
+
+    # Re-evaluate active capacity under the backend lock.
+    active_count_stmt = (
+        select(sqlalchemy.func.count(db_schema.AssetJob.id))
+        .join(
+            db_schema.TierPath,
+            db_schema.AssetJob.target_tier_path_id == db_schema.TierPath.id,
+        )
+        .where(
+            db_schema.AssetJob.status
+            == db_schema.JobStatus.JOB_STATUS_PROCESSING,
+            db_schema.AssetJob.expiration_at >= now,
+            db_schema.TierPath.storage_backend_id == backend_id,
+        )
+    )
+    active_count_result = await session.execute(active_count_stmt)
+    active_count = active_count_result.scalar()
+
+    if active_count >= max_active:
+      return None
+
+  # 1. Identify assets currently executing active transfers (PROCESSING and
+  # not expired)
+  active_assets_subquery = (
+      select(db_schema.AssetJob.asset_uuid)
+      .where(
+          db_schema.AssetJob.status
+          == db_schema.JobStatus.JOB_STATUS_PROCESSING,
+          db_schema.AssetJob.expiration_at >= now,
+      )
+      .scalar_subquery()
+  )
+
+  # 2. Fetch the oldest eligible job for this specific backend
+  if backend_id is None:
+    backend_cond = db_schema.AssetJob.target_tier_path_id.is_(None)
+  else:
+    backend_cond = db_schema.TierPath.storage_backend_id == backend_id
+
+  stmt = (
+      select(db_schema.AssetJob)
+      .options(
+          sqlalchemy.orm.selectinload(
+              db_schema.AssetJob.target_tier_path
+          ).selectinload(db_schema.TierPath.storage_backend),
+          sqlalchemy.orm.selectinload(db_schema.AssetJob.asset)
+          .selectinload(db_schema.Asset.tier_paths)
+          .selectinload(db_schema.TierPath.storage_backend),
+      )
+      .join(
+          db_schema.TierPath,
+          db_schema.AssetJob.target_tier_path_id == db_schema.TierPath.id,
+          isouter=True,
+      )
+      .where(
+          sqlalchemy.or_(
+              db_schema.AssetJob.status
+              == db_schema.JobStatus.JOB_STATUS_QUEUED,
+              sqlalchemy.and_(
+                  db_schema.AssetJob.status
+                  == db_schema.JobStatus.JOB_STATUS_PROCESSING,
+                  db_schema.AssetJob.expiration_at < now,
+              ),
+          ),
+          ~db_schema.AssetJob.asset_uuid.in_(active_assets_subquery),
+          backend_cond,
+      )
+      .order_by(db_schema.AssetJob.created_at.asc())
+      .limit(1)
+      .with_for_update(skip_locked=True)
+  )
+
+  result = await session.execute(stmt)
+  job = result.scalars().first()
+
+  if job:
+    # Atomically claim the job
+    job.status = db_schema.JobStatus.JOB_STATUS_PROCESSING
+    job.expiration_at = now + lease_duration
+    job.worker_host = hostname
+    job.worker_pid = pid
+    job.last_updated_at = now
+    session.add(job)
+    if (
+        job.request_type == db_schema.RequestType.REQUEST_TYPE_COPY
+        and job.target_tier_path
+    ):
+      job.target_tier_path.state = db_schema.TierPathState.IN_PROGRESS
+      session.add(job.target_tier_path)
+
+  return job
