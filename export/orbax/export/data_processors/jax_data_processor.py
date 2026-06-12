@@ -27,7 +27,7 @@ from orbax.export.data_processors import data_processor_base
 from .third_party.neptune.protos import manifest_pb2
 
 
-def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct | Any:
+def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct:
   """Converts a ShloTensorSpec to a jax.ShapeDtypeStruct."""
   if isinstance(spec, shlo_function.ShloTensorSpec):
     if spec.dtype == shlo_function.ShloDType.bf16:
@@ -35,7 +35,50 @@ def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct | Any:
     return jax.ShapeDtypeStruct(
         spec.shape, shlo_function.shlo_dtype_to_np_dtype(spec.dtype)
     )
-  return spec
+  if hasattr(spec, 'shape') and hasattr(spec, 'dtype'):
+    return jax.ShapeDtypeStruct(
+        shape=tuple(spec.shape),
+        dtype=spec.dtype,
+    )
+  raise ValueError(f'Unsupported spec type: {type(spec)}')
+
+
+class _JaxShapeSpecGenerator:
+  """Generates unique shape spec strings for symbolic_args_specs."""
+
+  def __init__(self):
+    self._counter = 0
+
+  def __call__(self, spec: Any) -> str:
+    # PyTree leaves like int/float don't have a shape attribute.
+    if hasattr(spec, 'shape'):
+      if spec.shape is None:
+        return '...'
+      try:
+        shape_list = list(spec.shape)
+      except (TypeError, ValueError) as e:
+        raise ValueError(
+            f'spec.shape must be iterable, got {spec.shape}'
+        ) from e
+
+      if not shape_list:
+        return '()'
+      dims = []
+      for i, d in enumerate(shape_list):
+        if isinstance(d, str):
+          dims.append(d)
+        elif d is None:
+          if i == 0:
+            dims.append('b')
+          else:
+            dims.append(f'd_{self._counter}')
+            self._counter += 1
+        else:
+          dims.append(str(d))
+      if len(dims) == 1:
+        return f'({dims[0]},)'
+      return f"({', '.join(dims)})"
+    raise ValueError(f'Unsupported spec type: {type(spec)}')
 
 
 class JaxDataProcessor(data_processor_base.DataProcessor):
@@ -112,7 +155,10 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
 
     self._input_signature = input_signature
 
-    jax_input_signature = jax.tree.map(_jax_spec_from, self._input_signature)
+    jax_input_args = jax.tree.map(_jax_spec_from, self._input_signature)
+    jax_input_shapes_specs = jax.tree.map(
+        _JaxShapeSpecGenerator(), self._input_signature
+    )
 
     # Construct args_spec for jax2obm.convert.
     # We assume the callable takes (params, inputs) if params is not None,
@@ -123,7 +169,8 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
       params_spec = jax.tree.map(
           lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype), self._params
       )
-      args_spec = (params_spec, jax_input_signature)
+      args = (params_spec, jax_input_args)
+      shapes_specs = ('...', jax_input_shapes_specs)
 
       ckp_path = self._options.checkpoint_path or 'processor_checkpoint'
 
@@ -143,7 +190,10 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
 
       self._save_fn = _save_checkpoint
     else:
-      args_spec = (jax_input_signature,)
+      args = (jax_input_args,)
+      shapes_specs = (jax_input_shapes_specs,)
+
+    args_spec = jax.export.symbolic_args_specs(args, shapes_specs)
 
     # Instructs the runtime to only load the model parameters from the
     # checkpoint, not all keys present in the checkpoint.
