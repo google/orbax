@@ -34,4 +34,4 @@ class PyTreeMetadataOptions:
 
 
 # Global default options.
-PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=False)
+PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=True)
