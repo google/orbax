@@ -239,14 +239,6 @@ async def get_active_jobs(
   """Returns all active PROCESSING jobs owned by this worker."""
   stmt = (
       select(db_schema.AssetJob)
-      .options(
-          sqlalchemy.orm.selectinload(
-              db_schema.AssetJob.target_tier_path
-          ).selectinload(db_schema.TierPath.storage_backend),
-          sqlalchemy.orm.selectinload(db_schema.AssetJob.asset)
-          .selectinload(db_schema.Asset.tier_paths)
-          .selectinload(db_schema.TierPath.storage_backend),
-      )
       .where(
           db_schema.AssetJob.status
           == db_schema.JobStatus.JOB_STATUS_PROCESSING,
