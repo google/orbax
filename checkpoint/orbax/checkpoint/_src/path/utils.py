@@ -73,18 +73,19 @@ def recursively_copy_files(
 
   for root, dirs, files in os.walk(src_path):
     relative_path = str(root)[len(str(src_path)) :].lstrip(os.sep)
+    relative_path = relative_path.replace(os.sep, '/')
     if relative_path in skip_paths_set:
       continue
     # Prune dirs that are in skip_paths to prevent traversal.
     dirs[:] = [
-        d for d in dirs if os.path.join(relative_path, d) not in skip_paths_set
+        d for d in dirs if f"{relative_path}/{d}".lstrip('/') not in skip_paths_set
     ]
 
     dst_root = dst_path / relative_path
     dst_root.mkdir(parents=True, exist_ok=True)
 
     for file in files:
-      relative_file_path = os.path.join(relative_path, file)
+      relative_file_path = f"{relative_path}/{file}".lstrip('/')
       if relative_file_path in skip_paths_set:
         continue
 
