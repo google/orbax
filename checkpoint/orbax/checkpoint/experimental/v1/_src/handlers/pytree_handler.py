@@ -29,6 +29,7 @@ from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
+from orbax.checkpoint._src.handlers import partial_save_utils
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint._src.serialization import types as v0_serialization_types
@@ -51,10 +52,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 Path = path_types.Path
 CheckpointableHandler = handler_types.CheckpointableHandler
 PyTree = tree_types.PyTree
-PartialSaveError = base_pytree_checkpoint_handler.PartialSaveError
-PartialSaveReplacementError = (
-    base_pytree_checkpoint_handler.PartialSaveReplacementError
-)
+PartialSaveReplacementError = partial_save_utils.PartialSaveReplacementError
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 
@@ -326,7 +324,15 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       return
 
     if multihost.is_primary_host(self._multiprocessing_options.primary_host):
-      await self._handler_impl._finalize_async(directory)  # pylint: disable=protected-access
+      impl = self._handler_impl
+      await impl._metadata_manager.finalize_async(  # pylint: disable=protected-access
+          directory,
+          array_metadata_store=impl._array_metadata_store,  # pylint: disable=protected-access
+          primary_host=impl._primary_host,  # pylint: disable=protected-access
+          array_metadata_validator=impl._array_metadata_validator,  # pylint: disable=protected-access
+          use_zarr3=impl._use_zarr3,  # pylint: disable=protected-access
+          enable_post_merge_validation=impl._enable_post_merge_validation,  # pylint: disable=protected-access
+      )
 
   async def _background_save(
       self,
