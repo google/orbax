@@ -127,6 +127,8 @@ def _np_dtype_to_python_type(dtype):
     return int
   elif np.issubdtype(dtype, np.floating):
     return float
+  elif np.issubdtype(dtype, np.bool_):
+    return bool
   else:
     raise TypeError(f"Unsupported dtype: {dtype}.")
 
