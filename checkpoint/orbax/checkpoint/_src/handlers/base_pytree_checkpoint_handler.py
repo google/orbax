@@ -644,10 +644,9 @@ class BasePyTreeCheckpointHandler(
         '/tensorstore/'
     )
     item = args.item
-    # Reject only zero-leaf items (empty containers, None). A single falsy leaf
-    # (0, '', False, zero-array) is a valid one-leaf tree and must be allowed.
-    if not jax.tree.leaves(item) and not item:
-      raise ValueError('Found empty item.')
+    # `None` is the only unsaveable item: it carries no structure to recover.
+    if item is None:
+      raise ValueError('None is not saveable.')
     save_args = args.save_args
     ocdbt_target_data_file_size = args.ocdbt_target_data_file_size
     custom_metadata = args.custom_metadata
