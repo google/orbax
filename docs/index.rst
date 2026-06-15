@@ -145,9 +145,10 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Additional Information
+   :caption: Contributing & Development
 
    Contributors <contributors>
+   Benchmarking Performance <checkpointing_benchmark_guide>
 
 
 .. Make sure the grid is not ragged.
