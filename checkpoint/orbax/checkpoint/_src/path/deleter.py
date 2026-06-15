@@ -27,8 +27,9 @@ from etils import epath
 import jax
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.path import gcs_utils
-from orbax.checkpoint._src.path import step as step_lib
+from orbax.checkpoint._src.path import storage_backend
+from orbax.checkpoint._src.path import step as step_lib  # pylint: disable=g-bad-import-order
+
 
 
 urlparse = parse.urlparse
@@ -95,11 +96,16 @@ class StandardCheckpointDeleter:
     Args:
       path: the path to delete.
     """
-    # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
-    # StorageBackend.
-    if gcs_utils.is_gcs_path(path):
-      gcs_utils.rmtree(path)
-    else:
+    try:
+      backend = storage_backend.resolve_storage_backend(path)
+      backend.delete_checkpoint(path)
+    except Exception as e:  # pylint: disable=broad-except
+      logging.warning(
+          'Failed to delete %s via storage backend: %s. Falling back to'
+          ' standard rmtree.',
+          path,
+          e,
+      )
       path.rmtree()
 
   def delete(self, step: int) -> None:
@@ -141,9 +147,10 @@ class StandardCheckpointDeleter:
         )
         return
 
+      backend = storage_backend.resolve_storage_backend(self._directory)
       # Attempt to rename using GCS HNS API if configured.
       if self._todelete_full_path is not None:
-        if gcs_utils.is_gcs_path(self._directory):
+        if isinstance(backend, storage_backend.GCSStorageBackend):
           # This is recommended for GCS buckets with HNS enabled and requires
           # `_todelete_full_path` to be specified.
           self._gcs_rename_step(step, delete_target)
@@ -151,8 +158,8 @@ class StandardCheckpointDeleter:
           raise NotImplementedError()
       # Attempt to rename to local subdirectory using `todelete_subdir`
       # if configured.
-      elif self._todelete_subdir is not None and not gcs_utils.is_gcs_path(
-          self._directory
+      elif self._todelete_subdir is not None and not isinstance(
+          backend, storage_backend.GCSStorageBackend
       ):
         self._rename_step_to_subdir(step, delete_target)
       # The final case: fall back to permanent deletion.
@@ -228,6 +235,24 @@ class StandardCheckpointDeleter:
 
   def _delete_step_permanently(self, step: int, delete_target: epath.Path):
     """Permanently deletes a step directory."""
+    try:
+      backend = storage_backend.resolve_storage_backend(delete_target)
+      backend.delete_checkpoint(delete_target)
+      logging.info('Deleted step %d via storage backend.', step)
+      return
+    except NotImplementedError:
+      logging.info(
+          'Storage backend delete not implemented for %s. Falling back to'
+          ' standard deletion.',
+          delete_target,
+      )
+    except Exception as e:  # pylint: disable=broad-except
+      logging.warning(
+          'Failed to delete step %d via storage backend: %s. Falling back to'
+          ' standard deletion.',
+          step,
+          e,
+      )
     self._rmtree(delete_target)
     logging.info('Deleted step %d.', step)
 

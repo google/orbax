@@ -22,6 +22,7 @@ and local file systems are provided here
 import abc
 import dataclasses
 import enum
+from typing import Callable
 
 from absl import logging
 from etils import epath
@@ -130,9 +131,8 @@ class GCSStorageBackend(StorageBackend):
       checkpoint_path: str | epath.PathLike,
   ) -> None:
     """Deletes the checkpoint at the given path."""
-    raise NotImplementedError(
-        'delete_checkpoint is not yet implemented for GCSStorageBackend.'
-    )
+    from orbax.checkpoint._src.path import gcs_utils  # pylint: disable=g-import-not-at-top
+    gcs_utils.rmtree(epath.Path(checkpoint_path))
 
 
 class LocalStorageBackend(StorageBackend):
@@ -167,3 +167,32 @@ class LocalStorageBackend(StorageBackend):
       logging.info('Removed old checkpoint (%s)', checkpoint_path)
     except OSError:
       logging.exception('Failed to remove checkpoint (%s)', checkpoint_path)
+
+
+ResolverFn = Callable[[str | epath.PathLike], StorageBackend]
+
+_RESOLVER_FN: ResolverFn | None = None
+
+
+def register_resolver(resolver_fn: ResolverFn) -> None:
+  """Registers a custom storage backend resolver."""
+  global _RESOLVER_FN
+  _RESOLVER_FN = resolver_fn
+
+
+def resolve_storage_backend(
+    path: str | epath.PathLike,
+) -> StorageBackend:
+  """Returns a StorageBackend object based on the given path."""
+  if _RESOLVER_FN is not None:
+    try:
+      return _RESOLVER_FN(path)
+    except (ValueError, NotImplementedError):
+      # If the registered resolver doesn't support the path, fall back to
+      # default resolver.
+      pass
+  from orbax.checkpoint._src.path import gcs_utils  # pylint: disable=g-import-not-at-top
+  if gcs_utils.is_gcs_path(epath.Path(path)):
+    return GCSStorageBackend()
+  else:
+    return LocalStorageBackend()
