@@ -193,7 +193,7 @@ class Context(epy.ContextManager):
       file_options: options_lib.FileOptions | None = None,
       checkpointables_options: options_lib.CheckpointablesOptions | None = None,
       pathways_options: options_lib.PathwaysOptions | None = None,
-      checkpoint_layout: options_lib.CheckpointLayout | None = None,
+      checkpoint_layout: options_lib.CheckpointLayout | str | None = None,
       deletion_options: options_lib.DeletionOptions | None = None,
       memory_options: options_lib.MemoryOptions | None = None,
       safetensors_options: options_lib.SafetensorsOptions | None = None,
@@ -252,7 +252,9 @@ class Context(epy.ContextManager):
         options_lib.PathwaysOptions,
     )
     self._checkpoint_layout = _get_option(
-        checkpoint_layout,
+        options_lib.CheckpointLayout(checkpoint_layout)
+        if checkpoint_layout is not None
+        else None,
         context.checkpoint_layout if context is not None else None,
         lambda: options_lib.CheckpointLayout.ORBAX,
     )
@@ -324,9 +326,11 @@ class Context(epy.ContextManager):
     return self._checkpoint_layout
 
   @checkpoint_layout.setter
-  def checkpoint_layout(self, value: options_lib.CheckpointLayout) -> None:
+  def checkpoint_layout(
+      self, value: options_lib.CheckpointLayout | str
+  ) -> None:
     self._check_not_frozen()
-    self._checkpoint_layout = value
+    self._checkpoint_layout = options_lib.CheckpointLayout(value)
 
   # TODO: b/513156122 - Migrate internal read sites to short-hand properties and
   # remove legacy aliases in the next refactor.
@@ -417,4 +421,3 @@ def _collect_ids(ctx: Context) -> frozenset[int]:
   for obj in vars(ctx).values():
     _traverse(obj)
   return frozenset(ids)
-

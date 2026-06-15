@@ -252,6 +252,24 @@ class OrbaxLayout(CheckpointLayout):
         custom_metadata=checkpoint_metadata.custom_metadata,
     )
 
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata describing a single checkpointable in the Orbax checkpoint."""
+    checkpointables_metadata = await self.checkpointables_metadata(path)
+    key = checkpointable_name or STATE_CHECKPOINTABLE_KEY
+    if key not in checkpointables_metadata.metadata:
+      raise checkpoint_layout.InvalidLayoutError(
+          f"Checkpointable '{key}' not found in checkpoint metadata."
+      )
+    return metadata_types.CheckpointMetadata(
+        path=checkpointables_metadata.path,
+        metadata=checkpointables_metadata.metadata[key],
+        init_timestamp_nsecs=checkpointables_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=checkpointables_metadata.commit_timestamp_nsecs,
+        custom_metadata=checkpointables_metadata.custom_metadata,
+    )
+
   async def _validate(self, path: Path, checkpointable_name: str | None):
     """Validates checkpoint written by `save` or `save_checkpointables`.
 

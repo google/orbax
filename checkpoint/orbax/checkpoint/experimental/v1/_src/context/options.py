@@ -608,10 +608,26 @@ class CheckpointLayout(enum.Enum):
   support for other layouts is available, as a means of supporting
   interoperatibility with other checkpointing libraries.
 
+  The Safetensors format, commonly used by checkpoints on HuggingFace,
+  is supported by Orbax for loading as a tree of `jax.Array`. Standard Orbax
+  usages apply, where a tree of `jax.ShapeDtypeStruct` may be specified to
+  dictate shardings. An abstract state is required when loading in a multi-host
+  setting; if not specified in a single-host setting, arrays will be loaded in
+  memory as numpy arrays.
+
+  Example usage for loading a Safetensors checkpoint::
+
+    ctx = ocp.Context()
+    ctx.checkpoint_layout = 'safetensors'
+    with ctx:
+      ocp.load(path, ...)
+
+
+
   Currently supported layouts are:
     ORBAX: Orbax's own layout.
     SAFETENSORS: https://huggingface.co/docs/safetensors/en/index
   """
 
-  ORBAX = 'Orbax'
-  SAFETENSORS = 'SafeTensors'
+  ORBAX = 'orbax'
+  SAFETENSORS = 'safetensors'

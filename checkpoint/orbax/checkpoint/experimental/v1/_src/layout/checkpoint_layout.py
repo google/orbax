@@ -57,7 +57,7 @@ class CheckpointLayout(Protocol):
   """
 
   @abc.abstractmethod
-  async def get_checkpointable_names(self, path: Path) -> list[str]:
+  async def get_checkpointable_names(self, path: Path) -> list[str | None]:
     """Returns a list of candidate checkpointable names to use for loading.
 
     Attempts to resolve checkpointable names for by inspecting the checkpoint
@@ -88,6 +88,21 @@ class CheckpointLayout(Protocol):
       checkpointables, while the values are the metadata objects themselves.
     """
 
+    ...
+
+  @abc.abstractmethod
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata of a single checkpointable in the checkpoint.
+
+    Args:
+      path: The path to the checkpoint.
+      checkpointable_name: The name of the checkpointable to inspect.
+
+    Returns:
+      The metadata structure for the given checkpointable.
+    """
     ...
 
   @abc.abstractmethod
