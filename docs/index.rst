@@ -106,6 +106,7 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
 
    guides/checkpoint/v1/async_checkpointing
    guides/checkpoint/v1/checkpoint_format
+   guides/checkpoint/v1/maximizing_performance
 
 .. toctree::
    :hidden:

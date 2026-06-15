@@ -81,6 +81,7 @@ tiering_service = [
     'fire',
     'greenlet',
     'grpcio-tools>=1.80.0',
+    'httpx',
     'pysqlite3',
     'pytimeparse',
     'sqlalchemy>=1.4.0',
