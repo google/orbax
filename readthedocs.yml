@@ -14,10 +14,6 @@ python:
       path: ./export
       extra_requirements:
         - docs
-    - method: pip
-      path: ./model
-      extra_requirements:
-        - docs
 
 build:
   os: ubuntu-24.04
