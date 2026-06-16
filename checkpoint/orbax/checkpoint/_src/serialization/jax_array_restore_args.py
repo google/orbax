@@ -101,11 +101,13 @@ class SingleReplicaArrayRestoreArgs(ArrayRestoreArgs):
 
   def __post_init__(self):
     super().__post_init__()
-    logging.log_first_n(
-        logging.WARNING,
-        '`single_replica_sharding` is deprecated and will be removed in a'
-        ' future version. It is not needed, as Orbax code will automatically'
-        ' construct a single-replica sharding used for restoring before'
-        ' broadcasting.',
-        1,
-    )
+    if self.single_replica_sharding is not None:
+      logging.log_first_n(
+          logging.WARNING,
+          '`single_replica_sharding` is deprecated and will be removed in a'
+          ' future version. It is not needed, as Orbax code will automatically'
+          ' construct a single-replica sharding used for restoring before'
+          ' broadcasting.',
+          1,
+      )
+

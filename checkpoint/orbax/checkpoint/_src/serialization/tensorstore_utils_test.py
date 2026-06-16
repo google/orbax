@@ -19,10 +19,13 @@ import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
+from orbax.checkpoint._src.serialization import types as serialization_types
+import tensorstore as ts
 
 
 GIB = 1024**3
@@ -1024,6 +1027,138 @@ class GetTsContextTest(parameterized.TestCase):
       }
 
     self.assertDictEqual(expected_spec, context.spec.to_json())
+
+
+class GetTotalBytesFromTensorstoreTest(parameterized.TestCase):
+
+  def test_get_total_bytes_written(self):
+    metrics = [
+        {
+            'name': '/tensorstore/kvstore/gcs/bytes_written',
+            'values': [{'value': 100}, {'value': 200}],
+        },
+        {
+            'name': '/tensorstore/kvstore/gfile/bytes_written',
+            'values': [{'value': 50}],
+        },
+        {
+            'name': '/tensorstore/kvstore/gcs/bytes_read',
+            'values': [{'value': 500}],
+        },
+        {
+            'name': '/other/metric/bytes_written',
+            'values': [{'value': 1000}],
+        },
+    ]
+    self.assertEqual(
+        ts_utils.get_total_bytes_from_tensorstore(
+            metrics, serialization_types.IoDirection.WRITE
+        ),
+        350,
+    )
+
+  def test_get_total_bytes_read(self):
+    metrics = [
+        {
+            'name': '/tensorstore/kvstore/gcs/bytes_written',
+            'values': [{'value': 100}],
+        },
+        {
+            'name': '/tensorstore/kvstore/gcs/bytes_read',
+            'values': [{'value': 500}, {'value': 250}],
+        },
+        {
+            'name': '/tensorstore/kvstore/gfile/bytes_read',
+            'values': [{'value': 50}],
+        },
+    ]
+    self.assertEqual(
+        ts_utils.get_total_bytes_from_tensorstore(
+            metrics, serialization_types.IoDirection.READ
+        ),
+        800,
+    )
+
+  @parameterized.named_parameters(
+      ('with_compression', True),
+      ('without_compression', False),
+  )
+  def test_get_total_bytes_with_real_ops(self, use_compression):
+    initial_metrics_write = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+
+    tempdir = self.create_tempdir().full_path
+    info = serialization_types.ParamInfo(
+        name='arr',
+        parent_dir=epath.Path(tempdir),
+        use_compression=use_compression,
+    )
+    write_spec = ts_utils.build_array_write_spec(
+        info,
+        global_shape=(100000,),
+        local_shape=(100000,),
+        dtype=np.dtype(np.int32),
+        use_ocdbt=True,
+    )
+    write_context = ts_utils.get_ts_context(use_ocdbt=True)
+    store = ts.open(
+        write_spec.json,
+        context=write_context,
+        create=True,
+        delete_existing=True,
+        dtype=np.int32,
+        shape=(100000,),
+    ).result()
+    store.write(np.arange(100000, dtype=np.int32)).result()
+
+    final_metrics_write = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+
+    bytes_written = ts_utils.get_total_bytes_from_tensorstore(
+        final_metrics_write, serialization_types.IoDirection.WRITE
+    ) - ts_utils.get_total_bytes_from_tensorstore(
+        initial_metrics_write, serialization_types.IoDirection.WRITE
+    )
+
+    self.assertGreater(bytes_written, 0)
+
+    initial_metrics_read = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+
+    read_spec = ts_utils.build_array_read_spec(info, use_ocdbt=True)
+    read_context = ts_utils.get_ts_context(use_ocdbt=True)
+    read_store = ts.open(
+        read_spec.json,
+        open=True,
+        context=read_context,
+        dtype=np.int32,
+        shape=(100000,),
+    ).result()
+    read_store.read().result()
+
+    final_metrics_read = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+
+    bytes_read = ts_utils.get_total_bytes_from_tensorstore(
+        final_metrics_read, serialization_types.IoDirection.READ
+    ) - ts_utils.get_total_bytes_from_tensorstore(
+        initial_metrics_read, serialization_types.IoDirection.READ
+    )
+
+    self.assertGreater(bytes_read, 0)
+
+    if not use_compression:
+      # Logical size is 100000 * 4 bytes = 400000 bytes.
+      self.assertLess(abs(bytes_written - 400000) / 400000, 0.01)
+      self.assertLess(abs(bytes_read - 400000) / 400000, 0.01)
+    else:
+      # Verify that compression actually reduced the bytes written/read.
+      self.assertLess(bytes_written, 300000)
+      self.assertLess(bytes_read, 300000)
 
 
 if __name__ == '__main__':

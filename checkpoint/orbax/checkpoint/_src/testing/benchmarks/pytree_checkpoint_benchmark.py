@@ -77,11 +77,13 @@ class PyTreeCheckpointOptions(benchmarks_core.BenchmarkOptions):
   enable_replica_parallel_separate_folder: bool | Sequence[bool] = False
   use_colocated_python: bool | Sequence[bool] = False
   save_device_host_concurrent_gb: int | None | Sequence[int | None] = None
+  enable_pinned_host_transfer: bool | Sequence[bool] = True
 
   def is_valid(self):
     assert isinstance(self.use_replica_parallel, bool)
     assert isinstance(self.enable_replica_parallel_separate_folder, bool)
     assert isinstance(self.use_colocated_python, bool)
+    assert isinstance(self.enable_pinned_host_transfer, bool)
 
     if self.enable_replica_parallel_separate_folder and (
         not self.use_replica_parallel or not self.use_ocdbt
@@ -167,6 +169,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
         save_concurrent_gb=options.save_concurrent_gb,
         restore_concurrent_gb=options.restore_concurrent_gb,
         save_device_host_concurrent_gb=options.save_device_host_concurrent_gb,
+        enable_pinned_host_transfer=options.enable_pinned_host_transfer,
         is_prioritized_key_fn=lambda key: "a" in ocp.tree.str_keypath(key),
     )
 
