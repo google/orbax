@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-
 import unittest
 from absl.testing import absltest
 from orbax.checkpoint.experimental.tiering_service import db_schema
@@ -75,6 +73,11 @@ class StorageBackendDbTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
       )
       self.assertLen(backends_l1, 1)
       self.assertEqual(backends_l1[0].prefix, "gs://bucket")
+
+      backends_all = await storage_backend.find_backends_by_level(
+          session, level=None
+      )
+      self.assertLen(backends_all, 3)
 
   async def test_locate_closest_backend(self):
     async with self.session_maker() as session:

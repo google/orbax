@@ -30,20 +30,21 @@ from sqlalchemy.future import select
 
 async def find_backends_by_level(
     session: AsyncSession,
-    level: int = 0,
+    level: int | None = 0,
 ) -> Sequence[db_schema.StorageBackend]:
   """Queries backends with the given level from the database.
 
   Args:
     session: The database session.
-    level: The tiering level to filter by (default is 0).
+    level: The tiering level to filter by. If None, returns all backends.
 
   Returns:
     A sequence of StorageBackend objects matching the level.
   """
-  result = await session.execute(
-      select(db_schema.StorageBackend).filter_by(level=level)
-  )
+  stmt = select(db_schema.StorageBackend)
+  if level is not None:
+    stmt = stmt.filter_by(level=level)
+  result = await session.execute(stmt)
   return result.scalars().all()
 
 

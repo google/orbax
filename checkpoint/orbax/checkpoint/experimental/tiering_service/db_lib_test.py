@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import textwrap
 import unittest
 
@@ -19,8 +20,12 @@ from absl.testing import absltest
 import aiosqlite  # pylint: disable=unused-import
 import greenlet  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.tiering_service import db_lib
+from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import server_config
 from sqlalchemy import exc as sqlalchemy_exc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
 import yaml
 
 
@@ -168,6 +173,200 @@ class DbLibTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     self.assertEqual(
         str(engine.url), f"sqlite+aiosqlite:///{tmp_file.full_path}"
     )
+    await engine.dispose()
+
+  async def test_acquire_and_get_active_jobs(self):
+    tmp_file = self.create_tempfile()
+    db_url = f"sqlite+aiosqlite:///{tmp_file.full_path}"
+    yaml_content = textwrap.dedent(f"""\
+        db_connection_str: {db_url}
+        storage_backends:
+          - level: 1
+            backend_type: BACKEND_TYPE_GCS
+            prefix: gs://my-bucket
+            region: us-central1
+    """)
+    config_dict = yaml.safe_load(yaml_content)
+    config = server_config.parse_config(config_dict)
+    await db_lib.async_initialize_db(config)
+
+    engine = db_lib.get_async_engine(config)
+
+    async_session = sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+    # Setup
+    async with async_session() as session:
+      # Create dependencies for valid AssetJob payload
+      asset = db_schema.Asset(
+          asset_uuid="dummy-uuid",
+          path="/experiment/dummy-path",
+          user="testuser",
+      )
+      backend = db_schema.StorageBackend(
+          level=1,
+          zone="us-central1-a",
+          backend_type=db_schema.BackendType.BACKEND_TYPE_GCS,
+          prefix="gs://my-bucket",
+      )
+      session.add_all([asset, backend])
+      await session.commit()
+
+      tier_path = db_schema.TierPath(
+          asset_uuid="dummy-uuid",
+          storage_backend_id=backend.id,
+          path="/path1",
+      )
+      session.add(tier_path)
+      await session.commit()
+
+      # Create valid job
+      job = db_schema.AssetJob(
+          asset_uuid="dummy-uuid",
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+          request_id="req-123",
+          target_tier_path_id=tier_path.id,
+      )
+      session.add(job)
+      await session.commit()
+      backend_id = backend.id
+
+    # Call
+    acquired_job = await db_lib.acquire_next_job(
+        session_maker=async_session,
+        backend_id=backend_id,
+        lease_duration=datetime.timedelta(minutes=5),
+        hostname="test-host",
+        pid=1234,
+        max_active=10,
+    )
+    self.assertIsNotNone(acquired_job)
+    self.assertEqual(acquired_job.request_id, "req-123")
+    self.assertEqual(
+        acquired_job.status, db_schema.JobStatus.JOB_STATUS_PROCESSING
+    )
+    self.assertEqual(acquired_job.worker_host, "test-host")
+
+    # Verification
+    async with async_session() as session:
+      # Get active jobs
+      active_jobs = await db_lib.get_active_jobs(
+          session=session, hostname="test-host", pid=1234
+      )
+      self.assertLen(active_jobs, 1)
+      self.assertEqual(active_jobs[0].request_id, "req-123")
+    await engine.dispose()
+
+  async def test_acquire_next_job_capacity_full_releases_lock(self):
+    tmp_file = self.create_tempfile()
+    db_url = f"sqlite+aiosqlite:///{tmp_file.full_path}"
+    yaml_content = textwrap.dedent(f"""\
+        db_connection_str: {db_url}
+        storage_backends:
+          - level: 1
+            backend_type: BACKEND_TYPE_GCS
+            prefix: gs://my-bucket
+            region: us-central1
+    """)
+    config_dict = yaml.safe_load(yaml_content)
+    config = server_config.parse_config(config_dict)
+    await db_lib.async_initialize_db(config)
+
+    engine = db_lib.get_async_engine(config)
+    async_session = sessionmaker(
+        engine, expire_on_commit=False, class_=AsyncSession
+    )
+
+    async with async_session() as session:
+      # Get backend ID
+      result = await session.execute(select(db_schema.StorageBackend))
+      backend = result.scalars().first()
+      backend_id = backend.id
+
+      # Create an active job for this backend to consume the capacity
+      asset = db_schema.Asset(
+          asset_uuid="uuid-active",
+          path="/path/active",
+          user="test-user",
+          state=db_schema.AssetState.ASSET_STATE_STORED,
+      )
+      session.add(asset)
+      await session.commit()
+
+      tier_path = db_schema.TierPath(
+          asset_uuid="uuid-active",
+          storage_backend_id=backend_id,
+          path="/mnt/lustre/active",
+      )
+      session.add(tier_path)
+      await session.commit()
+
+      # Expiration is in the future
+      future_now = datetime.datetime.now(
+          datetime.timezone.utc
+      ) + datetime.timedelta(minutes=10)
+      active_job = db_schema.AssetJob(
+          asset_uuid="uuid-active",
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+          status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+          expiration_at=future_now,
+          target_tier_path_id=tier_path.id,
+      )
+      session.add(active_job)
+      await session.commit()
+
+      # Create another queued job that we want to try to acquire
+      asset2 = db_schema.Asset(
+          asset_uuid="uuid-queued",
+          path="/path/queued",
+          user="test-user",
+          state=db_schema.AssetState.ASSET_STATE_STORED,
+      )
+      session.add(asset2)
+      await session.commit()
+
+      tier_path2 = db_schema.TierPath(
+          asset_uuid="uuid-queued",
+          storage_backend_id=backend_id,
+          path="/mnt/lustre/queued",
+      )
+      session.add(tier_path2)
+      await session.commit()
+
+      queued_job = db_schema.AssetJob(
+          asset_uuid="uuid-queued",
+          request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+          target_tier_path_id=tier_path2.id,
+      )
+      session.add(queued_job)
+      await session.commit()
+
+    # Call acquire_next_job (simulating job_worker.py)
+    # With max_active = 1, this should return None because 1 job is active
+    acquired_job = await db_lib.acquire_next_job(
+        session_maker=async_session,
+        backend_id=backend_id,
+        lease_duration=datetime.timedelta(minutes=5),
+        hostname="test-host",
+        pid=1234,
+        max_active=1,  # Max active is 1
+    )
+    self.assertIsNone(acquired_job)
+
+    # Now verify that the lock is released by trying to modify the backend in
+    # a new session. If the lock was not released, this will block or fail.
+    async with async_session() as session2:
+      async with session2.begin():
+        result = await session2.execute(
+            select(db_schema.StorageBackend)
+            .where(db_schema.StorageBackend.id == backend_id)
+            .with_for_update()
+        )
+        backend_row = result.scalar()
+        backend_row.prefix = "gs://new-bucket-name"  # Modifying prefix
+        session2.add(backend_row)
     await engine.dispose()
 
 
