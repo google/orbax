@@ -15,6 +15,8 @@
 import asyncio
 import concurrent.futures
 import time
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
@@ -48,6 +50,23 @@ class BackgroundThreadRunnerTest(parameterized.TestCase):
     runner = thread_utils.BackgroundThreadRunner[int](target())
     with self.assertRaises(ValueError):
       runner.result()
+
+  def test_shutdown_is_called_if_result_raises(self):
+    async def target() -> int:
+      raise ValueError("test")
+
+    runner = thread_utils.BackgroundThreadRunner[int](target())
+
+    original_shutdown = runner._runner.shutdown
+    mock_shutdown = self.enter_context(
+        mock.patch.object(
+            runner._runner, "shutdown", side_effect=original_shutdown
+        )
+    )
+
+    with self.assertRaises(ValueError):
+      runner.result()
+    mock_shutdown.assert_called_once()
 
   def test_timeout(self):
     async def target():
