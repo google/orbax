@@ -14,12 +14,12 @@
 
 """Helpers for transporting values through colocated Python."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
 import functools
 import re
 import types
-from typing import Any, cast, Sequence
+from typing import Any, cast
 
 from absl import logging
 import jax
@@ -152,6 +152,32 @@ def _get_cpu_device_map() -> Mapping[int, jax.Device]:
       cpu_device_map[device.id] = device
 
   return types.MappingProxyType(cpu_device_map)
+
+
+def resolve_colocated_cpu_devices(
+    device_ids: Sequence[int],
+) -> tuple[jax.Device, ...]:
+  """Resolves controller-visible colocated CPU ids on the worker backend.
+
+  Args:
+    device_ids: A sequence of logical Pathways device IDs.
+
+  Returns:
+    A tuple of corresponding JAX CPU devices.
+
+  Raises:
+    ValueError: If device_ids contains CPU devices not visible to sidecar.
+  """
+  cpu_device_map = _get_cpu_device_map()
+  missing_ids = [
+      device_id for device_id in device_ids if device_id not in cpu_device_map
+  ]
+  if missing_ids:
+    raise ValueError(
+        'mesh_device_ids contains CPU devices not visible to the sidecar: '
+        f'{missing_ids}.'
+    )
+  return tuple(cpu_device_map[device_id] for device_id in device_ids)
 
 
 def _normalize_mesh_to_colocated_cpu(
@@ -294,7 +320,7 @@ def to_colocated_python(input_tree: PyTree) -> PyTree:
     if isinstance(x, jax.Array):
       cpu_sharding = colocated_cpu_sharding(x.sharding)
       logging.vlog(
-          1,
+          2,
           'Staging array from %s to colocated CPU sharding %s',
           x.sharding,
           cpu_sharding,
@@ -338,7 +364,7 @@ def convert_array_restore_args(
   if restore_args.mesh is not None:
     cpu_mesh = cp.colocated_cpu_devices(restore_args.mesh)
     logging.vlog(
-        1,
+        2,
         'Converting restore mesh with axis names %s to colocated CPU mesh.',
         restore_args.mesh.axis_names,
     )
@@ -348,7 +374,7 @@ def convert_array_restore_args(
   if isinstance(restore_args.sharding, jax.sharding.Sharding):
     cpu_sharding = colocated_cpu_sharding(restore_args.sharding)
     logging.vlog(
-        1,
+        2,
         'Converting restore sharding from %s to colocated CPU sharding %s',
         restore_args.sharding,
         cpu_sharding,
@@ -358,7 +384,7 @@ def convert_array_restore_args(
     sharding = restore_args.sharding.to_jax_sharding()
     cpu_sharding = colocated_cpu_sharding(sharding)
     logging.vlog(
-        1,
+        2,
         'Converting restore sharding metadata %s to colocated CPU sharding %s',
         type(restore_args.sharding).__name__,
         cpu_sharding,
@@ -422,7 +448,7 @@ def to_final_specs(
   def _to_final_spec(leaf: Any, tpu_or_cpu_spec: Any) -> Any:
     if isinstance(leaf, jax.Array) and hasattr(tpu_or_cpu_spec, 'sharding'):
       logging.vlog(
-          1,
+          2,
           'Transferring array from %s to final sharding %s',
           leaf.sharding,
           tpu_or_cpu_spec.sharding,

@@ -14,14 +14,17 @@
 
 """Initialization test for multi-tier checkpointing."""
 
+import os
 from unittest import mock
 
 from absl.testing import absltest
 from etils import epath
 import jax
 import numpy as np
+from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import initialization
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import pathways_topology
 import yaml
 
 
@@ -154,16 +157,41 @@ class MultiTierCheckpointingInitializationTest(
           epath.Path(tmp_dir), timeout_seconds=1
       )
 
-  def test_block_and_process_restore_dir_allows_missing_restore(self):
+  def test_block_and_process_restore_dir_accepts_no_checkpoint_marker(self):
     tmp_dir = self.create_tempdir().full_path
-    epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
-    self.assertFalse(
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / "test-run-s0-n0-w0.restore"
+    marker.write_text("no checkpoint")
+
+    self.assertTrue(
         initialization._block_and_process_restore_dir(
-            epath.Path(tmp_dir),
+            root,
             timeout_seconds=1,
-            allow_missing_restore=True,
         )
     )
+    self.assertFalse(marker.exists())
+    self.assertFalse((root / "0").exists())
+
+  def test_block_and_process_restore_dir_treats_step_zero_symlink_as_restore(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / "source-checkpoint"
+    target.mkdir(parents=True, exist_ok=True)
+    marker = root / "test-run-s0-n0-w0.restore"
+    os.symlink(os.fspath(target), os.fspath(marker), target_is_directory=True)
+
+    self.assertTrue(
+        initialization._block_and_process_restore_dir(
+            root,
+            timeout_seconds=1,
+        )
+    )
+    self.assertFalse(marker.exists())
+    self.assertTrue((root / "0").exists())
 
   def test_validate_node_rank_by_process_index_rejects_negative_rank(self):
     with self.assertRaisesRegex(ValueError, "invalid entries"):
@@ -403,6 +431,7 @@ class MultiTierCheckpointingInitializationTest(
 
   @mock.patch.object(initialization.jax, "make_array_from_callback")
   @mock.patch.object(initialization.jax, "block_until_ready")
+  @mock.patch.object(initialization.time, "time")
   @mock.patch.object(initialization, "_block_and_process_restore_dir")
   @mock.patch.object(initialization, "_wait_for_replicator_file_to_disappear")
   @mock.patch.object(initialization, "_create_replicator_file")
@@ -413,9 +442,7 @@ class MultiTierCheckpointingInitializationTest(
       "install_pathways_colocated_serialization_patch",
   )
   @mock.patch.object(initialization.jax, "devices")
-  @mock.patch.object(
-      initialization.colocated_utils, "colocated_cpu_devices_by_worker"
-  )
+  @mock.patch.object(initialization.pathways_topology.Topology, "from_devices")
   @mock.patch.object(initialization.jax, "device_count", return_value=8)
   @mock.patch.object(initialization.jax, "process_index", return_value=0)
   @mock.patch.object(initialization.jax, "process_count", return_value=1)
@@ -424,7 +451,7 @@ class MultiTierCheckpointingInitializationTest(
       mock_process_count,
       mock_process_index,
       mock_device_count,
-      mock_colocated_cpu_devices_by_worker,
+      mock_topology_from_devices,
       mock_devices,
       mock_install_patch,
       mock_colocated_python,
@@ -432,6 +459,7 @@ class MultiTierCheckpointingInitializationTest(
       mock_create_replicator_file,
       mock_wait_for_replicator_file_to_disappear,
       mock_block_and_process_restore_dir,
+      mock_time,
       mock_block_until_ready,
       mock_make_array_from_callback,
   ):
@@ -440,15 +468,46 @@ class MultiTierCheckpointingInitializationTest(
     self.assertIsNotNone(mock_process_index)
     self.assertIsNotNone(mock_device_count)
 
-    dummy_in = mock.Mock(shape=(), sharding="dummy-sharding")
+    dummy_in = mock.Mock(
+        spec=jax.core.ShapedArray, shape=(), sharding="dummy-sharding"
+    )
+    worker_rank_in = np.asarray([1], dtype=np.int32)
+    topology = mock.Mock(spec=pathways_topology.Topology)
+    topology.worker_cpu_devices.return_value = (
+        mock.Mock(spec=jax.Device, id=7),
+        mock.Mock(spec=jax.Device, id=8),
+        mock.Mock(spec=jax.Device, id=9),
+        mock.Mock(spec=jax.Device, id=10),
+    )
+    topology.worker_rank_array.return_value = worker_rank_in
+    topology.num_workers = 4
+    topology.workers = (
+        mock.Mock(spec=pathways_topology.Worker, key=(0, 0), device_ids=(0, 1)),
+        mock.Mock(spec=pathways_topology.Worker, key=(1, 0), device_ids=(2, 3)),
+        mock.Mock(spec=pathways_topology.Worker, key=(0, 1), device_ids=(4, 5)),
+        mock.Mock(spec=pathways_topology.Worker, key=(1, 1), device_ids=(6, 7)),
+    )
+    topology.peer_ranks_by_worker_rank.return_value = (
+        (2,),
+        (3,),
+        (0,),
+        (1,),
+    )
+    mock_topology_from_devices.return_value = topology
     mock_get_dummy_input_array.return_value = dummy_in
     mock_devices.return_value = ["tpu0"]
-    mock_colocated_cpu_devices_by_worker.return_value = (
-        mock.Mock(id=7, process_index=0),
-    )
     mock_make_array_from_callback.return_value = np.asarray(True)
+    mock_time.side_effect = [90.0, 100.0, 100.0, 110.0, 120.0]
 
     def _wrap_setup(fn):
+      closure_contents = tuple(
+          cell.cell_contents for cell in fn.__closure__ or ()
+      )
+      self.assertNotIn(topology, closure_contents)
+      self.assertNotIn(
+          topology.worker_cpu_devices.return_value, closure_contents
+      )
+
       class _Wrapped:
         def specialize(self, *, out_specs_fn):
           del out_specs_fn
@@ -458,27 +517,42 @@ class MultiTierCheckpointingInitializationTest(
 
     mock_colocated_python.side_effect = _wrap_setup
 
-    with mock.patch(
-        "orbax.checkpoint._src.futures.signaling_client.mark_pathways_colocated_runtime_active"
+    with mock.patch.object(
+        signaling_client,
+        "mark_pathways_colocated_runtime_active",
+        autospec=True,
     ) as mock_mark_sidecar_runtime:
       initialization._initialize_mtc_colocated(
           local_checkpoint_directory=epath.Path("/tmp/mtc"),
           backup_interval_minutes=15,
-          num_slices=1,
+          num_slices=2,
           run_name="test-run",
           data_parallelism=1,
-          timeout_seconds=30,
+          timeout_seconds=900,
       )
 
     mock_install_patch.assert_called_once_with()
-    mock_colocated_cpu_devices_by_worker.assert_called_once_with(("tpu0",))
+    mock_topology_from_devices.assert_called_once_with(("tpu0",))
+    topology.worker_cpu_devices.assert_called_once_with()
+    topology.worker_rank_array.assert_called_once_with(
+        topology.worker_cpu_devices.return_value
+    )
+    topology.peer_ranks_by_worker_rank.assert_called_once_with(2)
     mock_mark_sidecar_runtime.assert_called_once_with()
     mock_create_replicator_file.assert_called_once()
-    mock_wait_for_replicator_file_to_disappear.assert_called_once()
+    self.assertEqual(
+        mock_create_replicator_file.call_args.kwargs["node_rank"], 1
+    )
+    self.assertEqual(
+        mock_create_replicator_file.call_args.kwargs["peer_ranks"], [3]
+    )
+    mock_wait_for_replicator_file_to_disappear.assert_called_once_with(
+        epath.Path("/tmp/mtc"),
+        timeout_seconds=300,
+    )
     mock_block_and_process_restore_dir.assert_called_once_with(
         epath.Path("/tmp/mtc"),
-        timeout_seconds=30,
-        allow_missing_restore=True,
+        timeout_seconds=890,
     )
     mock_block_until_ready.assert_called_once()
 

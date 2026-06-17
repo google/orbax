@@ -75,31 +75,65 @@ STATE = 'state'
 # pylint: disable=protected-access
 class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
 
-  def test_sidecar_restore_skips_result_mesh_remap(self):
+  def test_checkpoint_manager_options_honor_async_checkpointing(self):
+    options = ReplicatorCheckpointManagerOptions(
+        enable_async_checkpointing=False
+    )
+    multiprocessing_options = (
+        replicator_checkpoint_manager.checkpoint_manager.MultiprocessingOptions()
+    )
+
+    result = replicator_checkpoint_manager._get_checkpoint_manager_options(
+        options, multiprocessing_options
+    )
+
+    self.assertFalse(result.enable_async_checkpointing)
+
+  def test_local_checkpoint_handler_passes_concurrent_gb(self):
+    multiprocessing_options = (
+        replicator_checkpoint_manager.checkpoint_manager.MultiprocessingOptions(
+            primary_host=None
+        )
+    )
+
+    with mock.patch.object(
+        replicator_checkpoint_manager, 'PyTreeCheckpointHandler'
+    ) as mock_handler:
+      replicator_checkpoint_manager._local_checkpoint_handler(
+          multiprocessing_options,
+          save_concurrent_gb=7,
+          restore_concurrent_gb=9,
+      )
+
+    mock_handler.assert_called_once()
+    self.assertEqual(mock_handler.call_args.kwargs['save_concurrent_gb'], 7)
+    self.assertEqual(mock_handler.call_args.kwargs['restore_concurrent_gb'], 9)
+
+  def test_sidecar_restore_uses_placement_plan_skips_result_mesh_remap(self):
     engine = object.__new__(_ReplicatorLocalCheckpointEngine)
     engine._impl = mock.Mock()
     engine._persistent_checkpoint_manager = None
     engine._skip_result_mesh_remap = True
     restored = args_lib.Composite(state={'x': np.asarray([1, 2])})
-    engine._impl.restore.side_effect = [
-        args_lib.Composite(process_metadata=([[0]], [0])),
-        restored,
-    ]
+    engine._impl.restore.return_value = restored
     engine._materialize_restore_args_from_metadata = mock.Mock(
         side_effect=lambda _step, restore_args: restore_args
     )
-    engine._get_mesh_consistent_args = mock.Mock(
-        return_value=(args_lib.Composite(state=PyTreeRestoreArgs()), restored)
+    restore_args = args_lib.Composite(state=PyTreeRestoreArgs())
+    engine._restore_placement_plan = mock.Mock(
+        return_value=(restore_args, restore_args, True)
     )
     engine._get_mesh_consistent_result = mock.Mock()
 
     result = engine._restore_single_step(
         7,
-        args_lib.Composite(state=PyTreeRestoreArgs()),
+        restore_args,
         default_item_mode=True,
     )
 
     self.assertEqual(result, restored[STATE])
+    self.assertEqual(engine._impl.restore.call_count, 1)
+    engine._restore_placement_plan.assert_called_once()
     engine._get_mesh_consistent_result.assert_not_called()
 
   def test_standard_restore_uses_result_mesh_remap(self):
@@ -109,15 +143,14 @@ class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
     engine._skip_result_mesh_remap = False
     restored = args_lib.Composite(state={'x': np.asarray([1, 2])})
     remapped = args_lib.Composite(state={'x': np.asarray([3, 4])})
-    engine._impl.restore.side_effect = [
-        args_lib.Composite(process_metadata=([[0]], [0])),
-        restored,
-    ]
+    engine._impl.restore.return_value = restored
     engine._materialize_restore_args_from_metadata = mock.Mock(
         side_effect=lambda _step, restore_args: restore_args
     )
-    engine._get_mesh_consistent_args = mock.Mock(
-        return_value=(args_lib.Composite(state=PyTreeRestoreArgs()), restored)
+    restore_args = args_lib.Composite(state=PyTreeRestoreArgs())
+    consistent_args = args_lib.Composite(state=PyTreeRestoreArgs())
+    engine._restore_placement_plan = mock.Mock(
+        return_value=(restore_args, consistent_args, True)
     )
     engine._get_mesh_consistent_result = mock.Mock(
         return_value=remapped
@@ -125,12 +158,67 @@ class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
 
     result = engine._restore_single_step(
         7,
-        args_lib.Composite(state=PyTreeRestoreArgs()),
+        restore_args,
         default_item_mode=False,
     )
 
     self.assertIs(result, remapped)
     engine._get_mesh_consistent_result.assert_called_once()
+
+  def test_sidecar_restore_allows_elastic_topology_without_mesh_consistency(
+      self,
+  ):
+    engine = object.__new__(_ReplicatorLocalCheckpointEngine)
+    engine._skip_result_mesh_remap = True
+    engine._restore_process_metadata = mock.Mock(
+        return_value=([[0], [1]], [0, 1])
+    )
+    engine._get_distributed_to_device_ids = mock.Mock(return_value=[[0]])
+    engine._get_mesh_consistent_args = mock.Mock()
+    restore_args = args_lib.Composite(state=PyTreeRestoreArgs())
+
+    original_args, restored_args, uses_mesh_consistency = (
+        engine._restore_placement_plan(7, restore_args)
+    )
+
+    self.assertIs(original_args, restore_args)
+    self.assertIs(restored_args, restore_args)
+    self.assertFalse(uses_mesh_consistency)
+    engine._get_mesh_consistent_args.assert_not_called()
+
+  def test_standard_restore_rejects_elastic_topology(self):
+    engine = object.__new__(_ReplicatorLocalCheckpointEngine)
+    engine._skip_result_mesh_remap = False
+    engine._restore_process_metadata = mock.Mock(
+        return_value=([[0], [1]], [0, 1])
+    )
+    engine._get_distributed_to_device_ids = mock.Mock(return_value=[[0]])
+
+    with self.assertRaisesRegex(
+        ValueError,
+        'Multi-controller MTC does not support elastic scale up/down',
+    ):
+      engine._restore_placement_plan(
+          7, args_lib.Composite(state=PyTreeRestoreArgs())
+      )
+
+  def test_colocated_python_rejects_non_pathways_runtime(self):
+    global_mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+    options = ReplicatorCheckpointManagerOptions(use_colocated_python=True)
+
+    with mock.patch.object(
+        replicator_checkpoint_manager.multihost,
+        'is_pathways_backend',
+        return_value=False,
+    ):
+      with self.assertRaisesRegex(ValueError, 'requires a Pathways backend'):
+        ReplicatorCheckpointManager(
+            self.create_tempdir().full_path,
+            options=options,
+            global_mesh=global_mesh,
+        )
+
+
 # pylint: enable=protected-access
 
 
@@ -861,14 +949,20 @@ class ReplicatorCheckpointManagerTest(
         self.local_directory,
         global_mesh=self.global_mesh,
     ) as manager:
-      with self.assertRaises(TypeError):
+      with self.assertRaisesRegex(
+          TypeError, r'save\(\) missing 1 required positional argument: .args.'
+      ):
         manager.save(0)
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(
+          ValueError, 'is not supported by this CheckpointManager'
+      ):
         manager.save(
             0,
             args=get_composite_save_args(self.pytree, args_lib.StandardRestore),
         )
-      with self.assertRaises(ValueError):
+      with self.assertRaisesRegex(
+          ValueError, 'is not supported by this CheckpointManager'
+      ):
         manager.save(
             0,
             args=get_composite_save_args(self.pytree, args_lib.StandardRestore),
@@ -891,27 +985,23 @@ class ReplicatorCheckpointManagerTest(
           ),
       )
       test_utils.assert_tree_equal(self, self.pytree, restored.state)
-
-      with self.assertRaises(TypeError):
+      with self.assertRaisesRegex(
+          TypeError,
+          r'restore\(\) missing 1 required positional argument: .args.',
+      ):
         manager.restore(0)
-      with self.assertRaises(FileNotFoundError):
+      with self.assertRaisesRegex(ValueError, 'No step path found'):
         manager.restore(
             1,
             args=get_composite_restore_args(
                 self.pytree, args_lib.PyTreeRestore
             ),
         )
-      with self.assertRaises(TypeError):
+      with self.assertRaisesRegex(
+          TypeError,
+          r'restore\(\) missing 1 required positional argument: .args.',
+      ):
         manager.restore(1)
-
-    with ReplicatorCheckpointManager(
-        self.local_directory,
-        global_mesh=self.global_mesh,
-    ) as manager:
-      manager.save(
-          0,
-          args=get_composite_save_args(self.pytree, args_lib.PyTreeSave),
-      )
 
   @parameterized.parameters(
       ((8,), ('data',)),

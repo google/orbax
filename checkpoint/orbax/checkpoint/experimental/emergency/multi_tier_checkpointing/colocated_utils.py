@@ -21,12 +21,43 @@ from absl import logging
 import jax
 import numpy as np
 from orbax.checkpoint._src.multihost import colocated_transport
-from orbax.checkpoint._src.multihost import pathways
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
+    pathways_topology,
+)
 
 
 PyTree = Any
+# The MTC coordinator protocol reserves step 0 as "no checkpoint".
+# Valid colocated MTC checkpoints therefore start at step 1.
 NO_STEP_SENTINEL = 0
 MAX_TRACKED_STEPS = 128
+
+
+def value_sample(values: Any, limit: int = 8) -> str:
+  """Returns a compact sample of values for topology logging."""
+  values = tuple(values)
+  if len(values) <= limit:
+    return str(values)
+  return f'{values[:limit]} ... ({len(values)} total)'
+
+
+def nested_id_sample(ids: Any, limit: int = 4) -> str:
+  """Returns a compact sample of grouped device ids for topology logging."""
+  ids = tuple(tuple(int(device_id) for device_id in group) for group in ids)
+  if len(ids) <= limit:
+    return str(ids)
+  return f'{ids[:limit]} ... ({len(ids)} groups total)'
+
+
+def replicated_sharding_like(
+    sharding: jax.sharding.Sharding,
+) -> jax.sharding.Sharding:
+  """Returns a replicated sharding like the given sharding."""
+  if isinstance(sharding, jax.sharding.NamedSharding):
+    return jax.sharding.NamedSharding(
+        sharding.mesh, jax.sharding.PartitionSpec()
+    )
+  return sharding
 
 
 def make_scalar_on_like(
@@ -40,14 +71,9 @@ def compute_distributed_to_device_ids(
     devices: Sequence[jax.Device],
 ) -> list[list[int]]:
   """Returns per-worker device ids in slice-major order."""
-  worker_groups = pathways.group_devices_by_worker(devices)
-  sorted_worker_groups = sorted(
-      worker_groups.items(),
-      key=lambda item: _worker_key_sort_key(item[0]),
-  )
+  topology = pathways_topology.Topology.from_devices(devices)
   distributed_to_device_ids = [
-      sorted(d.id for d in worker_devices)
-      for _, worker_devices in sorted_worker_groups
+      list(ids) for ids in topology.distributed_to_device_ids
   ]
   logging.vlog(
       1,
@@ -56,50 +82,6 @@ def compute_distributed_to_device_ids(
       distributed_to_device_ids,
   )
   return distributed_to_device_ids
-
-
-def colocated_cpu_devices_by_worker(
-    devices: Sequence[jax.Device],
-) -> tuple[jax.Device, ...]:
-  """Returns one colocated CPU device per Pathways worker.
-
-  Colocated Python can expose one CPU per accelerator. MTC worker management
-  needs one remote Python execution per worker VM, not one per accelerator, so
-  this selects a representative accelerator from each worker and maps those
-  representatives to colocated CPUs.
-
-  Args:
-    devices: The sequence of global devices to extract representatives from.
-
-  Returns:
-    A tuple of colocated unique CPU devices, exactly one per worker VM.
-  """
-  worker_groups = pathways.group_devices_by_worker(devices)
-  sorted_worker_groups = sorted(
-      worker_groups.items(),
-      key=lambda item: _worker_key_sort_key(item[0]),
-  )
-  representative_devices = tuple(
-      worker_devices[0] for _, worker_devices in sorted_worker_groups
-  )
-  cpu_devices = colocated_transport.unique_colocated_cpu_devices(
-      representative_devices
-  )
-  if len(cpu_devices) != len(representative_devices):
-    raise ValueError(
-        'Expected one colocated CPU device per Pathways worker, got '
-        f'{len(cpu_devices)} CPU devices for '
-        f'{len(representative_devices)} workers.'
-    )
-  return cpu_devices
-
-
-def _worker_key_sort_key(worker_key: tuple[int, ...]) -> tuple[int, ...]:
-  """Sorts `(task, slice)` worker keys in slice-major order."""
-  if len(worker_key) == 2:
-    task_index, slice_index = worker_key
-    return (slice_index, task_index)
-  return worker_key
 
 
 def device_list_signature(

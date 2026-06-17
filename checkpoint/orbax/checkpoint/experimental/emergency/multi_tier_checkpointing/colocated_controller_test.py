@@ -20,10 +20,14 @@ import collections
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
+from etils import epath
 import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import args as args_lib
+from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+from orbax.checkpoint._src.metadata import value as metadata_value
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
     colocated_controller as controller_lib,
@@ -37,13 +41,27 @@ EmptyState = collections.namedtuple('EmptyState', [])
 
 
 def _steps_array(steps: list[int]) -> np.ndarray:
-  padded = steps + [0] * (
+  padded = steps + [controller_lib.colocated_utils.NO_STEP_SENTINEL] * (
       controller_lib.colocated_utils.MAX_TRACKED_STEPS - len(steps)
   )
   return np.asarray(padded, dtype=np.int32)
 
 
-class ColocatedControllerInternalTest(absltest.TestCase):
+def _options(**overrides) -> mock.Mock:
+  defaults = dict(
+      save_interval_steps=3,
+      step_name_format=None,
+      should_save_fn=None,
+      preservation_policy=None,
+      enable_async_checkpointing=True,
+      save_concurrent_gb=None,
+      restore_concurrent_gb=None,
+  )
+  defaults.update(overrides)
+  return mock.Mock(spec=list(defaults.keys()), **defaults)
+
+
+class ColocatedControllerInternalTest(parameterized.TestCase):
 
   def test_step_arr_on_state_devices_supports_single_device_sharding(self):
     device = jax.devices()[0]
@@ -56,98 +74,171 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     self.assertIsInstance(step_arr.sharding, jax.sharding.SingleDeviceSharding)
 
   def test_init_preserves_global_mesh_device_order(self):
-    fake_device_1 = mock.Mock(id=1)
-    fake_device_2 = mock.Mock(id=2)
-    fake_mesh = mock.Mock()
+    fake_device_1 = mock.Mock(spec=jax.Device, id=1)
+    fake_device_2 = mock.Mock(spec=jax.Device, id=2)
+    fake_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
     fake_mesh.devices = np.array([fake_device_2, fake_device_1])
     fake_mesh.axis_names = ('x',)
     fake_mesh.axis_types = (jax.sharding.AxisType.Auto,)
-    worker_manager = mock.Mock()
+    worker_manager = mock.Mock(
+        spec=sidecar_worker_checkpoint_manager.WorkerCheckpointManager
+    )
     dummy = object()
-    worker_cpu_devices = (mock.Mock(id=101),)
-    state_cpu_devices = (mock.Mock(id=101), mock.Mock(id=102))
-    fake_cpu_mesh = mock.Mock()
+    worker_cpu_devices = (mock.Mock(spec=jax.Device, id=101),)
+    state_cpu_devices = (
+        mock.Mock(spec=jax.Device, id=101),
+        mock.Mock(spec=jax.Device, id=102),
+    )
+    topology = mock.Mock(spec=controller_lib.pathways_topology.Topology)
+    topology.worker_cpu_devices.return_value = worker_cpu_devices
+    topology.remap_distributed_device_ids.return_value = [[102], [101]]
+    fake_cpu_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
     fake_cpu_mesh.devices = np.array(state_cpu_devices)
-    with mock.patch.object(
-        sidecar_worker_checkpoint_manager,
-        'WorkerCheckpointManager',
-        return_value=worker_manager,
-    ) as mock_worker_manager, mock.patch.object(
-        controller_lib.colocated_transport,
-        'install_pathways_colocated_serialization_patch',
-    ) as mock_install_patch, mock.patch.object(
-        controller_lib.colocated_utils,
-        'colocated_cpu_devices_by_worker',
-        return_value=worker_cpu_devices,
-    ) as mock_worker_cpus, mock.patch.object(
-        controller_lib.colocated_transport,
-        'colocated_cpu_mesh',
-        return_value=fake_cpu_mesh,
-    ) as mock_colocated_cpu_mesh, mock.patch.object(
-        controller_lib.dispatchers,
-        'get_dummy_input_array',
-        return_value=dummy,
-    ) as mock_get_dummy_input_array, mock.patch.object(
-        controller_lib.ColocatedController,
-        '_specialize_worker_calls',
-        autospec=True,
-    ):
-      controller = controller_lib.ColocatedController(
-          local_directory=mock.Mock(),
-          global_mesh=fake_mesh,
-          options=mock.Mock(save_interval_steps=3),
-          persistent_directory=None,
-          handler_registry=None,
-          checkpoint_manager_options_fn=mock.Mock(),
-      )
+    mock_worker_manager = self.enter_context(
+        mock.patch.object(
+            sidecar_worker_checkpoint_manager,
+            'WorkerCheckpointManager',
+            return_value=worker_manager,
+        )
+    )
+    mock_install_patch = self.enter_context(
+        mock.patch.object(
+            controller_lib.colocated_transport,
+            'install_pathways_colocated_serialization_patch',
+        )
+    )
+    mock_topology_from_devices = self.enter_context(
+        mock.patch.object(
+            controller_lib.pathways_topology.Topology,
+            'from_devices',
+            return_value=topology,
+        )
+    )
+    mock_colocated_cpu_mesh = self.enter_context(
+        mock.patch.object(
+            controller_lib.colocated_transport,
+            'colocated_cpu_mesh',
+            return_value=fake_cpu_mesh,
+        )
+    )
+    mock_get_dummy_input_array = self.enter_context(
+        mock.patch.object(
+            controller_lib.dispatchers,
+            'get_dummy_input_array',
+            return_value=dummy,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            controller_lib.ColocatedController,
+            '_specialize_worker_calls',
+            autospec=True,
+        )
+    )
+    controller = controller_lib.ColocatedController(
+        local_directory=mock.Mock(spec=epath.Path),
+        global_mesh=fake_mesh,
+        options=_options(),
+        persistent_directory=None,
+        handler_registry=None,
+        checkpoint_manager_options_fn=mock.Mock(),
+    )
 
     self.assertIs(controller._dummy, dummy)
     mock_install_patch.assert_called_once_with()
+    mock_topology_from_devices.assert_called_once_with(
+        (fake_device_2, fake_device_1)
+    )
     mock_colocated_cpu_mesh.assert_called_once_with(fake_mesh)
-    mock_worker_cpus.assert_called_once_with((fake_device_2, fake_device_1))
+    topology.remap_distributed_device_ids.assert_called_once_with(
+        (fake_device_2, fake_device_1),
+        (state_cpu_devices[0], state_cpu_devices[1]),
+    )
+    topology.worker_cpu_devices.assert_called_once_with()
     mock_get_dummy_input_array.assert_called_once_with(worker_cpu_devices)
-    kwargs = mock_worker_manager.call_args.kwargs
-    self.assertEqual(kwargs['mesh_shape'], (2,))
-    self.assertEqual(kwargs['mesh_axis_names'], ('x',))
-    self.assertEqual(kwargs['mesh_device_ids'], (101, 102))
-    self.assertEqual(kwargs['mesh_axis_types'], tuple(fake_mesh.axis_types))
-    self.assertEqual(kwargs['save_interval_steps'], 3)
-    self.assertIsInstance(kwargs['local_directory'], str)
+    mock_worker_manager.assert_called_once_with(
+        local_directory=mock.ANY,
+        mesh_shape=(2,),
+        mesh_axis_names=('x',),
+        mesh_device_ids=(101, 102),
+        mesh_axis_types=tuple(fake_mesh.axis_types),
+        save_interval_steps=3,
+        distributed_to_device_ids=((102,), (101,)),
+        enable_async_checkpointing=True,
+        save_concurrent_gb=None,
+        restore_concurrent_gb=None,
+    )
 
   def test_init_rejects_empty_colocated_cpu_devices(self):
-    fake_mesh = mock.Mock()
-    fake_mesh.devices = np.array([mock.Mock(id=1)])
+    fake_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    fake_mesh.devices = np.array([mock.Mock(spec=jax.Device, id=1)])
     fake_mesh.axis_names = ('x',)
     fake_mesh.axis_types = (jax.sharding.AxisType.Auto,)
-    fake_cpu_mesh = mock.Mock()
-    fake_cpu_mesh.devices = np.array([mock.Mock(id=101)])
+    fake_cpu_mesh = mock.create_autospec(jax.sharding.Mesh, instance=True)
+    fake_cpu_mesh.devices = np.array([mock.Mock(spec=jax.Device, id=101)])
+    topology = mock.Mock(spec=controller_lib.pathways_topology.Topology)
+    topology.worker_cpu_devices.return_value = ()
+    topology.remap_distributed_device_ids.return_value = [[101]]
 
-    with mock.patch.object(
-        sidecar_worker_checkpoint_manager,
-        'WorkerCheckpointManager',
-        return_value=mock.Mock(),
-    ), mock.patch.object(
-        controller_lib.colocated_transport,
-        'install_pathways_colocated_serialization_patch',
-    ), mock.patch.object(
-        controller_lib.colocated_utils,
-        'colocated_cpu_devices_by_worker',
-        return_value=(),
-    ), mock.patch.object(
-        controller_lib.colocated_transport,
-        'colocated_cpu_mesh',
-        return_value=fake_cpu_mesh,
-    ), self.assertRaisesRegex(
+    self.enter_context(
+        mock.patch.object(
+            sidecar_worker_checkpoint_manager,
+            'WorkerCheckpointManager',
+            autospec=True,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            controller_lib.colocated_transport,
+            'install_pathways_colocated_serialization_patch',
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            controller_lib.pathways_topology.Topology,
+            'from_devices',
+            return_value=topology,
+        )
+    )
+    self.enter_context(
+        mock.patch.object(
+            controller_lib.colocated_transport,
+            'colocated_cpu_mesh',
+            return_value=fake_cpu_mesh,
+        )
+    )
+    with self.assertRaisesRegex(
         ValueError, 'requires at least one colocated CPU device'
     ):
       controller_lib.ColocatedController(
-          local_directory=mock.Mock(),
+          local_directory=mock.Mock(spec=epath.Path),
           global_mesh=fake_mesh,
-          options=mock.Mock(save_interval_steps=3),
+          options=_options(),
           persistent_directory=None,
           handler_registry=None,
           checkpoint_manager_options_fn=mock.Mock(),
       )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='step_name_format',
+          name='step_name_format',
+          value=mock.Mock(spec=object),
+      ),
+      dict(
+          testcase_name='should_save_fn',
+          name='should_save_fn',
+          value=lambda *_: True,
+      ),
+      dict(
+          testcase_name='preservation_policy',
+          name='preservation_policy',
+          value=mock.Mock(spec=object),
+      ),
+  )
+  def test_init_rejects_unsupported_custom_colocated_options(self, name, value):
+    with self.assertRaisesRegex(NotImplementedError, name):
+      controller_lib._validate_colocated_options(_options(**{name: value}))
 
   def _make_controller_for_specialization(self):
     controller = controller_lib.ColocatedController.__new__(
@@ -160,6 +251,8 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     controller._worker_cpu_devices = (device,)
     controller._state_cpu_devices = (device,)
     controller._colocated_cpu_ids = frozenset({device.id})
+    controller._pending_save = None
+    controller._enable_async_checkpointing = True
     return controller, device
 
   def _make_controller_for_restore(self):
@@ -176,6 +269,48 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         lambda *args, **kwargs: controller._worker_manager.restore_infer
     )
     return controller, sharding
+
+  def test_all_steps_specializes_with_replicated_sharding(self):
+    controller, device = self._make_controller_for_specialization()
+    controller._worker_cpu_devices = (device,)
+    controller._worker_manager = mock.Mock()
+    for name in (
+        'latest_step',
+        'should_save',
+        'wait_until_finished',
+        'check_for_errors',
+        'close',
+        'is_saving_in_progress',
+    ):
+      prop = getattr(controller._worker_manager, name)
+      prop.specialize.return_value = object()
+    mesh = jax.sharding.Mesh(np.array([device]), ('worker',))
+    worker_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec('worker')
+    )
+    arg_spec = jax.ShapeDtypeStruct((1,), jnp.int32, sharding=worker_sharding)
+    captured = {}
+
+    def _all_steps_specialize(*, out_specs_fn, devices):
+      captured['out_spec'] = out_specs_fn(arg_spec)
+      captured['devices'] = devices
+      return object()
+
+    controller._worker_manager.all_steps.specialize.side_effect = (
+        _all_steps_specialize
+    )
+
+    controller._specialize_worker_calls()
+
+    self.assertEqual(
+        captured['out_spec'].shape,
+        (controller_lib.colocated_utils.MAX_TRACKED_STEPS,),
+    )
+    self.assertEqual(captured['out_spec'].sharding.mesh, mesh)
+    self.assertEqual(
+        captured['out_spec'].sharding.spec, jax.sharding.PartitionSpec()
+    )
+    self.assertEqual(captured['devices'], (device,))
 
   def _set_worker_restore_result(
       self,
@@ -261,10 +396,10 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     self.assertEqual(controller._worker_manager.save.specialize.call_count, 2)
 
   def test_prepare_restore_target_shardings_uses_restore_args(self):
-    controller, sharding = self._make_controller_for_restore()
+    _, sharding = self._make_controller_for_restore()
     restore_args = {'x': type_handlers.ArrayRestoreArgs(sharding=sharding)}
 
-    target_shardings = controller._prepare_restore_target_shardings(
+    target_shardings = controller_lib._prepare_restore_target_shardings(
         args_lib.PyTreeRestore(item=None, restore_args=restore_args),
     )
 
@@ -351,46 +486,53 @@ class ColocatedControllerInternalTest(absltest.TestCase):
   def test_latest_step_returns_none_for_worker_sentinel(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.latest_step.return_value = object()
+    controller._worker_manager.all_steps.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'scalar_result_values',
+        'array_result_values',
         return_value=[
-            controller_lib.colocated_utils.NO_STEP_SENTINEL,
-            controller_lib.colocated_utils.NO_STEP_SENTINEL,
+            _steps_array([]),
+            _steps_array([]),
         ],
-    ) as mock_scalar_values:
+    ) as mock_array_values:
       latest_step = controller.latest_step()
 
     self.assertIsNone(latest_step)
-    controller._worker_manager.latest_step.assert_called_once()
-    mock_scalar_values.assert_called_once()
+    controller._worker_manager.all_steps.assert_called_once()
+    mock_array_values.assert_called_once()
 
-  def test_latest_step_returns_unanimous_latest_step(self):
+  def test_latest_step_returns_highest_common_step(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.latest_step.return_value = object()
+    controller._worker_manager.all_steps.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'scalar_result_values',
-        return_value=[3, 3],
+        'array_result_values',
+        return_value=[
+            _steps_array([3, 5]),
+            _steps_array([1, 5]),
+            _steps_array([5]),
+        ],
     ):
       latest_step = controller.latest_step()
 
-    self.assertEqual(latest_step, 3)
-    controller._worker_manager.latest_step.assert_called_once()
+    self.assertEqual(latest_step, 5)
+    controller._worker_manager.all_steps.assert_called_once()
 
-  def test_latest_step_returns_none_when_inconsistent(self):
+  def test_latest_step_returns_none_when_no_common_positive_step(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.latest_step.return_value = object()
+    controller._worker_manager.all_steps.return_value = object()
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'scalar_result_values',
-        return_value=[3, 4],
+        'array_result_values',
+        return_value=[
+            _steps_array([3]),
+            _steps_array([4]),
+        ],
     ):
       latest_step = controller.latest_step()
 
@@ -399,20 +541,20 @@ class ColocatedControllerInternalTest(absltest.TestCase):
   def test_latest_step_retries_transient_runtime_error(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.latest_step.side_effect = [
+    controller._worker_manager.all_steps.side_effect = [
         RuntimeError('transient'),
         object(),
     ]
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'scalar_result_values',
-        return_value=[12],
+        'array_result_values',
+        return_value=[_steps_array([12])],
     ), mock.patch.object(controller_lib.time, 'sleep') as mock_sleep:
       latest_step = controller.latest_step()
 
     self.assertEqual(latest_step, 12)
-    self.assertEqual(controller._worker_manager.latest_step.call_count, 2)
+    self.assertEqual(controller._worker_manager.all_steps.call_count, 2)
     mock_sleep.assert_called_once_with(1)
 
   def test_should_save_returns_worker_vote(self):
@@ -433,6 +575,288 @@ class ColocatedControllerInternalTest(absltest.TestCase):
     self.assertEqual(np.asarray(step_arg).item(), 9)
     mock_unanimous.assert_called_once()
 
+  def test_should_save_skips_protocol_no_checkpoint_sentinel(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+
+    should_save = controller.should_save(
+        controller_lib.colocated_utils.NO_STEP_SENTINEL
+    )
+
+    self.assertFalse(should_save)
+    controller._worker_manager.should_save.assert_not_called()
+
+  def test_save_skips_state_preparation_when_workers_will_not_save(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=False
+    ) as mock_should_save, mock.patch.object(
+        controller, '_prepare_state_for_save'
+    ) as mock_prepare, mock.patch.object(
+        controller, '_finish_pending_save'
+    ) as mock_finish_pending:
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item={'x': 1})),
+      )
+
+    self.assertFalse(saved)
+    mock_should_save.assert_called_once_with(9)
+    mock_prepare.assert_not_called()
+    mock_finish_pending.assert_not_called()
+
+  def test_save_skips_protocol_no_checkpoint_sentinel_even_when_forced(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, 'should_save'
+    ) as mock_should_save, mock.patch.object(
+        controller, '_prepare_state_for_save'
+    ) as mock_prepare, mock.patch.object(
+        controller, '_finish_pending_save'
+    ) as mock_finish_pending:
+      saved = controller.save(
+          controller_lib.colocated_utils.NO_STEP_SENTINEL,
+          args_lib.Composite(state=args_lib.PyTreeSave(item={'x': 1})),
+          force=True,
+      )
+
+    self.assertFalse(saved)
+    mock_should_save.assert_not_called()
+    mock_prepare.assert_not_called()
+    mock_finish_pending.assert_not_called()
+
+  def test_save_tracks_pending_worker_result_until_lifecycle_drain(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = jax.device_put(jnp.array(True))
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller, '_save_persistent_dataset'
+    ) as mock_save_dataset, mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ), mock.patch.object(
+        controller, '_worker_wait_until_finished'
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertIsNotNone(controller._pending_save)
+      self.assertTrue(controller.is_saving_in_progress())
+      mock_save_dataset.assert_not_called()
+
+      controller._finish_pending_save()
+
+      self.assertIsNone(controller._pending_save)
+      mock_save_dataset.assert_called_once()
+
+  def test_save_defers_worker_result_until_lifecycle_drain(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    worker_wait_result = object()
+    controller._worker_manager.wait_until_finished.return_value = (
+        worker_wait_result
+    )
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ) as mock_block, mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+
+      self.assertTrue(saved)
+      self.assertIsNotNone(controller._pending_save)
+      mock_block.assert_not_called()
+
+      controller.wait_until_finished()
+
+    mock_block.assert_has_calls([
+        mock.call(result),
+        mock.call(worker_wait_result),
+    ])
+    self.assertIsNone(controller._pending_save)
+
+  def test_sync_save_drains_worker_result_before_returning(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._enable_async_checkpointing = False
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    worker_wait_result = object()
+    controller._worker_manager.wait_until_finished.return_value = (
+        worker_wait_result
+    )
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ) as mock_block, mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+
+    self.assertTrue(saved)
+    mock_block.assert_has_calls([
+        mock.call(result),
+        mock.call(worker_wait_result),
+    ])
+    self.assertIsNone(controller._pending_save)
+
+  def test_save_defers_persistent_dataset_until_worker_result(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    dataset_arg = mock.Mock()
+    controller._persistent_checkpoint_manager = mock.Mock()
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(
+              state=args_lib.PyTreeSave(item=state),
+              dataset=dataset_arg,
+          ),
+      )
+      self.assertTrue(saved)
+      controller._persistent_checkpoint_manager.save.assert_not_called()
+
+      controller._finish_pending_save()
+
+    controller._persistent_checkpoint_manager.save.assert_called_once()
+    call_args = controller._persistent_checkpoint_manager.save.call_args
+    self.assertEqual(call_args.args[0], 9)
+    self.assertIs(call_args.kwargs['args']['dataset'], dataset_arg)
+    self.assertFalse(call_args.kwargs['force'])
+
+  def test_save_retries_persistent_dataset_until_it_succeeds(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    dataset_arg = mock.Mock()
+    controller._persistent_checkpoint_manager = mock.Mock()
+    controller._persistent_checkpoint_manager.save.side_effect = [
+        ValueError('temporary dataset failure'),
+        None,
+    ]
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      self.assertTrue(
+          controller.save(
+              9,
+              args_lib.Composite(
+                  state=args_lib.PyTreeSave(item=state),
+                  dataset=dataset_arg,
+              ),
+          )
+      )
+      with self.assertRaisesRegex(ValueError, 'temporary dataset failure'):
+        controller._finish_pending_save()
+
+      assert controller._pending_save is not None
+      self.assertIsNone(controller._pending_save.saved)
+      self.assertTrue(controller._finish_pending_save())
+
+  def test_finish_pending_save_rejects_non_bool_worker_result(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=1,
+    ):
+      self.assertTrue(
+          controller.save(
+              9,
+              args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+          )
+      )
+      with self.assertRaisesRegex(TypeError, 'expected.*bool scalar'):
+        controller._finish_pending_save()
+
+  def test_prepare_state_for_save_does_not_block_on_colocated_state(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+
+    with mock.patch.object(
+        controller_lib,
+        '_serialize_for_colocated_transport',
+        side_effect=lambda value: value,
+    ), mock.patch.object(
+        controller_lib.colocated_transport,
+        'to_colocated_python',
+        return_value=state,
+    ), mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ) as mock_block:
+      result = controller._prepare_state_for_save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+
+    self.assertIs(result, state)
+    mock_block.assert_not_called()
+
   def test_is_saving_in_progress_returns_worker_vote(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
@@ -450,6 +874,15 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         controller._dummy
     )
     mock_unanimous.assert_called_once()
+
+  def test_is_saving_in_progress_includes_pending_save(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    controller._pending_save = mock.Mock()
+
+    self.assertTrue(controller.is_saving_in_progress())
+
+    controller._worker_manager.is_saving_in_progress.assert_not_called()
 
   def test_wait_until_finished_blocks_on_worker_result(self):
     controller, _ = self._make_controller_for_restore()
@@ -513,15 +946,231 @@ class ColocatedControllerInternalTest(absltest.TestCase):
             state=args_lib.PyTreeRestore(
                 item=template_state,
                 restore_args=restore_args,
+                partial_restore=True,
             )
         ),
         default_item_mode=True,
     )
 
+    controller._worker_manager.wait_until_finished.assert_not_called()
     controller._worker_manager.restore_infer.assert_called_once()
+    _, partial_restore_arg = (
+        controller._worker_manager.restore_infer.call_args.args
+    )
+    self.assertTrue(np.asarray(partial_restore_arg).item())
     self.assertEqual(
         jax.tree.structure(result), jax.tree.structure(template_state)
     )
+    np.testing.assert_array_equal(
+        np.asarray(result['weights']), np.arange(2, dtype=np.float32)
+    )
+
+  def test_restore_rejects_protocol_no_checkpoint_sentinel(self):
+    controller, sharding = self._make_controller_for_restore()
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+
+    with self.assertRaisesRegex(ValueError, 'cannot restore step 0'):
+      controller.restore(
+          controller_lib.colocated_utils.NO_STEP_SENTINEL,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+    controller._worker_manager.restore_infer.specialize.assert_not_called()
+
+  def test_restore_rejects_shape_mismatch_before_final_remap(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'params': {
+            'weights': jax.device_put(
+                jnp.arange(3, dtype=jnp.float32),
+                cpu_sharding,
+            )
+        }
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+    self._set_worker_restore_result(controller, return_value=restored_cpu_state)
+
+    with self.assertRaisesRegex(ValueError, 'unexpected shape'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_rejects_dtype_mismatch_before_final_remap(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'params': {
+            'weights': jax.device_put(
+                jnp.arange(2, dtype=jnp.int32),
+                cpu_sharding,
+            )
+        }
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+    self._set_worker_restore_result(controller, return_value=restored_cpu_state)
+
+    with self.assertRaisesRegex(ValueError, 'unexpected dtype'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_rejects_restore_args_shape_conflict_with_item(self):
+    controller, sharding = self._make_controller_for_restore()
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(
+            sharding=sharding,
+            global_shape=(3,),
+            dtype=jnp.float32,
+        )
+    }
+
+    with self.assertRaisesRegex(ValueError, 'shape transforms'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_rejects_restore_args_structure_conflict_with_item(self):
+    controller, sharding = self._make_controller_for_restore()
+    template_state = {
+        'params': {
+            'weights': jax.ShapeDtypeStruct(
+                (2,), jnp.float32, sharding=sharding
+            )
+        }
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(
+            sharding=sharding,
+            global_shape=(2,),
+            dtype=jnp.float32,
+        )
+    }
+
+    with self.assertRaisesRegex(ValueError, 'same pytree structure'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+  def test_restore_uses_item_sharding_when_restore_args_missing(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'params': {
+            'weights': jax.device_put(
+                jnp.arange(2, dtype=jnp.float32),
+                cpu_sharding,
+            )
+        }
+    }
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    self._set_worker_restore_result(controller, return_value=restored_cpu_state)
+
+    result = controller.restore(
+        7,
+        args_lib.Composite(state=args_lib.PyTreeRestore(item=template_state)),
+        default_item_mode=True,
+    )
+
+    self.assertEqual(
+        jax.tree.structure(result), jax.tree.structure(template_state)
+    )
+    np.testing.assert_array_equal(
+        np.asarray(result['weights']), np.arange(2, dtype=np.float32)
+    )
+
+  def test_restore_uses_metadata_item_when_restore_args_missing(self):
+    controller, sharding = self._make_controller_for_restore()
+    mesh = sharding.mesh
+    cpu_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32),
+            cpu_sharding,
+        )
+    }
+    template_state = {
+        'weights': metadata_value.ArrayMetadata(
+            name='weights',
+            directory=None,
+            shape=(2,),
+            sharding=sharding_metadata.from_jax_sharding(sharding),
+            dtype=jnp.float32,
+        )
+    }
+    self._set_worker_restore_result(controller, return_value=restored_cpu_state)
+
+    result = controller.restore(
+        7,
+        args_lib.Composite(state=args_lib.PyTreeRestore(item=template_state)),
+        default_item_mode=True,
+    )
+
     np.testing.assert_array_equal(
         np.asarray(result['weights']), np.arange(2, dtype=np.float32)
     )
@@ -670,8 +1319,11 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         default_item_mode=True,
     )
 
-    step_arg = controller._worker_manager.restore_infer.call_args.args[0]
+    step_arg, partial_restore_arg = (
+        controller._worker_manager.restore_infer.call_args.args
+    )
     self.assertEqual(np.asarray(step_arg).item(), 11)
+    self.assertFalse(np.asarray(partial_restore_arg).item())
     controller.latest_step.assert_called_once_with()
 
   def test_restore_none_step_raises_when_no_workers_have_checkpoints(self):
@@ -737,42 +1389,16 @@ class ColocatedControllerInternalTest(absltest.TestCase):
         default_item_mode=False,
     )
 
-    step_arg = controller._worker_manager.restore_infer.call_args.args[0]
+    step_arg, partial_restore_arg = (
+        controller._worker_manager.restore_infer.call_args.args
+    )
     self.assertEqual(np.asarray(step_arg).item(), 11)
+    self.assertFalse(np.asarray(partial_restore_arg).item())
     controller._persistent_checkpoint_manager.restore.assert_called_once()
     self.assertEqual(
         controller._persistent_checkpoint_manager.restore.call_args.args[0], 11
     )
     self.assertEqual(result['dataset'], 'dataset-state')
-
-  def test_save_no_precheck_should_save_only_saves_dataset_on_success(self):
-    controller, device = self._make_controller_for_specialization()
-    mesh = jax.sharding.Mesh(np.array([device]), ('d',))
-    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
-    state = {'x': jax.device_put(jnp.arange(2, dtype=jnp.int32), sharding)}
-    controller.should_save = mock.Mock(side_effect=AssertionError('unexpected'))
-    controller._prepare_state_for_save = mock.Mock(return_value=state)
-    save_call = mock.Mock(return_value=object())
-    controller._get_worker_save_call = mock.Mock(return_value=save_call)
-    controller._save_persistent_dataset = mock.Mock()
-
-    with mock.patch.object(
-        controller_lib.colocated_utils,
-        'require_unanimous_scalar_result',
-        return_value=False,
-    ):
-      saved = controller.save(
-          7,
-          args_lib.Composite(
-              state=args_lib.PyTreeSave({'x': 1}),
-              dataset=mock.Mock(),
-          ),
-      )
-
-    self.assertFalse(saved)
-    controller.should_save.assert_not_called()
-    save_call.assert_called_once()
-    controller._save_persistent_dataset.assert_not_called()
 
   def test_restore_retries_once_on_runtime_error(self):
     controller, sharding = self._make_controller_for_restore()

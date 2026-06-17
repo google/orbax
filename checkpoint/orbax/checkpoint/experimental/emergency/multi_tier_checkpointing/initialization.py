@@ -31,7 +31,7 @@ from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
-    colocated_utils,
+    pathways_topology,
 )
 
 
@@ -39,6 +39,7 @@ _REPLICATOR_FILE = 'replicator.yaml'
 _TEMP_REPLICATOR_FILE_NAME = _REPLICATOR_FILE + '.tmp'
 _JAX_INIT_INFO_FILE = 'jax-init-info.txt'
 _RESTORE_DIR_RE = re.compile(r'^.+-s(?P<step>\d+)-n\d+-w\d+\.restore$')
+_PATHWAYS_REPLICATOR_FILE_TIMEOUT_SECONDS = 300
 
 
 def _wait_for_replicator_file_to_disappear(
@@ -141,7 +142,7 @@ def _create_replicator_file(
   logging.info(
       f'Writing replicator file to {replicator_file} (via temp {temp_file})'
   )
-  logging.info('Replicator YAML contents:\n%s', final_yaml)
+  logging.vlog(1, 'Replicator YAML contents:\n%s', final_yaml)
   temp_file.write_text(final_yaml)
   os.replace(temp_file, replicator_file)
   logging.info('Replicator file written and renamed successfully.')
@@ -173,8 +174,19 @@ def _initialize_mtc_colocated(
   colocated_transport.install_pathways_colocated_serialization_patch()
   all_devices = jax.devices()
 
-  worker_cpu_devices = colocated_utils.colocated_cpu_devices_by_worker(
-      tuple(all_devices)
+  topology = pathways_topology.Topology.from_devices(tuple(all_devices))
+  worker_cpu_devices = topology.worker_cpu_devices()
+  worker_rank_in = topology.worker_rank_array(worker_cpu_devices)
+  num_nodes = topology.num_workers
+  worker_keys = tuple(tuple(worker.key) for worker in topology.workers)
+  worker_tpu_device_ids = tuple(
+      tuple(int(device_id) for device_id in worker.device_ids)
+      for worker in topology.workers
+  )
+  worker_cpu_device_ids = tuple(int(device.id) for device in worker_cpu_devices)
+  peer_ranks_by_worker_rank = tuple(
+      tuple(int(rank) for rank in peer_ranks)
+      for peer_ranks in topology.peer_ranks_by_worker_rank(num_slices)
   )
   logging.info(
       'Dispatching MTC initialization to %d worker colocated CPU devices '
@@ -187,27 +199,52 @@ def _initialize_mtc_colocated(
 
   local_dir_str = str(local_checkpoint_directory)
 
-  def _setup(dummy_arg: jax.Array) -> jax.Array:
+  def _setup(dummy_arg: jax.Array, worker_rank_arg: jax.Array) -> jax.Array:
+    """Sets up the initial MTC sidecar and processes restore tasks.
+
+    Args:
+      dummy_arg: A dummy JAX array holding dependencies to force order.
+      worker_rank_arg: The worker's node rank.
+
+    Returns:
+      A JAX array signaling completion, acting as a dependency for further
+      setup.
+    """
     signaling_client.mark_pathways_colocated_runtime_active()
-    num_nodes = jax.process_count()
-    if num_nodes % num_slices != 0:
-      raise ValueError(
-          'num_nodes must be divisible by num_slices, got '
-          f'num_nodes={num_nodes}, num_slices={num_slices}.'
-      )
-    nodes_per_slice = num_nodes // num_slices
-    node_rank = jax.process_index()
+    deadline = time.time() + timeout_seconds
+
+    def _remaining_timeout_seconds() -> int:
+      remaining = int(deadline - time.time())
+      if remaining <= 0:
+        raise TimeoutError('Timed out while initializing colocated MTC setup.')
+      return remaining
+
+    node_rank = pathways_topology.worker_rank_from_array(worker_rank_arg)
     if not 0 <= node_rank < num_nodes:
       raise ValueError(
           f'Invalid node_rank={node_rank} for num_nodes={num_nodes}.'
       )
-    my_in_pipeline_index = node_rank % nodes_per_slice
-    peer_ranks = [
-        i * nodes_per_slice + my_in_pipeline_index
-        for i in range(num_slices)
-        if (i * nodes_per_slice + my_in_pipeline_index) != node_rank
-    ]
+    worker_key = worker_keys[node_rank]
+    tpu_device_ids = worker_tpu_device_ids[node_rank]
+    worker_cpu_id = worker_cpu_device_ids[node_rank]
+    peer_ranks = list(peer_ranks_by_worker_rank[node_rank])
     loc_dir = epath.Path(local_dir_str)
+    logging.vlog(
+        2,
+        'Pathways MTC worker identity: '
+        'logical_worker_rank=%d/%d, worker_key=%s, '
+        'tpu_device_ids=%s, worker_cpu_id=%d, peer_ranks=%s, hostname=%s, '
+        'kube_node_name=%s, worker_rank_sharding=%s',
+        node_rank,
+        num_nodes,
+        worker_key,
+        tpu_device_ids,
+        worker_cpu_id,
+        peer_ranks,
+        os.environ.get('HOSTNAME'),
+        os.environ.get('KUBE_NODE_NAME'),
+        getattr(worker_rank_arg, 'sharding', None),
+    )
 
     replicator_file = epath.Path(loc_dir) / _REPLICATOR_FILE
     try:
@@ -226,12 +263,14 @@ def _initialize_mtc_colocated(
         backup_interval_minutes=backup_interval_minutes,
     )
     _wait_for_replicator_file_to_disappear(
-        loc_dir, timeout_seconds=timeout_seconds
+        loc_dir,
+        timeout_seconds=min(
+            _remaining_timeout_seconds(),
+            _PATHWAYS_REPLICATOR_FILE_TIMEOUT_SECONDS,
+        ),
     )
     _block_and_process_restore_dir(
-        loc_dir,
-        timeout_seconds=timeout_seconds,
-        allow_missing_restore=True,
+        loc_dir, timeout_seconds=_remaining_timeout_seconds()
     )
 
     # Construct a fresh array from local data only.
@@ -243,10 +282,12 @@ def _initialize_mtc_colocated(
     )
 
   wrapped_setup_fn = colocated_python.colocated_python(_setup)
-  wrapped_setup_fn = wrapped_setup_fn.specialize(out_specs_fn=lambda x: x)
+  wrapped_setup_fn = wrapped_setup_fn.specialize(
+      out_specs_fn=lambda dummy_arg, _worker_rank_arg: dummy_arg
+  )
 
   dispatch_start = time.time()
-  result = wrapped_setup_fn(dummy_in)
+  result = wrapped_setup_fn(dummy_in, worker_rank_in)
   jax.block_until_ready(result)
   logging.info(
       'All shards ready (%.1fs total). Setup complete on all hosts.',
@@ -378,18 +419,20 @@ def initialize_multi_tier_checkpointing(
       jax._src.distributed.global_state.process_id  # pylint: disable=protected-access
   )
   if use_mtc_process_ids:
-    logging.info(
+    logging.vlog(
+        1,
         f'Mapping of IDs: jax-init-info.txt={process_id}, '
         f'JaxProcessId={jax_process_id}, NodeRank={node_rank}, '
         f'ProcessIndex={my_process_index}, '
-        f'ProcessIndex->NodeRank={node_rank_by_process_index}'
+        f'ProcessIndex->NodeRank={node_rank_by_process_index}',
     )
   else:
-    logging.info(
+    logging.vlog(
+        1,
         'Mapping of IDs (jax-init-info not used): '
         f'JaxProcessId={jax_process_id}, NodeRank={node_rank}, '
         f'ProcessIndex={my_process_index}, '
-        f'ProcessIndex->NodeRank={node_rank_by_process_index}'
+        f'ProcessIndex->NodeRank={node_rank_by_process_index}',
     )
 
   my_in_pipeline_index = my_process_index % nodes_per_slice
@@ -399,7 +442,7 @@ def initialize_multi_tier_checkpointing(
     if peer_process_index != my_process_index:
       peer_process_rank = node_rank_by_process_index[peer_process_index]
       peer_ranks.append(peer_process_rank)
-  logging.info('Peers for NodeRank %s: %s', node_rank, peer_ranks)
+  logging.vlog(1, 'Peers for NodeRank %s: %s', node_rank, peer_ranks)
 
   _create_replicator_file(
       local_checkpoint_directory,
@@ -468,35 +511,37 @@ def _block_and_process_restore_dir(
     local_checkpoint_directory: epath.Path,
     *,
     timeout_seconds: int = 300,
-    allow_missing_restore: bool = False,
 ) -> bool:
   """Block until a `.restore` marker appears, then normalize it.
 
   Args:
     local_checkpoint_directory: The local checkpoint directory.
     timeout_seconds: The timeout in seconds.
-    allow_missing_restore: If true, return `False` instead of raising when no
-      restore marker is found.
 
   Returns:
-    `True` if a restore marker was processed, `False` if no restore marker was
-    found and `allow_missing_restore=True`.
+    `True` if a restore marker or no-checkpoint marker was processed.
 
   Raises:
-    TimeoutError: if no .restore file is found within the timeout and
-      `allow_missing_restore=False`.
+    TimeoutError: if no .restore marker is found within the timeout.
 
   MTC creates a `*.restore` symlink to the directory and Orbax renames it into
   the numeric step directory the backend already understands.
   """
   local_checkpoint_directory = epath.Path(local_checkpoint_directory)
+
+  def _remove_restore_marker(marker_path: epath.Path) -> None:
+    try:
+      marker_path.unlink()
+    except FileNotFoundError:
+      pass
+
   for elapsed_seconds in range(timeout_seconds):
     marker_paths = sorted(
         local_checkpoint_directory.glob('*.restore'), key=lambda p: p.name
     )
     files = [f.name for f in marker_paths]
     if files:
-      logging.info('block_and_process_restore_dir: restore files: %s', files)
+      logging.vlog(1, 'block_and_process_restore_dir: restore files: %s', files)
     elif elapsed_seconds % 60 == 0:
       logging.info(
           'Waiting for MTC restore marker in %s... elapsed=%ds',
@@ -507,6 +552,8 @@ def _block_and_process_restore_dir(
     no_checkpoint_markers = []
     for marker_path in marker_paths:
       step = _extract_step(marker_path.name)
+      # Replicator writes a zero-sized file for "no checkpoint" and a symlink
+      # for an actual restore marker.
       if step == '0' and marker_path.is_file():
         no_checkpoint_markers.append(marker_path)
       else:
@@ -524,36 +571,21 @@ def _block_and_process_restore_dir(
       for stale_marker_path in [
           p for _, p in restore_markers if p != marker_path
       ] + no_checkpoint_markers:
-        try:
-          stale_marker_path.unlink()
-          logging.info(
-              'Removed stale MTC restore marker %s.', stale_marker_path
-          )
-        except FileNotFoundError:
-          pass
+        _remove_restore_marker(stale_marker_path)
+        logging.vlog(
+            1, 'Removed stale MTC restore marker %s.', stale_marker_path
+        )
       return True
 
     if no_checkpoint_markers:
       for marker_path in no_checkpoint_markers:
-        try:
-          marker_path.unlink()
-        except FileNotFoundError:
-          pass
+        _remove_restore_marker(marker_path)
         logging.info(
             'Found MTC no-checkpoint restore marker %s and removed it.',
             marker_path,
         )
       return True
     time.sleep(1)
-  if allow_missing_restore:
-    logging.warning(
-        'No MTC restore marker appeared in %s after %ds. Continuing without '
-        'local restore; this is expected when the replicator has no checkpoint '
-        'to restore.',
-        local_checkpoint_directory,
-        timeout_seconds,
-    )
-    return False
   raise TimeoutError(
       f'{timeout_seconds} seconds have passed but no .restore file was found.'
   )
