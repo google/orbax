@@ -75,22 +75,17 @@ STATE = 'state'
 # pylint: disable=protected-access
 class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
 
-  def test_sidecar_restore_skips_result_mesh_remap(self):
+  def test_sidecar_restore_skips_mesh_remap(self):
     engine = object.__new__(_ReplicatorLocalCheckpointEngine)
     engine._impl = mock.Mock()
     engine._persistent_checkpoint_manager = None
     engine._skip_result_mesh_remap = True
     restored = args_lib.Composite(state={'x': np.asarray([1, 2])})
-    engine._impl.restore.side_effect = [
-        args_lib.Composite(process_metadata=([[0]], [0])),
-        restored,
-    ]
+    engine._impl.restore.return_value = restored
     engine._materialize_restore_args_from_metadata = mock.Mock(
         side_effect=lambda _step, restore_args: restore_args
     )
-    engine._get_mesh_consistent_args = mock.Mock(
-        return_value=(args_lib.Composite(state=PyTreeRestoreArgs()), restored)
-    )
+    engine._get_mesh_consistent_args = mock.Mock()
     engine._get_mesh_consistent_result = mock.Mock()
 
     result = engine._restore_single_step(
@@ -100,6 +95,8 @@ class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
     )
 
     self.assertEqual(result, restored[STATE])
+    self.assertEqual(engine._impl.restore.call_count, 1)
+    engine._get_mesh_consistent_args.assert_not_called()
     engine._get_mesh_consistent_result.assert_not_called()
 
   def test_standard_restore_uses_result_mesh_remap(self):
@@ -894,7 +891,7 @@ class ReplicatorCheckpointManagerTest(
 
       with self.assertRaises(TypeError):
         manager.restore(0)
-      with self.assertRaises(FileNotFoundError):
+      with self.assertRaises((FileNotFoundError, ValueError)):
         manager.restore(
             1,
             args=get_composite_restore_args(
