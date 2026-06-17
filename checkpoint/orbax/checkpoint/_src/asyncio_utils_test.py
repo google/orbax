@@ -368,6 +368,24 @@ class AsyncRunnerTest(absltest.TestCase):
     self.assertTrue(future.done())
     self.assertIsNone(future.result(timeout=self._TIMEOUT))
 
+  def test_shutdown_non_blocking(self):
+    """Test that shutdown(wait=False) does not wait for tasks and thread."""
+    task_can_complete = threading.Event()
+
+    async def long_running_coro() -> None:
+      await asyncio.to_thread(task_can_complete.wait)
+
+    future = self.runner.run_coroutine(long_running_coro())
+    self.assertFalse(future.done())
+
+    # Verify by that the shutdown call returns immediately.
+    executor = self.enter_context(futures.ThreadPoolExecutor(max_workers=1))
+    shutdown_future = executor.submit(self.runner.shutdown, wait=False)
+    shutdown_future.result(timeout=self._TIMEOUT)
+    # Allow the coroutine to complete, so that the other thread where
+    # `task_can_complete.wait` is run (not the event loop thread) can exit.
+    task_can_complete.set()
+
   def test_submit_after_shutdown(self):
     """Test that submitting a coroutine after shutdown raises RuntimeError."""
     self.runner.shutdown()
