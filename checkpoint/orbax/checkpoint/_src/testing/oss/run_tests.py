@@ -22,6 +22,9 @@ import sys
 from absl import app
 from absl import flags
 from absl import logging
+import jax
+from orbax.checkpoint._src.futures import synchronization
+from orbax.checkpoint._src.multihost import multihost
 import pytest
 import yaml
 
@@ -80,6 +83,29 @@ def _find_test_path(test_file_yaml):
   return None
 
 
+def _sync_op_id_generator(test_file_yaml: str) -> None:
+  """Synchronizes the OperationIdGenerator across processes."""
+  try:
+    client = multihost.get_jax_distributed_client()
+    if client is not None:
+      normalized_name = test_file_yaml.replace('/', '_').replace(':', '_')
+      sync_key = f'sync_op_id_file_{normalized_name}'
+      operation_id_generator = synchronization.OperationIdGenerator
+      if jax.process_index() == 0:
+        client.key_value_set(
+            sync_key,
+            operation_id_generator.get_current_operation_id(),
+            allow_overwrite=True,
+        )
+      target = int(client.blocking_key_value_get(sync_key, 10000))
+      while int(operation_id_generator.get_current_operation_id()) < target:
+        operation_id_generator.next_operation_id()
+  except Exception as sync_e:  # pylint: disable=broad-exception-caught
+    logging.warning(
+        'Could not synchronize OperationIdGenerator for file: %s', sync_e
+    )
+
+
 def main(argv: Sequence[str]) -> None:
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
@@ -130,6 +156,8 @@ def main(argv: Sequence[str]) -> None:
 
     logging.info('Running test: %s (found from %s)', test_path, test_file_yaml)
     try:
+      _sync_op_id_generator(test_file_yaml)
+
       exit_code = pytest.main([test_path])
       if exit_code == 0:
         results[test_file_yaml] = 'PASSED'
