@@ -122,10 +122,14 @@ class AsyncRunner:
       raise RuntimeError('AsyncRunner has been shut down.')
     return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
-  def shutdown(self) -> None:
+  def shutdown(self, wait: bool = True) -> None:
     """Stops the event loop, waiting for tasks to complete.
 
     See the note in the class docstring regarding thread-safety.
+
+    Args:
+      wait: If True, wait for all tasks to complete before shutting down.
+        Otherwise, the shutdown will be non-blocking.
     """
     if self._is_closed:
       return
@@ -149,11 +153,19 @@ class AsyncRunner:
         logging.info('AsyncRunner: All tasks finished.')
       else:
         logging.info('AsyncRunner: No active tasks to wait for.')
-      logging.info('AsyncRunner: Stopping event loop.')
 
-    asyncio.run_coroutine_threadsafe(_shutdown_tasks(), self._loop).result()
+    logging.info('AsyncRunner: Shutting down (wait=%s)...', wait)
+    shutdown_future = asyncio.run_coroutine_threadsafe(
+        _shutdown_tasks(), self._loop
+    )
 
-    # Place the stop command gracefully at the end of the event queue.
-    self._loop.call_soon_threadsafe(self._loop.stop)
-    # Wait for the thread to exit.
-    self._thread.join()
+    if wait:
+      shutdown_future.result()
+      # Place the stop command gracefully at the end of the event queue.
+      self._loop.call_soon_threadsafe(self._loop.stop)
+      # Wait for the thread to exit.
+      self._thread.join()
+    else:
+      # Only signal the event loop to stop, but do not wait for it to exit.
+      self._loop.call_soon_threadsafe(self._loop.stop)
+    logging.info('AsyncRunner: Stopped.')
