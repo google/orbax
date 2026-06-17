@@ -14,7 +14,10 @@
 
 """Checkpoint deleter."""
 
+import concurrent.futures
+import dataclasses
 import datetime
+import os
 import pathlib
 import queue
 import threading
@@ -29,7 +32,7 @@ from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
-
+from orbax.checkpoint._src.path import utils as path_utils
 
 urlparse = parse.urlparse
 PurePosixPath = pathlib.PurePosixPath
@@ -59,6 +62,114 @@ class CheckpointDeleter(Protocol):
     ...
 
 
+@dataclasses.dataclass
+class _DeletionNode:
+  path: str
+  files: list[str]
+
+
+class _ParallelDirectoryDeleter:
+  """A class to handle parallel file deletion for local directories."""
+
+  def __init__(self, num_threads: int):
+    self._num_threads = num_threads
+    self._ready_queue = queue.Queue()
+    self._scan_done = threading.Event()
+    self._active_counter = [0]
+    self._active_lock = threading.Lock()
+
+  def _dfs_scan(self, path: str):
+    """Recursively scan path and enqueue files for deletion."""
+    try:
+      with os.scandir(path) as entries_iter:
+        entries = list(entries_iter)
+    except OSError as e:
+      logging.warning('Error scanning %s: %s', path, e)
+      return
+
+    subdirs = []
+    files = []
+    for entry in entries:
+      if entry.is_dir(follow_symlinks=False):
+        subdirs.append(entry.path)
+      else:
+        files.append(entry.path)
+
+    node = _DeletionNode(path=path, files=files)
+    self._ready_queue.put(node)
+
+    for subdir in subdirs:
+      self._dfs_scan(subdir)
+
+  def _process_node(self, node: _DeletionNode):
+    """Worker function. Deletes all files in a single directory node."""
+    with self._active_lock:
+      self._active_counter[0] += 1
+
+    try:
+      # Delete files
+      for file_path in node.files:
+        try:
+          os.unlink(file_path)
+        except OSError as e:
+          if not isinstance(e, FileNotFoundError):
+            logging.warning('Failed to delete file %s: %s', file_path, e)
+    finally:
+      with self._active_lock:
+        self._active_counter[0] -= 1
+
+  def _run_scheduler(self):
+    """Pulls nodes from ready_queue, submits to ThreadPoolExecutor."""
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=self._num_threads, thread_name_prefix='Worker'
+    ) as executor:
+      while True:
+        try:
+          node = self._ready_queue.get(timeout=0.1)
+        except queue.Empty:
+          if (
+              self._scan_done.is_set()
+              and self._active_counter[0] == 0
+              and self._ready_queue.empty()
+          ):
+            break
+          continue
+
+        executor.submit(self._process_node, node)
+        self._ready_queue.task_done()
+
+  def delete(self, path: epath.Path):
+    """Deletes all files recursively under path in parallel, then rmtrees it."""
+    self._ready_queue = queue.Queue()
+    self._scan_done.clear()
+    self._active_counter[0] = 0
+
+    root_dir = str(path)
+
+    def scan_target():
+      self._dfs_scan(root_dir)
+      self._scan_done.set()
+
+    scan_thread = threading.Thread(target=scan_target, name='ScanThread')
+    scan_thread.start()
+
+    # Run scheduler
+    self._run_scheduler()
+
+    scan_thread.join()
+
+    # Clean up the directory structure itself
+    path.rmtree()
+
+
+def _is_local_path(path: epath.Path) -> bool:
+  """Returns True if the path is on a local filesystem namespace."""
+  if gcs_utils.is_gcs_path(path):
+    return False
+  scheme = urlparse(str(path)).scheme
+  return not scheme or len(scheme) <= 1
+
+
 class StandardCheckpointDeleter:
   """A StandardCheckpointDeleter."""
 
@@ -71,6 +182,7 @@ class StandardCheckpointDeleter:
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
+      num_threads: int = 1,
   ):
     """StandardCheckpointDeleter constructor.
 
@@ -81,6 +193,7 @@ class StandardCheckpointDeleter:
       todelete_subdir: refer to CheckpointManagerOptions.todelete_subdir
       todelete_full_path: refer to CheckpointManagerOptions.todelete_full_path
       duration_metric: the name of the total delete duration metric
+      num_threads: number of threads to use for parallel file deletion
     """
     self._primary_host = primary_host
     self._directory = directory
@@ -88,6 +201,10 @@ class StandardCheckpointDeleter:
     self._todelete_full_path = todelete_full_path
     self._name_format = name_format
     self._duration_metric = duration_metric
+    self._num_threads = num_threads
+    self._parallel_deleter = None
+    if self._num_threads > 1 and _is_local_path(self._directory):
+      self._parallel_deleter = _ParallelDirectoryDeleter(self._num_threads)
 
   def _rmtree(self, path: epath.Path):
     """Recursively deletes a path.
@@ -212,8 +329,7 @@ class StandardCheckpointDeleter:
       # This will be fast on HNS and slow (but functional) on non-HNS.
       delete_target.rename(dest_path)
       logging.info('Successfully renamed step %d to %s', step, dest_path)
-
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
       message = f'Rename failed for step {step}. Error: {e}'
       logging.error(message)
       raise RuntimeError(message) from e
@@ -228,7 +344,15 @@ class StandardCheckpointDeleter:
 
   def _delete_step_permanently(self, step: int, delete_target: epath.Path):
     """Permanently deletes a step directory."""
-    self._rmtree(delete_target)
+    if self._parallel_deleter is not None:
+      logging.info(
+          'Using parallel file deletion with %d threads for step %d.',
+          self._num_threads,
+          step,
+      )
+      self._parallel_deleter.delete(delete_target)
+    else:
+      self._rmtree(delete_target)
     logging.info('Deleted step %d.', step)
 
   def delete_steps(self, steps: Sequence[int]) -> None:
@@ -251,6 +375,7 @@ class ThreadedCheckpointDeleter:
       primary_host: Optional[int] = 0,
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
+      num_threads: int = 1,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -260,6 +385,7 @@ class ThreadedCheckpointDeleter:
         todelete_full_path=todelete_full_path,
         name_format=name_format,
         duration_metric=_THREADED_DELETE_DURATION,
+        num_threads=num_threads,
     )
     self._delete_queue = queue.Queue()
     # Turn on daemon=True so the thread won't block the main thread and die
@@ -307,6 +433,7 @@ def create_checkpoint_deleter(
     todelete_subdir: Optional[str] = None,
     todelete_full_path: Optional[str] = None,
     enable_background_delete: bool = False,
+    num_threads: int = 1,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
 
@@ -317,6 +444,7 @@ def create_checkpoint_deleter(
         primary_host=primary_host,
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
+        num_threads=num_threads,
     )
   else:
     return StandardCheckpointDeleter(
@@ -325,4 +453,5 @@ def create_checkpoint_deleter(
         primary_host=primary_host,
         todelete_subdir=todelete_subdir,
         todelete_full_path=todelete_full_path,
+        num_threads=num_threads,
     )

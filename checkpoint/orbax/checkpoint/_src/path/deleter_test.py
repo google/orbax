@@ -66,6 +66,49 @@ class CheckpointDeleterTest(parameterized.TestCase):
 
     deleter.close()
 
+  def test_checkpoint_deleter_parallel_delete(self):
+    """Test parallel deletion works and deletes all files."""
+    deleter = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=2,
+    )
+
+    step = 1
+    step_dir = self._get_save_diretory(step, self.ckpt_dir)
+    step_dir.mkdir()
+
+    # Create subdirectories and files
+    sub1 = step_dir / 'sub1'
+    sub1.mkdir()
+    (sub1 / 'file1.txt').write_text('hello')
+
+    sub2 = step_dir / 'sub2'
+    sub2.mkdir()
+    (sub2 / 'file2.txt').write_text('world')
+
+    (step_dir / 'root_file.txt').write_text('root')
+
+    self.assertTrue(step_dir.exists())
+    self.assertTrue((sub1 / 'file1.txt').exists())
+    self.assertTrue((sub2 / 'file2.txt').exists())
+
+    deleter.delete(step)
+    deleter.close()
+
+    # Assert the entire step_dir is deleted
+    self.assertFalse(step_dir.exists())
+
+  def test_is_local_path(self):
+    self.assertTrue(deleter_lib._is_local_path(epath.Path('/tmp/foo')))
+    self.assertTrue(deleter_lib._is_local_path(epath.Path('foo/bar')))
+    self.assertFalse(deleter_lib._is_local_path(epath.Path('gs://bucket/foo')))
+    self.assertFalse(deleter_lib._is_local_path(epath.Path('s3://bucket/foo')))
+
 
 class GcsRenameTest(unittest.TestCase):
 

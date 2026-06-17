@@ -1,0 +1,27 @@
+suite_name: "Deleter Benchmark"
+
+mesh_configs:
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 2, "model": 8}
+    allow_split_physical_axes: true
+    dcn_parallelism: {"data": 2, "model": 1}
+
+checkpoint_config:
+  # path: "gs://safetensor-kimi-central/test_model_orbax/llama-3.1-70B-checkpoints/0/items/items"
+  # path: "gs://orbax-benchmarks/checkpoints/llama-8b_generate_1-4-1/pytree"
+  # path: "gs://orbax-benchmarks/checkpoints/llama-3.1-8B-checkpoints/0/items"
+  path: "/tfhub/prod/ml-gemini-experimental/GEMINI2-IT-NANO2-ANDROID-GEMAX/1"
+
+# checkpoint_config:
+#   spec:
+#     array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+#     custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["data", null]}
+#     custom_array2: {dtype: "float32", shape: [8192, 8192], sharding: ["model", null]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.deleter_benchmark.DeleterBenchmark"
+    options:
+      save_interval_steps: [1]
+      max_to_keep: [10]
+      train_steps: [2]
+      num_deletion_threads: [1, 2, 4, 8, 16]
