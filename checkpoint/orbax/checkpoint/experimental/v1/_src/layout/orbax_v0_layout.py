@@ -142,6 +142,15 @@ class OrbaxV0Layout(CheckpointLayout):
     # a composite checkpoint as there is no metadata to indicate otherwise.
     return await self._orbax_layout.checkpointables_metadata(path)
 
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata describing a single checkpointable in the V0 checkpoint."""
+    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
+    if checkpointable_name is None:
+      return await self._load_pytree_metadata(path, checkpoint_metadata)
+    return await self._orbax_layout.metadata(path, checkpointable_name)
+
   async def _validate_checkpointables(self, path: Path) -> None:
     """Validates a V0 checkpoint directory.
 

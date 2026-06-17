@@ -172,6 +172,18 @@ async def read_checkpoint_metadata(
   return InternalCheckpointMetadata.deserialize(serialized_metadata)
 
 
+def _none_checkpointable_name_not_supported_error(
+    path: Path,
+) -> ValueError:
+  return ValueError(
+      f"Attempting to load V1 checkpoint at {path} with"
+      " `checkpointable_name=None`. This is only supported for legacy V0"
+      " checkpoints. Please specify the name of the checkpointable to load."
+      " Otherwise, omit `checkpointable_name` to load default 'pytree'"
+      " checkpointable."
+  )
+
+
 class OrbaxLayout(CheckpointLayout):
   """OrbaxLayout.
 
@@ -252,6 +264,26 @@ class OrbaxLayout(CheckpointLayout):
         custom_metadata=checkpoint_metadata.custom_metadata,
     )
 
+  async def metadata(
+      self, path: Path, checkpointable_name: str | None
+  ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
+    """Returns the metadata describing a single checkpointable in the Orbax checkpoint."""
+    if checkpointable_name is None:
+      raise _none_checkpointable_name_not_supported_error(path)
+    checkpointables_metadata = await self.checkpointables_metadata(path)
+    key = checkpointable_name or STATE_CHECKPOINTABLE_KEY
+    if key not in checkpointables_metadata.metadata:
+      raise checkpoint_layout.InvalidLayoutError(
+          f"Checkpointable '{key}' not found in checkpoint metadata."
+      )
+    return metadata_types.CheckpointMetadata(
+        path=checkpointables_metadata.path,
+        metadata=checkpointables_metadata.metadata[key],
+        init_timestamp_nsecs=checkpointables_metadata.init_timestamp_nsecs,
+        commit_timestamp_nsecs=checkpointables_metadata.commit_timestamp_nsecs,
+        custom_metadata=checkpointables_metadata.custom_metadata,
+    )
+
   async def _validate(self, path: Path, checkpointable_name: str | None):
     """Validates checkpoint written by `save` or `save_checkpointables`.
 
@@ -270,14 +302,7 @@ class OrbaxLayout(CheckpointLayout):
         `checkpointable_name`.
     """
     if checkpointable_name is None:
-      raise ValueError(
-          f"Attempting to load V1 checkpoint at {path} with"
-          " `checkpointable_name=None`. This is only supported for legacy V0"
-          " checkpoints. Please specify the name of the checkpointable to load."
-          " Otherwise, omit `checkpointable_name` to load default 'pytree'"
-          " checkpointable."
-      )
-
+      raise _none_checkpointable_name_not_supported_error(path)
     pytree_dir = path / checkpointable_name
 
     try:
@@ -394,6 +419,8 @@ class OrbaxLayout(CheckpointLayout):
     Returns:
       An awaitable containing the loaded pytree.
     """
+    if checkpointable_name is None:
+      raise _none_checkpointable_name_not_supported_error(path)
     checkpoint_metadata = await read_checkpoint_metadata(path)
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,

@@ -109,7 +109,7 @@ class OrbaxV0LayoutTest(
         restored_checkpointables['state'],
     )
 
-  async def test_metadata(self):
+  async def test_checkpointables_metadata(self):
     with self.subTest('PyTree checkpoint with _CHECKPOINT_METADATA in path'):
       layout = orbax_v0_layout.OrbaxV0Layout()
       metadata = await layout.checkpointables_metadata(self.orbax_path / '0')
@@ -118,11 +118,37 @@ class OrbaxV0LayoutTest(
     with self.subTest('PyTree Checkpoint with no _CHECKPOINT_METADATA'):
       await async_path.unlink(self.orbax_path / '0' / '_CHECKPOINT_METADATA')
       layout = orbax_v0_layout.OrbaxV0Layout()
-      metadata = await layout.checkpointables_metadata(
-          self.orbax_path / '0' / 'state'
-      )
+      metadata = await layout.checkpointables_metadata(self.orbax_path / '0')
       self.assertIsNotNone(metadata)
       self.assertIsNone(metadata.init_timestamp_nsecs)
+
+  @parameterized.named_parameters(
+      ('with_metadata', False,),
+      ('no_metadata', True,),
+  )
+  async def test_metadata(self, remove_metadata):
+    checkpointable_name = 'state'
+    if remove_metadata:
+      await async_path.unlink(self.orbax_path / '0' / '_CHECKPOINT_METADATA')
+
+    layout = orbax_v0_layout.OrbaxV0Layout()
+    metadata = await layout.metadata(self.orbax_path / '0', checkpointable_name)
+    self.assertIsNotNone(metadata)
+
+    if remove_metadata:
+      self.assertIsNone(metadata.init_timestamp_nsecs)
+    else:
+      self.assertIsNotNone(metadata.init_timestamp_nsecs)
+
+  async def test_metadata_none_name(self):
+    layout = orbax_v0_layout.OrbaxV0Layout()
+    with self.assertRaises(FileNotFoundError):
+      await layout.metadata(self.orbax_path / '0', None)
+
+  async def test_metadata_none_name_direct_path(self):
+    layout = orbax_v0_layout.OrbaxV0Layout()
+    metadata = await layout.metadata(self.orbax_path / '0' / 'state', None)
+    self.assertIsNotNone(metadata.metadata)
 
 
 class V0ValidationTest(

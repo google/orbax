@@ -161,7 +161,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
         self, restored_checkpointables['my_custom_name'], self.object_to_save
     )
 
-  async def test_metadata(self):
+  async def test_checkpointables_metadata(self):
     """Tests the metadata() method."""
     layout = OrbaxLayout()
     result_metadata = await layout.checkpointables_metadata(
@@ -187,6 +187,38 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
                 ),
             ),
         }
+    }
+    self.assertEqual(result_metadata.metadata, expected_structs)
+    self.assertEqual(result_metadata.custom_metadata, self.custom_metadata)
+    self.assertIsInstance(result_metadata.init_timestamp_nsecs, int)
+    self.assertGreater(result_metadata.init_timestamp_nsecs, 0)
+    self.assertIsInstance(result_metadata.commit_timestamp_nsecs, int)
+    self.assertGreater(result_metadata.commit_timestamp_nsecs, 0)
+
+  async def test_metadata(self):
+    """Tests the metadata() method for a single checkpointable."""
+    layout = OrbaxLayout()
+    result_metadata = await layout.metadata(
+        self.orbax_path / '0', STATE_CHECKPOINTABLE_KEY
+    )
+
+    self.assertIsInstance(result_metadata, metadata_types.CheckpointMetadata)
+
+    expected_structs = {
+        'a': numpy_leaf_handler.NumpyMetadata(
+            shape=(9,),
+            dtype=np.dtype(np.int32),
+            storage_metadata=value_metadata.StorageMetadata(
+                chunk_shape=(9,), write_shape=None
+            ),
+        ),
+        'b': numpy_leaf_handler.NumpyMetadata(
+            shape=(3,),
+            dtype=np.dtype(np.float32),
+            storage_metadata=value_metadata.StorageMetadata(
+                chunk_shape=(3,), write_shape=None
+            ),
+        ),
     }
     self.assertEqual(result_metadata.metadata, expected_structs)
     self.assertEqual(result_metadata.custom_metadata, self.custom_metadata)
