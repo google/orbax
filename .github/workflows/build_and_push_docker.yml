@@ -34,7 +34,7 @@ jobs:
         with:
           push: true
           context: .
-          file: ./checkpoint/orbax/checkpoint/_src/testing/benchmarks/xpk/Dockerfile
+          file: ./checkpoint/orbax/checkpoint/_src/testing/benchmarks/xpk/Dockerfile.orbax_benchmark
           tags: gcr.io/orbax-checkpoint/orbax-benchmarks-runner:latest
           cache-from: type=gha
           outputs: type=image,compression=zstd,force-compression=true
