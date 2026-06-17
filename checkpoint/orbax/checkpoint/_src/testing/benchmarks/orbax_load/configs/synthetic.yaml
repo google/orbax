@@ -1,0 +1,53 @@
+# Synthetic native-Orbax load benchmark — ~512 MiB fp32, three read modes
+# (replicated / load-and-broadcast / custom-sharded) -> 3 at-a-glance cards.
+#
+# NOTE: load-and-broadcast needs a >=2-D mesh (a replica axis + a shard axis):
+# orbax's primary-replica lookup does np.take(mesh.devices, ...).flatten(), which
+# AttributeErrors on the 1-D fully-replicated mesh this synthetic load builds.
+# It is not TPU-specific (runs on CPU with the right mesh), but this fixture
+# can't supply that mesh. Sharded reads also only shrink per-host bytes when the
+# fixture is saved with a small chunk_byte_size (else one big blob is re-read).
+# `use_colocated_python` is Pathways-only.
+#
+# Run (RB=orbax.checkpoint._src.testing.benchmarks.run_benchmarks,
+#      GM=orbax/checkpoint/_src/testing/benchmarks/orbax_load/sharding/generate_from_metadata.py):
+#   python -m $RB --config_file=<this> --output_directory=/tmp/orbax_load_synthetic --generate_fixture
+#   python $GM --checkpoint /tmp/orbax_load_synthetic --axis-size <num_devices> \
+#     --strategy fsdp --output /tmp/orbax_load_sharding_fsdp.json
+#   python -m $RB --config_file=<this> --output_directory=/tmp/run   # TB: /tmp/run/tensorboard
+# Multi-host: launch the last step once per process via run_multihost.py;
+# --axis-size must equal the total device count, and step 1's --output_directory
+# must equal checkpoint_path below.
+#
+# A/B (optional): add baseline_capture_path + options.capture_digests_path
+# (capture) or baseline_path + options.reference_digests_path (compare).
+
+suite_name: "orbax_load_synthetic"
+num_repeats: 2
+
+checkpoint_config:
+  random_seed: 0
+  spec:
+    embedding: {dtype: float32, shape: [16384, 4096]}
+    layer_0_mlp: {dtype: float32, shape: [4096, 4096]}
+    layer_1_mlp: {dtype: float32, shape: [4096, 4096]}
+    layer_attn_qkv: {dtype: float32, shape: [4096, 4096]}
+
+benchmarks:
+  # 1) Replicated — every host reads the whole checkpoint.
+  - generator: "orbax.checkpoint._src.testing.benchmarks.orbax_load.load_benchmark.OrbaxLoadBenchmark"
+    options:
+      checkpoint_path: "/tmp/orbax_load_synthetic"
+      enable_trace: true
+  # 2) Load-and-broadcast — one replica reads, broadcasts (multi-slice/TPU only).
+  - generator: "orbax.checkpoint._src.testing.benchmarks.orbax_load.load_benchmark.OrbaxLoadBenchmark"
+    options:
+      checkpoint_path: "/tmp/orbax_load_synthetic"
+      use_load_and_broadcast: true
+      enable_trace: true
+  # 3) Custom-sharded — each host reads only its shard (fsdp across devices).
+  - generator: "orbax.checkpoint._src.testing.benchmarks.orbax_load.load_benchmark.OrbaxLoadBenchmark"
+    options:
+      checkpoint_path: "/tmp/orbax_load_synthetic"
+      sharding_config_path: "/tmp/orbax_load_sharding_fsdp.json"
+      enable_trace: true

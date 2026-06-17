@@ -28,7 +28,9 @@ from absl import flags
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
+from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 
 try:
   import pathwaysutils  # pylint: disable=g-import-not-at-top
@@ -65,17 +67,12 @@ _REMOVE_REPEATED_DIR = flags.DEFINE_bool(
     False,
     'Remove the generated repeat_* directories after execution.',
 )
-_BASELINE_CAPTURE_PATH = flags.DEFINE_string(
-    'baseline_capture_path',
-    None,
-    'If set, directory to write each benchmark baseline JSON to after the '
-    'run. Records the cross-host aggregated metrics as the baseline.',
-)
-_BASELINE_PATH = flags.DEFINE_string(
-    'baseline_path',
-    None,
-    'If set, a stored baseline JSON to compare this run against; the '
-    'per-metric delta is logged at the end of the run.',
+_GENERATE_FIXTURE = flags.DEFINE_bool(
+    'generate_fixture',
+    False,
+    "If set, generate the synthetic checkpoint described by the config's "
+    'checkpoint_config spec into --output_directory and exit, instead of '
+    'running benchmarks.',
 )
 
 
@@ -151,13 +148,30 @@ def _configure_hlo_dump(output_directory: str):
   logging.info('Set XLA_FLAGS for HLO dump: %s', new_xla_flags)
 
 
+def _generate_fixture(config_file: str, output_directory: str) -> None:
+  """Generates the synthetic checkpoint described by a config, then returns.
+
+  Builds the data from the config's `checkpoint_config` spec on the config's
+  mesh and writes it with `ocp.save`. The plumbing stops at this entrypoint:
+  the benchmark classes are never involved in fixture generation.
+
+  Args:
+    config_file: Path to the YAML config whose `checkpoint_config` supplies the
+      spec and whose `mesh_config` supplies the mesh.
+    output_directory: Directory to write the generated Orbax checkpoint to.
+  """
+  checkpoint_configs, mesh_configs = config_parsing.parse_config(config_file)
+  mesh = device_mesh.create_mesh(mesh_configs[0]) if mesh_configs else None
+  checkpoint_generation.generate_and_save_checkpoint(
+      checkpoint_configs[0], output_directory, mesh=mesh
+  )
+
+
 def _run_benchmarks(
     config_file: str,
     output_directory: str,
     local_directory: str | None = None,
     remove_repeated_dir: bool = False,
-    baseline_capture_path: str | None = None,
-    baseline_path: str | None = None,
 ) -> None:
   """Runs Orbax checkpoint benchmarks based on a generator class and a config file.
 
@@ -168,9 +182,6 @@ def _run_benchmarks(
       benchmarks.
     remove_repeated_dir: Whether to remove the generated repeat_* directories
       after execution.
-    baseline_capture_path: If set, directory each benchmark's captured baseline
-      JSON is written to after the run.
-    baseline_path: If set, a stored baseline the run is compared against.
 
   Raises:
     RuntimeError: If any benchmark test fails.
@@ -192,8 +203,6 @@ def _run_benchmarks(
         output_dir=output_directory,
         local_directory=local_directory,
         remove_repeated_dir=remove_repeated_dir,
-        baseline_capture_path=baseline_capture_path,
-        baseline_path=baseline_path,
     )
   except Exception as e:
     logging.error('Failed to create test suite from config: %s', e)
@@ -239,13 +248,21 @@ def main(argv: list[str]) -> None:
   jax.config.update('jax_enable_x64', True)
   logging.info('Set jax_enable_x64=True')
 
+  if _GENERATE_FIXTURE.value:
+    logging.info(
+        'Generating fixture from %s into %s',
+        _CONFIG_FILE.value,
+        _OUTPUT_DIRECTORY.value,
+    )
+    _generate_fixture(_CONFIG_FILE.value, _OUTPUT_DIRECTORY.value)
+    logging.info('Fixture generation complete.')
+    return
+
   _run_benchmarks(
       _CONFIG_FILE.value,
       _OUTPUT_DIRECTORY.value,
       _LOCAL_DIRECTORY.value,
       remove_repeated_dir=_REMOVE_REPEATED_DIR.value,
-      baseline_capture_path=_BASELINE_CAPTURE_PATH.value,
-      baseline_path=_BASELINE_PATH.value,
   )
 
   logging.info('run_benchmarks.py finished.')

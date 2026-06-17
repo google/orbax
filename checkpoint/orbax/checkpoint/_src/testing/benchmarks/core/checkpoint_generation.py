@@ -24,6 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import pathways
+from orbax.checkpoint import v1 as ocp
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.arrays import sharding as sharding_utils
 from orbax.checkpoint._src.checkpointers import checkpointer
@@ -32,7 +33,6 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.tree import utils as tree_utils
-
 
 
 def _create_array(
@@ -187,6 +187,33 @@ def _get_abstract_state(
   return get_abstract_state_from_sharding_config(
       epath.Path(config.sharding_config_path), metadata, devices=devices
   )
+
+
+def generate_and_save_checkpoint(
+    config: configs.CheckpointConfig,
+    output_dir: epath.PathLike,
+    mesh: jax.sharding.Mesh | None = None,
+) -> None:
+  """Generates a synthetic checkpoint from a spec and writes it with `ocp.save`.
+
+  Materialises a synthetic Orbax checkpoint on disk so a load benchmark has
+  something to read without depending on a real model download. The fixture is
+  deterministic for a fixed `config.random_seed`, which the digest-mode
+  correctness check relies on.
+
+  Args:
+    config: The checkpoint config; must carry a `spec`.
+    output_dir: Directory to write the Orbax checkpoint to.
+    mesh: Mesh used to shard the generated data. If None, the data is not
+      sharded.
+  """
+  out = epath.Path(output_dir)
+  if out.exists() and any(out.iterdir()):
+    logging.warning(
+        'A fixture is already present at %s; overwriting it.', out
+    )
+  pytree = generate_checkpoint(config, mesh=mesh)
+  ocp.save(out, pytree, overwrite=True)
 
 
 def load_checkpoint(config: configs.CheckpointConfig) -> Any:

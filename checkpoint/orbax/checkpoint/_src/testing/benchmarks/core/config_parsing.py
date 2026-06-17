@@ -52,7 +52,6 @@ from orbax.checkpoint._src.testing.benchmarks.core import core
 import yaml
 
 
-
 def _import_class(class_path: str) -> type[Any]:
   """Dynamically imports a class from a string path."""
   try:
@@ -101,6 +100,15 @@ def _validate_config(config: dict[str, Any]) -> None:
       raise ValueError(
           f"'options' must be a dict in benchmarks entry at index {i}"
       )
+    options = benchmark_group['options']
+    if options.get('capture_digests_path') and options.get(
+        'reference_digests_path'
+    ):
+      raise ValueError(
+          'capture_digests_path and reference_digests_path are mutually'
+          f' exclusive in benchmarks entry at index {i}: a run either captures'
+          ' digests or compares against them.'
+      )
 
 
 def _parse_checkpoint_configs(
@@ -127,15 +135,53 @@ def _parse_mesh_configs(
   return None
 
 
+def parse_config(
+    config_path: str,
+) -> tuple[
+    list[config_lib.CheckpointConfig], list[config_lib.MeshConfig] | None
+]:
+  """Parses the checkpoint + mesh configs from a benchmark YAML.
+
+  Pure parsing — no mesh construction or checkpoint generation. Callers that
+  need to materialise a fixture (e.g. the `--generate_fixture` entrypoint) use
+  the returned configs to drive `device_mesh` + `checkpoint_generation`.
+
+  Args:
+    config_path: Path to the YAML configuration file.
+
+  Returns:
+    A tuple of (checkpoint configs, mesh configs or None).
+  """
+  config = _load_yaml_config(config_path)
+  return _parse_checkpoint_configs(config), _parse_mesh_configs(config)
+
+
+def load_config(config_path: str) -> dict[str, Any]:
+  """Loads and validates a benchmark YAML config into a raw dict.
+
+  Args:
+    config_path: Path to the YAML configuration file.
+
+  Returns:
+    The parsed, validated config dict.
+  """
+  config = _load_yaml_config(config_path)
+  _validate_config(config)
+  return config
+
+
 def create_test_suite_from_config(
     config_path: str,
     output_dir: str | None = None,
     local_directory: str | None = None,
     remove_repeated_dir: bool = False,
-    baseline_capture_path: str | None = None,
-    baseline_path: str | None = None,
 ) -> core.TestSuite:
-  """Creates a single TestSuite object from the benchmark configuration.
+  """Loads a benchmark YAML config and builds its TestSuite.
+
+  Perf baseline capture/compare paths (`baseline_capture_path` /
+  `baseline_path`) and each load benchmark's correctness-digest paths
+  (`capture_digests_path` / `reference_digests_path`, under a benchmark's
+  `options`) are read from the config itself — there is no run-flag override.
 
   Args:
     config_path: Path to the YAML configuration file.
@@ -145,25 +191,17 @@ def create_test_suite_from_config(
       used for ECM benchmarks.
     remove_repeated_dir: Whether to remove the generated repeat_* directories
       after execution.
-    baseline_capture_path: If set, the run captures a baseline into this
-      directory; overrides a `baseline_capture_path` key in the YAML.
-    baseline_path: If set, the run is compared against this stored baseline;
-      overrides a `baseline_path` key in the YAML.
 
   Returns:
     A TestSuite object containing all benchmarks generated from the config.
   """
-  config = _load_yaml_config(config_path)
-  _validate_config(config)
-
+  config = load_config(config_path)
   suite_name = config['suite_name']
   num_repeats = config.get('num_repeats', 1)
   checkpoint_configs = _parse_checkpoint_configs(config)
   mesh_configs = _parse_mesh_configs(config)
-  baseline_capture_path = baseline_capture_path or config.get(
-      'baseline_capture_path'
-  )
-  baseline_path = baseline_path or config.get('baseline_path')
+  baseline_capture_path = config.get('baseline_capture_path')
+  baseline_path = config.get('baseline_path')
 
   generators: list[core.BenchmarksGenerator] = []
 

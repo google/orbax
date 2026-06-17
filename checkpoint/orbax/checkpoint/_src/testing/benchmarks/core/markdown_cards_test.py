@@ -22,45 +22,106 @@ from orbax.checkpoint._src.testing.benchmarks.core import inventory as inv_lib
 from orbax.checkpoint._src.testing.benchmarks.core import markdown_cards
 from orbax.checkpoint._src.testing.benchmarks.core import run_manifest as rm_lib
 
-_AGGS = {
-    'save_background_4_throughput/save_total_gbps': {
-        'max': 22.4,
-        'min': 18.0,
-        'mean': 20.1,
-        'p50': 20.2,
-        'p99': 22.3,
+_LOAD_AGGS = {
+    'load_3_load_breakdown/blocking_s': {'mean': 12.0, 'min': 11.5, 'max': 12.5},
+    'load_3_load_breakdown/total_s': {'mean': 13.0, 'min': 13.0, 'max': 13.0},
+    'load_3_load_breakdown/worker_io_s': {'mean': 9.8, 'min': 9.7, 'max': 9.9},
+    'load_5_inventory/load_requested_gb': {'mean': 8.75, 'min': 8.7, 'max': 8.8},
+    'load_5_inventory/load_total_gb': {'mean': 140.0, 'min': 140.0, 'max': 140.0},
+    'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': {
+        'mean': 6.0,
+        'min': 5.0,
+        'max': 7.0,
     },
-    'load_4_throughput/load_total_gbps': {
-        'max': 18.9,
-        'min': 17.0,
-        'mean': 18.0,
-        'p50': 18.1,
-        'p99': 18.8,
-    },
-    'save_background_5_inventory/save_total_gb': {
-        'max': 140.2,
-        'min': 140.2,
-        'mean': 140.2,
-    },
-    'save_blocking_2_save_breakdown/blocking_async_s': {
-        'max': 4.21,
-        'min': 4.0,
-        'mean': 4.1,
-    },
+    'load_4_throughput/load_per_host_gbps': {'mean': 0.7, 'min': 0.6, 'max': 0.8},
+    'load_4_throughput/load_total_gbps': {'mean': 11.0, 'min': 10.0, 'max': 11.3},
 }
 
+_LOAD_PER_HOST = [
+    (
+        0,
+        {
+            'load_5_inventory/load_requested_gb': 8.7,
+            'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': 6,
+            'load_3_load_breakdown/blocking_s': 11.9,
+            'load_3_load_breakdown/total_s': 12.9,
+            'load_3_load_breakdown/worker_io_s': 9.7,
+        },
+    ),
+    (
+        1,
+        {
+            'load_5_inventory/load_requested_gb': 8.8,
+            'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': 7,
+            'load_3_load_breakdown/blocking_s': 12.1,
+            'load_3_load_breakdown/total_s': 13.1,
+            'load_3_load_breakdown/worker_io_s': 9.9,
+        },
+    ),
+]
 
-class ScorecardTest(parameterized.TestCase):
+# 140 GiB on-disk checkpoint — the canary divides per-host read by this.
+_INV = inv_lib.CheckpointInventory(
+    total_bytes=140 * 1024**3,
+    file_count=4096,
+    small_file_count=128,
+    small_file_pct=0.031,
+    largest_file_bytes=64 * 1024**2,
+    smallest_file_bytes=32,
+    format={'ocdbt': 4090, 'metadata': 6},
+)
 
-  def test_headline_save_load_throughput_in_output(self):
-    out = markdown_cards.render_scorecard('llama70b', _AGGS, None, None)
-    self.assertIn('llama70b', out)
-    self.assertIn('Save total throughput', out)
-    self.assertIn('Load throughput', out)
-    self.assertIn('22.4', out)
-    self.assertIn('18.9', out)
 
-  def test_inventory_section_appears_when_provided(self):
+class GlanceCardTest(parameterized.TestCase):
+
+  def test_load_headline_and_breakdown_render(self):
+    out = markdown_cards.render_glance_card(
+        'llama70b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, None
+    )
+    self.assertIn('## llama70b — at a glance', out)
+    self.assertIn('### Load', out)
+    self.assertIn('Bytes read / host', out)
+    self.assertIn('Reads / host', out)
+    self.assertIn('Checkpoint size (on-disk)', out)
+    self.assertIn('#### Load time breakdown', out)
+    self.assertIn('worker I/O', out)
+
+  def test_per_host_table_with_pct_of_checkpoint(self):
+    out = markdown_cards.render_glance_card(
+        'b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, None
+    )
+    self.assertIn('#### Per-host', out)
+    self.assertIn('| 0 |', out)
+    self.assertIn('| 1 |', out)
+    self.assertRegex(out, r'\|\s*reads\s*\|')  # per-host reads column (integer)
+    self.assertIn('% of total', out)
+    self.assertIn('6.2%', out)  # 8.7 / 140 ≈ 6.2%
+
+  def test_sharding_flag_marks_a_slice(self):
+    out = markdown_cards.render_glance_card(
+        'b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, None
+    )
+    self.assertIn('✓ sharded', out)  # 8.75 / 140 = 0.06 <= 0.9
+
+  def test_sharding_flag_warns_on_whole_checkpoint(self):
+    aggs = dict(_LOAD_AGGS)
+    aggs['load_5_inventory/load_requested_gb'] = {
+        'mean': 140.0,
+        'min': 140.0,
+        'max': 140.0,
+    }
+    out = markdown_cards.render_glance_card(
+        'b', aggs, _LOAD_PER_HOST, _INV, None
+    )
+    self.assertIn('the whole checkpoint', out)
+
+  def test_save_section_absent_for_load_only(self):
+    out = markdown_cards.render_glance_card(
+        'b', _LOAD_AGGS, _LOAD_PER_HOST, None, None
+    )
+    self.assertIn('_(no save in this run)_', out)
+
+  def test_inventory_and_manifest_folded_in(self):
     inv = inv_lib.CheckpointInventory(
         total_bytes=140 * 1024**3,
         file_count=4096,
@@ -70,17 +131,6 @@ class ScorecardTest(parameterized.TestCase):
         smallest_file_bytes=32,
         format={'ocdbt': 4090, 'metadata': 6},
     )
-    out = markdown_cards.render_scorecard('llama70b', _AGGS, inv, None)
-    self.assertIn('### Inventory', out)
-    self.assertIn('4,096', out)
-    self.assertIn('3.1%', out)
-    self.assertIn('ocdbt', out)
-
-  def test_inventory_section_omitted_when_none(self):
-    out = markdown_cards.render_scorecard('llama70b', _AGGS, None, None)
-    self.assertNotIn('### Inventory', out)
-
-  def test_manifest_section_appears_when_provided(self):
     m = rm_lib.RunManifest(
         captured_at='2026-05-25T20:00:00+00:00',
         hostname='h',
@@ -96,15 +146,75 @@ class ScorecardTest(parameterized.TestCase):
         xla_flags='',
         libtpu_init_args='',
     )
-    out = markdown_cards.render_scorecard('llama70b', _AGGS, None, m)
+    out = markdown_cards.render_glance_card(
+        'b', _LOAD_AGGS, _LOAD_PER_HOST, inv, m
+    )
+    self.assertIn('### Inventory', out)
+    self.assertIn('4,096', out)
     self.assertIn('## Run manifest', out)
     self.assertIn('abc123', out)
-    self.assertIn('0.10.1', out)
 
-  def test_no_aggregates_renders_skeleton(self):
-    out = markdown_cards.render_scorecard('llama70b', {}, None, None)
-    self.assertIn('llama70b', out)
-    self.assertNotIn('Save throughput', out)
+  def test_save_section_renders_written_bytes(self):
+    save_aggs = {
+        'save_blocking_2_save_breakdown/blocking_s': {
+            'mean': 30.0,
+            'min': 29.0,
+            'max': 31.0,
+        },
+        'save_background_2_save_breakdown/total_async_s': {
+            'mean': 31.0,
+            'min': 31.0,
+            'max': 31.0,
+        },
+        'save_background_5_inventory/save_total_gb': {
+            'mean': 8.75,
+            'min': 8.7,
+            'max': 8.8,
+        },
+        'save_blocking_4_throughput/save_blocking_gbps': {
+            'mean': 4.0,
+            'min': 3.5,
+            'max': 4.6,
+        },
+    }
+    per_host = [
+        (
+            0,
+            {
+                'save_background_5_inventory/save_total_gb': 8.7,
+                'save_blocking_2_save_breakdown/blocking_s': 29.5,
+            },
+        ),
+        (
+            1,
+            {
+                'save_background_5_inventory/save_total_gb': 8.8,
+                'save_blocking_2_save_breakdown/blocking_s': 30.5,
+            },
+        ),
+    ]
+    out = markdown_cards.render_glance_card(
+        'b', save_aggs, per_host, None, None
+    )
+    self.assertIn('### Save', out)
+    self.assertIn('Bytes written / host', out)
+    self.assertIn('_(no load in this run)_', out)
+
+  def test_sub_gib_bytes_are_humanized(self):
+    aggs = {
+        'load_3_load_breakdown/blocking_s': {'mean': 1.0, 'min': 1.0, 'max': 1.0},
+        # 0.5 GiB per host -> should render as MiB, not "0.00 GiB".
+        'load_5_inventory/load_requested_gb': {
+            'mean': 0.5,
+            'min': 0.5,
+            'max': 0.5,
+        },
+        'load_5_inventory/load_total_gb': {'mean': 1.0, 'min': 1.0, 'max': 1.0},
+    }
+    per_host = [(0, {'load_5_inventory/load_requested_gb': 0.5})]
+    out = markdown_cards.render_glance_card('b', aggs, per_host, None, None)
+    self.assertIn('512.00 MiB', out)
+    self.assertNotIn('0.00 GiB', out)
 
 
 class ConfigurationTest(parameterized.TestCase):
