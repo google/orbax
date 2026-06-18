@@ -81,7 +81,7 @@ class PathTraversalRegressionTest(absltest.TestCase):
         mock.patch.object(service, '_ThreadingTCPServer', autospec=True)
     )
     server = mock_server_cls.return_value
-    server.server_address = ('localhost', 12345)
+    server.server_address = ('127.0.0.1', 12345)
     self.enter_context(
         mock.patch.object(service.multihost, 'process_index', return_value=0)
     )
@@ -245,7 +245,7 @@ class P2PNodeTest(absltest.TestCase):
         mock.patch.object(service, '_ThreadingTCPServer', autospec=True)
     )
     self.mock_server = self.mock_server_cls.return_value
-    self.mock_server.server_address = ('localhost', 12345)
+    self.mock_server.server_address = ('127.0.0.1', 12345)
     self.mock_process_index = self.enter_context(
         mock.patch.object(service.multihost, 'process_index', return_value=0)
     )

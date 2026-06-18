@@ -527,7 +527,7 @@ class TestSuiteTest(parameterized.TestCase):
   @mock.patch.object(dist, 'barrier')
   def test_run_with_torch(self, mock_dist_barrier, mock_benchmark_run):
     # Initialize torch.distributed for testing.
-    os.environ.setdefault('MASTER_ADDR', 'localhost')
+    os.environ.setdefault('MASTER_ADDR', '127.0.0.1')
     os.environ.setdefault('MASTER_PORT', '12355')
     dist.init_process_group(backend='gloo', rank=0, world_size=1)
     gen = MyGenerator(
