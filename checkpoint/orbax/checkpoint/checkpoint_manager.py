@@ -389,7 +389,7 @@ class CheckpointManagerOptions:
   todelete_subdir: Optional[str] = None
   todelete_full_path: Optional[str] = None
   enable_background_delete: bool = False
-  num_deletion_threads: int = 1
+  num_deletion_threads: Optional[int] = None
   read_only: bool = False
   enable_async_checkpointing: bool = True
   async_options: Optional[AsyncOptions] = None

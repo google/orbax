@@ -78,6 +78,16 @@ class _ParallelDirectoryDeleter:
     self._active_counter = [0]
     self._active_lock = threading.Lock()
 
+  def __getstate__(self):
+    return {'_num_threads': self._num_threads}
+
+  def __setstate__(self, state):
+    self._num_threads = state['_num_threads']
+    self._ready_queue = queue.Queue()
+    self._scan_done = threading.Event()
+    self._active_counter = [0]
+    self._active_lock = threading.Lock()
+
   def _dfs_scan(self, path: str):
     """Recursively scan path and enqueue files for deletion."""
     try:
@@ -182,7 +192,7 @@ class StandardCheckpointDeleter:
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
       duration_metric: Optional[str] = _STANDARD_DELETE_DURATION,
-      num_threads: int = 1,
+      num_threads: Optional[int] = None,
   ):
     """StandardCheckpointDeleter constructor.
 
@@ -202,6 +212,11 @@ class StandardCheckpointDeleter:
     self._name_format = name_format
     self._duration_metric = duration_metric
     self._num_threads = num_threads
+    if self._num_threads is None:
+      if _is_local_path(self._directory):
+        self._num_threads = min(16, os.cpu_count() // 2)
+      else:
+        self._num_threads = 1
     self._parallel_deleter = None
     if self._num_threads > 1 and _is_local_path(self._directory):
       self._parallel_deleter = _ParallelDirectoryDeleter(self._num_threads)
@@ -375,7 +390,7 @@ class ThreadedCheckpointDeleter:
       primary_host: Optional[int] = 0,
       todelete_subdir: Optional[str] = None,
       todelete_full_path: Optional[str] = None,
-      num_threads: int = 1,
+      num_threads: Optional[int] = None,
   ):
     """ThreadedCheckpointDeleter deletes checkpoints in a background thread."""
     self._standard_deleter = StandardCheckpointDeleter(
@@ -433,7 +448,7 @@ def create_checkpoint_deleter(
     todelete_subdir: Optional[str] = None,
     todelete_full_path: Optional[str] = None,
     enable_background_delete: bool = False,
-    num_threads: int = 1,
+    num_threads: Optional[int] = None,
 ) -> CheckpointDeleter:
   """Creates a CheckpointDeleter."""
 

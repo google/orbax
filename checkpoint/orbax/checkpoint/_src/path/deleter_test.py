@@ -14,6 +14,8 @@
 
 """To test Orbax in single-host setup."""
 
+import os
+from typing import Any
 import unittest
 from unittest import mock
 
@@ -108,6 +110,52 @@ class CheckpointDeleterTest(parameterized.TestCase):
     self.assertTrue(deleter_lib._is_local_path(epath.Path('foo/bar')))
     self.assertFalse(deleter_lib._is_local_path(epath.Path('gs://bucket/foo')))
     self.assertFalse(deleter_lib._is_local_path(epath.Path('s3://bucket/foo')))
+
+  def test_checkpoint_deleter_auto_threads_local(self):
+    expected_threads = min(16, max(1, (os.cpu_count() or 4) // 2))
+    deleter: Any = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=None,
+    )
+    if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
+      num_threads = deleter._num_threads
+    else:
+      num_threads = deleter._standard_deleter._num_threads
+    self.assertEqual(num_threads, expected_threads)
+    if expected_threads > 1:
+      self.assertIsNotNone(
+          deleter._parallel_deleter
+          if hasattr(deleter, '_parallel_deleter')
+          else deleter._standard_deleter._parallel_deleter
+      )
+    else:
+      self.assertIsNone(
+          deleter._parallel_deleter
+          if hasattr(deleter, '_parallel_deleter')
+          else deleter._standard_deleter._parallel_deleter
+      )
+
+  def test_checkpoint_deleter_auto_threads_gcs(self):
+    gcs_dir = epath.Path('gs://my-bucket/checkpoints')
+    deleter: Any = deleter_lib.create_checkpoint_deleter(
+        gcs_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=None,
+    )
+    if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
+      num_threads = deleter._num_threads
+    else:
+      num_threads = deleter._standard_deleter._num_threads
+    self.assertEqual(num_threads, 1)
 
 
 class GcsRenameTest(unittest.TestCase):
