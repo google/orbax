@@ -26,6 +26,72 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 
 
+class DynamicClientResolutionTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.config = server_config.parse_config({
+        "storage_backends": [
+            {
+                "level": 0,
+                "backend_type": "BACKEND_TYPE_LUSTRE",
+                "prefix": "/mnt/lustre-a",
+                "zone": "us-central1-a",
+            },
+            {
+                "level": 1,
+                "backend_type": "BACKEND_TYPE_GCS",
+                "prefix": "gs://my-bucket",
+                "region": "us-central1",
+            },
+        ],
+        "gcp_project": "my-project",
+        "service_account": "my-sa@gcp.com",
+    })
+    # Instantiate with session_maker=None
+    self.worker = job_worker.TieringServiceWorker(
+        session_maker=None, config=self.config
+    )
+
+  def test_resolves_gcs_to_lustre_client(self):
+    gcs_backend = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+    lustre_backend = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+        zone="us-central1-a",
+    )
+    client = self.worker._get_client_for_backends(gcs_backend, lustre_backend)
+    self.assertIsInstance(
+        client, job_worker.gcp_storage_client.GcsToLustreClient
+    )
+    self.assertEqual(client.instance, "lustre-us-central1-a")
+
+  def test_resolves_lustre_to_gcs_client(self):
+    gcs_backend = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+    lustre_backend = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+        zone="us-central1-a",
+    )
+    client = self.worker._get_client_for_backends(lustre_backend, gcs_backend)
+    self.assertIsInstance(
+        client, job_worker.gcp_storage_client.LustreToGcsClient
+    )
+    self.assertEqual(client.instance, "lustre-us-central1-a")
+
+  def test_resolves_gcs_to_gcs_client(self):
+    gcs_backend_1 = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+    gcs_backend_2 = db_schema.StorageBackend(
+        backend_type=db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+    client = self.worker._get_client_for_backends(gcs_backend_1, gcs_backend_2)
+    self.assertIsInstance(client, job_worker.gcp_storage_client.GcsToGcsClient)
+
+
 class TieringServiceWorkerTest(
     absltest.TestCase, unittest.IsolatedAsyncioTestCase
 ):

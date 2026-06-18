@@ -27,6 +27,7 @@ from absl import logging
 from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
 from orbax.checkpoint.experimental.tiering_service import storage_backend
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,7 @@ class TieringServiceWorker:
       self,
       session_maker: sessionmaker | None,
       config: tiering_service_pb2.ServerConfig,
+      gcp_client: gcp_storage_client.GCPStorageClient | None = None,
       *,
       lease_duration_seconds: int = 60,
       poll_interval_seconds: int = 10,
@@ -49,11 +51,13 @@ class TieringServiceWorker:
     Args:
       session_maker: A callable that returns a database session.
       config: The server configuration.
+      gcp_client: Client to interact with GCP Parallelstore.
       lease_duration_seconds: Duration of the lease acquired for jobs.
       poll_interval_seconds: Polling interval for checking job status.
     """
     self._session_maker = session_maker
     self._config = config
+    self._gcp_client = gcp_client
     self._lease_duration = datetime.timedelta(seconds=lease_duration_seconds)
     self._poll_interval = poll_interval_seconds
     self._hostname = socket.gethostname()
@@ -62,6 +66,91 @@ class TieringServiceWorker:
     self._shutdown_event = asyncio.Event()
     self._backends = None
     self._backends_to_try = []
+
+  def _get_client_for_backends(
+      self,
+      source_backend: db_schema.StorageBackend,
+      target_backend: db_schema.StorageBackend,
+  ) -> gcp_storage_client.GCPStorageClient:
+    """Returns the appropriate GCP client for the given transfer backends."""
+    if self._gcp_client is not None:
+      return self._gcp_client
+
+    project = self._config.gcp_project or None
+    service_account = self._config.service_account or None
+
+    # Determine if Lustre import/export or GCS-to-GCS copy.
+    # If source is GCS and target is Lustre -> Import
+    # If source is Lustre and target is GCS -> Export
+    # If both source  and target are GCS -> GCS-to-GCS copy
+    #
+    # TODO(dnlng): Support Lustre-to-Lustre copy.
+
+    if (
+        source_backend.backend_type == db_schema.BackendType.BACKEND_TYPE_GCS
+        and target_backend.backend_type
+        == db_schema.BackendType.BACKEND_TYPE_GCS
+    ):
+      return gcp_storage_client.GcsToGcsClient(
+          project=project, service_account=service_account
+      )
+
+    if (
+        source_backend.backend_type == db_schema.BackendType.BACKEND_TYPE_LUSTRE
+        and target_backend.backend_type
+        == db_schema.BackendType.BACKEND_TYPE_GCS
+    ):
+      location = source_backend.zone
+      instance = f"lustre-{location}"
+      return gcp_storage_client.LustreToGcsClient(
+          instance=instance,
+          location=location,
+          project=project,
+          service_account=service_account,
+      )
+
+    if (
+        source_backend.backend_type == db_schema.BackendType.BACKEND_TYPE_GCS
+        and target_backend.backend_type
+        == db_schema.BackendType.BACKEND_TYPE_LUSTRE
+    ):
+      location = target_backend.zone
+      instance = f"lustre-{location}"
+      return gcp_storage_client.GcsToLustreClient(
+          instance=instance,
+          location=location,
+          project=project,
+          service_account=service_account,
+      )
+
+    raise ValueError(
+        f"Unsupported backend pair: {source_backend.backend_type} and"
+        f" {target_backend.backend_type}"
+    )
+
+  def _get_client_for_job(
+      self, job: db_schema.AssetJob
+  ) -> gcp_storage_client.GCPStorageClient:
+    """Returns the client for the given job."""
+    if self._gcp_client is not None:
+      return self._gcp_client
+
+    target_tp = job.target_tier_path
+    asset = job.asset
+    source_tp = None
+    for tp in asset.tier_paths:
+      if tp.id != target_tp.id:
+        source_tp = tp
+        break
+
+    if not source_tp or not target_tp:
+      raise ValueError(
+          f"Could not resolve source and target backends for job {job.id}"
+      )
+
+    return self._get_client_for_backends(
+        source_tp.storage_backend, target_tp.storage_backend
+    )
 
   async def start(self):
     """Starts the background worker loops."""
