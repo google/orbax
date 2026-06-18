@@ -285,8 +285,8 @@ The canonical generator: saves the pytree then restores it, measuring
 | `checkpoint_config` / `checkpoint_configs` | no | one empty config | Checkpoint(s) to save/load. Plural ⇒ swept. |
 | `mesh_config` / `mesh_configs` | no | none | Device mesh(es). Plural ⇒ swept. Omitted ⇒ `context.mesh` is `None`. |
 | `benchmarks` | yes | — | List of `{generator, options}` entries. |
-| `baseline_capture_path` | no | none | Write captured baseline JSON here (overridden by `--baseline_capture_path`). |
-| `baseline_path` | no | none | Compare against this stored baseline (overridden by `--baseline_path`). |
+| `baseline_capture_path` | no | none | Write captured baseline JSON here. |
+| `baseline_path` | no | none | Compare against this stored baseline. |
 
 ### `benchmarks`
 
@@ -345,8 +345,6 @@ python checkpoint/orbax/checkpoint/_src/testing/benchmarks/run_benchmarks.py \
 | `--local_directory` | no | Local scratch directory (some checkpoint-manager benchmarks). |
 | `--enable_hlo_dump` | no | Dump XLA HLO protos to `<output_directory>/hlo_dump/`. |
 | `--remove_repeated_dir` | no | Delete the generated `repeat_*` directories after the run. |
-| `--baseline_capture_path` | no | Write each benchmark's baseline JSON (cross-host aggregated) here. |
-| `--baseline_path` | no | Compare against the stored baseline and log the per-metric delta. |
 
 The runner enables `jax_enable_x64`. On a single process it runs locally; on
 CPU, simulate devices with
@@ -486,11 +484,13 @@ checkpoint directories.
 
 ### 🆚 Baselines (capture / compare)
 
-```bash
+Set these in the config (suite level), not via flags:
+
+```yaml
 # Capture on the baseline revision (writes cross-host aggregates as <git_sha>.json):
-... --baseline_capture_path=gs://bucket/baselines/my_suite/
-# Compare a later revision (logs a per-metric delta):
-... --baseline_path=gs://bucket/baselines/my_suite/<git_sha>.json
+baseline_capture_path: gs://bucket/baselines/my_suite/
+# Compare a later revision (logs a per-metric delta): set this instead:
+baseline_path: gs://bucket/baselines/my_suite/<git_sha>.json
 ```
 
 If no git sha resolves, the baseline is written as `unknown.json`.
@@ -552,14 +552,15 @@ benchmarks:
 
 ### D — Capture a baseline, then compare
 
+Set the baseline path in the config (`baseline_capture_path` to capture,
+`baseline_path` to compare), then run the same command on each revision:
+
 ```bash
 RB=checkpoint/orbax/checkpoint/_src/testing/benchmarks/run_benchmarks.py
-# baseline revision:
-python $RB --config_file=sweep.yaml --output_directory=/tmp/baseline/ \
-    --baseline_capture_path=gs://my-bucket/baselines/sweep/
-# candidate revision:
-python $RB --config_file=sweep.yaml --output_directory=/tmp/candidate/ \
-    --baseline_path=gs://my-bucket/baselines/sweep/<git_sha>.json
+# baseline revision (sweep.yaml has `baseline_capture_path: gs://my-bucket/baselines/sweep/`):
+python $RB --config_file=sweep.yaml --output_directory=/tmp/baseline/
+# candidate revision (sweep.yaml has `baseline_path: gs://my-bucket/baselines/sweep/<git_sha>.json`):
+python $RB --config_file=sweep.yaml --output_directory=/tmp/candidate/
 ```
 
 ---
@@ -575,7 +576,7 @@ python $RB --config_file=sweep.yaml --output_directory=/tmp/candidate/ \
 ```
 
 Metrics are also printed to the logs as a per-process report after each
-benchmark, and (with `--baseline_path`) as a per-metric delta table.
+benchmark, and (when `baseline_path` is set) as a per-metric delta table.
 
 ---
 
@@ -583,7 +584,7 @@ benchmark, and (with `--baseline_path`) as a per-metric delta table.
 
 ```none
 RUN          python checkpoint/orbax/checkpoint/_src/testing/benchmarks/run_benchmarks.py \
-               --config_file=cfg.yaml --output_directory=/tmp/out/ [--baseline_capture_path=… | --baseline_path=…]
+               --config_file=cfg.yaml --output_directory=/tmp/out/
 
 MEASURE      with metrics.measure("op"):  <code>        # captures the whole suite; blocks nest
              return TestResult(metrics=metrics)

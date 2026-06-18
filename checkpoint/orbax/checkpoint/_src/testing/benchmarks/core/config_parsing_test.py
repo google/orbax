@@ -377,15 +377,16 @@ benchmarks:
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   @mock.patch.object(config_parsing, '_import_class', autospec=True)
-  def test_baseline_flags_set_on_suite(self, mock_import, mock_load):
-    mock_load.return_value = yaml.safe_load(self._get_valid_yaml_content())
+  def test_baseline_paths_from_config_set_on_suite(
+      self, mock_import, mock_load
+  ):
+    config = yaml.safe_load(self._get_valid_yaml_content())
+    config['baseline_capture_path'] = '/tmp/caps'
+    config['baseline_path'] = '/tmp/base.json'
+    mock_load.return_value = config
     mock_import.return_value = MockGenerator
 
-    test_suite = config_parsing.create_test_suite_from_config(
-        'fake.yaml',
-        baseline_capture_path='/tmp/caps',
-        baseline_path='/tmp/base.json',
-    )
+    test_suite = config_parsing.create_test_suite_from_config('fake.yaml')
 
     self.assertEqual(test_suite._baseline_capture_path, '/tmp/caps')
     self.assertEqual(test_suite._baseline_path, '/tmp/base.json')
@@ -402,23 +403,15 @@ benchmarks:
     self.assertIsNone(test_suite._baseline_path)
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
-  @mock.patch.object(config_parsing, '_import_class', autospec=True)
-  def test_baseline_from_yaml_with_flag_override(self, mock_import, mock_load):
+  def test_mutually_exclusive_digest_paths_raises(self, mock_load):
     config = yaml.safe_load(self._get_valid_yaml_content())
-    config['baseline_capture_path'] = '/yaml/caps'
-    config['baseline_path'] = '/yaml/base.json'
+    config['benchmarks'][0]['options'] = {
+        'capture_digests_path': '/d',
+        'reference_digests_path': '/d',
+    }
     mock_load.return_value = config
-    mock_import.return_value = MockGenerator
-
-    suite = config_parsing.create_test_suite_from_config('fake.yaml')
-    self.assertEqual(suite._baseline_capture_path, '/yaml/caps')
-    self.assertEqual(suite._baseline_path, '/yaml/base.json')
-
-    suite = config_parsing.create_test_suite_from_config(
-        'fake.yaml', baseline_capture_path='/flag/caps'
-    )
-    self.assertEqual(suite._baseline_capture_path, '/flag/caps')
-    self.assertEqual(suite._baseline_path, '/yaml/base.json')
+    with self.assertRaisesRegex(ValueError, 'mutually exclusive'):
+      config_parsing.load_config('fake.yaml')
 
   @mock.patch.object(config_parsing, '_load_yaml_config', autospec=True)
   @mock.patch.object(config_parsing, '_import_class', autospec=True)

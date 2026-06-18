@@ -425,7 +425,10 @@ class MetricsManager:
       aggregates = self._gather_cross_host_aggregates(benchmark_name)
       if aggregates:
         self._cross_host_aggregates[benchmark_name] = aggregates
-        self._write_summary_cards(benchmark_name, results, aggregates)
+        per_host_values = self._gather_per_host_values(benchmark_name)
+        self._write_summary_cards(
+            benchmark_name, results, aggregates, per_host_values
+        )
     # Final barrier so non-primaries don't exit while the primary writes —
     # otherwise the coordinator marks them gone and the shutdown barrier fails.
     multihost.sync_global_processes(f"metrics:summary-done:{benchmark_name}")
@@ -509,6 +512,34 @@ class MetricsManager:
           matrix[i, j] = d[key]
     return _summary_aggregates(matrix, union_keys)
 
+  def _gather_per_host_values(
+      self, benchmark_name: str
+  ) -> list[tuple[int, dict[str, float]]]:
+    """Reads each host's means sidecar as (host_index, metric->mean) pairs.
+
+    Mirrors `_gather_cross_host_aggregates`' read but keeps the per-host values
+    for the at-a-glance card instead of collapsing them across hosts.
+
+    Args:
+      benchmark_name: The benchmark whose sidecars are read.
+
+    Returns:
+      (host_index, metric->mean) per host, sorted by host index.
+    """
+    out: list[tuple[int, dict[str, float]]] = []
+    for host_dir in sorted(self._sidecar_gather_root(benchmark_name).iterdir()):
+      sidecar = host_dir / "_per_host_means.json"
+      if not (host_dir.name.startswith("host_") and sidecar.exists()):
+        continue
+      try:
+        idx = int(host_dir.name.split("_", 1)[1])
+      except ValueError:
+        continue
+      data = json.loads(sidecar.read_text())
+      out.append((idx, dict(zip(data["keys"], data["means"]))))
+    out.sort(key=lambda item: item[0])
+    return out
+
   def _write_config_and_hparams(self, writer: Any, benchmark_name: str) -> None:
     """Writes the configuration text card and HParams for a benchmark.
 
@@ -540,6 +571,7 @@ class MetricsManager:
       benchmark_name: str,
       results: list[tuple[metric_lib.Metrics, Exception | None]],
       aggregates: BenchmarkSummary,
+      per_host_values: list[tuple[int, dict[str, float]]],
   ) -> None:
     """Writes the __summary__ run: aggregate scalars, text cards, and HParams.
 
@@ -550,6 +582,7 @@ class MetricsManager:
       benchmark_name: The benchmark being summarized.
       results: The (Metrics, error) tuples for that benchmark.
       aggregates: Cross-host aggregate stats per metric key.
+      per_host_values: (host_index, metric->mean) per host for the glance card.
     """
     assert self._tensorboard_dir is not None
     if self._enable_per_host_metrics:
@@ -571,9 +604,10 @@ class MetricsManager:
       writer.write_texts(
           step=0,
           texts={
-              "scorecard": markdown_cards.render_scorecard(
+              "at_a_glance": markdown_cards.render_glance_card(
                   benchmark_name,
                   aggregates,
+                  per_host_values,
                   self._inventories.get(benchmark_name),
                   self._suite_run_manifest,
               )

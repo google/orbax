@@ -1,0 +1,22 @@
+# Native-Orbax load benchmark — Llama 3.1 8B (tier 1: ~16 GB bf16, fsdp=4,
+# v5p-8). Reads the published GCS checkpoint + sharding config; no fixture.
+#
+# Run: python -m orbax.checkpoint._src.testing.benchmarks.run_benchmarks \
+#        --config_file=<this file> --output_directory=<out>   # TB: <out>/tensorboard
+# A/B: add baseline_capture_path + options.capture_digests_path (capture), or
+#      baseline_path + options.reference_digests_path (compare).
+
+suite_name: "orbax_load_llama3-8b"
+num_repeats: 1
+
+mesh_config:
+  mesh_axes: ["data", "fsdp", "tensor"]
+  # Must match the topology encoded in sharding_config_path.
+  ici_parallelism: {"data": 1, "fsdp": 4, "tensor": 1}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.orbax_load.load_benchmark.OrbaxLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/checkpoints/v1/llama-3.1-8B-checkpoints/0/items"
+      sharding_config_path: "gs://orbax-benchmarks/sharding-configs/llama3.1-8b-v5p-8-data-1-fsdp-4-tensor-1/abstract_state.json"
+      enable_trace: true
