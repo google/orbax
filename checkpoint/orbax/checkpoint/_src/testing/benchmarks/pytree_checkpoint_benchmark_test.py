@@ -84,6 +84,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       use_replica_parallel=(True,),
       enable_replica_parallel_separate_folder=(False,),
       use_colocated_python=(False,),
+      enable_pinned_host_transfer=(False, True),
   )
   def test_benchmark_test_fn(
       self,
@@ -96,6 +97,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
       use_replica_parallel,
       enable_replica_parallel_separate_folder,
       use_colocated_python,
+      enable_pinned_host_transfer,
   ):
     generator = PyTreeCheckpointBenchmark(
         checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
@@ -119,6 +121,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         use_replica_parallel=use_replica_parallel,
         enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
         use_colocated_python=use_colocated_python,
+        enable_pinned_host_transfer=enable_pinned_host_transfer,
     )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
@@ -133,6 +136,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        enable_pinned_host_transfer=enable_pinned_host_transfer,
         is_prioritized_key_fn=mock.ANY,
     )
     self.mock_checkpointer.assert_called_once_with(

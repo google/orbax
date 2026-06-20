@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, Sequence, Set, Tuple, TypeAlias, Union, 
 import warnings
 
 from absl import logging
+from etils import epath
 import humanize
 import jax
 import jax.numpy as jnp
@@ -236,6 +237,137 @@ def _get_replica_slices(
   ]
 
 
+def _record_logical_metrics(
+    direction: types.IoDirection,
+    logical_bytes: int,
+    duration: float,
+    storage_type: str,
+):
+  """Records logical bytes, throughput, and duration to JAX monitoring."""
+  logical_throughput = logical_bytes / duration if duration > 0 else 0
+
+  logging.info(
+      '[process=%d] %s throughput: %s/s (total gbytes: %s) (time elapsed: %s s)'
+      ' (per-host)',
+      multihost.process_index(),
+      f'/jax/orbax/{direction.value}/worker/io/requested',
+      humanize.naturalsize(logical_throughput, binary=True, format='%.3f'),
+      humanize.naturalsize(logical_bytes, binary=True),
+      duration,
+  )
+
+  jax.monitoring.record_event_duration_secs(
+      f'/jax/orbax/{direction.value}/worker/total_duration_secs',
+      duration,
+      storage_type=storage_type,
+  )
+
+  jax.monitoring.record_scalar(
+      f'/jax/orbax/{direction.value}/worker/io/requested/gbytes',
+      logical_bytes / (1024**3),
+      storage_type=storage_type,
+  )
+  jax.monitoring.record_scalar(
+      f'/jax/orbax/{direction.value}/worker/io/requested/throughput/gbytes_per_sec',
+      logical_throughput / (1024**3),
+      storage_type=storage_type,
+  )
+
+
+def _record_raw_metrics(
+    direction: types.IoDirection,
+    logical_bytes: int,
+    duration: float,
+    storage_type: str,
+    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+):
+  """Records raw metrics collected from TensorStore."""
+  if initial_ts_metrics is None:
+    return
+
+  try:
+    final_ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
+  except Exception:  # pylint: disable=broad-except
+    final_ts_metrics = None
+
+  if final_ts_metrics is None:
+    return
+
+  initial_bytes = ts_utils.get_total_bytes_from_tensorstore(
+      initial_ts_metrics, direction
+  )
+  final_bytes = ts_utils.get_total_bytes_from_tensorstore(
+      final_ts_metrics, direction
+  )
+  raw_bytes = final_bytes - initial_bytes
+
+  if raw_bytes <= 0:
+    return
+
+  raw_throughput = raw_bytes / duration if duration > 0 else 0
+  logging.info(
+      '[process=%d] Raw %s throughput: %s/s (total gbytes: %s) (time elapsed:'
+      ' %s s) (per-host)',
+      multihost.process_index(),
+      f'/jax/orbax/{direction.value}/worker/io/raw',
+      humanize.naturalsize(raw_throughput, binary=True, format='%.3f'),
+      humanize.naturalsize(raw_bytes, binary=True),
+      duration,
+  )
+  jax.monitoring.record_scalar(
+      f'/jax/orbax/{direction.value}/worker/io/raw/gbytes',
+      raw_bytes / (1024**3),
+      storage_type=storage_type,
+  )
+  jax.monitoring.record_scalar(
+      f'/jax/orbax/{direction.value}/worker/io/raw/throughput/gbytes_per_sec',
+      raw_throughput / (1024**3),
+      storage_type=storage_type,
+  )
+
+  if logical_bytes > 0:
+    ratio = float(raw_bytes) / logical_bytes
+    logging.info(
+        '[process=%d] %s ratio (raw/logical): %.3f (%s / %s)',
+        multihost.process_index(),
+        direction.value.capitalize(),
+        ratio,
+        humanize.naturalsize(raw_bytes, binary=True),
+        humanize.naturalsize(logical_bytes, binary=True),
+    )
+    jax.monitoring.record_scalar(
+        f'/jax/orbax/{direction.value}/worker/io/compression_ratio',
+        ratio,
+        storage_type=storage_type,
+    )
+
+
+def _log_io_metrics(
+    direction: types.IoDirection,
+    logical_bytes: int,
+    start_time: float,
+    parent_dir: epath.Path,
+    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+):
+  """Logs and records IO telemetry metrics for array serialization/deserialization."""
+  duration = time.time() - start_time
+  storage_type = path_utils.get_storage_type(parent_dir)
+
+  _record_logical_metrics(
+      direction,
+      logical_bytes,
+      duration,
+      storage_type,
+  )
+  _record_raw_metrics(
+      direction,
+      logical_bytes,
+      duration,
+      storage_type,
+      initial_ts_metrics=initial_ts_metrics,
+  )
+
+
 def _worker_serialize_arrays(
     arrays: Sequence[jax.Array],
     infos: Sequence[types.ParamInfo],
@@ -251,6 +383,13 @@ def _worker_serialize_arrays(
     ext_metadata: Dict[str, Any],
 ):
   """Worker function to serialize arrays."""
+  try:
+    initial_ts_metrics = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+  except Exception:  # pylint: disable=broad-except
+    initial_ts_metrics = None
+  total_start_time = time.time()
   rslices_per_array = _get_replica_slices(
       arrays,
       replica_id,
@@ -272,6 +411,15 @@ def _worker_serialize_arrays(
           ext_metadata=ext_metadata,
       )
   )
+  if infos:
+    total_io_bytes = sum(v.nbytes for v in rslices_per_array)
+    _log_io_metrics(
+        direction=types.IoDirection.WRITE,
+        logical_bytes=total_io_bytes,
+        start_time=total_start_time,
+        parent_dir=infos[0].parent_dir,
+        initial_ts_metrics=initial_ts_metrics,
+    )
 
 
 def _get_deprioritized_batches_to_serialize(
@@ -380,7 +528,19 @@ def _serialize_arrays_batches_without_dispatcher(
     )
 
   async def _serialize_without_dispatcher():
+    if not prioritized and not deprioritized:
+      return
+    try:
+      initial_ts_metrics = ts.experimental_collect_matching_metrics(
+          '/tensorstore/'
+      )
+    except Exception:  # pylint: disable=broad-except
+      initial_ts_metrics = None
+    total_start_time = time.time()
+    total_io_bytes = 0
+
     if prioritized_values_on_host:
+      total_io_bytes += sum(v.nbytes for v in prioritized_values_on_host)
       await async_serialize_replica_slices_batch(
           prioritized_values_on_host,
           prioritized_infos,
@@ -404,12 +564,22 @@ def _serialize_arrays_batches_without_dispatcher(
       ):
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
         _on_batch_callback(b_infos, callback.on_transfer_end)
+        total_io_bytes += sum(v.nbytes for v in b_arrays_on_host)
         await async_serialize_replica_slices_batch(
             b_arrays_on_host,
             b_infos,
             b_args,
         )
         _on_batch_callback(b_infos, callback.on_write_end)
+
+    info_sample = prioritized[0][1] if prioritized else deprioritized[0][1]
+    _log_io_metrics(
+        direction=types.IoDirection.WRITE,
+        logical_bytes=total_io_bytes,
+        start_time=total_start_time,
+        parent_dir=info_sample.parent_dir,
+        initial_ts_metrics=initial_ts_metrics,
+    )
 
   return future.CommitFutureAwaitingContractedSignals(
       _serialize_without_dispatcher(),
@@ -787,6 +957,12 @@ async def _deserialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
+  try:
+    initial_ts_metrics = ts.experimental_collect_matching_metrics(
+        '/tensorstore/'
+    )
+  except Exception:  # pylint: disable=broad-except
+    initial_ts_metrics = None
   total_start_time = time.time()
 
   async def _async_deserialize(
@@ -884,41 +1060,14 @@ async def _deserialize_arrays(
         metadata_key=metadata_key,
     )
 
-  total_duration = time.time() - total_start_time
-  io_throughput = total_io_bytes / total_duration if total_duration > 0 else 0
-
-  storage_type = path_utils.get_storage_type(infos[0].parent_dir)
-
-  logging.info(
-      '[process=%d] %s throughput: %s/s (total gbytes: %s) (time elapsed: %s s)'
-      ' (per-host)',
-      multihost.process_index(),
-      '/jax/orbax/read/worker/io/requested',
-      humanize.naturalsize(io_throughput, binary=True, format='%.3f'),
-      humanize.naturalsize(total_io_bytes, binary=True),
-      total_duration,
-  )
-
-  # Record total duration of the read operation.  Note that for McJAX, it
-  # includes IO time and H2D transfer time.  For Pathways Remote Python,
-  # it includes only IO time.
-  jax.monitoring.record_event_duration_secs(
-      '/jax/orbax/read/worker/total_duration_secs',
-      total_duration,
-      storage_type=storage_type,
-  )
-
-  # record total bytes requested to be read from IO
-  jax.monitoring.record_scalar(
-      '/jax/orbax/read/worker/io/requested/gbytes',
-      total_io_bytes / (1024**3),
-      storage_type=storage_type,
-  )
-  jax.monitoring.record_scalar(
-      '/jax/orbax/read/worker/io/requested/throughput/gbytes_per_sec',
-      io_throughput / (1024**3),
-      storage_type=storage_type,
-  )
+  if infos:
+    _log_io_metrics(
+        direction=types.IoDirection.READ,
+        logical_bytes=total_io_bytes,
+        start_time=total_start_time,
+        parent_dir=infos[0].parent_dir,
+        initial_ts_metrics=initial_ts_metrics,
+    )
   return ret
 
 

@@ -64,6 +64,11 @@ class TransferPriority(enum.Enum):
   UNKNOWN = 3
 
 
+class IoDirection(enum.Enum):
+  READ = 'read'
+  WRITE = 'write'
+
+
 class SerializationStatusCallback(Protocol):
   """Callback for tracking serialization status of PyTree parameters.
 

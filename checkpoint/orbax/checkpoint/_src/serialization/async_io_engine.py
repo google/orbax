@@ -50,6 +50,7 @@ import jax
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import memory_regulator
+from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
@@ -88,19 +89,6 @@ def get_batch_memory_size(
   return sum(write_sizes), sum(read_sizes)
 
 
-def _get_total_bytes_written_from_tensorstore(
-    metrics: Sequence[dict[str, Any]],
-) -> int:
-  total = 0
-  for m in metrics:
-    if m['name'].startswith('/tensorstore/kvstore/') and m['name'].endswith(
-        '/bytes_written'
-    ):
-      for val in m['values']:
-        total += val['value']
-  return total
-
-
 def log_io_metrics(
     size: int,
     start_time: float,
@@ -130,10 +118,12 @@ def log_io_metrics(
     jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
   if initial_ts_metrics is not None:
     final_ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
-    initial_bytes = _get_total_bytes_written_from_tensorstore(
-        initial_ts_metrics
+    initial_bytes = ts_utils.get_total_bytes_from_tensorstore(
+        initial_ts_metrics, types.IoDirection.WRITE
     )
-    final_bytes = _get_total_bytes_written_from_tensorstore(final_ts_metrics)
+    final_bytes = ts_utils.get_total_bytes_from_tensorstore(
+        final_ts_metrics, types.IoDirection.WRITE
+    )
     compressed_bytes = final_bytes - initial_bytes
 
     if compressed_bytes > 0 and size > 0:
