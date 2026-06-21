@@ -14,6 +14,8 @@
 
 """Futures that can be used for signaling for synchronization."""
 
+import asyncio
+import concurrent.futures
 import threading
 import time
 from typing import Any, Callable, Coroutine, Optional, Sequence
@@ -24,6 +26,7 @@ from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.multihost import multihost
 from typing_extensions import Protocol
+
 
 PyTree = Any
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
@@ -174,12 +177,19 @@ class Future(Protocol):
     """Waits for the future to complete its operation."""
     ...
 
+  def cancel(self) -> None:
+    """Cancels the future execution."""
+    pass
+
 
 class NoopFuture:
 
   def result(self, timeout: Optional[float] = None) -> Any:
     del timeout
     return None
+
+  def cancel(self) -> None:
+    pass
 
 
 class ChainedFuture:
@@ -210,6 +220,12 @@ class ChainedFuture:
         time_elapsed,
     )
     self._cb()
+
+  def cancel(self) -> None:
+    """Cancels all chained futures."""
+    for f in self._futures:
+      if hasattr(f, 'cancel'):
+        f.cancel()
 
 
 def get_remaining_time(
@@ -282,7 +298,7 @@ class _SignalingThread(threading.Thread):
   target function has completed with the same operation id.
   """
 
-  _exception: Optional[Exception] = None
+  _exception: Optional[BaseException] = None
 
   def __init__(
       self,
@@ -313,6 +329,7 @@ class _SignalingThread(threading.Thread):
           f'Timeout must be positive, but got {timeout_secs} seconds.'
       )
     self._result = None
+    self._cancelled = False
 
     def _target_setting_result():
       self._result = target()
@@ -352,19 +369,40 @@ class _SignalingThread(threading.Thread):
   def run(self):
     """Runs the target function after waiting for signals."""
     try:
+      if self._cancelled:
+        return
       self._wait_for_signals()
+      if self._cancelled:
+        return
       super().run()
       self._set_signals()
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception(
-          '[process=%d][thread=%s][operation_id=%s] _SignalingThread.run()'
-          ' raised an exception: %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          self._operation_id,
-          e,
-      )
-      self._exception = e
+    except BaseException as e:  # pylint: disable=broad-exception-caught
+      if self._cancelled or isinstance(
+          e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+      ):
+        self._exception = concurrent.futures.CancelledError()
+        self._set_signals()
+      else:
+        logging.exception(
+            '[process=%d][thread=%s][operation_id=%s] _SignalingThread.run()'
+            ' raised an exception: %s',
+            multihost.process_index(),
+            threading.current_thread().name,
+            self._operation_id,
+            e,
+        )
+        self._exception = e
+
+  def cancel(self):
+    """Cancels the thread's background execution."""
+    self._cancelled = True
+    if (
+        hasattr(self, 'loop')
+        and self.loop is not None
+        and hasattr(self, 'main_task')
+        and self.main_task is not None
+    ):
+      self.loop.call_soon_threadsafe(self.main_task.cancel)
 
   def join(self, timeout: Optional[float] = None):
     """Waits for the target function to complete."""
@@ -379,10 +417,25 @@ class _SignalingThread(threading.Thread):
           self._operation_id,
           self._receive_signals,
       )
-    super().join(timeout=timeout)
+    start_time = time.time()
+    while self.is_alive():
+      if getattr(self, '_cancelled', False):
+        raise concurrent.futures.CancelledError()
+      if timeout is not None:
+        elapsed = time.time() - start_time
+        if elapsed >= timeout:
+          break
+        poll_timeout = min(0.1, timeout - elapsed)
+      else:
+        poll_timeout = 0.1
+      super().join(timeout=poll_timeout)
+
+    if getattr(self, '_cancelled', False) or isinstance(
+        self._exception, concurrent.futures.CancelledError
+    ):
+      raise concurrent.futures.CancelledError()
     if self.is_alive():
       raise TimeoutError(
-          f'Thread {self.name} did not complete within {timeout} seconds.'
       )
     if self._exception is not None:
       raise self._exception
@@ -427,6 +480,8 @@ class CommitFuture(Future):
     super().__init__()
     send_signals = send_signals or []
     receive_signals = receive_signals or []
+    self.name = name
+
     self._t = _SignalingThread(
         send_signals=send_signals,
         receive_signals=receive_signals,
@@ -440,6 +495,15 @@ class CommitFuture(Future):
   def result(self, timeout: Optional[float] = None) -> Any:
     """Waits for the commit to complete."""
     return self._t.result(timeout=timeout)
+
+  def cancel(self) -> None:
+    """Cancels the execution."""
+    logging.info(
+        '[process=%s][thread=%s] CommitFuture.cancel() called.',
+        multihost.process_index(),
+        self.name,
+    )
+    self._t.cancel()
 
 
 class CommitFutureAwaitingContractedSignals(Future):
@@ -504,3 +568,6 @@ class CommitFutureAwaitingContractedSignals(Future):
 
   def result(self, timeout: Optional[float] = None) -> Any:
     return self._f.result(timeout=timeout)
+
+  def cancel(self) -> None:
+    self._f.cancel()

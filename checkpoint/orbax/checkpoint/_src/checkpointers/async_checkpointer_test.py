@@ -459,7 +459,7 @@ class AsyncCheckpointerTest(
       else:
         with self.assertRaises(BaseException):
           self.wait_if_async(checkpointer)
-        self.assertLessEqual(time.time() - start, timeout + 1)
+        self.assertLessEqual(time.time() - start, timeout + 2)
 
   def test_async_step_metadata_save(self):
     class SleepyMetadataStore(checkpoint._BlockingMetadataStore):

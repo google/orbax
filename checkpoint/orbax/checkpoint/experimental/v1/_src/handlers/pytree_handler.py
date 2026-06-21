@@ -238,9 +238,30 @@ async def _async_futures(
       raise TimeoutError('Overall save timeout exceeded.')
     return f.result(timeout=timeout)
 
-  await asyncio.gather(
-      *[asyncio.to_thread(_wait_with_timeout, f) for f in commit_futures]
-  )
+  try:
+    await asyncio.gather(
+        *[asyncio.to_thread(_wait_with_timeout, f) for f in commit_futures]
+    )
+  except BaseException as e:
+    import asyncio as _asyncio  # pylint: disable=g-import-not-at-top,reimported
+    import concurrent.futures as _futures  # pylint: disable=g-import-not-at-top,reimported
+
+    if isinstance(e, (_futures.CancelledError, _asyncio.CancelledError)):
+      logging.info(
+          '[process=%s] PyTreeHandler._async_futures was safely cancelled.',
+          jax.process_index(),
+      )
+      for f in commit_futures:
+        if hasattr(f, 'cancel'):
+          try:
+            f.cancel()
+          except Exception as inner_e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                'Error cancelling future in PyTreeHandler._async_futures: %s',
+                inner_e,
+            )
+      raise
+    raise
 
 
 @typing.final
@@ -416,11 +437,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     # Needed to differentiate between different handlers when we have multiple
     # PyTreeHandlers performing a save.
     operation_id = f'{operation_id}.{directory.path.name}'
-    return self._background_save(
-        directory,
-        commit_futures=commit_futures,
-        operation_id=operation_id,
-        start_time=start_time,
+    return serialization_types.FuturesAwaitable(
+        commit_futures,
+        lambda: self._background_save(
+            directory,
+            commit_futures=commit_futures,
+            operation_id=operation_id,
+            start_time=start_time,
+        ),
     )
 
   async def _background_load(

@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Sequence
 from typing import Any
 
 from absl import logging
+import jax
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -33,9 +34,7 @@ import tensorstore as ts
 
 AbstractString = types.AbstractString
 StringSerializationParam = types.SerializationParam[str]
-StringDeserializationParam = types.DeserializationParam[
-    AbstractString
-]
+StringDeserializationParam = types.DeserializationParam[AbstractString]
 
 
 class StringLeafHandler(types.LeafHandler[str, AbstractString]):
@@ -84,25 +83,41 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
     ):
       return
 
-    parent_dir = await serialization_context.parent_dir.await_creation()
-    txn = ts.Transaction()
-    open_coros = []
-    for param in params:
-      tspec = self._get_json_tspec(param.name, parent_dir)
-      open_coros.append(
-          ts.open(
-              tspec,
-              open=True,
-              context=serialization_context.ts_context,
-          )
-      )
-    tensorstores = await asyncio.gather(*open_coros)
+    async def _run_serialization():
+      parent_dir = await serialization_context.parent_dir.await_creation()
+      txn = ts.Transaction()
+      open_coros = []
+      for param in params:
+        tspec = self._get_json_tspec(param.name, parent_dir)
+        open_coros.append(
+            ts.open(
+                tspec,
+                open=True,
+                context=serialization_context.ts_context,
+            )
+        )
+      tensorstores = await asyncio.gather(*open_coros)
 
-    write_coros = []
-    for t, param in zip(tensorstores, params):
-      write_coros.append(t.with_transaction(txn).write(param.value))  # pytype: disable=attribute-error
-    await asyncio.gather(*write_coros)
-    await txn.commit_async()
+      write_coros = []
+      for t, param in zip(tensorstores, params):
+        write_coros.append(t.with_transaction(txn).write(param.value))  # pytype: disable=attribute-error
+      await asyncio.gather(*write_coros)
+      await txn.commit_async()
+
+    try:
+      await _run_serialization()
+    except BaseException as e:
+      import asyncio as _asyncio  # pylint: disable=g-import-not-at-top,reimported
+      import concurrent.futures as _futures  # pylint: disable=g-import-not-at-top,reimported
+
+      if isinstance(e, (_futures.CancelledError, _asyncio.CancelledError)):
+        logging.info(
+            '[process=%s] StringLeafHandler._background_serialize was safely'
+            ' cancelled.',
+            jax.process_index(),
+        )
+        return
+      raise
 
   async def serialize(
       self,
