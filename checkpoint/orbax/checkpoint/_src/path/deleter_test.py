@@ -39,9 +39,7 @@ class CheckpointDeleterTest(parameterized.TestCase):
       threaded=(False, True),
       todelete_subdir=(None, 'some_delete_dir'),
   )
-  def test_checkpoint_deleter_delete(
-      self, threaded, todelete_subdir
-  ):
+  def test_checkpoint_deleter_delete(self, threaded, todelete_subdir):
     """Test regular CheckpointDeleter."""
     deleter = deleter_lib.create_checkpoint_deleter(
         self.ckpt_dir,
@@ -158,6 +156,30 @@ class CheckpointDeleterTest(parameterized.TestCase):
     self.assertEqual(num_threads, 1)
 
 
+
+class ThreadedCheckpointDeleterExceptionTest(parameterized.TestCase):
+
+  def test_exception_bubbling_on_close(self):
+    """Verifies exceptions in background thread are raised on close()."""
+    mock_standard_deleter = mock.MagicMock()
+    error_msg = 'Background deletion failed'
+    mock_standard_deleter.delete.side_effect = ValueError(error_msg)
+
+    with mock.patch.object(
+        deleter_lib,
+        'StandardCheckpointDeleter',
+        return_value=mock_standard_deleter,
+    ):
+      deleter = deleter_lib.ThreadedCheckpointDeleter(
+          epath.Path('/tmp'),
+          name_format=step_lib.standard_name_format(),
+      )
+      deleter.delete(1)
+
+      with self.assertRaisesRegex(ValueError, error_msg):
+        deleter.close()
+
+
 class GcsRenameTest(unittest.TestCase):
 
   @mock.patch('orbax.checkpoint._src.path.deleter.epath.Path')
@@ -202,6 +224,7 @@ class GcsRenameTest(unittest.TestCase):
 
     # Verify the Rename was actually called
     mock_step_path.rename.assert_called_with(mock_final_dest)
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -23,6 +23,7 @@ from etils import epath
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import gcs_utils
+from orbax.checkpoint._src.path import utils
 
 
 def get_item_default_temporary_path_class(
