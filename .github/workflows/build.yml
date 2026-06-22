@@ -266,7 +266,7 @@ jobs:
 
   multiprocess-unit-tests:
     name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-x86-ct5lp-224-8tpu
+    runs-on: linux-x86-ct6e-180-8tpu
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -274,7 +274,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11"]
-        jax-version: ["0.10.1"]
+        jax-version: ["newest"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
     - name: Set up Python ${{ matrix.python-version }}
