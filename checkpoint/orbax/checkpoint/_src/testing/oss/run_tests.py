@@ -156,8 +156,6 @@ def main(argv: Sequence[str]) -> None:
 
     logging.info('Running test: %s (found from %s)', test_path, test_file_yaml)
     try:
-      _sync_op_id_generator(test_file_yaml)
-
       exit_code = pytest.main(['--import-mode=importlib', test_path])
       if exit_code == 0:
         results[test_file_yaml] = 'PASSED'
