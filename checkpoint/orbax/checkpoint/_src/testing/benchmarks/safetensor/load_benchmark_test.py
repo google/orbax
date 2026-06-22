@@ -95,6 +95,14 @@ class LoadFlowTest(absltest.TestCase):
           if k.startswith("load::0_basics/time_s")
       ]
       self.assertNotEmpty(time_keys)
+      # The loader self-reports per-host reads via jax.monitoring, so the load
+      # card populates even though there are no TensorStore counters.
+      self.assertIn(
+          "load::6_io/file_bytes_read_per_host", result.metrics.results
+      )
+      self.assertIn(
+          "load::6_io/file_reads_per_host_count", result.metrics.results
+      )
 
   def test_digests_captured_to_path(self):
     with tempfile.TemporaryDirectory() as d:
