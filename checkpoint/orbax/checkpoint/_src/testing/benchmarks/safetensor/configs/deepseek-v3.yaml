@@ -1,0 +1,30 @@
+# Safetensors load benchmark for DeepSeek V3.
+#
+# Tier 4 alternative -- 671B-param open MoE shipped as ~160 safetensors
+# files totalling ~600 GB in bf16. Uses multi-head latent attention
+# (MLA), shared experts, and a non-Llama tensor naming convention.
+# `prepare.py` reads tensor names + shapes from the actual safetensors
+# headers, so it produces the spec for any model. Stage the model and
+# its FSDP-256 spec to GCS once:
+#
+#   python -m orbax.checkpoint._src.testing.benchmarks.safetensor.prepare \\
+#       --repo deepseek-ai/DeepSeek-V3 \\
+#       --gcs gs://orbax-benchmarks/fixtures/deepseek-v3/ \\
+#       --axis-size 256 --strategy fsdp \\
+#       --sharding-out gs://orbax-benchmarks/sharding/deepseek-v3_fsdp256.json
+#
+# DeepSeek V3 is openly licensed (no gated form); the download is ~600 GB.
+
+suite_name: "safetensor_load_deepseek-v3"
+num_repeats: 2
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 256}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/deepseek-v3/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/deepseek-v3_fsdp256.json"
+      enable_trace: true

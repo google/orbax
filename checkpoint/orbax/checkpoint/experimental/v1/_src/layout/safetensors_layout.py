@@ -15,10 +15,11 @@
 """Defines `SafetensorsLayout`, a class to handle Safetensors checkpoint formats."""
 
 import asyncio
+from collections.abc import Awaitable
 import dataclasses
 import json
 import time
-from typing import Any, Awaitable, cast
+from typing import Any, cast
 
 from absl import logging
 import jax

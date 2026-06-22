@@ -1,0 +1,33 @@
+# Safetensors load benchmark for Llama 3 70B.
+#
+# Tier 3 alternative -- gated counterpart to safetensor_load_mixtral8x7b.yaml.
+# 140 GB bf16 across ~30 safetensors files, fsdp=128 mesh (v5p-128 / v5e-128).
+# The canonical "production transformer" scale: this is what every team
+# eventually loads, and the closest match to real customer workloads.
+#
+# Llama 3 70B is gated; see safetensor_load_llama3-8b.yaml for
+# the HF_TOKEN setup.
+#
+# Pre-stage this model + its FSDP-128 spec to GCS once with `prepare.py`
+# (downloading 140 GB to every TPU VM on every A/B run wastes hours and
+# burns HF Hub egress quota):
+#
+#   python -m orbax.checkpoint._src.testing.benchmarks.safetensor.prepare \
+#     --repo meta-llama/Llama-3-70B \
+#     --gcs gs://orbax-benchmarks/fixtures/llama3-70b/ \
+#     --axis-size 128 --strategy fsdp \
+#     --sharding-out gs://orbax-benchmarks/sharding/llama3-70b_fsdp128.json
+
+suite_name: "safetensor_load_llama3-70b"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 128}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-70b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-70b_fsdp128.json"
+      enable_trace: true

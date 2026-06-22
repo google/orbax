@@ -1,0 +1,29 @@
+# Safetensors load benchmark for Llama 3 8B.
+#
+# Tier 2 alternative -- gated counterpart to safetensor_load_mistral7b.yaml.
+# Same shape (16 GB bf16, ~4 safetensors files, fsdp=8 across 8 chips) but
+# the canonical reference model that production teams actually load.
+#
+# Llama 3 8B is gated on HF: the account associated with the HF token
+# must have accepted Meta's terms at
+# https://huggingface.co/meta-llama/Llama-3-8B once. After that:
+#
+#   export HF_TOKEN=hf_...   # before invoking the benchmark
+#
+# The launcher / Dockerfile passes HF_TOKEN through to the worker
+# environment; `huggingface_hub.snapshot_download` picks it up
+# automatically.
+
+suite_name: "safetensor_load_llama3-8b"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 8}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-8b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-8b_fsdp8.json"
+      enable_trace: true
