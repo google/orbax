@@ -33,8 +33,8 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/write/blocking_duration_secs', 1.5
       )
-    self.assertIn('op_2_save_breakdown/blocking_s', metrics.results)
-    value, unit = metrics.results['op_2_save_breakdown/blocking_s']
+    self.assertIn('op::2_save_breakdown/blocking_s', metrics.results)
+    value, unit = metrics.results['op::2_save_breakdown/blocking_s']
     self.assertEqual(value, 1.5)
     self.assertEqual(unit, 's')
 
@@ -44,8 +44,8 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_scalar(
           '/jax/orbax/write/blocking_gbytes_per_sec', 12.5
       )
-    self.assertIn('op_4_throughput/save_blocking_gbps', metrics.results)
-    value, unit = metrics.results['op_4_throughput/save_blocking_gbps']
+    self.assertIn('op::4_throughput/save_blocking_gbps', metrics.results)
+    value, unit = metrics.results['op::4_throughput/save_blocking_gbps']
     self.assertEqual(value, 12.5)
     self.assertEqual(unit, 'GiB/s')
 
@@ -63,7 +63,7 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
           '/jax/orbax/write/some_unknown_event_secs', 0.3
       )
     self.assertIn(
-        'op_9_other/orbax_write_some_unknown_event_secs',
+        'op::9_other/orbax_write_some_unknown_event_secs',
         metrics.results,
     )
 
@@ -73,8 +73,8 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/write/blocking_duration_secs', 2.0, storage_type='gs'
       )
-    self.assertIn('op_2_save_breakdown/blocking_s', metrics.results)
-    value, _ = metrics.results['op_2_save_breakdown/blocking_s']
+    self.assertIn('op::2_save_breakdown/blocking_s', metrics.results)
+    value, _ = metrics.results['op::2_save_breakdown/blocking_s']
     self.assertEqual(value, 2.0)
 
   def test_does_not_capture_after_block_exits(self):
@@ -102,10 +102,53 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/read/blocking_duration_secs', 2.0
       )
-    self.assertEqual(m_a.results['op_a_2_save_breakdown/blocking_s'][0], 1.0)
-    self.assertEqual(m_b.results['op_b_3_load_breakdown/blocking_s'][0], 2.0)
-    self.assertNotIn('op_b_2_save_breakdown/blocking_s', m_b.results)
-    self.assertNotIn('op_a_3_load_breakdown/blocking_s', m_a.results)
+    self.assertEqual(m_a.results['op_a::2_save_breakdown/blocking_s'][0], 1.0)
+    self.assertEqual(m_b.results['op_b::3_load_breakdown/blocking_s'][0], 2.0)
+    self.assertNotIn('op_b::2_save_breakdown/blocking_s', m_b.results)
+    self.assertNotIn('op_a::3_load_breakdown/blocking_s', m_a.results)
+
+  def test_opt_out_when_not_in_metric_keys(self):
+    metrics = metric_lib.Metrics()
+    with metrics.measure('op', ['time']):
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/blocking_duration_secs', 1.5
+      )
+    self.assertFalse(any('save_breakdown' in k for k in metrics.results))
+
+  def test_nested_blocks_each_capture(self):
+    # jax.monitoring fans out to every registered listener, so an event inside
+    # the inner block is recorded by the inner AND the enclosing outer block.
+    metrics = metric_lib.Metrics()
+    with metrics.measure('outer', ['jax_monitoring']):
+      with metrics.measure('inner', ['jax_monitoring']):
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/read/blocking_duration_secs', 1.5
+        )
+    self.assertEqual(
+        metrics.results['inner::3_load_breakdown/blocking_s'][0], 1.5
+    )
+    self.assertEqual(
+        metrics.results['outer::3_load_breakdown/blocking_s'][0], 1.5
+    )
+
+  def test_async_completion_pools_into_same_name(self):
+    # Background save: bracket the deferred completion in a second same-named
+    # block; the distinct breakdown tags pool into the one "save" card.
+    metrics = metric_lib.Metrics()
+    with metrics.measure('save', ['jax_monitoring']):
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/blocking_duration_secs', 2.0
+      )
+    with metrics.measure('save', ['jax_monitoring']):
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/async/total_duration_secs', 9.0
+      )
+    self.assertEqual(
+        metrics.results['save::2_save_breakdown/blocking_s'][0], 2.0
+    )
+    self.assertEqual(
+        metrics.results['save::2_save_breakdown/total_async_s'][0], 9.0
+    )
 
   def test_ocdbt_merge_tagged_under_save_breakdown(self):
     metrics = metric_lib.Metrics()
@@ -113,7 +156,7 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/ocdbt_merge_duration_secs', 0.7
       )
-    self.assertIn('op_2_save_breakdown/ocdbt_merge_s', metrics.results)
+    self.assertIn('op::2_save_breakdown/ocdbt_merge_s', metrics.results)
 
   def test_sync_global_devices_tagged_under_overhead(self):
     metrics = metric_lib.Metrics()
@@ -122,7 +165,7 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
           '/jax/checkpoint/sync_global_devices_duration_sec', 0.05
       )
     self.assertIn(
-        'op_7_overhead/sync_global_devices_s',
+        'op::7_overhead/sync_global_devices_s',
         metrics.results,
     )
 
@@ -133,19 +176,19 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
           '/jax/orbax/checkpoint_manager/threaded_checkpoint_deleter/duration',
           0.12,
       )
-    self.assertIn('op_7_overhead/delete_threaded_s', metrics.results)
+    self.assertIn('op::7_overhead/delete_threaded_s', metrics.results)
 
   def test_checkpoint_read_gbytes_per_sec_tagged_under_throughput(self):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['jax_monitoring']):
       jax.monitoring.record_scalar('/jax/checkpoint/read/gbytes_per_sec', 18.9)
-    self.assertIn('op_4_throughput/load_total_gbps', metrics.results)
+    self.assertIn('op::4_throughput/load_total_gbps', metrics.results)
 
   def test_checkpoint_read_gbytes_tagged_under_inventory(self):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['jax_monitoring']):
       jax.monitoring.record_scalar('/jax/checkpoint/read/gbytes', 140.2)
-    self.assertIn('op_5_inventory/load_total_gb', metrics.results)
+    self.assertIn('op::5_inventory/load_total_gb', metrics.results)
 
   def test_standard_delete_tagged_under_overhead(self):
     metrics = metric_lib.Metrics()
@@ -154,22 +197,22 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
           '/jax/orbax/checkpoint_manager/standard_checkpoint_deleter/duration',
           0.08,
       )
-    self.assertIn('op_7_overhead/delete_standard_s', metrics.results)
+    self.assertIn('op::7_overhead/delete_standard_s', metrics.results)
 
   def test_compile_cache_hits_counted(self):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['jax_monitoring']):
       for _ in range(3):
         jax.monitoring.record_event('/jax/compilation_cache/cache_hits')
-    self.assertIn('op_8_jax/cache_hits_count', metrics.results)
-    self.assertEqual(metrics.results['op_8_jax/cache_hits_count'][0], 3)
+    self.assertIn('op::8_jax/cache_hits_count', metrics.results)
+    self.assertEqual(metrics.results['op::8_jax/cache_hits_count'][0], 3)
 
   def test_compile_cache_misses_counted(self):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['jax_monitoring']):
       jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
       jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
-    self.assertEqual(metrics.results['op_8_jax/cache_misses_count'][0], 2)
+    self.assertEqual(metrics.results['op::8_jax/cache_misses_count'][0], 2)
 
   def test_compile_cache_hit_rate_derived(self):
     metrics = metric_lib.Metrics()
@@ -177,8 +220,8 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       for _ in range(3):
         jax.monitoring.record_event('/jax/compilation_cache/cache_hits')
       jax.monitoring.record_event('/jax/compilation_cache/cache_misses')
-    self.assertIn('op_8_jax/cache_hit_rate', metrics.results)
-    rate, _ = metrics.results['op_8_jax/cache_hit_rate']
+    self.assertIn('op::8_jax/cache_hit_rate', metrics.results)
+    rate, _ = metrics.results['op::8_jax/cache_hit_rate']
     self.assertAlmostEqual(rate, 0.75)
 
   def test_compile_cache_durations_mapped(self):
@@ -190,9 +233,11 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
       jax.monitoring.record_event_duration_secs(
           '/jax/compilation_cache/compile_time_saved_sec', 1.7
       )
-    self.assertEqual(metrics.results['op_8_jax/cache_retrieval_s'], (0.42, 's'))
     self.assertEqual(
-        metrics.results['op_8_jax/compile_time_saved_s'], (1.7, 's')
+        metrics.results['op::8_jax/cache_retrieval_s'], (0.42, 's')
+    )
+    self.assertEqual(
+        metrics.results['op::8_jax/compile_time_saved_s'], (1.7, 's')
     )
 
   def test_unmapped_discrete_events_are_dropped(self):
@@ -221,9 +266,9 @@ class JaxMonitoringMetricTest(parameterized.TestCase):
           '/jax/checkpoint/read/broadcast_duration_secs', 0.5
       )
       jax.monitoring.record_scalar('/jax/orbax/write/gbytes', 100.0)
-    self.assertIn('op_2_save_breakdown/blocking_s', metrics.results)
-    self.assertIn('op_3_load_breakdown/broadcast_s', metrics.results)
-    self.assertIn('op_5_inventory/save_total_gb', metrics.results)
+    self.assertIn('op::2_save_breakdown/blocking_s', metrics.results)
+    self.assertIn('op::3_load_breakdown/broadcast_s', metrics.results)
+    self.assertIn('op::5_inventory/save_total_gb', metrics.results)
 
 
 if __name__ == '__main__':

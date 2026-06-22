@@ -128,20 +128,16 @@ class ReplicaParallelMultislice(benchmarks_core.BenchmarksGenerator):
       with ocp.Context(context=options.context):
         if save_trace is not None:
           jax.profiler.start_trace(str(save_trace))
-        if options.async_enabled:
-          with metrics.measure("save_blocking", metrics_to_measure):
+        with metrics.measure("save", metrics_to_measure):
+          if options.async_enabled:
             logging.info(
                 "ReplicaParallelMultislice: Async Saving pytree to %s.",
                 save_path,
             )
             f = ocp.save_async(save_path, loaded_pytree)
-          with metrics.measure("save_background", metrics_to_measure):
             f.result()
-        else:
-          with metrics.measure("save_blocking", metrics_to_measure):
+          else:
             ocp.save(save_path, loaded_pytree)
-          with metrics.measure("save_background", metrics_to_measure):
-            pass
 
       # Manually trigger a full garbage collection to avoid OOMs.
       collected_objects = gc.collect()

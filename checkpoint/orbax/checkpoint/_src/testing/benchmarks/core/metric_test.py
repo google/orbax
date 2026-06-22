@@ -34,7 +34,7 @@ class MetricsTest(parameterized.TestCase):
         pass
 
     self.assertEqual(
-        metrics.results, {'test_metric_0_basics/time_s': (2.0, 's')}
+        metrics.results, {'test_metric::0_basics/time_s': (2.0, 's')}
     )
 
   @mock.patch(
@@ -49,7 +49,7 @@ class MetricsTest(parameterized.TestCase):
     with metrics.measure('test_metric', ['rss']):
       pass
     self.assertEqual(
-        metrics.results, {'test_metric_0_basics/host_rss_diff_mb': (2.0, 'MB')}
+        metrics.results, {'test_metric::0_basics/host_rss_diff_mb': (2.0, 'MB')}
     )
 
   @mock.patch(
@@ -72,7 +72,7 @@ class MetricsTest(parameterized.TestCase):
       self.assertEqual(metric_lib.TracemallocMetric._active_count, 1)
     self.assertEqual(
         metrics.results,
-        {'test_metric_7_memory/tracemalloc_peak_diff_mb': (2.0, 'MB')},
+        {'test_metric::7_memory/tracemalloc_peak_diff_mb': (2.0, 'MB')},
     )
     self.assertEqual(metric_lib.TracemallocMetric._active_count, 0)
     mock_tracemalloc.start.assert_called_once()
@@ -113,7 +113,7 @@ metric2: 4.5600 s
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
     self.assertIn(
-        'test_metric_6_tensorstore/changed_metric_count', metrics.results
+        'test_metric::6_tensorstore/changed_metric_count', metrics.results
     )
 
   @mock.patch.object(metric_lib.TensorstoreMetric, '_collect_metrics')
@@ -140,12 +140,12 @@ metric2: 4.5600 s
       pass
     self.assertEqual(
         metrics.results[
-            'op_6_tensorstore/tensorstore_kvstore_file_read_count_diff'
+            'op::6_tensorstore/tensorstore_kvstore_file_read_count_diff'
         ][0],
         5,
     )
     self.assertEqual(
-        metrics.results['op_6_tensorstore/tensorstore_cache_bytes_value_diff'][
+        metrics.results['op::6_tensorstore/tensorstore_cache_bytes_value_diff'][
             0
         ],
         100,
@@ -176,13 +176,13 @@ metric2: 4.5600 s
       ).result()
       ts_store.write(np.asarray(range(10)).astype(np.int32)).result()
 
-    self.assertIn('test_metric_0_basics/time_s', metrics.results)
-    self.assertIn('test_metric_0_basics/host_rss_diff_mb', metrics.results)
+    self.assertIn('test_metric::0_basics/time_s', metrics.results)
+    self.assertIn('test_metric::0_basics/host_rss_diff_mb', metrics.results)
     self.assertIn(
-        'test_metric_7_memory/tracemalloc_peak_diff_mb', metrics.results
+        'test_metric::7_memory/tracemalloc_peak_diff_mb', metrics.results
     )
     self.assertIn(
-        'test_metric_6_tensorstore/changed_metric_count', metrics.results
+        'test_metric::6_tensorstore/changed_metric_count', metrics.results
     )
 
   def test_default_metrics_returns_expected_metrics(self):
@@ -223,8 +223,8 @@ class DeviceMemoryMetricTest(parameterized.TestCase):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['device_memory']):
       pass
-    self.assertIn('op_7_memory/jax_live_arrays_count_delta', metrics.results)
-    val, _ = metrics.results['op_7_memory/jax_live_arrays_count_delta']
+    self.assertIn('op::7_memory/jax_live_arrays_count_delta', metrics.results)
+    val, _ = metrics.results['op::7_memory/jax_live_arrays_count_delta']
     self.assertEqual(val, 2)
 
   @mock.patch('jax.live_arrays', return_value=[])
@@ -247,8 +247,8 @@ class DeviceMemoryMetricTest(parameterized.TestCase):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['device_memory']):
       pass
-    self.assertIn('op_7_memory/device_hbm_peak_diff_gb', metrics.results)
-    val, unit = metrics.results['op_7_memory/device_hbm_peak_diff_gb']
+    self.assertIn('op::7_memory/device_hbm_peak_diff_gb', metrics.results)
+    val, unit = metrics.results['op::7_memory/device_hbm_peak_diff_gb']
     self.assertAlmostEqual(val, 2.0)
     self.assertEqual(unit, 'GiB')
 
@@ -261,8 +261,8 @@ class DeviceMemoryMetricTest(parameterized.TestCase):
     metrics = metric_lib.Metrics()
     with metrics.measure('op', ['device_memory']):
       pass
-    self.assertNotIn('op_7_memory/device_hbm_peak_diff_gb', metrics.results)
-    self.assertIn('op_7_memory/jax_live_arrays_count_delta', metrics.results)
+    self.assertNotIn('op::7_memory/device_hbm_peak_diff_gb', metrics.results)
+    self.assertIn('op::7_memory/jax_live_arrays_count_delta', metrics.results)
 
 
 if __name__ == '__main__':

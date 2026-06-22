@@ -65,7 +65,7 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
 
   async def mock_serialize(
       self, values, infos, args
-  ) -> Sequence[asyncio.Future]:
+  ) -> Sequence[asyncio.Future[None]]:
     del infos, args  # Unused.
     futures = []
     for _ in values:
@@ -137,10 +137,12 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
     result = self._run_benchmark_workflow_test(options)
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('serialize_0_basics/time_s', result.metrics.results)
-    self.assertIn('metadata_validation_0_basics/time_s', result.metrics.results)
-    self.assertIn('deserialize_0_basics/time_s', result.metrics.results)
-    self.assertIn('correctness_check_0_basics/time_s', result.metrics.results)
+    self.assertIn('serialize::0_basics/time_s', result.metrics.results)
+    self.assertIn(
+        'metadata_validation::0_basics/time_s', result.metrics.results
+    )
+    self.assertIn('deserialize::0_basics/time_s', result.metrics.results)
+    self.assertIn('correctness_check::0_basics/time_s', result.metrics.results)
 
   @parameterized.named_parameters(
       dict(
@@ -155,14 +157,14 @@ class ArrayHandlerBenchmarkTest(parameterized.TestCase):
   def test_benchmark_ocdbt_enabled_calls_merge(self, options):
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertIn('merge_ocdbt_0_basics/time_s', result.metrics.results)
+    self.assertIn('merge_ocdbt::0_basics/time_s', result.metrics.results)
     self.mock_merge_ocdbt.assert_called_once()
 
   def test_benchmark_ocdbt_disabled_does_not_merge(self):
     options = ArrayHandlerBenchmarkOptions(use_ocdbt=False, use_zarr3=True)
     result = self._run_benchmark_workflow_test(options)
 
-    self.assertNotIn('merge_ocdbt_0_basics/time_s', result.metrics.results)
+    self.assertNotIn('merge_ocdbt::0_basics/time_s', result.metrics.results)
     self.mock_merge_ocdbt.assert_not_called()
 
   @parameterized.named_parameters(

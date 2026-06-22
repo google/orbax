@@ -146,6 +146,25 @@ TAG_MAP: dict[str, tuple[str, str]] = {
         "5_inventory/load_total_gb",
         "GiB",
     ),
+    # ─── 6_io — safetensors per-host storage reads ────────────────────────
+    # The safetensors loader has no TensorStore kvstore; it self-reports its
+    # per-host read accounting here (raw bytes; the card converts to GiB).
+    # Two read counts: `file_reads` is coalesced ranged-read requests (~1 per
+    # file when fully coalesced), `storage_reads` is the actual GETs issued,
+    # which is >= file_reads because a block larger than the in-flight budget
+    # is fetched in several chunks.
+    "/jax/orbax/read/safetensors/bytes_read": (
+        "6_io/file_bytes_read_per_host",
+        "bytes",
+    ),
+    "/jax/orbax/read/safetensors/num_reads": (
+        "6_io/file_reads_per_host_count",
+        "count",
+    ),
+    "/jax/orbax/read/safetensors/storage_reads": (
+        "6_io/storage_reads_per_host_count",
+        "count",
+    ),
     # ─── 8_jax — compile-cache durations ──────────────────────────────────
     "/jax/compilation_cache/cache_retrieval_time_sec": (
         "8_jax/cache_retrieval_s",

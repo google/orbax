@@ -98,7 +98,7 @@ class BenchmarkTest(parameterized.TestCase):
         save_concurrent_gb=save_concurrent_gb,
         restore_concurrent_gb=restore_concurrent_gb,
         use_replica_parallel=use_replica_parallel,
-        enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
+        enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,  # pylint: disable=line-too-long
     )
 
     # Create unique path for each parameter set
@@ -114,12 +114,9 @@ class BenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
 
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    # The benchmark records "save_blocking", "save_background", "load"
-    # measure() blocks. Each block writes a 0_basics/time_s key.
     metrics = result.metrics.results
-    self.assertIn('save_blocking_0_basics/time_s', metrics)
-    self.assertIn('save_background_0_basics/time_s', metrics)
-    self.assertIn('load_0_basics/time_s', metrics)
+    self.assertIn('save::0_basics/time_s', metrics)
+    self.assertIn('load::0_basics/time_s', metrics)
 
 
 if __name__ == '__main__':

@@ -117,7 +117,7 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
         restore_concurrent_gb=restore_concurrent_gb,
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
         use_replica_parallel=use_replica_parallel,
-        enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,
+        enable_replica_parallel_separate_folder=enable_replica_parallel_separate_folder,  # pylint: disable=line-too-long
         use_colocated_python=use_colocated_python,
     )
     context = benchmarks_core.TestContext(
@@ -141,9 +141,9 @@ class PyTreeCheckpointBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
-            'save_0_basics/time_s',
-            'wait_until_finished_0_basics/time_s',
-            'restore_0_basics/time_s',
+            'save::0_basics/time_s',
+            'wait_until_finished::0_basics/time_s',
+            'restore::0_basics/time_s',
         },
         result.metrics.results.keys(),
     )

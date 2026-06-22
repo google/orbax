@@ -141,11 +141,13 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
     register_pathways_handlers.assert_called_once()
     self.assertIsInstance(result, benchmarks_core.TestResult)
-    self.assertIn('save_0_basics/time_s', result.metrics.results)
-    self.assertIn('wait_until_finished_0_basics/time_s', result.metrics.results)
-    self.assertIn('restore_0_basics/time_s', result.metrics.results)
+    self.assertIn('save::0_basics/time_s', result.metrics.results)
     self.assertIn(
-        'construct_restore_args_0_basics/time_s', result.metrics.results
+        'wait_until_finished::0_basics/time_s', result.metrics.results
+    )
+    self.assertIn('restore::0_basics/time_s', result.metrics.results)
+    self.assertIn(
+        'construct_restore_args::0_basics/time_s', result.metrics.results
     )
     mock_checkpointer.save.assert_called_once()
     mock_checkpointer.wait_until_finished.assert_called_once()
@@ -237,7 +239,7 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
     mock_is_runtime_to_distributed_ids_initialized.assert_called_once()
     register_pathways_handlers.assert_called_once_with(
         use_single_replica_array_handler=True,
-        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
+        checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(  # pylint: disable=line-too-long
             use_colocated_python=options.use_colocated_python,
         ),
         replica_axis_index=options.replica_axis_index,

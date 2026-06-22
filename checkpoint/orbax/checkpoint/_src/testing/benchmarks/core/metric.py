@@ -539,11 +539,21 @@ class Metrics:
       metric_key: str,
       metric_results: dict[str, tuple[Any, str]],
   ):
+    """Stores results keyed `{metric_name}::{tag}`.
+
+    The `name::` namespace lets the summary group results into one card per
+    operation name; `::` (not `_`) so names containing `_` split cleanly.
+
+    Args:
+        metric_name: The name of the metric.
+        metric_key: The key of the metric.
+        metric_results: A dictionary of metric results.
+    """
     for key, (value, unit) in metric_results.items():
       if metric_key:
-        full_key = f"{metric_name}_{metric_key}_{key}"
+        full_key = f"{metric_name}::{metric_key}_{key}"
       else:
-        full_key = f"{metric_name}_{key}"
+        full_key = f"{metric_name}::{key}"
       self.results[full_key] = (value, unit)
 
   @contextlib.contextmanager
