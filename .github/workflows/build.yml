@@ -5,6 +5,9 @@ on:
   schedule:
     # Run every 4 hour
     - cron: "0 */4 * * *"
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
