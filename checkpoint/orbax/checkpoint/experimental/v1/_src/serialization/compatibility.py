@@ -15,7 +15,7 @@
 """Compatibility wrapper to help leaf handlers to work as V0 type_handlers."""
 
 import dataclasses
-from typing import Any, Generic, Sequence, Tuple, Type, cast, get_args
+from typing import Any, Generic, Sequence, Type, cast, get_args
 
 from absl import logging
 import jax
@@ -392,21 +392,6 @@ class CompatibleTypeHandler(
           )
       )
     return ret
-
-  def memory_size(
-      self, values: Sequence[types.Leaf]
-  ) -> Sequence[Tuple[int, int]]:
-    # this only works for leaf handler that based on V0 TypeHandlers and stored
-    # it in self._leaf_handler._handler_impl.
-    if hasattr(self._leaf_handler, '_handler_impl'):
-      v0_handler = self._leaf_handler._handler_impl  # pylint: disable=protected-access
-
-      return v0_handler.memory_size(values)
-
-    raise NotImplementedError(
-        'Cannot resolve memory_size for this v1 leaf handler, '
-        f' {self._leaf_handler!r}.'
-    )
 
   @property
   def _array_metadata_store(self):

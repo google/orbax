@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import sys
-from typing import Any, Dict, Optional, Sequence, Tuple, TypeAlias, Union
+from typing import Any, Dict, Optional, Sequence, TypeAlias, Union
 
 from absl import logging
 import jax
@@ -213,17 +212,6 @@ class NumpyHandler(types.TypeHandler):
 
     return ret
 
-  def memory_size(
-      self, values: Sequence[np.ndarray]
-  ) -> Sequence[Tuple[int, int]]:
-    actual_sizes = [v.size * v.dtype.itemsize for v in values]
-    if multihost.process_index() == 0:
-      write_sizes = actual_sizes
-    else:
-      write_sizes = [0 for _ in values]
-    read_sizes = actual_sizes
-    return list(zip(write_sizes, read_sizes))
-
 
 class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.)."""
@@ -268,15 +256,6 @@ class ScalarHandler(NumpyHandler):
           for a, r in zip(args, results)
       ]
     return results
-
-  def memory_size(self, values: Sequence[Scalar]) -> Sequence[Tuple[int, int]]:  # pytype: disable=signature-mismatch
-    actual_sizes = [sys.getsizeof(v) for v in values]
-    if multihost.process_index() == 0:
-      write_sizes = actual_sizes
-    else:
-      write_sizes = [0 for _ in values]
-    read_sizes = actual_sizes
-    return list(zip(write_sizes, read_sizes))
 
 
 class StringHandler(types.TypeHandler):
@@ -383,15 +362,6 @@ class StringHandler(types.TypeHandler):
     tensorstores = await asyncio.gather(*open_futures)
     read_ops = [self._convert_to_string(t) for t in tensorstores]
     return await asyncio.gather(*read_ops)
-
-  def memory_size(self, values: Sequence[str]) -> Sequence[Tuple[int, int]]:
-    actual_sizes = [len(v.encode('utf-8')) for v in values]
-    if multihost.process_index() == 0:
-      write_sizes = actual_sizes
-    else:
-      write_sizes = [0 for _ in values]
-    read_sizes = actual_sizes
-    return list(zip(write_sizes, read_sizes))
 
 
 def is_placeholder(value: Any) -> bool:

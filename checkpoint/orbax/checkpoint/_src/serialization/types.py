@@ -20,7 +20,7 @@ import abc
 import copy
 import dataclasses
 import enum
-from typing import Any, Callable, Optional, Protocol, Sequence, Tuple
+from typing import Any, Callable, Optional, Protocol, Sequence
 
 from absl import logging
 from etils import epath
@@ -471,27 +471,6 @@ class TypeHandler(abc.ABC):
         `param_info.parent_dir`.
     """
     pass
-
-  def memory_size(self, values: Sequence[Any]) -> Sequence[Tuple[int, int]]:
-    """For a batch of values, returns the size of each value in bytes.
-
-    Note that the default implementation uses `sys.getsizeof`, which is not
-    likely to be accurate for many types.
-
-    The value returned is intended to be per-host.
-
-    Args:
-      values: A batch of values.
-
-    Returns:
-      A sequence of elements corresponding to `values`. Each element is a tuple
-      of [write_size, read_size]. In many cases these values may be the same.
-
-    Raises:
-      NotImplementedError: Raises error by default since we will rely on a
-        backup implementation.
-    """
-    raise NotImplementedError()
 
 
 class TypeHandlerRegistry(Protocol):

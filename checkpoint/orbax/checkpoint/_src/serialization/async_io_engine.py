@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import math
 import sys
 import threading
 import time
@@ -50,11 +51,11 @@ import jax
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import memory_regulator
-from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
-import tensorstore as ts
+from orbax.checkpoint._src.tree import types as tree_types
 
+PyTree = tree_types.PyTree
 TypeHandler = types.TypeHandler
 ParamInfo = types.ParamInfo
 SaveArgs = type_handlers.SaveArgs
@@ -66,27 +67,43 @@ CommitFutures = Sequence[future.Future]
 MemorySizes = Tuple[int, int]
 
 
-def _default_sizeof_values(values: BatchOfInts) -> BatchOfInts:
-  return [sys.getsizeof(v) for v in values]
+def _get_memory_size(value: Any) -> int:
+  """Gets memory size for a leaf value.
+
+  The value is expected to be symmetric for save and load and represents the
+  total memory allocated across all devices.
+
+  Args:
+    value: The leaf object to inspect.
+
+  Returns:
+    The estimated memory footprint in bytes.
+  """
+  if hasattr(value, 'nbytes'):
+    return int(value.nbytes)
+  if hasattr(value, 'shape') and hasattr(value, 'dtype'):
+    itemsize = getattr(value.dtype, 'itemsize', 1)
+    return int(math.prod(value.shape) * itemsize)
+  if isinstance(value, (int, float, complex)):
+    return sys.getsizeof(value)
+  if isinstance(value, bytes):
+    return len(value)
+  if isinstance(value, str):
+    return len(value.encode('utf-8'))
+  return sys.getsizeof(value)
 
 
-def get_batch_memory_size(
-    handler: TypeHandler, values: BatchOfLeaves
-) -> MemorySizes:
-  """Gets memory size for a batch of leaf values."""
-  try:
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-  except NotImplementedError:
-    logging.warning(
-        '`memory_size` is not implemented for `TypeHandler` of type: %s. Using'
-        ' the a default implementation to measure value memory consumption that'
-        ' may result in inaccurate estimation.',
-        type(handler),
-    )
-    write_sizes = read_sizes = _default_sizeof_values(values)
-  assert len(write_sizes) == len(values)
-  assert len(read_sizes) == len(values)
-  return sum(write_sizes), sum(read_sizes)
+def compute_memory_size(values: PyTree) -> int:
+  """Computes the total memory size for a sequence of batch requests.
+
+  Args:
+    values: Pytree of leaves or values to compute size for.
+
+  Returns:
+    Total memory size in bytes.
+  """
+  leaves = jax.tree.leaves(values)
+  return sum(_get_memory_size(v) for v in leaves)
 
 
 def log_io_metrics(
@@ -94,51 +111,32 @@ def log_io_metrics(
     start_time: float,
     gbytes_per_sec_metric: str,
     gbytes_metric: str | None = None,
-    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+    *,
+    primary_host: int | None,
 ):
   """Logs the bytes per second metric."""
   time_elapsed = time.time() - start_time
   bytes_per_sec = (
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
-  note = 'per-host'
   logging.info(
-      '[process=%d] %s: %s/s (total size: %s) (time elapsed: %s s) (%s)',
+      '[process=%d] %s: %s/s (total size: %s) (time elapsed: %s s) (global)',
       multihost.process_index(),
       gbytes_per_sec_metric,
       humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
       humanize.naturalsize(size, binary=True),
       time_elapsed,
-      note,
   )
-  jax.monitoring.record_scalar(
-      gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
-  )
-  if gbytes_metric is not None:
-    jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
-  if initial_ts_metrics is not None:
-    final_ts_metrics = ts.experimental_collect_matching_metrics('/tensorstore/')
-    initial_bytes = ts_utils.get_total_bytes_from_tensorstore(
-        initial_ts_metrics, types.IoDirection.WRITE
+  if primary_host is None:
+    logging.warning(
+        'Global object size logging disabled for `primary_host=None`.'
     )
-    final_bytes = ts_utils.get_total_bytes_from_tensorstore(
-        final_ts_metrics, types.IoDirection.WRITE
+  elif multihost.is_primary_host(primary_host):
+    jax.monitoring.record_scalar(
+        gbytes_per_sec_metric, value=bytes_per_sec / (1024**3)
     )
-    compressed_bytes = final_bytes - initial_bytes
-
-    if compressed_bytes > 0 and size > 0:
-      ratio = float(compressed_bytes) / size
-      logging.info(
-          '[process=%d] Compression ratio: %.3f (%s / %s)',
-          multihost.process_index(),
-          ratio,
-          humanize.naturalsize(compressed_bytes, binary=True),
-          humanize.naturalsize(size, binary=True),
-      )
-      jax.monitoring.record_scalar('/jax/orbax/write/compression_ratio', ratio)
-      jax.monitoring.record_scalar(
-          '/jax/orbax/write/compressed_gbytes', compressed_bytes / (1024**3)
-      )
+    if gbytes_metric is not None:
+      jax.monitoring.record_scalar(gbytes_metric, value=size / (1024**3))
 
 
 async def logging_serialize(
@@ -200,27 +198,6 @@ def memory_profiler_context():
   finally:
     # Explicitly stop the bg thread if an exception occurs
     memory_regulator.profiler_end()
-
-
-def compute_save_memory_size(batch_requests: BatchRequests) -> int:
-  """Computes the total write memory size for a sequence of batch requests."""
-  tree_memory_size = 0
-  for request in batch_requests:
-    write_size, _ = get_batch_memory_size(request.handler, request.values)
-    tree_memory_size += write_size
-  return tree_memory_size
-
-
-def compute_restore_memory_size(
-    batch_requests: BatchRequests,
-    deserialized_batches: Batches,
-) -> int:
-  """Computes the total read memory size for deserialized batches."""
-  tree_memory_size = 0
-  for request, deserialized in zip(batch_requests, deserialized_batches):
-    _, read_size = get_batch_memory_size(request.handler, deserialized)
-    tree_memory_size += read_size
-  return tree_memory_size
 
 
 class AsyncIoEngine:
