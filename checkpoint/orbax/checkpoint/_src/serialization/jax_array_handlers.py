@@ -20,6 +20,7 @@ import asyncio
 import dataclasses
 import functools
 import os
+import threading
 import time
 from typing import Any, Callable, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
 import warnings
@@ -50,6 +51,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
+
 import tensorstore as ts
 
 Pytree: TypeAlias = Any
@@ -197,7 +199,19 @@ async def _async_serialize_shardings(
             serialized_sharding
         )
 
-  await sharding_metadata_txn.commit_async()
+  commit_future = sharding_metadata_txn.commit_async()
+  threading.current_thread().ts_commit_future = commit_future
+  try:
+    await commit_future
+  except asyncio.CancelledError:
+    logging.info(
+        '[process=%s] Sharding metadata commit was cancelled.',
+        multihost.process_index(),
+    )
+    raise
+  finally:
+    if hasattr(threading.current_thread(), 'ts_commit_future'):
+      delattr(threading.current_thread(), 'ts_commit_future')
 
 
 def _get_replica_slices(
@@ -629,9 +643,7 @@ def _serialize_arrays(
       elif prioritization == types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED:
         deprioritized.append((value, info, arg))
       elif prioritization == types.TransferPriority.UNKNOWN:
-        raise ValueError(
-            f'Prioritization is unknown for key {info.keypath}.'
-        )
+        raise ValueError(f'Prioritization is unknown for key {info.keypath}.')
 
   deprioritized = prioritized_async + deprioritized
 
@@ -754,12 +766,9 @@ async def _async_serialize_replica_slices(
   write_coros = []
   array_metadatas = []
 
-  use_transaction = (
-      infos[0].is_ocdbt_checkpoint
-      and (
-          infos[0].byte_limiter is None
-          or isinstance(infos[0].byte_limiter, limits.UnlimitedInFlightBytes)
-      )
+  use_transaction = infos[0].is_ocdbt_checkpoint and (
+      infos[0].byte_limiter is None
+      or isinstance(infos[0].byte_limiter, limits.UnlimitedInFlightBytes)
   )
   ocdbt_transaction = ts.Transaction(atomic=True) if use_transaction else None
 
@@ -823,9 +832,37 @@ async def _async_serialize_replica_slices(
         )
     )
 
-  await asyncio.gather(*write_coros)
+  gather_future = asyncio.gather(*write_coros)
+  threading.current_thread().gather_future = gather_future
+  threading.current_thread().loop = asyncio.get_running_loop()
+  try:
+    await gather_future
+  except asyncio.CancelledError:
+    logging.info(
+        '[process=%s] Array handler gather was cancelled.',
+        multihost.process_index(),
+    )
+    raise
+  finally:
+    if hasattr(threading.current_thread(), 'gather_future'):
+      delattr(threading.current_thread(), 'gather_future')
+    if hasattr(threading.current_thread(), 'loop'):
+      delattr(threading.current_thread(), 'loop')
+
   if ocdbt_transaction is not None:
-    await ocdbt_transaction.commit_async()
+    commit_future = ocdbt_transaction.commit_async()
+    threading.current_thread().ts_commit_future = commit_future
+    try:
+      await commit_future
+    except asyncio.CancelledError:
+      logging.info(
+          '[process=%s] OCDBT transaction commit was cancelled.',
+          multihost.process_index(),
+      )
+      raise
+    finally:
+      if hasattr(threading.current_thread(), 'ts_commit_future'):
+        delattr(threading.current_thread(), 'ts_commit_future')
 
 
 def _wrap_random_key_data(
@@ -1233,7 +1270,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: If True, save replica and sharded
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
-      callback: The callback to use for executing operations in handlers.
+      callback: The callback to use for executing operations in handlers. #
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
