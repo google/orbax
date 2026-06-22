@@ -298,9 +298,6 @@ jobs:
         else
           pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         fi
-    - name: Check tpu
-      run: |
-        python -c "import jax; jax.distributed.initialize(); print('Available Devices:', jax.devices())"
     - name: Run 2 multiprocess tests
       env:
         TEST_TMPDIR: /tmp/orbax_test
