@@ -22,69 +22,53 @@ from orbax.checkpoint._src.testing.benchmarks.core import inventory as inv_lib
 from orbax.checkpoint._src.testing.benchmarks.core import markdown_cards
 from orbax.checkpoint._src.testing.benchmarks.core import run_manifest as rm_lib
 
+# Aggregates reach the renderer already sliced to one operation name, so keys
+# are bare tags (no `load::` / `save::` prefix).
 _LOAD_AGGS = {
-    'load_3_load_breakdown/blocking_s': {
-        'mean': 12.0,
-        'min': 11.5,
-        'max': 12.5,
-    },
-    'load_3_load_breakdown/total_s': {'mean': 13.0, 'min': 13.0, 'max': 13.0},
-    'load_3_load_breakdown/worker_io_s': {'mean': 9.8, 'min': 9.7, 'max': 9.9},
-    'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': {
+    '3_load_breakdown/blocking_s': {'mean': 12.0, 'min': 11.5, 'max': 12.5},
+    '3_load_breakdown/total_s': {'mean': 13.0, 'min': 13.0, 'max': 13.0},
+    '3_load_breakdown/worker_io_s': {'mean': 9.8, 'min': 9.7, 'max': 9.9},
+    '6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': {
         'mean': 8.75 * 1024**3,
         'min': 8.7 * 1024**3,
         'max': 8.8 * 1024**3,
     },
-    'load_5_inventory/load_total_gb': {
-        'mean': 140.0,
-        'min': 140.0,
-        'max': 140.0,
-    },
-    'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': {
+    '5_inventory/load_total_gb': {'mean': 140.0, 'min': 140.0, 'max': 140.0},
+    '6_tensorstore/tensorstore_kvstore_file_read_value_diff': {
         'mean': 6.0,
         'min': 5.0,
         'max': 7.0,
     },
-    'load_4_throughput/load_per_host_gbps': {
-        'mean': 0.7,
-        'min': 0.6,
-        'max': 0.8,
-    },
-    'load_4_throughput/load_total_gbps': {
-        'mean': 11.0,
-        'min': 10.0,
-        'max': 11.3,
-    },
+    '4_throughput/load_per_host_gbps': {'mean': 0.7, 'min': 0.6, 'max': 0.8},
+    '4_throughput/load_total_gbps': {'mean': 11.0, 'min': 10.0, 'max': 11.3},
 }
 
 _LOAD_PER_HOST = [
     (
         0,
         {
-            'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
+            '6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
                 8.7 * 1024**3
             ),
-            'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': 6,
-            'load_3_load_breakdown/blocking_s': 11.9,
-            'load_3_load_breakdown/total_s': 12.9,
-            'load_3_load_breakdown/worker_io_s': 9.7,
+            '6_tensorstore/tensorstore_kvstore_file_read_value_diff': 6,
+            '3_load_breakdown/blocking_s': 11.9,
+            '3_load_breakdown/total_s': 12.9,
         },
     ),
     (
         1,
         {
-            'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
+            '6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
                 8.8 * 1024**3
             ),
-            'load_6_tensorstore/tensorstore_kvstore_file_read_value_diff': 7,
-            'load_3_load_breakdown/blocking_s': 12.1,
-            'load_3_load_breakdown/total_s': 13.1,
-            'load_3_load_breakdown/worker_io_s': 9.9,
+            '6_tensorstore/tensorstore_kvstore_file_read_value_diff': 7,
+            '3_load_breakdown/blocking_s': 12.1,
+            '3_load_breakdown/total_s': 13.1,
         },
     ),
 ]
 
-# 140 GiB on-disk checkpoint — the canary divides per-host read by this.
+# 140 GiB on-disk checkpoint — the per-host % column divides by this.
 _INV = inv_lib.CheckpointInventory(
     total_bytes=140 * 1024**3,
     file_count=4096,
@@ -98,17 +82,16 @@ _INV = inv_lib.CheckpointInventory(
 
 class GlanceCardTest(parameterized.TestCase):
 
-  def test_load_headline_and_breakdown_render(self):
+  def test_load_headline_renders(self):
     out = markdown_cards.render_glance_card(
         'llama70b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, None
     )
     self.assertIn('## llama70b — at a glance', out)
-    self.assertIn('### Load', out)
-    self.assertIn('Bytes read / host', out)
-    self.assertIn('Reads / host', out)
+    self.assertIn('| Total time | 13.00 s |', out)
+    self.assertIn('| Throughput | 11.30 GiB/s |', out)
+    self.assertIn('Bytes / host (mean)', out)
+    self.assertIn('8.75 GiB', out)
     self.assertIn('Checkpoint size (on-disk)', out)
-    self.assertIn('#### Load time breakdown', out)
-    self.assertIn('worker I/O', out)
 
   def test_per_host_table_with_pct_of_checkpoint(self):
     out = markdown_cards.render_glance_card(
@@ -117,46 +100,11 @@ class GlanceCardTest(parameterized.TestCase):
     self.assertIn('#### Per-host', out)
     self.assertIn('| 0 |', out)
     self.assertIn('| 1 |', out)
-    self.assertRegex(out, r'\|\s*reads\s*\|')  # per-host reads column (integer)
+    self.assertRegex(out, r'\|\s*reads/writes\s*\|')
     self.assertIn('% of total', out)
     self.assertIn('6.2%', out)  # 8.7 / 140 ≈ 6.2%
 
-  def test_sharding_flag_marks_a_slice(self):
-    out = markdown_cards.render_glance_card(
-        'b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, None
-    )
-    self.assertIn('✓ sharded', out)  # 8.75 / 140 = 0.06 <= 0.9
-
-  def test_sharding_flag_warns_on_whole_checkpoint(self):
-    aggs = dict(_LOAD_AGGS)
-    aggs[
-        'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff'
-    ] = {
-        'mean': 140.0 * 1024**3,
-        'min': 140.0 * 1024**3,
-        'max': 140.0 * 1024**3,
-    }
-    out = markdown_cards.render_glance_card(
-        'b', aggs, _LOAD_PER_HOST, _INV, None
-    )
-    self.assertIn('the whole checkpoint', out)
-
-  def test_save_section_absent_for_load_only(self):
-    out = markdown_cards.render_glance_card(
-        'b', _LOAD_AGGS, _LOAD_PER_HOST, None, None
-    )
-    self.assertIn('_(no save in this run)_', out)
-
   def test_inventory_and_manifest_folded_in(self):
-    inv = inv_lib.CheckpointInventory(
-        total_bytes=140 * 1024**3,
-        file_count=4096,
-        small_file_count=128,
-        small_file_pct=0.031,
-        largest_file_bytes=64 * 1024**2,
-        smallest_file_bytes=32,
-        format={'ocdbt': 4090, 'metadata': 6},
-    )
     m = rm_lib.RunManifest(
         captured_at='2026-05-25T20:00:00+00:00',
         hostname='h',
@@ -173,82 +121,66 @@ class GlanceCardTest(parameterized.TestCase):
         libtpu_init_args='',
     )
     out = markdown_cards.render_glance_card(
-        'b', _LOAD_AGGS, _LOAD_PER_HOST, inv, m
+        'b', _LOAD_AGGS, _LOAD_PER_HOST, _INV, m
     )
     self.assertIn('### Inventory', out)
     self.assertIn('4,096', out)
     self.assertIn('## Run manifest', out)
     self.assertIn('abc123', out)
 
-  def test_save_section_renders_written_bytes(self):
+  def test_save_metrics_render(self):
     save_aggs = {
-        'save_blocking_2_save_breakdown/blocking_s': {
-            'mean': 30.0,
-            'min': 29.0,
-            'max': 31.0,
-        },
-        'save_background_2_save_breakdown/total_async_s': {
-            'mean': 31.0,
-            'min': 31.0,
-            'max': 31.0,
-        },
-        'save_background_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': {
+        '2_save_breakdown/blocking_s': {'mean': 30.0, 'min': 29.0, 'max': 31.0},
+        '2_save_breakdown/total_s': {'mean': 31.0, 'min': 31.0, 'max': 31.0},
+        '6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': {
             'mean': 8.75 * 1024**3,
             'min': 8.7 * 1024**3,
             'max': 8.8 * 1024**3,
         },
-        'save_blocking_4_throughput/save_blocking_gbps': {
-            'mean': 4.0,
-            'min': 3.5,
-            'max': 4.6,
-        },
+        '4_throughput/save_total_gbps': {'mean': 4.0, 'min': 3.5, 'max': 4.6},
     }
     per_host = [
         (
             0,
             {
-                'save_background_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': (
+                '6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': (
                     8.7 * 1024**3
                 ),
-                'save_blocking_2_save_breakdown/blocking_s': 29.5,
+                '2_save_breakdown/blocking_s': 29.5,
             },
         ),
         (
             1,
             {
-                'save_background_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': (
+                '6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff': (
                     8.8 * 1024**3
                 ),
-                'save_blocking_2_save_breakdown/blocking_s': 30.5,
+                '2_save_breakdown/blocking_s': 30.5,
             },
         ),
     ]
     out = markdown_cards.render_glance_card(
         'b', save_aggs, per_host, None, None
     )
-    self.assertIn('### Save', out)
-    self.assertIn('Bytes written / host', out)
-    self.assertIn('_(no load in this run)_', out)
+    self.assertIn('| Total time | 31.00 s |', out)
+    self.assertIn('| Throughput | 4.60 GiB/s |', out)
+    self.assertIn('Bytes / host (mean)', out)
+    self.assertIn('8.75 GiB', out)
 
   def test_sub_gib_bytes_are_humanized(self):
     aggs = {
-        'load_3_load_breakdown/blocking_s': {
-            'mean': 1.0,
-            'min': 1.0,
-            'max': 1.0,
-        },
+        '3_load_breakdown/blocking_s': {'mean': 1.0, 'min': 1.0, 'max': 1.0},
         # 0.5 GiB per host -> should render as MiB, not "0.00 GiB".
-        'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': {
+        '6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': {
             'mean': 0.5 * 1024**3,
             'min': 0.5 * 1024**3,
             'max': 0.5 * 1024**3,
         },
-        'load_5_inventory/load_total_gb': {'mean': 1.0, 'min': 1.0, 'max': 1.0},
     }
     per_host = [(
         0,
         {
-            'load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
+            '6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff': (
                 0.5 * 1024**3
             )
         },
@@ -256,6 +188,39 @@ class GlanceCardTest(parameterized.TestCase):
     out = markdown_cards.render_glance_card('b', aggs, per_host, None, None)
     self.assertIn('512.00 MiB', out)
     self.assertNotIn('0.00 GiB', out)
+
+  def test_safetensors_io_bytes_drive_load_card(self):
+    # Safetensors has no kvstore counters: per-host bytes + reads arrive via
+    # jax.monitoring under 6_io/, and must still populate the bytes row.
+    aggs = {
+        '3_load_breakdown/blocking_s': {'mean': 2.0, 'min': 2.0, 'max': 2.0},
+        '6_io/file_bytes_read_per_host': {
+            'mean': 8.75 * 1024**3,
+            'min': 8.7 * 1024**3,
+            'max': 8.8 * 1024**3,
+        },
+        '6_io/file_reads_per_host_count': {'mean': 3.0, 'min': 3.0, 'max': 3.0},
+    }
+    per_host = [
+        (
+            0,
+            {
+                '6_io/file_bytes_read_per_host': 8.7 * 1024**3,
+                '6_io/file_reads_per_host_count': 3,
+            },
+        ),
+        (
+            1,
+            {
+                '6_io/file_bytes_read_per_host': 8.8 * 1024**3,
+                '6_io/file_reads_per_host_count': 3,
+            },
+        ),
+    ]
+    out = markdown_cards.render_glance_card('st', aggs, per_host, _INV, None)
+    self.assertIn('Bytes / host (mean)', out)
+    self.assertIn('8.75 GiB', out)
+    self.assertIn('% of total', out)
 
 
 class ConfigurationTest(parameterized.TestCase):

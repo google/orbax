@@ -127,39 +127,39 @@ class P2pCheckpointManagerBenchmarkTest(parameterized.TestCase):
       self.assertIsInstance(result, benchmarks_core.TestResult)
     with self.subTest('metrics timings'):
       self.assertIn(
-          'create_abstract_pytree_0_basics/time_s', result.metrics.results
+          'create_abstract_pytree::0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'create_restore_args_0_basics/time_s', result.metrics.results
+          'create_restore_args::0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'test_local_restore_create_directories_0_basics/time_s',
+          'test_local_restore_create_directories::0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_create_checkpoint_manager_0_basics/time_s',
+          'test_local_restore_create_checkpoint_manager::0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_train_loop_0_basics/time_s',
+          'test_local_restore_train_loop::0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_save_0_0_basics/time_s', result.metrics.results
+          'test_local_restore_save_0::0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'test_local_restore_wait_until_finished_0_0_basics/time_s',
+          'test_local_restore_wait_until_finished_0::0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_save_1_0_basics/time_s', result.metrics.results
+          'test_local_restore_save_1::0_basics/time_s', result.metrics.results
       )
       self.assertIn(
-          'test_local_restore_wait_until_finished_1_0_basics/time_s',
+          'test_local_restore_wait_until_finished_1::0_basics/time_s',
           result.metrics.results,
       )
       self.assertIn(
-          'test_local_restore_restore_and_validate_1_0_basics/time_s',
+          'test_local_restore_restore_and_validate_1::0_basics/time_s',
           result.metrics.results,
       )
     with self.subTest('checkpoint manager calls'):

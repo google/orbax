@@ -25,6 +25,7 @@ import orbax.checkpoint as ocp
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 
+
 def _metrics_to_measure(options: "PyTreeCheckpointOptions") -> list[str]:
   """Returns the list of metrics to measure.
 

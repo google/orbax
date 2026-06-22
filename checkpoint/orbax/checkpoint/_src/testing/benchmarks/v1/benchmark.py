@@ -168,16 +168,12 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
     with ocp.Context(context=options.context):
       if save_trace is not None:
         jax.profiler.start_trace(str(save_trace))
-      if options.async_enabled:
-        with metrics.measure("save_blocking", metrics_to_measure):
+      with metrics.measure("save", metrics_to_measure):
+        if options.async_enabled:
           f = ocp.save_async(save_path, pytree)
-        with metrics.measure("save_background", metrics_to_measure):
           f.result()
-      else:
-        with metrics.measure("save_blocking", metrics_to_measure):
+        else:
           ocp.save(save_path, pytree)
-        with metrics.measure("save_background", metrics_to_measure):
-          pass
       context.pytree = clear_pytree(context.pytree)
       if save_trace is not None:
         jax.profiler.stop_trace()

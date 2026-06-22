@@ -97,7 +97,7 @@ class LoadFlowTest(absltest.TestCase):
       time_keys = [
           k
           for k in result.metrics.results
-          if k.startswith("load_0_basics/time_s")
+          if k.startswith("load::0_basics/time_s")
       ]
       self.assertNotEmpty(time_keys)
 

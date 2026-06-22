@@ -63,8 +63,8 @@ RUN pip install -U --no-cache-dir \
 ARG JAX_VERSION=newest
 ARG DEVICE=tpu
 
-# Install GCSFS and Portpicker
-RUN pip install --no-cache-dir gcsfs portpicker clu 
+# Install GCSFS, Portpicker, and safetensors-loader dependencies
+RUN pip install --no-cache-dir gcsfs portpicker clu safetensors huggingface_hub
 
 RUN if [ "$DEVICE" = "gpu" ]; then \
     pip install --no-cache-dir tensorflow; \

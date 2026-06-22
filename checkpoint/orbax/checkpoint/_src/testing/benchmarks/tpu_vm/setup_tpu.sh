@@ -129,7 +129,8 @@ pip install .
 
 # Install Benchmark dependencies (from Dockerfile analysis)
 echo "Installing benchmark dependencies..."
-python3 -m pip install gcsfs portpicker clu tensorflow tensorboard google-cloud-logging
+python3 -m pip install gcsfs portpicker clu tensorflow tensorboard google-cloud-logging \
+    safetensors huggingface_hub
 
 if [ -n "$RAMFS_DIR" ]; then
     echo ">>> Setting up high-performance storage..."

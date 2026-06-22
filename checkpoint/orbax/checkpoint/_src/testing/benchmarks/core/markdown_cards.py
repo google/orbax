@@ -16,13 +16,16 @@
 
 Three cards, all rendered as markdown that TB's Text dashboard displays:
 
-  - at_a_glance: the screenshot-able card — load/save total time + per-stage
-    breakdown, per-host byte counts (the sharding check), inventory detail,
-    and the run manifest.
+  - at_a_glance: the screenshot-able headline — total time, throughput,
+    per-host bytes (with each host's share of the on-disk size), inventory,
+    and the run manifest. Headline rows are generic candidate-key lookups, so
+    the same renderer serves a load card and a save card: whichever of the
+    candidate keys the card's metrics populate is the one shown.
   - configuration: options + checkpoint config tables, plus pretty-printed
     JSON for nested fields like `spec`.
   - aggregated_metrics: every metric's mean / std / min / max / n / unit,
-    grouped by the numeric section prefix (`2_save_breakdown/` etc.).
+    grouped by the numeric section prefix (`2_save_breakdown/` etc.). This is
+    the per-stage breakdown — it is built straight from the jax-exported tags.
 
 Everything in this module is a pure function — no I/O, no MetricsManager
 state. Tests are correspondingly cheap.
@@ -255,17 +258,20 @@ def render_glance_card(
     inventory: Any | None,
     manifest: Any | None,
 ) -> str:
-  """Quick-glance load/save card: headline + per-stage + per-host breakdown.
+  """Quick-glance headline card: a few generic rows + per-host + inventory.
 
-  Surfaces the jax.monitoring load/save breakdown, throughput, and per-host
-  byte counts already captured by the default metrics in one screenshot-able
-  card. The per-host byte rows (and their share of the total) are the sharding
-  check: each host should read/write only its slice. The checkpoint inventory
-  and run manifest are appended for provenance.
+  The headline rows are candidate-key lookups whose lists cover both load and
+  save tags, so the renderer needs no per-kind template: a load card's metrics
+  populate the load candidates, a save card's the save candidates, and only the
+  resolved ones render. The per-host byte rows (and each host's share of the
+  on-disk size) are the sharding check: each host should move only its slice.
+  The full per-stage breakdown lives in the `aggregated_metrics` card; the
+  inventory and run manifest are appended here for provenance.
 
   Args:
     benchmark_name: Title rendered as the top-level heading.
-    aggregates: Cross-host aggregate stats per metric key.
+    aggregates: Cross-host aggregate stats per metric key (already sliced to one
+      operation name, so keys are bare tags).
     per_host_values: (host_index, metric->mean) per host, sorted by index.
     inventory: Optional directory inventory; supplies on-disk total bytes, file
       count, small-file canary, and format breakdown.
@@ -277,9 +283,29 @@ def render_glance_card(
   on_disk_gb = None
   if inventory is not None and getattr(inventory, "total_bytes", 0):
     on_disk_gb = inventory.total_bytes / (1024**3)
-  lines = [f"## {benchmark_name} — at a glance", ""]
-  lines += _glance_section(_LOAD_SPEC, aggregates, per_host_values, on_disk_gb)
-  lines += _glance_section(_SAVE_SPEC, aggregates, per_host_values, on_disk_gb)
+  lines = [
+      f"## {benchmark_name} — at a glance",
+      "",
+      "| metric | value |",
+      "|---|---:|",
+  ]
+  total = _glance_agg(aggregates, _TOTAL_TIME_KEYS, "max")
+  lines.append(f"| Total time | {_glance_num(total)} s |")
+  throughput = _glance_agg(aggregates, _THROUGHPUT_KEYS, "max")
+  if throughput is not None:
+    lines.append(f"| Throughput | {_glance_num(throughput)} GiB/s |")
+  bytes_per_host = _glance_agg(aggregates, _BYTES_KEYS, "mean")
+  if bytes_per_host is not None:
+    lines.append(f"| Bytes / host (mean) | {_humanize_gib(bytes_per_host)} |")
+  if on_disk_gb is not None:
+    lines.append(f"| Checkpoint size (on-disk) | {_humanize_gib(on_disk_gb)} |")
+  hbm = _glance_agg(aggregates, ["7_memory/device_hbm_peak_diff_gb"], "max")
+  if hbm is not None:
+    lines.append(f"| HBM peak / host (max) | {_humanize_gib(hbm)} |")
+  lines.append("")
+  lines += _per_host_table(
+      per_host_values, _PER_HOST_COLS, pct_keys=_BYTES_KEYS, pct_of=on_disk_gb
+  )
   lines += _glance_inventory(inventory)
   if manifest is not None:
     lines.append(manifest.as_markdown())
@@ -307,261 +333,44 @@ def _glance_inventory(inventory: Any | None) -> list[str]:
   return out
 
 
-@dataclasses.dataclass(frozen=True)
-class _OpSpec:
-  """Declarative spec for one operation (load/save) section of the card."""
-
-  title: str
-  bytes_verb: str  # "read" / "written"
-  blocking_keys: list[str]
-  total_time_keys: list[str]
-  bytes_keys: list[str]  # per-host byte counter(s)
-  op_count_keys: list[str]  # per-host physical read/write op count
-  tput_label: str
-  tput_keys: list[list[str]]  # [left candidates, right candidates]
-  hbm_keys: list[str]
-  breakdown: list[tuple[str, list[str]]]
-  per_host_cols: list[tuple[str, list[str], str]]  # (label, keys, kind)
-
-
-_LOAD_SPEC = _OpSpec(
-    title="Load",
-    bytes_verb="read",
-    blocking_keys=["load_3_load_breakdown/blocking_s"],
-    total_time_keys=["load_3_load_breakdown/total_s"],
-    bytes_keys=[
-        "load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff",
-        "load_6_tensorstore/tensorstore_kvstore_gcs_bytes_read_value_diff",
-    ],
-    op_count_keys=[
-        "load_6_tensorstore/tensorstore_kvstore_file_read_value_diff",
-        "load_6_tensorstore/tensorstore_kvstore_gcs_read_value_diff",
-    ],
-    tput_label="Throughput (host / total)",
-    tput_keys=[
-        ["load_4_throughput/load_per_host_gbps"],
-        ["load_4_throughput/load_total_gbps"],
-    ],
-    hbm_keys=["load_7_memory/device_hbm_peak_diff_gb"],
-    breakdown=[
-        ("worker I/O (storage read)", ["load_3_load_breakdown/worker_io_s"]),
-        (
-            "primary deserialize",
-            ["load_3_load_breakdown/primary_deserialization_s"],
-        ),
-        ("broadcast", ["load_3_load_breakdown/broadcast_s"]),
-        ("blocking", ["load_3_load_breakdown/blocking_s"]),
-        ("total", ["load_3_load_breakdown/total_s"]),
-    ],
-    per_host_cols=[
-        (
-            "bytes read",
-            [
-                "load_6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff",
-                "load_6_tensorstore/tensorstore_kvstore_gcs_bytes_read_value_diff",
-            ],
-            "bytes",
-        ),
-        (
-            "reads",
-            [
-                "load_6_tensorstore/tensorstore_kvstore_file_read_value_diff",
-                "load_6_tensorstore/tensorstore_kvstore_gcs_read_value_diff",
-            ],
-            "count",
-        ),
-        ("blocking s", ["load_3_load_breakdown/blocking_s"], "num"),
-        ("total s", ["load_3_load_breakdown/total_s"], "num"),
-        ("worker I/O s", ["load_3_load_breakdown/worker_io_s"], "num"),
-    ],
-)
-
-
-_SAVE_SPEC = _OpSpec(
-    title="Save",
-    bytes_verb="written",
-    blocking_keys=["save_blocking_2_save_breakdown/blocking_s"],
-    total_time_keys=[
-        "save_background_2_save_breakdown/total_async_s",
-        "save_background_2_save_breakdown/total_s",
-        "save_blocking_2_save_breakdown/total_s",
-    ],
-    bytes_keys=[
-        "save_background_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff",
-        "save_blocking_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff",
-        "save_background_6_tensorstore/tensorstore_kvstore_gcs_bytes_written_value_diff",
-        "save_blocking_6_tensorstore/tensorstore_kvstore_gcs_bytes_written_value_diff",
-    ],
-    op_count_keys=[
-        "save_background_6_tensorstore/tensorstore_kvstore_file_write_value_diff",
-        "save_blocking_6_tensorstore/tensorstore_kvstore_file_write_value_diff",
-        "save_background_6_tensorstore/tensorstore_kvstore_gcs_write_value_diff",
-        "save_blocking_6_tensorstore/tensorstore_kvstore_gcs_write_value_diff",
-    ],
-    tput_label="Throughput (blocking / total)",
-    tput_keys=[
-        ["save_blocking_4_throughput/save_blocking_gbps"],
-        ["save_background_4_throughput/save_total_gbps"],
-    ],
-    hbm_keys=[
-        "save_background_7_memory/device_hbm_peak_diff_gb",
-        "save_blocking_7_memory/device_hbm_peak_diff_gb",
-    ],
-    breakdown=[
-        (
-            "directory creation",
-            [
-                "save_blocking_2_save_breakdown/directory_creation_s",
-                "save_background_2_save_breakdown/async_directory_creation_s",
-            ],
-        ),
-        (
-            "metadata write",
-            [
-                "save_background_2_save_breakdown/metadata_write_s",
-                "save_blocking_2_save_breakdown/metadata_write_s",
-            ],
-        ),
-        (
-            "commit",
-            [
-                "save_background_2_save_breakdown/commit_s",
-                "save_blocking_2_save_breakdown/commit_s",
-            ],
-        ),
-        (
-            "ocdbt merge",
-            [
-                "save_background_2_save_breakdown/ocdbt_merge_s",
-                "save_blocking_2_save_breakdown/ocdbt_merge_s",
-            ],
-        ),
-        ("blocking", ["save_blocking_2_save_breakdown/blocking_s"]),
-        (
-            "total",
-            [
-                "save_background_2_save_breakdown/total_async_s",
-                "save_background_2_save_breakdown/total_s",
-            ],
-        ),
-    ],
-    per_host_cols=[
-        (
-            "bytes written",
-            [
-                "save_background_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff",
-                "save_blocking_6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff",
-                "save_background_6_tensorstore/tensorstore_kvstore_gcs_bytes_written_value_diff",
-                "save_blocking_6_tensorstore/tensorstore_kvstore_gcs_bytes_written_value_diff",
-            ],
-            "bytes",
-        ),
-        (
-            "writes",
-            [
-                "save_background_6_tensorstore/tensorstore_kvstore_file_write_value_diff",
-                "save_blocking_6_tensorstore/tensorstore_kvstore_file_write_value_diff",
-                "save_background_6_tensorstore/tensorstore_kvstore_gcs_write_value_diff",
-                "save_blocking_6_tensorstore/tensorstore_kvstore_gcs_write_value_diff",
-            ],
-            "count",
-        ),
-        ("blocking s", ["save_blocking_2_save_breakdown/blocking_s"], "num"),
-    ],
-)
-
-
-def _glance_section(
-    spec: _OpSpec,
-    aggregates: dict[str, dict[str, float]],
-    per_host_values: list[tuple[int, dict[str, float]]],
-    on_disk_gb: float | None,
-) -> list[str]:
-  """Renders one operation (load/save) section from its `_OpSpec`."""
-  blocking = _glance_agg(aggregates, spec.blocking_keys, "max")
-  total_time = _glance_agg(aggregates, spec.total_time_keys, "max")
-  per_host_mean = _glance_agg(aggregates, spec.bytes_keys, "mean")
-  per_host_min = _glance_agg(aggregates, spec.bytes_keys, "min")
-  per_host_max = _glance_agg(aggregates, spec.bytes_keys, "max")
-  if not any(v is not None for v in (blocking, total_time, per_host_mean)):
-    return [
-        f"### {spec.title}",
-        "",
-        f"_(no {spec.title.lower()} in this run)_",
-        "",
-    ]
-
-  reads_mean = _glance_agg(aggregates, spec.op_count_keys, "mean")
-  reads_min = _glance_agg(aggregates, spec.op_count_keys, "min")
-  reads_max = _glance_agg(aggregates, spec.op_count_keys, "max")
-  tput_left = _glance_agg(aggregates, spec.tput_keys[0], "max")
-  tput_right = _glance_agg(aggregates, spec.tput_keys[1], "max")
-  hbm = _glance_agg(aggregates, spec.hbm_keys, "max")
-
-  out = [f"### {spec.title}", "", "| metric | value |", "|---|---:|"]
-  out.append(
-      f"| Total time (blocking / total) | {_glance_num(blocking)} /"
-      f" {_glance_num(total_time)} s |"
-  )
-  if per_host_mean is not None:
-    out.append(
-        f"| Bytes {spec.bytes_verb} / host (mean · min · max) |"
-        f" {_humanize_gib(per_host_mean)} · {_humanize_gib(per_host_min)} ·"
-        f" {_humanize_gib(per_host_max)} |"
-    )
-  if reads_mean is not None:
-    verb = "Reads" if spec.bytes_verb == "read" else "Writes"
-    rmean = _glance_num(reads_mean, "{:.0f}")
-    rmin = _glance_num(reads_min, "{:.0f}")
-    rmax = _glance_num(reads_max, "{:.0f}")
-    out.append(
-        f"| {verb} / host (mean · min · max) | {rmean} · {rmin} · {rmax} |"
-    )
-  if on_disk_gb is not None:
-    out.append(f"| Checkpoint size (on-disk) | {_humanize_gib(on_disk_gb)} |")
-  # Sharding check: per-host bytes vs the on-disk checkpoint size. ~1 means
-  # every host moved ~the whole checkpoint (replicated); ~1/N means each host
-  # handled only its shard. (Dividing by the per-device-inflated logical-read
-  # counter would be wrong — it tracks local-device copies, not sharding.)
-  if per_host_mean is not None and on_disk_gb:
-    ratio = per_host_mean / on_disk_gb
-    flag = (
-        "✓ sharded"
-        if ratio <= 0.9
-        else "⚠ each host handles ~the whole checkpoint"
-    )
-    out.append(f"| Per-host ÷ checkpoint | {ratio:.3f}  {flag} |")
-  if tput_left is not None or tput_right is not None:
-    out.append(
-        f"| {spec.tput_label} | {_glance_num(tput_left)} /"
-        f" {_glance_num(tput_right)} GiB/s |"
-    )
-  if hbm is not None:
-    out.append(f"| HBM peak / host (max) | {_humanize_gib(hbm)} |")
-  out.append("")
-
-  rows = [
-      (label, _glance_agg(aggregates, keys, "mean"))
-      for label, keys in spec.breakdown
-  ]
-  rows = [(label, v) for label, v in rows if v is not None]
-  if rows:
-    out += [
-        f"#### {spec.title} time breakdown (mean s)",
-        "",
-        "| stage | s |",
-        "|---|---:|",
-    ]
-    out += [f"| {label} | {_glance_num(v)} |" for label, v in rows]
-    out.append("")
-
-  out += _per_host_table(
-      per_host_values,
-      spec.per_host_cols,
-      pct_keys=spec.bytes_keys,
-      pct_of=on_disk_gb,
-  )
-  return out
+_TOTAL_TIME_KEYS = [
+    "3_load_breakdown/total_s",
+    "2_save_breakdown/total_async_s",
+    "2_save_breakdown/total_s",
+    "0_basics/time_s",
+]
+_THROUGHPUT_KEYS = [
+    "4_throughput/load_total_gbps",
+    "4_throughput/save_total_gbps",
+    "4_throughput/load_per_host_gbps",
+    "4_throughput/save_blocking_gbps",
+]
+_BYTES_KEYS = [
+    "6_io/file_bytes_read_per_host",
+    "6_tensorstore/tensorstore_kvstore_file_bytes_read_value_diff",
+    "6_tensorstore/tensorstore_kvstore_gcs_bytes_read_value_diff",
+    "6_tensorstore/tensorstore_kvstore_file_bytes_written_value_diff",
+    "6_tensorstore/tensorstore_kvstore_gcs_bytes_written_value_diff",
+]
+_READ_WRITE_COUNT_KEYS = [
+    "6_io/file_reads_per_host_count",
+    "6_tensorstore/tensorstore_kvstore_file_read_value_diff",
+    "6_tensorstore/tensorstore_kvstore_gcs_read_value_diff",
+    "6_tensorstore/tensorstore_kvstore_file_write_value_diff",
+    "6_tensorstore/tensorstore_kvstore_gcs_write_value_diff",
+]
+_BLOCKING_TIME_KEYS = [
+    "3_load_breakdown/blocking_s",
+    "2_save_breakdown/blocking_s",
+]
+# Per-host columns for the at-a-glance card. Candidate-key lists cover load and
+# save flavours; `_BYTES_KEYS` also feeds the "% of on-disk" sharding column.
+_PER_HOST_COLS = [
+    ("bytes", _BYTES_KEYS, "bytes"),
+    ("reads/writes", _READ_WRITE_COUNT_KEYS, "count"),
+    ("blocking s", _BLOCKING_TIME_KEYS, "num"),
+    ("total s", _TOTAL_TIME_KEYS, "num"),
+]
 
 
 def options_to_hparams(options: Any) -> dict[str, bool | int | float | str]:

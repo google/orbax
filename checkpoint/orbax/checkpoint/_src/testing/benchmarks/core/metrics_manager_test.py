@@ -115,8 +115,8 @@ class MetricsManagerTest(parameterized.TestCase):
 
     # Benchmark 'bench1', Rep 1: success
     m1 = metric_lib.Metrics()
-    m1.results['op_time_duration'] = (1.0, 's')
-    m1.results['op_other_metric'] = ('some_string', 'text')
+    m1.results['op::0_basics/time_s'] = (1.0, 's')
+    m1.results['op::9_other/note'] = ('some_string', 'text')
     manager.add_result(
         bench1_name,
         m1,
@@ -135,7 +135,7 @@ class MetricsManagerTest(parameterized.TestCase):
 
     # Add a second benchmark to ensure writers are created per benchmark
     m3 = metric_lib.Metrics()
-    m3.results['loss'] = (0.5, 'none')
+    m3.results['load::0_basics/time_s'] = (0.5, 's')
     manager.add_result(
         bench2_name,
         m3,
@@ -164,19 +164,20 @@ class MetricsManagerTest(parameterized.TestCase):
     )
 
     # Since the mock writer instance is reused, we check all calls on it.
+    # Keys are "{name}::{tag}"; the writer renders the name as a "/" group.
     # Calls for 'bench1'
     mock_writer.write_scalars.assert_any_call(
-        step=0, scalars={'op_time_duration_s': 1.0}
+        step=0, scalars={'op/0_basics/time_s': 1.0}
     )
     mock_writer.write_texts.assert_any_call(
-        step=0, texts={'op_other_metric_text': 'some_string'}
+        step=0, texts={'op/9_other/note': 'some_string'}
     )
     mock_writer.write_texts.assert_any_call(
         step=1, texts={'error': "<pre>ValueError('failure')</pre>"}
     )
     # Calls for 'bench2'
     mock_writer.write_scalars.assert_any_call(
-        step=0, scalars={'loss_none': 0.5}
+        step=0, scalars={'load/0_basics/time_s': 0.5}
     )
 
     # Configuration is now rendered as markdown; verify the benchmark name
@@ -211,6 +212,41 @@ class MetricsManagerTest(parameterized.TestCase):
     self.assertEqual(mock_writer.close.call_count, 2)
     self.assertGreaterEqual(mock_writer.flush.call_count, 2)
 
+  @mock.patch('clu.metric_writers.create_default_writer')
+  def test_each_name_builds_one_card_pair(self, mock_create_writer):
+    mock_writer = mock.Mock()
+    mock_create_writer.return_value = mock_writer
+    temp_dir = epath.Path(self.create_tempdir().full_path)
+    manager = metrics_manager.MetricsManager(
+        name='Suite',
+        num_repeats=1,
+        tensorboard_dir=temp_dir,
+        enable_per_host_metrics=False,
+    )
+    metrics = metric_lib.Metrics()
+    # Two distinct measure() names, keyed `{name}::{tag}`.
+    metrics.results = {
+        'warm::3_load_breakdown/total_s': (12.0, 's'),
+        'ckpt::2_save_breakdown/total_s': (3.0, 's'),
+    }
+    manager.add_result('bench', metrics)
+    manager.generate_report()
+
+    texts = {}
+    for _, kwargs in mock_writer.write_texts.call_args_list:
+      texts.update(kwargs.get('texts', {}))
+    # One glance + one aggregate card per distinct operation name.
+    self.assertIn('at_a_glance/warm', texts)
+    self.assertIn('at_a_glance/ckpt', texts)
+    self.assertIn('aggregated_metrics/warm', texts)
+    self.assertIn('aggregated_metrics/ckpt', texts)
+    self.assertIn('bench · warm', texts['at_a_glance/warm'])
+    self.assertIn('12.00', texts['at_a_glance/warm'])
+    self.assertIn('3.00', texts['at_a_glance/ckpt'])
+    # The breakdown table groups by the jax section prefix.
+    self.assertIn('3_load_breakdown', texts['aggregated_metrics/warm'])
+    self.assertIn('2_save_breakdown', texts['aggregated_metrics/ckpt'])
+
   def test_generate_report_no_successful_runs_for_aggregation(self):
     manager = metrics_manager.MetricsManager(name='Suite', num_repeats=2)
     manager.add_result('bench1', metric_lib.Metrics(), error=ValueError('1'))
@@ -234,7 +270,7 @@ class MetricsManagerTest(parameterized.TestCase):
     )
 
     m1 = metric_lib.Metrics()
-    m1.results['acc'] = (0.9, '')
+    m1.results['load::0_basics/time_s'] = (0.9, 's')
     manager.add_result('bench1', m1)
 
     mock_create_writer.assert_called_once_with(
@@ -243,7 +279,7 @@ class MetricsManagerTest(parameterized.TestCase):
         collection='bench1',
     )
     mock_writer.write_scalars.assert_called_once_with(
-        step=0, scalars={'acc_': 0.9}
+        step=0, scalars={'load/0_basics/time_s': 0.9}
     )
     mock_writer.flush.assert_called_once()
 

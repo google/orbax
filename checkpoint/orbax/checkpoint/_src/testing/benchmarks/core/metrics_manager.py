@@ -98,6 +98,19 @@ class AggregatedStats:
   count: int
 
 
+def _slice_namespace(d: dict[str, Any], name: str) -> dict[str, Any]:
+  """Returns entries of `d` keyed `{name}::{key}`, stripped to `{key}`."""
+  prefix = f"{name}::"
+  return {k[len(prefix):]: v for k, v in d.items() if k.startswith(prefix)}
+
+
+def _slice_per_host(
+    per_host_values: list[tuple[int, dict[str, float]]], name: str
+) -> list[tuple[int, dict[str, float]]]:
+  """Per-host values for one capture name, with the `{name}::` prefix stripped."""
+  return [(idx, _slice_namespace(vals, name)) for idx, vals in per_host_values]
+
+
 class MetricsManager:
   """Manages metrics aggregation and reporting for a test suite.
 
@@ -230,15 +243,10 @@ class MetricsManager:
     """Writes a single result to TensorBoard."""
     writer = self._get_writer(benchmark_name)
     if error is None:
-      for key, (value, unit) in metrics.results.items():
-        # Hierarchical keys (e.g. "2_save_breakdown/blocking_s") already
-        # encode the unit in their suffix; appending "_s" again gives the
-        # ugly "..._blocking_s_s". Skip the suffix for those; flat legacy
-        # keys keep the existing "{key}_{unit}" shape.
-        if "/" in key:
-          tag = key
-        else:
-          tag = f'{key}_{unit.replace("/", "_")}'
+      for key, (value, _) in metrics.results.items():
+        # Keys are "{name}::{section}/{leaf}"; render the name namespace as a TB
+        # group so a benchmark's per-name scalars stay visible per host.
+        tag = key.replace("::", "/")
         if isinstance(value, (int, float)):
           writer.write_scalars(step=step, scalars={tag: value})
         else:
@@ -575,14 +583,17 @@ class MetricsManager:
   ) -> None:
     """Writes the __summary__ run: aggregate scalars, text cards, and HParams.
 
-    Per-host mode opens a sibling __summary__ writer; legacy mode reuses the
-    benchmark's single writer.
+    One at-a-glance + aggregated-metrics card per distinct operation name — a
+    name is a `measure()` block name, and its metrics are keyed `{name}::{tag}`
+    (`at_a_glance/<name>`, `aggregated_metrics/<name>`). Per-host mode opens a
+    sibling __summary__ writer; legacy mode reuses the single writer.
 
     Args:
       benchmark_name: The benchmark being summarized.
       results: The (Metrics, error) tuples for that benchmark.
-      aggregates: Cross-host aggregate stats per metric key.
-      per_host_values: (host_index, metric->mean) per host for the glance card.
+      aggregates: Cross-host aggregate stats per metric key, keyed
+        `{name}::{tag}`.
+      per_host_values: (host_index, metric->mean) per host for the glance cards.
     """
     assert self._tensorboard_dir is not None
     if self._enable_per_host_metrics:
@@ -597,32 +608,37 @@ class MetricsManager:
     try:
       # Aggregate scalars only — TB's Distributions/Histograms views plot over
       # a step axis and collapse to empty at step 0, so histograms are skipped.
+      # Keys carry a `name::` namespace; render it as a `/` group.
       for key, stats in aggregates.items():
+        tag = key.replace("::", "/")
         writer.write_scalars(
-            step=0, scalars={f"{key}_{stat}": v for stat, v in stats.items()}
+            step=0, scalars={f"{tag}_{stat}": v for stat, v in stats.items()}
         )
-      writer.write_texts(
-          step=0,
-          texts={
-              "at_a_glance": markdown_cards.render_glance_card(
-                  benchmark_name,
-                  aggregates,
-                  per_host_values,
-                  self._inventories.get(benchmark_name),
-                  self._suite_run_manifest,
-              )
-          },
-      )
+
       self._write_config_and_hparams(writer, benchmark_name)
       stats_dict, units_dict = self._aggregate_metrics(results)
-      writer.write_texts(
-          step=0,
-          texts={
-              "aggregated_metrics": markdown_cards.render_aggregated_metrics(
-                  benchmark_name, stats_dict, units_dict
-              )
-          },
-      )
+      inventory = self._inventories.get(benchmark_name)
+
+      cards: dict[str, str] = {}
+      names = sorted({k.split("::", 1)[0] for k in aggregates if "::" in k})
+      for name in names:
+        cards[f"at_a_glance/{name}"] = markdown_cards.render_glance_card(
+            f"{benchmark_name} · {name}",
+            _slice_namespace(aggregates, name),
+            _slice_per_host(per_host_values, name),
+            inventory,
+            self._suite_run_manifest,
+        )
+        cards[f"aggregated_metrics/{name}"] = (
+            markdown_cards.render_aggregated_metrics(
+                f"{benchmark_name} · {name}",
+                _slice_namespace(stats_dict, name),
+                _slice_namespace(units_dict, name),
+            )
+        )
+
+      if cards:
+        writer.write_texts(step=0, texts=cards)
       writer.flush()
     finally:
       if owned:

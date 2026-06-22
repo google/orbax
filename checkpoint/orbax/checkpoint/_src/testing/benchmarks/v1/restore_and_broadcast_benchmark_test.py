@@ -134,7 +134,7 @@ class RestoreAndBroadcastBenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
     self.assertIsInstance(result, benchmarks_core.TestResult)
     metrics = result.metrics.results
-    self.assertIn('load_0_basics/time_s', metrics)
+    self.assertIn('load::0_basics/time_s', metrics)
 
 
 if __name__ == '__main__':

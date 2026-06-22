@@ -145,8 +145,8 @@ class PyTorchCheckpointBenchmarkTest(parameterized.TestCase):
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
-            'save_0_basics/time_s',
-            'restore_0_basics/time_s',
+            'save::0_basics/time_s',
+            'restore::0_basics/time_s',
         },
         result.metrics.results.keys(),
     )
