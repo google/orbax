@@ -53,8 +53,11 @@ def run_worker_and_command(command):
     )
 
   # Explicit Initialization
-  jax.distributed.initialize()
-
+  jax.distributed.initialize(
+      coordinator_address=coordinator_address,
+      num_processes=int(num_processes),
+      process_id=int(process_id),
+  )
   print(f"[Rank {process_id}] JAX Initialized. Executing: {' '.join(command)}")
   print(f"[Rank {process_id}] JAX devices: {jax.devices()}")
 
