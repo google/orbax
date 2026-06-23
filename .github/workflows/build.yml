@@ -54,12 +54,6 @@ jobs:
       # TODO(b/275613424): remove `pip install -e .` and `pip uninstall -y orbax`.
       # Currently in place to override remote orbax import due to flax dependency.
       run: |
-        pip install --no-cache-dir -e .
-        pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-        pip install --no-cache-dir -e .[tiering_service]
-        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
-        pip uninstall -y orbax
-        pip install tensorboard
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
@@ -67,6 +61,13 @@ jobs:
         else
           pip install "jax>=${{ matrix.jax-version }}" "jaxlib>=${{ matrix.jax-version }}"
         fi
+
+        pip install --no-cache-dir -e .
+        pip install --no-cache-dir -e .[testing] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip install --no-cache-dir -e .[tiering_service]
+        python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
+        pip uninstall -y orbax
+        pip install tensorboard
     - name: Test with pytest
     # TODO(nikhilbansall): Move these to an exclude target within pytest.ini.
       run: |
