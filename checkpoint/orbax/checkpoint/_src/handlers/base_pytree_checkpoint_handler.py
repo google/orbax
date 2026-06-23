@@ -640,9 +640,6 @@ class BasePyTreeCheckpointHandler(
       the data from its source will be awaited in this function.
     """
     start_time = time.time()
-    initial_ts_metrics = ts.experimental_collect_matching_metrics(
-        '/tensorstore/'
-    )
     item = args.item
     # Reject only zero-leaf items (empty containers, None). A single falsy leaf
     # (0, '', False, zero-array) is a valid one-leaf tree and must be allowed.
@@ -700,9 +697,6 @@ class BasePyTreeCheckpointHandler(
     else:
       requests_to_save = batch_requests
 
-    tree_memory_size = async_io_engine.compute_save_memory_size(
-        requests_to_save
-    )
     commit_futures = await self._async_io_engine.execute_save(requests_to_save)
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
@@ -730,11 +724,14 @@ class BasePyTreeCheckpointHandler(
     else:
       save_futures += commit_futures
 
-
+    tree_memory_size = async_io_engine.compute_memory_size(
+        [req.values for req in requests_to_save]
+    )
     async_io_engine.log_io_metrics(
         tree_memory_size,
         start_time,
         '/jax/orbax/write/blocking_gbytes_per_sec',
+        primary_host=self._primary_host,
     )
     chained_futures = [
         future.ChainedFuture(
@@ -745,7 +742,7 @@ class BasePyTreeCheckpointHandler(
                 start_time,
                 '/jax/orbax/write/gbytes_per_sec',
                 '/jax/orbax/write/gbytes',
-                initial_ts_metrics=initial_ts_metrics,
+                primary_host=self._primary_host,
             ),
         )
     ]
@@ -792,7 +789,7 @@ class BasePyTreeCheckpointHandler(
       metadata: PyTree,
       param_infos: PyTree,
       restore_args: PyTree,
-  ) -> Tuple[int, PyTree]:
+  ) -> PyTree:
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
     byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
@@ -809,9 +806,6 @@ class BasePyTreeCheckpointHandler(
 
     deserialized_batches = await self._async_io_engine.execute_restore(
         batch_requests
-    )
-    tree_memory_size = async_io_engine.compute_restore_memory_size(
-        batch_requests, deserialized_batches
     )
 
     flat_restored = {}
@@ -832,9 +826,7 @@ class BasePyTreeCheckpointHandler(
     # Restore using `item` as the target structure. If there are any custom
     # nodes (e.g. optax.EmptyState), these will replace None values in
     # flat_restored.
-    return tree_memory_size, tree_utils.from_flat_dict(
-        flat_restored, target=item
-    )
+    return tree_utils.from_flat_dict(flat_restored, target=item)
 
   def _partial_restore_with_omission(
       self,
@@ -1087,7 +1079,7 @@ class BasePyTreeCheckpointHandler(
         raise_array_data_missing_error=raise_array_data_missing_error,
     )
     # Begin restore.
-    tree_memory_size, restored_item = asyncio_utils.run_sync(
+    restored_item = asyncio_utils.run_sync(
         self._maybe_deserialize(
             item, value_metadata_tree, param_infos, restore_args
         )
@@ -1111,12 +1103,13 @@ class BasePyTreeCheckpointHandler(
           json.dumps(ts.experimental_collect_matching_metrics('/tensorstore/')),
       )
 
-
+    tree_memory_size = async_io_engine.compute_memory_size(restored_item)
     async_io_engine.log_io_metrics(
         tree_memory_size,
         start_time,
         '/jax/checkpoint/read/gbytes_per_sec',
         '/jax/checkpoint/read/gbytes',  # device memory usage
+        primary_host=self._primary_host,
     )
     return restored_item
 

@@ -14,7 +14,6 @@
 
 import asyncio
 import dataclasses
-import sys
 import threading
 from typing import Any, Optional
 import unittest
@@ -116,58 +115,6 @@ def get_replica_pids(rep_id: int, mesh: jax.sharding.Mesh):
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids
-
-
-def per_host_write_size(value: Any) -> int:
-  if not isinstance(value, jax.Array) and multihost.process_index() != 0:
-    return 0
-
-  if isinstance(value, np.ndarray):
-    return value.size * value.dtype.itemsize
-  elif isinstance(value, jax.Array):
-    return sum(
-        shard.data.size * shard.data.dtype.itemsize
-        for shard in value.addressable_shards
-        if shard.replica_id == 0
-    )
-  elif isinstance(value, str):
-    return len(value)
-  else:
-    return sys.getsizeof(value)
-
-
-def per_host_read_size(value: Any) -> int:
-  if isinstance(value, np.ndarray):
-    return value.size * value.dtype.itemsize
-  elif isinstance(value, jax.Array):
-    return sum(
-        shard.data.size * shard.data.dtype.itemsize
-        for shard in value.addressable_shards
-    )
-  elif isinstance(value, str):
-    return len(value)
-  else:
-    return sys.getsizeof(value)
-
-
-def per_host_size(value: Any) -> int:
-  if isinstance(value, np.ndarray):
-    return (
-        value.size * value.dtype.itemsize
-        if multihost.process_index() == 0
-        else 0
-    )
-  elif isinstance(value, jax.Array):
-    shards = value.addressable_shards
-    total = 0
-    for shard in shards:
-      if shard.replica_id == 0:
-        total += shard.data.size * shard.data.dtype.itemsize
-    return total
-  elif isinstance(value, str):
-    return len(value) if multihost.process_index() == 0 else 0
-  else:
-    return sys.getsizeof(value) if multihost.process_index() == 0 else 0
 
 
 class SerializationTest(
@@ -694,20 +641,6 @@ class NumpyHandlerTest(
 ):
   """Test class."""
 
-  def test_memory_size(self):
-    handler = type_handlers.NumpyHandler()
-    if multihost.process_index() == 0:
-      values = [np.arange(8, dtype=np.int32)]
-    else:
-      values = [np.arange(16, dtype=np.int32)]
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-    self.assertSequenceEqual(
-        write_sizes, [per_host_write_size(v) for v in values]
-    )
-    self.assertSequenceEqual(
-        read_sizes, [per_host_read_size(v) for v in values]
-    )
-
   async def test_metadata(self):
     if multihost.process_index() != 0:
       self.skipTest('Only run on host 0')
@@ -753,31 +686,9 @@ class NumpyHandlerTest(
 class ScalarHandlerTest(parameterized.TestCase):
   """Test class."""
 
-  def test_memory_size(self):
-    handler = type_handlers.ScalarHandler()
-    values = [3]
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-    self.assertSequenceEqual(
-        write_sizes, [per_host_write_size(v) for v in values]
-    )
-    self.assertSequenceEqual(
-        read_sizes, [per_host_read_size(v) for v in values]
-    )
-
 
 class StringHandlerTest(parameterized.TestCase):
   """Test class."""
-
-  def test_memory_size(self):
-    handler = type_handlers.StringHandler()
-    values = ['a', 'foobar']
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-    self.assertSequenceEqual(
-        write_sizes, [per_host_write_size(v) for v in values]
-    )
-    self.assertSequenceEqual(
-        read_sizes, [per_host_read_size(v) for v in values]
-    )
 
 
 class ArrayHandlerTest(parameterized.TestCase):
@@ -786,13 +697,6 @@ class ArrayHandlerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.pytree, _, _ = test_utils.setup_sharded_pytree()
-
-  def test_memory_size(self):
-    handler = type_handlers.ArrayHandler(use_replica_parallel=True)
-    values = jax.tree.leaves(self.pytree)
-    write_sizes, read_sizes = zip(*handler.memory_size(values))
-    self.assertSequenceEqual(write_sizes, [32, 64, 32, 64])
-    self.assertSequenceEqual(read_sizes, [256, 64, 32, 64])
 
 
 class ArrayHandlerCallbackTest(

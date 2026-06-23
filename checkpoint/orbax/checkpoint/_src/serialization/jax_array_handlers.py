@@ -21,7 +21,7 @@ import dataclasses
 import functools
 import os
 import time
-from typing import Any, Callable, Dict, Sequence, Set, Tuple, TypeAlias, Union, cast
+from typing import Any, Callable, Dict, Sequence, Set, TypeAlias, Union, cast
 import warnings
 
 from absl import logging
@@ -340,6 +340,12 @@ def _record_raw_metrics(
         ratio,
         storage_type=storage_type,
     )
+    if direction == types.IoDirection.WRITE:
+      jax.monitoring.record_scalar(
+          '/jax/orbax/write/worker/io/compressed_gbytes',
+          raw_bytes / (1024**3),
+          storage_type=storage_type,
+      )
 
 
 def _log_io_metrics(
@@ -1574,27 +1580,6 @@ class ArrayHandler(types.TypeHandler):
 
     return ret  # pytype: disable=bad-return-type
 
-  def memory_size(
-      self, values: Sequence[jax.Array]
-  ) -> Sequence[Tuple[int, int]]:
-    write_sizes = []
-    read_sizes = []
-    shard_size = lambda shard: shard.data.size * shard.data.dtype.itemsize
-    for v in values:
-      write_sizes.append(
-          replica_slices.get_replica_slices(
-              v,
-              replica_id=self._replica_id,
-              use_replica_parallel=self._use_replica_parallel,
-              min_slice_bytes_for_replica_parallel=self._min_slice_bytes_for_replica_parallel,
-              max_replicas_for_replica_parallel=self._max_replicas_for_replica_parallel,
-          ).nbytes
-      )
-      read_sizes.append(
-          sum(shard_size(shard) for shard in v.addressable_shards)
-      )
-    return list(zip(write_sizes, read_sizes))
-
 
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
   return multihost.process_index() in primary_replica_ids
@@ -1925,9 +1910,3 @@ class SingleReplicaArrayHandler(ArrayHandler):
           ret = _wrap_random_key_data(array_metadatas, infos, list(ret))
 
     return ret
-
-  # TODO(b/370396118): Calculation overestimates bytes read.
-  def memory_size(  # pylint: disable=useless-parent-delegation
-      self, values: Sequence[jax.Array]
-  ) -> Sequence[Tuple[int, int]]:
-    return super().memory_size(values)
