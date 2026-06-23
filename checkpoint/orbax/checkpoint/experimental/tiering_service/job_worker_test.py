@@ -15,15 +15,73 @@
 import asyncio
 import datetime
 import unittest
+from unittest import mock
 
+from absl import logging
 from absl.testing import absltest
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
 from orbax.checkpoint.experimental.tiering_service import job_worker
 from orbax.checkpoint.experimental.tiering_service import server_config
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
+
+
+class DummyGcpParallelstoreClient(gcp_storage_client.GCPStorageClient):
+  """Dummy implementation of GCPStorageClient for testing."""
+
+  def __init__(self):
+    """Initializes the dummy client with empty operations list."""
+    super().__init__()
+    self.operations = {}
+
+  async def trigger_copy(
+      self,
+      request_id: str,
+      source_path: str,
+      destination_path: str,
+  ) -> str:
+    """Triggers copy in progress."""
+    self.operations[request_id] = {
+        "status": gcp_storage_client.OperationStatus.IN_PROGRESS,
+        "progress": 0,
+        "type": "copy",
+    }
+    logging.info(
+        "Dummy triggered copy %s -> %s, request_id: %s",
+        source_path,
+        destination_path,
+        request_id,
+    )
+    return request_id
+
+  async def poll_operation(
+      self,
+      request_id: str,
+      context: gcp_storage_client.TransferContext | None = None,
+  ) -> gcp_storage_client.Result:
+    """Polls the status of the specified GCP operation."""
+    op = self.operations.get(request_id)
+    if not op:
+      return gcp_storage_client.Result(
+          status=gcp_storage_client.OperationStatus.FAILED,
+          detail_info={"error": "Operation not found"},
+      )
+
+    if op["status"] == gcp_storage_client.OperationStatus.IN_PROGRESS:
+      op["progress"] += 50  # Progress by 50% each poll
+      if op["progress"] >= 100:
+        op["status"] = gcp_storage_client.OperationStatus.SUCCESS
+
+    return gcp_storage_client.Result(
+        status=op["status"],
+        detail_info={
+            "bytes_copied": op["progress"] * 1000,
+            "total_bytes": 100000,
+        },
+    )
 
 
 class DynamicClientResolutionTest(absltest.TestCase):
@@ -133,10 +191,12 @@ class TieringServiceWorkerTest(
     self.session_maker = sessionmaker(
         self.engine, expire_on_commit=False, class_=AsyncSession
     )
+    self.gcp_client = DummyGcpParallelstoreClient()
     # Short poll interval for fast tests
     self.worker = job_worker.TieringServiceWorker(
         self.session_maker,
         self.config,
+        gcp_client=self.gcp_client,
         lease_duration_seconds=2,  # Short lease for testing expiration
         poll_interval_seconds=1,
     )
@@ -202,7 +262,7 @@ class TieringServiceWorkerTest(
       lustre_a = next(b for b in backends if b.zone == "us-central1-a")
       gcs = next(b for b in backends if b.region == "us-central1")
 
-      await self._create_asset_and_job(
+      job, _ = await self._create_asset_and_job(
           session,
           asset_uuid="asset-1",
           path="path/1",
@@ -213,37 +273,165 @@ class TieringServiceWorkerTest(
     # Start worker to process the job
     await self.worker.start()
 
-    # Wait for job to complete with timeout (stub completes it immediately)
+    # Wait for job to transition to PROCESSING
     for _ in range(5):
-      await asyncio.sleep(1)
+      await asyncio.sleep(0.5)
       async with self.session_maker() as session:
-        result = await session.execute(select(db_schema.AssetJob))
-        job = result.scalars().first()
-        if job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED:
+        result = await session.execute(
+            select(db_schema.AssetJob).where(db_schema.AssetJob.id == job.id)
+        )
+        j = result.scalars().first()
+        if j.status == db_schema.JobStatus.JOB_STATUS_PROCESSING:
           break
 
     await self.worker.stop()
 
     async with self.session_maker() as session:
-      # Verify job status transitions to COMPLETED
+      # Verify job status transitions to PROCESSING
+      result = await session.execute(
+          select(db_schema.AssetJob).where(db_schema.AssetJob.id == job.id)
+      )
+      j = result.scalars().first()
+      self.assertEqual(j.status, db_schema.JobStatus.JOB_STATUS_PROCESSING)
+      self.assertEqual(
+          j.transfer_status.get("status"),
+          gcp_storage_client.OperationStatus.IN_PROGRESS.value,
+      )
+      self.assertEqual(j.transfer_status.get("request_id"), job.request_id)
+
+  async def test_concurrency_limit_respected(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      # Create 2 jobs targeting the SAME backend (Lustre A)
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-1",
+          path="path/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-2",
+          path="path/2",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+
+    await self.worker.start()
+    await asyncio.sleep(2)
+    await self.worker.stop()
+
+    async with self.session_maker() as session:
+      result = await session.execute(
+          select(db_schema.AssetJob).order_by(db_schema.AssetJob.id)
+      )
+      jobs_list = result.scalars().all()
+
+      # One should be PROCESSING, the other still QUEUED
+      self.assertEqual(
+          jobs_list[0].status, db_schema.JobStatus.JOB_STATUS_PROCESSING
+      )
+      self.assertEqual(
+          jobs_list[1].status, db_schema.JobStatus.JOB_STATUS_QUEUED
+      )
+
+  async def test_different_backends_concurrency(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      lustre_b = next(b for b in backends if b.zone == "us-central1-b")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      # Create 2 jobs targeting DIFFERENT backends (Lustre A and Lustre B)
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-1",
+          path="path/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-2",
+          path="path/2",
+          target_backend_id=lustre_b.id,
+          source_backend_id=gcs.id,
+      )
+
+    await self.worker.start()
+    await asyncio.sleep(2)
+    await self.worker.stop()
+
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.AssetJob))
+      jobs_list = result.scalars().all()
+
+      # Both should be PROCESSING because they target different backends
+      self.assertEqual(
+          jobs_list[0].status, db_schema.JobStatus.JOB_STATUS_PROCESSING
+      )
+      self.assertEqual(
+          jobs_list[1].status, db_schema.JobStatus.JOB_STATUS_PROCESSING
+      )
+
+  async def test_job_trigger_failure(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-1",
+          path="path/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+
+    # Mock trigger_copy to throw an error
+    with mock.patch.object(
+        self.gcp_client,
+        "trigger_copy",
+        autospec=True,
+        side_effect=RuntimeError("Mocked trigger failure"),
+    ):
+      await self.worker.start()
+      # Wait for job to fail
+      for _ in range(5):
+        await asyncio.sleep(0.5)
+        async with self.session_maker() as session:
+          result = await session.execute(select(db_schema.AssetJob))
+          job = result.scalars().first()
+          if job.status == db_schema.JobStatus.JOB_STATUS_FAILED:
+            break
+      await self.worker.stop()
+
+    async with self.session_maker() as session:
       result = await session.execute(select(db_schema.AssetJob))
       job = result.scalars().first()
-      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED)
+      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_FAILED)
       self.assertIsNotNone(job.completed_at)
-      self.assertIsNone(job.worker_host)
-      self.assertIsNone(job.worker_pid)
+      self.assertIn(
+          "Failed to trigger transfer: Mocked trigger failure",
+          job.transfer_status.get("error", ""),
+      )
 
-      # Verify target TierPath is ready
+      # Verify target TierPath is marked FAILED
       result_tp = await session.execute(
           select(db_schema.TierPath).where(
               db_schema.TierPath.asset_uuid == "asset-1"
           )
       )
       tps = result_tp.scalars().all()
-      target_tp = next(tp for tp in tps if "lustre" in tp.path)
-      self.assertEqual(target_tp.state, db_schema.TierPathState.READY)
-      self.assertIsNotNone(target_tp.ready_at)
-      self.assertIsNotNone(target_tp.expires_at)
+      dest_tp = next(tp for tp in tps if "my-bucket" not in tp.path)
+      self.assertEqual(dest_tp.state, db_schema.TierPathState.FAILED)
 
 
 if __name__ == "__main__":

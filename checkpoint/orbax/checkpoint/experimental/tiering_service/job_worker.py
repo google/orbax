@@ -23,6 +23,7 @@ import datetime
 import os
 import random
 import socket
+from typing import Any
 from absl import logging
 from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_lib
@@ -212,13 +213,122 @@ class TieringServiceWorker:
 
   async def _process_job(self, job: db_schema.AssetJob):
     """Triggers the GCP transfer for the acquired job."""
-    # TODO: b/503445463 - Implement actual job processing logic.
-    logging.info("Processing job %d", job.id)
-    now = datetime.datetime.now(datetime.timezone.utc)
+    if job.request_type == db_schema.RequestType.REQUEST_TYPE_COPY:
+      await self._process_copy_job(job)
+    else:
+      # TODO: b/503445463 - Support DELETE jobs.
+      logging.warning("Unsupported job request type: %s", job.request_type)
+      # Mark as failed for now if not COPY
+      async with self._session_maker() as session:
+        async with session.begin():
+          # Re-associate the detached job instance with the new session.
+          merged_job = await session.merge(job)
+          await self._fail_job(
+              session,
+              merged_job,
+              f"Unsupported request type: {job.request_type}",
+              {"status": "FAILED"},
+          )
+
+  async def _process_copy_job(self, job: db_schema.AssetJob):
+    """Processes a COPY job (eg. GCS -> Lustre or Lustre -> GCS)."""
+    error_msg = None
+    operation_name = None
+
+    try:
+      # Find the target TierPath
+      target_tp = job.target_tier_path
+      if not target_tp:
+        raise ValueError("Target TierPath not found")
+
+      asset = job.asset
+      # Find the source TierPath (the other tier path that is ready)
+      # For now, we just pick the first available.
+      # TODO: b/503445463 - use heuristics to find closest to the target.
+      source_tp = None
+      for tp in asset.tier_paths:
+        if tp.id != target_tp.id and tp.ready_at is not None:
+          source_tp = tp
+          break
+
+      if not source_tp:
+        raise ValueError("Source TierPath not found or not ready")
+
+      client = self._get_client_for_backends(
+          source_tp.storage_backend, target_tp.storage_backend
+      )
+      try:
+        # The network call occurs OUTSIDE database transactions.
+        operation_name = await client.trigger_copy(
+            job.request_id, source_tp.path, target_tp.path
+        )
+      finally:
+        if client is not self._gcp_client:
+          await client.close()
+
+    except ValueError as e:
+      error_msg = str(e)
+    except Exception as e:  # pylint: disable=broad-except
+      logging.exception("Failed to trigger transfer for job %d", job.id)
+      error_msg = f"Failed to trigger transfer: {e}"
+
+    # Update database inside a single session/transaction block at the end.
     async with self._session_maker() as session:
       async with session.begin():
+        # Re-associate the detached job instance with the new session.
         merged_job = await session.merge(job)
-        await self._complete_job(session, merged_job, now)
+        if error_msg is not None:
+          await self._fail_job(
+              session,
+              merged_job,
+              error_msg,
+              {"status": "FAILED"},
+          )
+        else:
+          merged_job.transfer_status = {
+              "request_id": operation_name,
+              "status": gcp_storage_client.OperationStatus.IN_PROGRESS.value,
+              "bytes_copied": 0,
+              "total_bytes": 0,
+          }
+          session.add(merged_job)
+          logging.info(
+              "Triggered transfer for job %d, operation_name: %s",
+              merged_job.id,
+              operation_name,
+          )
+
+  async def _fail_job(
+      self,
+      session: AsyncSession,
+      job: db_schema.AssetJob,
+      error_msg: str,
+      transfer_status: dict[str, Any] | None = None,
+      now: datetime.datetime | None = None,
+  ):
+    """Marks the job as failed."""
+    if not now:
+      now = datetime.datetime.now(datetime.timezone.utc)
+    job.status = db_schema.JobStatus.JOB_STATUS_FAILED
+    job.completed_at = now
+    job.worker_host = None
+    job.worker_pid = None
+    job.expiration_at = None
+    if transfer_status is None:
+      transfer_status = {}
+    else:
+      transfer_status = dict(transfer_status)
+    transfer_status["error"] = error_msg
+    job.transfer_status = transfer_status
+    session.add(job)
+
+    # Clean up target TierPath on failure (set state to FAILED)
+    target_tp = job.target_tier_path
+    if target_tp:
+      target_tp.state = db_schema.TierPathState.FAILED
+      session.add(target_tp)
+
+    logging.error("Failed job %d: %s", job.id, error_msg)
 
   async def _complete_job(
       self,
@@ -260,6 +370,7 @@ class TieringServiceWorker:
 async def run_tiering_service_worker_loop(
     session_maker: sessionmaker | None,
     config: tiering_service_pb2.ServerConfig,
+    gcp_client: gcp_storage_client.GCPStorageClient | None = None,
     *,
     lease_duration_seconds: int = 60,
     poll_interval_seconds: int = 5,
@@ -268,6 +379,7 @@ async def run_tiering_service_worker_loop(
   worker = TieringServiceWorker(
       session_maker,
       config,
+      gcp_client,
       lease_duration_seconds=lease_duration_seconds,
       poll_interval_seconds=poll_interval_seconds,
   )
