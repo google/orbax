@@ -287,11 +287,6 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install -e .
-        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-        pip uninstall -y orbax
-        pip install gcsfs
-        pip install portpicker pytest chex pyyaml tensorboard
         if [ "${{ matrix.jax-version }}" = "newest" ]; then
           pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
@@ -299,6 +294,11 @@ jobs:
         else
           pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         fi
+        pip install -e .
+        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip uninstall -y orbax
+        pip install gcsfs
+        pip install portpicker pytest chex pyyaml tensorboard
     - name: Run 2 multiprocess tests
       env:
         TEST_TMPDIR: /tmp/orbax_test
