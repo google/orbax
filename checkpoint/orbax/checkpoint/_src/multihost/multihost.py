@@ -61,13 +61,20 @@ def coordination_timeout() -> int:
 
 
 
-def is_pathways_backend() -> bool:
-  # Pathways is single-host.
+def is_proxy_pathways_backend() -> bool:
+  return jax.devices()[0].client.runtime_type == 'proxy/pathways'
+
+
+def is_native_pathways_backend() -> bool:
   return (
       hasattr(jax.devices()[0].client, 'pathways')
       or jax.devices()[0].client.runtime_type == 'pathways'
-      or jax.devices()[0].client.runtime_type == 'proxy/pathways'
   )
+
+
+def is_pathways_backend() -> bool:
+  # Pathways is single-host.
+  return is_native_pathways_backend() or is_proxy_pathways_backend()
 
 
 def is_pathways_controller() -> bool:
@@ -411,6 +418,10 @@ def _maybe_log_reached_preemption(
 
 def reached_preemption(step: int) -> bool:
   """Returns True if a preemption sync point has been reached."""
+  # TODO(b/403305420) : disable checkpoing saving when preemption for MLCR.
+  # Remove this once the bug is closed.
+  if is_proxy_pathways_backend():
+    return False
 
   preemption_sync_point_reached = multihost_utils.reached_preemption_sync_point(
       step
