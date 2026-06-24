@@ -17,7 +17,7 @@
 # A new PyPI release will be pushed everytime `__version__` is increased.
 # Also modify version and date in CHANGELOG.
 # LINT.IfChange
-__version__ = '0.12.0'
+__version__ = '0.12.1'
 # LINT.ThenChange(//depot/orbax/checkpoint/CHANGELOG.md)
 
 
