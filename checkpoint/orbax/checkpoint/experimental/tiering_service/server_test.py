@@ -210,6 +210,10 @@ class TieringServiceTest(
     )
     self.assertLen(response.asset.tier_paths, 1)
     self.assertStartsWith(response.asset.tier_paths[0].path, "/mnt/lustre")
+    self.assertEqual(
+        response.tier_path_uuid, response.asset.tier_paths[0].tier_path_uuid
+    )
+    self.assertTrue(response.tier_path_uuid)
 
   async def test_reserve_twice(self):
     request1 = tiering_service_pb2.ReserveRequest(
@@ -485,6 +489,12 @@ class TieringServiceTest(
         paths,
         ["/mnt/lustre-a/test/path", "/mnt/lustre-b/test/path"],
     )
+    # In the setup, index 1 corresponds to zone B's Lustre backend target
+    self.assertEqual(
+        prefetch_res.closest_tier_path_uuid,
+        prefetch_res.asset.tier_paths[1].tier_path_uuid,
+    )
+    self.assertTrue(prefetch_res.closest_tier_path_uuid)
 
   async def test_prefetch_success_db_job_creation(self):
     servicer, asset_uuid = await self._setup_servicer_and_asset()
