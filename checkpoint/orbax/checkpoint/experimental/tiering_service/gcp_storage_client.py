@@ -19,13 +19,16 @@ import asyncio
 import dataclasses
 import datetime
 import enum
-import os
-from typing import Any
+from typing import Any, Callable
+
 import google.auth
 from google.auth import exceptions as auth_exceptions
 from google.auth import impersonated_credentials
 from google.auth import transport
+from google.protobuf import json_format
 import httpx
+from orbax.checkpoint.experimental.tiering_service import db_schema
+from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 
 
 class OperationStatus(enum.Enum):
@@ -40,14 +43,6 @@ class OperationStatus(enum.Enum):
 class Result:
   status: OperationStatus
   detail_info: dict[str, Any]
-
-
-@dataclasses.dataclass
-class TransferContext:
-  job_request_id: str
-  source_path: str
-  destination_path: str
-  transfer_status: dict[str, Any]
 
 
 class HttpxRequest(transport.Request):
@@ -179,7 +174,6 @@ class GCPStorageClient(abc.ABC):
   async def poll_operation(
       self,
       operation_name: str,
-      context: TransferContext | None = None,
   ) -> Result:
     """Polls operation status and returns a Result object."""
     pass
@@ -276,7 +270,6 @@ class GcsToGcsClient(GCPStorageClient):
   async def poll_operation(
       self,
       operation_name: str,
-      context: TransferContext | None = None,
   ) -> Result:
     """Polls Storage Transfer Service operation status."""
     token, _ = await self._get_token_and_project()
@@ -336,30 +329,25 @@ class GcpLustreBaseClient(GCPStorageClient):
   def __init__(
       self,
       project: str | None = None,
-      location: str | None = None,
+      zone: str | None = None,
       instance: str | None = None,
       service_account: str | None = None,
   ):
-    location = location or os.environ.get("CTS_LUSTRE_LOCATION")
-    instance = instance or os.environ.get("CTS_LUSTRE_INSTANCE")
-
-    if not location or not instance:
-      raise ValueError("Lustre location and instance must be specified.")
+    if not zone or not instance:
+      raise ValueError("Lustre zone and instance must be specified.")
 
     super().__init__(
         project=project,
-        location=location,
         instance=instance,
         service_account=service_account,
     )
+    self.zone = zone
 
   async def poll_operation(
       self,
       operation_name: str,
-      context: TransferContext | None = None,
   ) -> Result:
     """Polls operation status and returns a Result object."""
-    del context  # Unused for Lustre
     token, _ = await self._get_token_and_project()
     url = f"https://lustre.googleapis.com/v1/{operation_name}"
     headers = {
@@ -404,7 +392,7 @@ class GcsToLustreClient(GcpLustreBaseClient):
     token, project = await self._get_token_and_project()
     url = (
         f"https://lustre.googleapis.com/v1/projects/{project}"
-        f"/locations/{self.location}/instances/{self.instance}:importData"
+        f"/locations/{self.zone}/instances/{self.instance}:importData"
     )
     headers = {
         "Authorization": f"Bearer {token}",
@@ -436,7 +424,7 @@ class LustreToGcsClient(GcpLustreBaseClient):
     token, project = await self._get_token_and_project()
     url = (
         f"https://lustre.googleapis.com/v1/projects/{project}"
-        f"/locations/{self.location}/instances/{self.instance}:exportData"
+        f"/locations/{self.zone}/instances/{self.instance}:exportData"
     )
     headers = {
         "Authorization": f"Bearer {token}",
@@ -453,3 +441,138 @@ class LustreToGcsClient(GcpLustreBaseClient):
           f"Failed to trigger export: {response.status_code} - {response.text}"
       )
     return response.json()["name"]
+
+
+def serialize_transfer_status(
+    status: tiering_service_pb2.TransferStatus,
+) -> dict[str, Any]:
+  """Serializes a TransferStatus proto to a flat database-compatible dict."""
+  data = json_format.MessageToDict(status, preserving_proto_field_name=True)
+  detail_info = data.pop("detail_info", {})
+  res = {**data, **detail_info}
+  if "bytes_copied" in res:
+    res["bytes_copied"] = int(res["bytes_copied"])
+  if "total_bytes" in res:
+    res["total_bytes"] = int(res["total_bytes"])
+  return res
+
+
+def deserialize_transfer_status(
+    data: dict[str, Any],
+) -> tiering_service_pb2.TransferStatus:
+  """Deserializes a flat database dict into a TransferStatus proto."""
+  known_keys = {
+      "request_id",
+      "status",
+      "client_type",
+      "bytes_copied",
+      "total_bytes",
+      "zone",
+  }
+  status_data = {k: v for k, v in data.items() if k in known_keys}
+  detail_info = {k: v for k, v in data.items() if k not in known_keys}
+  status_data["detail_info"] = detail_info
+
+  status_pb = tiering_service_pb2.TransferStatus()
+  json_format.ParseDict(status_data, status_pb)
+  return status_pb
+
+
+_CLIENT_BUILDERS: dict[
+    tuple[db_schema.BackendType, db_schema.BackendType],
+    Callable[
+        [db_schema.TierPath, db_schema.TierPath, str | None, str | None],
+        GCPStorageClient,
+    ],
+] = {}
+
+
+def register_client(
+    source_type: db_schema.BackendType,
+    target_type: db_schema.BackendType,
+):
+  """Decorator to register a client builder for a specific backend pair."""
+  def decorator(builder_func):
+    _CLIENT_BUILDERS[(source_type, target_type)] = builder_func
+    return builder_func
+  return decorator
+
+
+@register_client(
+    db_schema.BackendType.BACKEND_TYPE_GCS,
+    db_schema.BackendType.BACKEND_TYPE_GCS,
+)
+def _build_gcs_to_gcs(
+    source_tp: db_schema.TierPath,
+    target_tp: db_schema.TierPath,
+    project: str | None,
+    service_account: str | None,
+) -> GcsToGcsClient:
+  """Builds GcsToGcsClient from TierPaths."""
+  del source_tp, target_tp  # Unused
+  return GcsToGcsClient(project=project, service_account=service_account)
+
+
+@register_client(
+    db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+    db_schema.BackendType.BACKEND_TYPE_GCS,
+)
+def _build_lustre_to_gcs(
+    source_tp: db_schema.TierPath,
+    target_tp: db_schema.TierPath,
+    project: str | None,
+    service_account: str | None,
+) -> LustreToGcsClient:
+  """Builds LustreToGcsClient from TierPaths."""
+  del target_tp  # Unused
+  lustre_location = source_tp.storage_backend.zone
+  if not lustre_location:
+    raise ValueError("Lustre zone is missing from storage backend")
+  instance = f"lustre-{lustre_location}"
+  return LustreToGcsClient(
+      instance=instance,
+      zone=lustre_location,
+      project=project,
+      service_account=service_account,
+  )
+
+
+@register_client(
+    db_schema.BackendType.BACKEND_TYPE_GCS,
+    db_schema.BackendType.BACKEND_TYPE_LUSTRE,
+)
+def _build_gcs_to_lustre(
+    source_tp: db_schema.TierPath,
+    target_tp: db_schema.TierPath,
+    project: str | None,
+    service_account: str | None,
+) -> GcsToLustreClient:
+  """Builds GcsToLustreClient from TierPaths."""
+  del source_tp  # Unused
+  lustre_location = target_tp.storage_backend.zone
+  if not lustre_location:
+    raise ValueError("Lustre zone is missing from storage backend")
+  instance = f"lustre-{lustre_location}"
+  return GcsToLustreClient(
+      instance=instance,
+      zone=lustre_location,
+      project=project,
+      service_account=service_account,
+  )
+
+
+def determine_client(
+    source_tp: db_schema.TierPath,
+    target_tp: db_schema.TierPath,
+    project: str | None = None,
+    service_account: str | None = None,
+) -> GCPStorageClient:
+  """Determines and returns the GCP Storage client based on backends."""
+  source_type = source_tp.storage_backend.backend_type
+  target_type = target_tp.storage_backend.backend_type
+  key = (source_type, target_type)
+  if key not in _CLIENT_BUILDERS:
+    raise ValueError(
+        f"Unsupported backend pair: {source_type} and {target_type}"
+    )
+  return _CLIENT_BUILDERS[key](source_tp, target_tp, project, service_account)

@@ -2,6 +2,7 @@ edition = "2023";
 
 package orbax.checkpoint.tiering;
 
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option java_outer_classname = "TieringServiceOuterClass";
@@ -153,6 +154,16 @@ message ServerConfig {
   int64 max_active_jobs_per_backend = 4 [default = 1];
   string gcp_project = 5;
   string service_account = 6;
+}
+
+message TransferStatus {
+  string request_id = 1;
+  string status = 2;
+  string client_type = 3;
+  int64 bytes_copied = 4;
+  int64 total_bytes = 5;
+  string zone = 6;
+  google.protobuf.Struct detail_info = 7;
 }
 
 service TieringService {

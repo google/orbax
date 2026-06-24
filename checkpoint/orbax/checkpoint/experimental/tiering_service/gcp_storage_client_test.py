@@ -14,11 +14,11 @@
 
 """Unit tests for GCP Storage Clients."""
 
-import os
 import unittest
 from unittest import mock
 import httpx
 from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
+from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 
 
 class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
@@ -137,15 +137,10 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(result.status, gcp_storage_client.OperationStatus.FAILED)
     self.assertIn("error", result.detail_info)
 
-  @mock.patch.dict(
-      os.environ,
-      {
-          "CTS_LUSTRE_LOCATION": "us-central1-a",
-          "CTS_LUSTRE_INSTANCE": "lustre-1",
-      },
-  )
   async def test_gcs_to_lustre_trigger_copy(self):
-    client = gcp_storage_client.GcsToLustreClient(project="test-project")
+    client = gcp_storage_client.GcsToLustreClient(
+        project="test-project", zone="us-central1-a", instance="lustre-1"
+    )
 
     mock_post_resp = mock.MagicMock(spec=httpx.Response)
     mock_post_resp.status_code = 200
@@ -160,15 +155,10 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(op_name, "operations/import-123")
     self.mock_client.post.assert_called_once()
 
-  @mock.patch.dict(
-      os.environ,
-      {
-          "CTS_LUSTRE_LOCATION": "us-central1-a",
-          "CTS_LUSTRE_INSTANCE": "lustre-1",
-      },
-  )
   async def test_lustre_to_gcs_trigger_copy(self):
-    client = gcp_storage_client.LustreToGcsClient(project="test-project")
+    client = gcp_storage_client.LustreToGcsClient(
+        project="test-project", zone="us-central1-a", instance="lustre-1"
+    )
 
     mock_post_resp = mock.MagicMock(spec=httpx.Response)
     mock_post_resp.status_code = 200
@@ -183,15 +173,10 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(op_name, "operations/export-123")
     self.mock_client.post.assert_called_once()
 
-  @mock.patch.dict(
-      os.environ,
-      {
-          "CTS_LUSTRE_LOCATION": "us-central1-a",
-          "CTS_LUSTRE_INSTANCE": "lustre-1",
-      },
-  )
   async def test_lustre_poll_operation_done_success(self):
-    client = gcp_storage_client.GcsToLustreClient(project="test-project")
+    client = gcp_storage_client.GcsToLustreClient(
+        project="test-project", zone="us-central1-a", instance="lustre-1"
+    )
 
     mock_get_resp = mock.MagicMock(spec=httpx.Response)
     mock_get_resp.status_code = 200
@@ -205,15 +190,10 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(result.status, gcp_storage_client.OperationStatus.SUCCESS)
     self.assertEqual(result.detail_info, {"some_metadata": "val"})
 
-  @mock.patch.dict(
-      os.environ,
-      {
-          "CTS_LUSTRE_LOCATION": "us-central1-a",
-          "CTS_LUSTRE_INSTANCE": "lustre-1",
-      },
-  )
   async def test_lustre_poll_operation_done_fail(self):
-    client = gcp_storage_client.GcsToLustreClient(project="test-project")
+    client = gcp_storage_client.GcsToLustreClient(
+        project="test-project", zone="us-central1-a", instance="lustre-1"
+    )
 
     mock_get_resp = mock.MagicMock(spec=httpx.Response)
     mock_get_resp.status_code = 200
@@ -227,15 +207,10 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(result.status, gcp_storage_client.OperationStatus.FAILED)
     self.assertEqual(result.detail_info["error"], {"message": "import failed"})
 
-  @mock.patch.dict(
-      os.environ,
-      {
-          "CTS_LUSTRE_LOCATION": "us-central1-a",
-          "CTS_LUSTRE_INSTANCE": "lustre-1",
-      },
-  )
   async def test_lustre_poll_operation_in_progress(self):
-    client = gcp_storage_client.GcsToLustreClient(project="test-project")
+    client = gcp_storage_client.GcsToLustreClient(
+        project="test-project", zone="us-central1-a", instance="lustre-1"
+    )
 
     mock_get_resp = mock.MagicMock(spec=httpx.Response)
     mock_get_resp.status_code = 200
@@ -274,6 +249,137 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
         source_credentials=self.mock_creds,
         target_principal="sa@test.iam.gserviceaccount.com",
         target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+
+
+class GCPStorageClientHelpersTest(unittest.TestCase):
+
+  def test_determine_client_gcs_to_gcs(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    client = gcp_storage_client.determine_client(
+        source_tp, target_tp, project="my-proj", service_account="my-sa"
+    )
+    self.assertIsInstance(client, gcp_storage_client.GcsToGcsClient)
+    self.assertEqual(client.project, "my-proj")
+    self.assertEqual(client.service_account, "my-sa")
+
+  def test_determine_client_lustre_to_gcs(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_LUSTRE
+    )
+    source_tp.storage_backend.zone = "us-central1-b"
+
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    client = gcp_storage_client.determine_client(
+        source_tp, target_tp, project="my-proj", service_account="my-sa"
+    )
+    self.assertIsInstance(client, gcp_storage_client.LustreToGcsClient)
+    self.assertEqual(client.project, "my-proj")
+    self.assertEqual(client.service_account, "my-sa")
+    self.assertEqual(client.zone, "us-central1-b")
+
+  def test_determine_client_gcs_to_lustre(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_LUSTRE
+    )
+    target_tp.storage_backend.zone = "us-central1-c"
+
+    client = gcp_storage_client.determine_client(
+        source_tp, target_tp, project="my-proj", service_account="my-sa"
+    )
+    self.assertIsInstance(client, gcp_storage_client.GcsToLustreClient)
+    self.assertEqual(client.project, "my-proj")
+    self.assertEqual(client.service_account, "my-sa")
+    self.assertEqual(client.zone, "us-central1-c")
+
+  def test_determine_client_invalid_raises(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_UNSPECIFIED
+    )
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+    with self.assertRaisesRegex(ValueError, "Unsupported backend pair"):
+      gcp_storage_client.determine_client(source_tp, target_tp)
+
+  def test_determine_client_lustre_to_gcs_missing_zone_raises(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_LUSTRE
+    )
+    source_tp.storage_backend.zone = None
+
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    with self.assertRaisesRegex(ValueError, "Lustre zone is missing"):
+      gcp_storage_client.determine_client(source_tp, target_tp)
+
+  def test_determine_client_gcs_to_lustre_missing_zone_raises(self):
+    source_tp = mock.MagicMock()
+    source_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_GCS
+    )
+
+    target_tp = mock.MagicMock()
+    target_tp.storage_backend.backend_type = (
+        gcp_storage_client.db_schema.BackendType.BACKEND_TYPE_LUSTRE
+    )
+    target_tp.storage_backend.zone = None
+
+    with self.assertRaisesRegex(ValueError, "Lustre zone is missing"):
+      gcp_storage_client.determine_client(source_tp, target_tp)
+
+  def test_transfer_status_serialization(self):
+    status = tiering_service_pb2.TransferStatus(
+        request_id="req-123",
+        status="IN_PROGRESS",
+        client_type="GcsToGcsClient",
+        bytes_copied=100,
+        total_bytes=1000,
+    )
+    status.detail_info.update({"custom_key": "custom_val"})
+    serialized = gcp_storage_client.serialize_transfer_status(status)
+    self.assertEqual(serialized["request_id"], "req-123")
+    self.assertEqual(serialized["status"], "IN_PROGRESS")
+    self.assertEqual(serialized["client_type"], "GcsToGcsClient")
+    self.assertEqual(serialized["bytes_copied"], 100)
+    self.assertEqual(serialized["total_bytes"], 1000)
+    self.assertEqual(serialized["custom_key"], "custom_val")
+    self.assertNotIn("zone", serialized)
+
+    deserialized = gcp_storage_client.deserialize_transfer_status(serialized)
+    self.assertEqual(deserialized.request_id, "req-123")
+    self.assertEqual(deserialized.status, "IN_PROGRESS")
+    self.assertEqual(deserialized.client_type, "GcsToGcsClient")
+    self.assertEqual(deserialized.bytes_copied, 100)
+    self.assertEqual(deserialized.total_bytes, 1000)
+    self.assertEqual(
+        dict(deserialized.detail_info), {"custom_key": "custom_val"}
     )
 
 
