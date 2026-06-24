@@ -21,9 +21,10 @@ import contextlib
 import datetime
 import os
 import pprint
-import sys
 import uuid
 
+from absl import app
+from absl import flags
 from absl import logging
 import fire
 import grpc
@@ -632,10 +633,10 @@ class CtsServer:
       await servicer.close()
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str]) -> None:
   """Main entry point for CTS server."""
-  if argv is None:
-    argv = sys.argv
+  logging.use_absl_handler()
+  logging.set_verbosity(logging.INFO)
   uvloop.install()
   try:
     asyncio.get_event_loop()
@@ -647,4 +648,4 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-  main()
+  app.run(main, flags_parser=lambda argv: flags.FLAGS(argv, known_only=True))

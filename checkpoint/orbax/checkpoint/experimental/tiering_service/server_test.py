@@ -129,7 +129,7 @@ class TieringServiceTest(
         grpc.aio.ServicerContext, instance=True, spec_set=True
     )
     # Mock metadata for OAuth token
-    self.context.invocation_metadata = mock.AsyncMock(
+    self.context.invocation_metadata = mock.Mock(
         return_value=(("authorization", "Bearer valid-mock-token"),)
     )
 

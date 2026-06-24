@@ -28,7 +28,7 @@ class AuthTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     context = mock.create_autospec(
         grpc.aio.ServicerContext, instance=True, spec_set=True
     )
-    context.invocation_metadata = mock.AsyncMock(
+    context.invocation_metadata = mock.Mock(
         return_value=(("authorization", "Bearer valid-token"),)
     )
     token = await auth.get_oauth_token(context)
@@ -38,7 +38,7 @@ class AuthTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     context = mock.create_autospec(
         grpc.aio.ServicerContext, instance=True, spec_set=True
     )
-    context.invocation_metadata = mock.AsyncMock(return_value=())
+    context.invocation_metadata = mock.Mock(return_value=())
     token = await auth.get_oauth_token(context)
     self.assertIsNone(token)
 
@@ -46,7 +46,7 @@ class AuthTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     context = mock.create_autospec(
         grpc.aio.ServicerContext, instance=True, spec_set=True
     )
-    context.invocation_metadata = mock.AsyncMock(
+    context.invocation_metadata = mock.Mock(
         return_value=(("authorization", "not-bearer-token"),)
     )
     token = await auth.get_oauth_token(context)

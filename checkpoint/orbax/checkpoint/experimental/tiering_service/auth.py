@@ -19,6 +19,7 @@ user permissions on various storage backends (e.g. GCS, Lustre).
 """
 
 from collections.abc import Collection
+
 from absl import logging
 import grpc
 from orbax.checkpoint.experimental.tiering_service import db_schema
@@ -39,7 +40,8 @@ async def get_oauth_token(context: grpc.aio.ServicerContext) -> str | None:
     The extracted OAuth token string, or None if not found or malformed.
   """
   logging.debug("Extracting OAuth token from metadata")
-  metadata = dict(await context.invocation_metadata())  # pyrefly: ignore[not-async]
+  raw_metadata = context.invocation_metadata()
+  metadata = dict(raw_metadata)
   # Standard header for OAuth tokens in gRPC is 'authorization'.
   auth_header = metadata.get("authorization")
 
