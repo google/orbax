@@ -48,7 +48,7 @@ class _KeepAliveJob:
     self.interval = interval
     self.tier_path_uuid = tier_path_uuid
     self.loop = asyncio.get_running_loop()
-    self.next_run = asyncio.get_running_loop().time() + interval
+    self.next_run = self.loop.time() + interval
 
 
 class TieringClient:
@@ -65,16 +65,23 @@ class TieringClient:
     """
     self._server_address = server_address
     self._secure = secure
-    self._channel = None
-    self._stub = None
+    self._channels: dict[asyncio.AbstractEventLoop, grpc.aio.Channel] = {}
+    self._stubs: dict[
+        asyncio.AbstractEventLoop, tiering_service_pb2_grpc.TieringServiceStub
+    ] = {}
     self._zone = None
     self._region = None
     self._env_queried = False
     self._env_lock = None
     self._keep_alives: dict[tuple[str, JobType], _KeepAliveJob] = {}
-    self._keep_alive_manager_task: asyncio.Task[None] | None = None
-    self._keep_alive_event: asyncio.Event = asyncio.Event()
-    self._prefetch_futures: dict[str, asyncio.Future[str]] = {}
+    self._keep_alive_manager_tasks: dict[
+        asyncio.AbstractEventLoop, asyncio.Task[None]
+    ] = {}
+    self._keep_alive_events: dict[asyncio.AbstractEventLoop, asyncio.Event] = {}
+    self._prefetch_futures: dict[
+        asyncio.AbstractEventLoop, dict[str, asyncio.Future[str]]
+    ] = {}
+    self._path_to_uuid: dict[str, str] = {}
 
   async def __aenter__(self) -> "TieringClient":
     await self.connect()
@@ -83,55 +90,98 @@ class TieringClient:
   async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
     await self.close()
 
+  def _get_or_create_stub(self) -> tiering_service_pb2_grpc.TieringServiceStub:
+    """Gets or creates the gRPC stub for the current event loop."""
+    loop = asyncio.get_running_loop()
+    if loop not in self._stubs:
+      if self._secure:
+        is_local = (
+            "localhost" in self._server_address
+            or "127.0.0.1" in self._server_address
+        )
+        if is_local:
+          try:
+            # Secure channel setup. Fall back to SSL if local creds not
+            # supported.
+            creds = grpc.local_channel_credentials()
+          except AttributeError:
+            creds = grpc.ssl_channel_credentials()
+        else:
+          creds = grpc.ssl_channel_credentials()
+        channel = grpc.aio.secure_channel(self._server_address, creds)
+      else:
+        channel = grpc.aio.insecure_channel(self._server_address)
+
+      self._channels[loop] = channel
+      self._stubs[loop] = tiering_service_pb2_grpc.TieringServiceStub(channel)
+
+    return self._stubs[loop]
+
   async def connect(self) -> None:
     """Establishes an async gRPC channel with the server."""
-    if self._channel is not None:
-      return
-
-    if self._secure:
-      is_local = (
-          "localhost" in self._server_address
-          or "127.0.0.1" in self._server_address
-      )
-      if is_local:
-        try:
-          # Secure channel setup. Fall back to SSL if local creds not supported.
-          creds = grpc.local_channel_credentials()
-        except AttributeError:
-          creds = grpc.ssl_channel_credentials()
-      else:
-        creds = grpc.ssl_channel_credentials()
-      self._channel = grpc.aio.secure_channel(self._server_address, creds)
-    else:
-      self._channel = grpc.aio.insecure_channel(self._server_address)
-
-    self._stub = tiering_service_pb2_grpc.TieringServiceStub(self._channel)
+    self._get_or_create_stub()
 
   async def close(self) -> None:
     """Closes the gRPC channel."""
-    # Release pending prefetches and cancel futures
-    for asset_uuid, fut in list(self._prefetch_futures.items()):
-      if not fut.done():
-        self._stop_prefetch_keep_alive(asset_uuid)
-        fut.cancel()
-    self._prefetch_futures.clear()
+    try:
+      current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+      current_loop = None
 
-    # Cancel manager task and clear job list
-    if self._keep_alive_manager_task is not None:
-      self._keep_alive_manager_task.cancel()
+    # Cancel manager task for current loop
+    if current_loop and current_loop in self._keep_alive_manager_tasks:
+      task = self._keep_alive_manager_tasks[current_loop]
+      task.cancel()
       try:
-        await self._keep_alive_manager_task
+        await task
       except asyncio.CancelledError:
         pass
-      self._keep_alive_manager_task = None
+      del self._keep_alive_manager_tasks[current_loop]
 
-    self._keep_alives.clear()
-    self._keep_alive_event.clear()
+    # Cancel manager tasks for other loops (or all if no current_loop)
+    for loop_val, task in list(self._keep_alive_manager_tasks.items()):
+      task.cancel()
+      del self._keep_alive_manager_tasks[loop_val]
 
-    if self._channel is not None:
-      await self._channel.close()
-      self._channel = None
-      self._stub = None
+    # Clean up jobs belonging to current loop (or all if current_loop is None)
+    if current_loop:
+      for key, job in list(self._keep_alives.items()):
+        if job.loop == current_loop:
+          del self._keep_alives[key]
+      if current_loop in self._keep_alive_events:
+        del self._keep_alive_events[current_loop]
+    else:
+      self._keep_alives.clear()
+      self._keep_alive_events.clear()
+
+    # Release pending prefetches and cancel futures belonging to current loop
+    if current_loop and current_loop in self._prefetch_futures:
+      for asset_uuid, fut in list(self._prefetch_futures[current_loop].items()):
+        if not fut.done():
+          self._stop_prefetch_keep_alive(asset_uuid)
+          fut.cancel()
+      del self._prefetch_futures[current_loop]
+
+    # Clean up remaining loops' futures (cancel without awaiting)
+    for loop_val, fut_dict in list(self._prefetch_futures.items()):
+      for asset_uuid, fut in list(fut_dict.items()):
+        if not fut.done():
+          fut.cancel()
+      del self._prefetch_futures[loop_val]
+
+    for loop_val, channel in list(self._channels.items()):
+      if current_loop and loop_val == current_loop:
+        await channel.close()
+        del self._channels[loop_val]
+      elif not current_loop:
+        try:
+          asyncio.run(channel.close())
+        except Exception:  # pylint: disable=broad-except
+          pass
+        del self._channels[loop_val]
+
+    if not self._channels:
+      self._stubs.clear()
 
   async def _get_gcp_zone_and_region(self) -> tuple[str | None, str | None]:
     """Retrieves and caches GCP zone and region."""
@@ -154,11 +204,14 @@ class TieringClient:
     return []
 
   def _ensure_manager_running(self) -> None:
+    loop = asyncio.get_running_loop()
+    if loop not in self._keep_alive_events:
+      self._keep_alive_events[loop] = asyncio.Event()
     if (
-        self._keep_alive_manager_task is None
-        or self._keep_alive_manager_task.done()
+        loop not in self._keep_alive_manager_tasks
+        or self._keep_alive_manager_tasks[loop].done()
     ):
-      self._keep_alive_manager_task = asyncio.create_task(
+      self._keep_alive_manager_tasks[loop] = asyncio.create_task(
           self._keep_alive_manager_loop()
       )
 
@@ -171,13 +224,13 @@ class TieringClient:
     )
     self._keep_alives[(asset_uuid, JobType.WRITE)] = job
     self._ensure_manager_running()
-    self._keep_alive_event.set()
+    self._keep_alive_events[job.loop].set()
 
   def _stop_write_keep_alive(self, asset_uuid: str) -> None:
     """Stops the write keep-alive background task."""
     job = self._keep_alives.pop((asset_uuid, JobType.WRITE), None)
     if job:
-      self._keep_alive_event.set()
+      self._keep_alive_events[job.loop].set()
 
   def _start_prefetch_keep_alive(
       self, asset_uuid: str, tier_path_uuid: str, interval: int
@@ -191,52 +244,73 @@ class TieringClient:
     )
     self._keep_alives[(asset_uuid, JobType.PREFETCH)] = job
     self._ensure_manager_running()
-    self._keep_alive_event.set()
+    self._keep_alive_events[job.loop].set()
 
   def _stop_prefetch_keep_alive(self, asset_uuid: str) -> None:
     """Stops the prefetch keep-alive background task."""
     job = self._keep_alives.pop((asset_uuid, JobType.PREFETCH), None)
+    loop = None
     if job:
-      self._keep_alive_event.set()
-    fut = self._prefetch_futures.pop(asset_uuid, None)
-    if fut and not fut.done():
-      fut.cancel()
+      self._keep_alive_events[job.loop].set()
+      loop = job.loop
+    else:
+      try:
+        loop = asyncio.get_running_loop()
+      except RuntimeError:
+        pass
 
-  def _get_earliest_job(self) -> tuple[_KeepAliveJob | None, float | None]:
+    if loop and loop in self._prefetch_futures:
+      fut = self._prefetch_futures[loop].pop(asset_uuid, None)
+      if fut and not fut.done():
+        fut.cancel()
+
+  def _get_earliest_job(
+      self, loop: asyncio.AbstractEventLoop
+  ) -> tuple[_KeepAliveJob | None, float | None]:
     """Finds the earliest job to run and its scheduled time."""
     earliest_job = None
     earliest_time = None
     for job in self._keep_alives.values():
-      if earliest_time is None or job.next_run < earliest_time:
-        earliest_time = job.next_run
-        earliest_job = job
+      if job.loop == loop:
+        if earliest_time is None or job.next_run < earliest_time:
+          earliest_time = job.next_run
+          earliest_job = job
     return earliest_job, earliest_time
 
-  async def _wait_for_next_job(self, timeout: float) -> bool:
+  async def _wait_for_next_job(
+      self, loop: asyncio.AbstractEventLoop, timeout: float
+  ) -> bool:
     """Waits for next job or early wakeup. Returns True if woken up early."""
+    event_task = loop.create_task(self._keep_alive_events[loop].wait())
+    sleep_task = loop.create_task(asyncio.sleep(timeout))
     try:
-      await asyncio.wait_for(self._keep_alive_event.wait(), timeout=timeout)
-      return True
-    except asyncio.TimeoutError:
-      return False
+      done, _ = await asyncio.wait(
+          [event_task, sleep_task],
+          return_when=asyncio.FIRST_COMPLETED
+      )
+      return event_task in done
+    finally:
+      event_task.cancel()
+      sleep_task.cancel()
 
   async def _keep_alive_manager_loop(self) -> None:
     """Centralized manager loop running heartbeats for all keep-alives."""
     logging.info("Starting centralized keep-alive manager task.")
+    loop = asyncio.get_running_loop()
     while True:
       try:
-        self._keep_alive_event.clear()
-        earliest_job, earliest_time = self._get_earliest_job()
+        self._keep_alive_events[loop].clear()
+        earliest_job, earliest_time = self._get_earliest_job(loop)
         if earliest_job is None or earliest_time is None:
           # Wait indefinitely for a new job.
-          await self._keep_alive_event.wait()
+          await self._keep_alive_events[loop].wait()
           continue
 
-        now = asyncio.get_running_loop().time()
+        now = loop.time()
         sleep_duration = earliest_time - now
         if sleep_duration > 0:
           # Wait until the next job or early wakeup by new jobs.
-          if await self._wait_for_next_job(sleep_duration):
+          if await self._wait_for_next_job(loop, sleep_duration):
             continue
 
         await self._run_keep_alive_job(earliest_job)
@@ -311,13 +385,14 @@ class TieringClient:
           break
 
       if ready and target_path:
-        fut = self._prefetch_futures.get(job.asset_uuid)
-        if fut and not fut.done():
-          fut.set_result(target_path)
-          logging.info(
-              "Prefetch completed and resolved for asset %s", job.asset_uuid
-          )
-        self._keep_alives.pop((job.asset_uuid, JobType.PREFETCH), None)
+        loop = asyncio.get_running_loop()
+        if loop in self._prefetch_futures:
+          fut = self._prefetch_futures[loop].get(job.asset_uuid)
+          if fut and not fut.done():
+            fut.set_result(target_path)
+            logging.info(
+                "Prefetch completed and resolved for asset %s", job.asset_uuid
+            )
 
     except grpc.aio.AioRpcError as e:
       logging.warning(
@@ -325,12 +400,18 @@ class TieringClient:
           job.asset_uuid,
           e.details(),
       )
-      if e.code() == grpc.StatusCode.NOT_FOUND:
-        fut = self._prefetch_futures.get(job.asset_uuid)
-        if fut and not fut.done():
-          fut.set_exception(
-              RuntimeError(f"Prefetch failed: asset {job.asset_uuid} not found")
-          )
+      if e.code() in (
+          grpc.StatusCode.NOT_FOUND,
+          grpc.StatusCode.FAILED_PRECONDITION,
+          grpc.StatusCode.ABORTED,
+      ):
+        loop = asyncio.get_running_loop()
+        if loop in self._prefetch_futures:
+          fut = self._prefetch_futures[loop].get(job.asset_uuid)
+          if fut and not fut.done():
+            fut.set_exception(
+                RuntimeError(f"Prefetch failed: {e.details()}")
+            )
         self._keep_alives.pop((job.asset_uuid, JobType.PREFETCH), None)
       else:
         job.next_run = now + min(5.0, job.interval)
@@ -340,19 +421,16 @@ class TieringClient:
           job.asset_uuid,
           e,
       )
-      fut = self._prefetch_futures.get(job.asset_uuid)
-      if fut and not fut.done():
-        fut.set_exception(e)
+      loop = asyncio.get_running_loop()
+      if loop in self._prefetch_futures:
+        fut = self._prefetch_futures[loop].get(job.asset_uuid)
+        if fut and not fut.done():
+          fut.set_exception(e)
       self._keep_alives.pop((job.asset_uuid, JobType.PREFETCH), None)
 
   async def _run_keep_alive_job(self, job: _KeepAliveJob) -> None:
     """Executes a single keep-alive heartbeat request."""
-    stub = self._stub
-    if stub is None:
-      logging.error("Stub is not initialized in keep-alive manager.")
-      job.next_run = asyncio.get_running_loop().time() + job.interval
-      return
-
+    stub = self._get_or_create_stub()
     now = asyncio.get_running_loop().time()
 
     if job.job_type == JobType.WRITE:
@@ -379,12 +457,7 @@ class TieringClient:
     Raises:
       RuntimeError: If gRPC call fails or no Tier 0 path is returned.
     """
-    if not self._stub:
-      await self.connect()
-
-    stub = self._stub
-    if stub is None:
-      raise RuntimeError("Stub is not initialized after connect.")
+    stub = self._get_or_create_stub()
 
     if user is None:
       user = environment.get_current_user()
@@ -444,12 +517,7 @@ class TieringClient:
     Raises:
       RuntimeError: If gRPC call fails.
     """
-    if not self._stub:
-      await self.connect()
-
-    stub = self._stub
-    if stub is None:
-      raise RuntimeError("Stub is not initialized after connect.")
+    stub = self._get_or_create_stub()
 
     request = tiering_service_pb2.FinalizeRequest(uuid=uuid)
     metadata = await self._get_auth_metadata()
@@ -486,15 +554,11 @@ class TieringClient:
     if path is not None and uuid is not None:
       raise ValueError("Only one of path or uuid can be specified.")
 
-    if uuid is not None and uuid in self._prefetch_futures:
-      return self._prefetch_futures[uuid]
+    loop = asyncio.get_running_loop()
+    if loop in self._prefetch_futures and uuid in self._prefetch_futures[loop]:
+      return self._prefetch_futures[loop][uuid]
 
-    if not self._stub:
-      await self.connect()
-
-    stub = self._stub
-    if stub is None:
-      raise RuntimeError("Stub is not initialized after connect.")
+    stub = self._get_or_create_stub()
 
     zone, region = await self._get_gcp_zone_and_region()
 
@@ -521,11 +585,16 @@ class TieringClient:
     asset_uuid = asset.uuid
     interval = response.keep_alive_interval_seconds
 
-    if asset_uuid in self._prefetch_futures:
-      return self._prefetch_futures[asset_uuid]
+    if (
+        loop in self._prefetch_futures
+        and asset_uuid in self._prefetch_futures[loop]
+    ):
+      return self._prefetch_futures[loop][asset_uuid]
 
-    future = asyncio.get_running_loop().create_future()
-    self._prefetch_futures[asset_uuid] = future
+    if loop not in self._prefetch_futures:
+      self._prefetch_futures[loop] = {}
+    future = loop.create_future()
+    self._prefetch_futures[loop][asset_uuid] = future
 
     closest_tp = None
     if response.closest_tier_path_uuid:
@@ -540,7 +609,8 @@ class TieringClient:
       )
 
     if closest_tp is None:
-      self._prefetch_futures.pop(asset_uuid, None)
+      if loop in self._prefetch_futures:
+        self._prefetch_futures[loop].pop(asset_uuid, None)
       raise RuntimeError(
           "Prefetch response did not contain closest TierPath matching "
           f"{response.closest_tier_path_uuid} for asset {asset_uuid}"
@@ -550,9 +620,11 @@ class TieringClient:
         asset_uuid, closest_tp.tier_path_uuid, interval
     )
 
+    self._path_to_uuid[asset.path] = asset_uuid
+    self._path_to_uuid[closest_tp.path] = asset_uuid
+
     if closest_tp.HasField("ready_at"):
       future.set_result(closest_tp.path)
-
     return future
 
   async def release(self, uuid: str) -> None:
@@ -562,6 +634,19 @@ class TieringClient:
       uuid: Asset UUID to release.
     """
     self._stop_prefetch_keep_alive(uuid)
+
+  async def release_path(self, path: str) -> None:
+    """Client-side release of prefetch keep-alive loop by path.
+
+    Args:
+      path: Logical path or physical Lustre path of the asset.
+    """
+    uuid = self._path_to_uuid.pop(path, None)
+    if uuid:
+      keys_to_remove = [k for k, v in self._path_to_uuid.items() if v == uuid]
+      for k in keys_to_remove:
+        self._path_to_uuid.pop(k, None)
+      await self.release(uuid)
 
   async def delete(
       self,
@@ -583,12 +668,7 @@ class TieringClient:
     if path is not None and uuid is not None:
       raise ValueError("Only one of path or uuid can be specified.")
 
-    if not self._stub:
-      await self.connect()
-
-    stub = self._stub
-    if stub is None:
-      raise RuntimeError("Stub is not initialized after connect.")
+    stub = self._get_or_create_stub()
 
     if uuid is not None:
       request = tiering_service_pb2.DeleteRequest(uuid=uuid)
@@ -626,12 +706,7 @@ class TieringClient:
     if path is not None and uuid is not None:
       raise ValueError("Only one of path or uuid can be specified.")
 
-    if not self._stub:
-      await self.connect()
-
-    stub = self._stub
-    if stub is None:
-      raise RuntimeError("Stub is not initialized after connect.")
+    stub = self._get_or_create_stub()
 
     if uuid is not None:
       request = tiering_service_pb2.InfoRequest(uuid=uuid)

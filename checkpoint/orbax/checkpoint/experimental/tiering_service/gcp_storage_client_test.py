@@ -226,6 +226,111 @@ class GCPStorageClientTest(unittest.IsolatedAsyncioTestCase):
     )
     self.assertEqual(result.detail_info, {"percent_complete": 42})
 
+  async def test_gcs_delete_path_batch_success(self):
+    client = gcp_storage_client.GcsToGcsClient(project="test-project")
+
+    # 1. Mock list response (150 objects, triggers 2 chunks: 100 and 50)
+    mock_list_resp = mock.MagicMock(spec=httpx.Response)
+    mock_list_resp.status_code = 200
+    mock_list_resp.json.return_value = {
+        "items": [{"name": f"test/dir/file_{i}.txt"} for i in range(150)]
+    }
+    self.mock_client.get.return_value = mock_list_resp
+
+    # 2. Mock batch response content
+    boundary = "dummy_response_boundary"
+
+    # Construct a multipart response with 100 parts for the first chunk, and
+    # 50 parts for the second chunk
+    def make_mock_batch_resp(count: int) -> bytes:
+      parts = []
+      for _ in range(count):
+        parts.append(
+            f"--{boundary}\r\n"
+            "Content-Type: application/http\r\n"
+            "\r\n"
+            "HTTP/1.1 204 No Content\r\n"
+        )
+      parts.append(f"--{boundary}--\r\n")
+      return "".join(parts).encode("utf-8")
+
+    mock_batch_resp_1 = mock.MagicMock(spec=httpx.Response)
+    mock_batch_resp_1.status_code = 200
+    mock_batch_resp_1.headers = {
+        "Content-Type": f"multipart/mixed; boundary={boundary}"
+    }
+    mock_batch_resp_1.content = make_mock_batch_resp(100)
+
+    mock_batch_resp_2 = mock.MagicMock(spec=httpx.Response)
+    mock_batch_resp_2.status_code = 200
+    mock_batch_resp_2.headers = {
+        "Content-Type": f"multipart/mixed; boundary={boundary}"
+    }
+    mock_batch_resp_2.content = make_mock_batch_resp(50)
+
+    self.mock_client.post.side_effect = [mock_batch_resp_1, mock_batch_resp_2]
+
+    # Run delete
+    await client.delete_path("gs://test-bucket/test/dir")
+
+    # Assertions
+    self.mock_client.get.assert_called_once()
+    self.assertEqual(self.mock_client.post.call_count, 2)
+
+    # Check request payload structure of the first post
+    first_call_args = self.mock_client.post.call_args_list[0]
+    called_content = first_call_args.kwargs["content"].decode("utf-8")
+    self.assertIn(
+        "DELETE /storage/v1/b/test-bucket/o/test%2Fdir%2Ffile_0.txt",
+        called_content,
+    )
+    self.assertIn(
+        "DELETE /storage/v1/b/test-bucket/o/test%2Fdir%2Ffile_99.txt",
+        called_content,
+    )
+    self.assertNotIn(
+        "DELETE /storage/v1/b/test-bucket/o/test%2Fdir%2Ffile_100.txt",
+        called_content,
+    )
+
+  async def test_gcs_delete_path_batch_nested_failure(self):
+    client = gcp_storage_client.GcsToGcsClient(project="test-project")
+
+    # Mock list response
+    mock_list_resp = mock.MagicMock(spec=httpx.Response)
+    mock_list_resp.status_code = 200
+    mock_list_resp.json.return_value = {
+        "items": [{"name": "test/dir/file_1.txt"}]
+    }
+    self.mock_client.get.return_value = mock_list_resp
+
+    # Mock batch response with a nested 403 Forbidden status
+    boundary = "dummy_response_boundary"
+    response_content = (
+        f"--{boundary}\r\n"
+        "Content-Type: application/http\r\n"
+        "\r\n"
+        "HTTP/1.1 403 Forbidden\r\n"
+        "\r\n"
+        "Permission denied\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+
+    mock_batch_resp = mock.MagicMock(spec=httpx.Response)
+    mock_batch_resp.status_code = 200
+    mock_batch_resp.headers = {
+        "Content-Type": f"multipart/mixed; boundary={boundary}"
+    }
+    mock_batch_resp.content = response_content
+    self.mock_client.post.return_value = mock_batch_resp
+
+    with self.assertRaisesRegex(
+        RuntimeError,
+        "Batch object deletion failed with nested status: HTTP/1.1 403"
+        " Forbidden",
+    ):
+      await client.delete_path("gs://test-bucket/test/dir")
+
   @mock.patch("google.auth.impersonated_credentials.Credentials")
   async def test_service_account_token_impersonation(
       self, mock_impersonated_creds_class

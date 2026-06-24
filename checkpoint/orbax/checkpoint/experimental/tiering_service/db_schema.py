@@ -72,6 +72,7 @@ class TierPathState(enum.IntEnum):
   READY = 3
   FAILED = 4
   DELETED = 5
+  DELETE_IN_PROCESS = 6
 
 
 class Asset(Base):
