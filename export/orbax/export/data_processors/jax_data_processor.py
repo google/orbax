@@ -24,16 +24,14 @@ from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export.data_processors import data_processor_base
 
-from .third_party.neptune.protos import manifest_pb2
-
 
 def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct:
   """Converts a ShloTensorSpec to a jax.ShapeDtypeStruct."""
-  if isinstance(spec, shlo_function.ShloTensorSpec):
-    if spec.dtype == shlo_function.ShloDType.bf16:
+  if isinstance(spec, shlo_type.ShloTensorSpec):
+    if spec.dtype == shlo_type.ShloDType.bf16:
       return jax.ShapeDtypeStruct(spec.shape, jax.numpy.bfloat16)
     return jax.ShapeDtypeStruct(
-        spec.shape, shlo_function.shlo_dtype_to_np_dtype(spec.dtype)
+        spec.shape, shlo_type.shlo_dtype_to_np_dtype(spec.dtype)
     )
   if hasattr(spec, 'shape') and hasattr(spec, 'dtype'):
     return jax.ShapeDtypeStruct(
