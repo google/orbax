@@ -576,3 +576,41 @@ def determine_client(
         f"Unsupported backend pair: {source_type} and {target_type}"
     )
   return _CLIENT_BUILDERS[key](source_tp, target_tp, project, service_account)
+
+
+def get_client_from_status(
+    status_dict: dict[str, Any],
+    project: str | None = None,
+    service_account: str | None = None,
+) -> GCPStorageClient:
+  """Resolves and instantiates the client based on status metadata."""
+  client_type = status_dict.get("client_type")
+  if not client_type:
+    raise ValueError("Unknown or missing client type in status")
+
+  if client_type == "GcsToGcsClient":
+    return GcsToGcsClient(project=project, service_account=service_account)
+  elif client_type == "LustreToGcsClient":
+    zone = status_dict.get("zone")
+    if not zone:
+      raise ValueError("zone is missing from transfer_status")
+    instance = f"lustre-{zone}"
+    return LustreToGcsClient(
+        instance=instance,
+        zone=zone,
+        project=project,
+        service_account=service_account,
+    )
+  elif client_type == "GcsToLustreClient":
+    zone = status_dict.get("zone")
+    if not zone:
+      raise ValueError("zone is missing from transfer_status")
+    instance = f"lustre-{zone}"
+    return GcsToLustreClient(
+        instance=instance,
+        zone=zone,
+        project=project,
+        service_account=service_account,
+    )
+  else:
+    raise ValueError(f"Unknown or missing client type: {client_type}")

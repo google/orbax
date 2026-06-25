@@ -916,5 +916,94 @@ class TieringServiceTest(
     self.assertIn("marked for deletion", message)
 
 
+class CtsServerTest(unittest.IsolatedAsyncioTestCase):
+
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server_config.load_config"
+  )
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server.setup_storage_backends"
+  )
+  @mock.patch("grpc.aio.server")
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server.TieringServiceServicer"
+  )
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "job_worker.run_tiering_service_worker_loop"
+  )
+  async def test_serve_default_does_not_start_worker(
+      self,
+      mock_run_worker,
+      mock_servicer_class,
+      mock_grpc_server,
+      mock_setup_backends,
+      mock_load_config,
+  ):
+    del mock_setup_backends
+    mock_load_config.return_value = mock.MagicMock()
+    mock_server_instance = mock.MagicMock()
+    mock_server_instance.start = mock.AsyncMock()
+    mock_server_instance.wait_for_termination = mock.AsyncMock()
+    mock_server_instance.stop = mock.AsyncMock()
+    mock_grpc_server.return_value = mock_server_instance
+
+    mock_servicer_instance = mock.AsyncMock()
+    mock_servicer_class.return_value = mock_servicer_instance
+
+    server_cli = server.CtsServer()
+    await server_cli.serve("dummy.yaml")
+
+    mock_run_worker.assert_not_called()
+
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server_config.load_config"
+  )
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server.setup_storage_backends"
+  )
+  @mock.patch("grpc.aio.server")
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "server.TieringServiceServicer"
+  )
+  @mock.patch(
+      "orbax.checkpoint.experimental.tiering_service."
+      "job_worker.run_tiering_service_worker_loop"
+  )
+  async def test_serve_starts_worker_if_requested(
+      self,
+      mock_run_worker,
+      mock_servicer_class,
+      mock_grpc_server,
+      mock_setup_backends,
+      mock_load_config,
+  ):
+    del mock_setup_backends
+    mock_load_config.return_value = mock.MagicMock()
+    mock_server_instance = mock.MagicMock()
+    mock_server_instance.start = mock.AsyncMock()
+    mock_server_instance.wait_for_termination = mock.AsyncMock()
+    mock_server_instance.stop = mock.AsyncMock()
+    mock_grpc_server.return_value = mock_server_instance
+
+    mock_servicer_instance = mock.AsyncMock()
+    mock_servicer_class.return_value = mock_servicer_instance
+
+    mock_worker_instance = mock.AsyncMock()
+    mock_run_worker.return_value = mock_worker_instance
+
+    server_cli = server.CtsServer()
+    await server_cli.serve("dummy.yaml", start_tiering_service_worker=True)
+
+    mock_run_worker.assert_called_once()
+    mock_worker_instance.stop.assert_called_once()
+
+
 if __name__ == "__main__":
   absltest.main()
