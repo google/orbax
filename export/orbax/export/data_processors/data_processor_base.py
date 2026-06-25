@@ -19,6 +19,7 @@
 import abc
 from collections.abc import Callable, Set
 from typing import Any
+import jaxtyping
 
 
 class DataProcessor(abc.ABC):

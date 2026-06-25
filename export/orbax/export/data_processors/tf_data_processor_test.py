@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import os
-import orbax.experimental.model.core as obm
+
 from orbax.export.data_processors import tf_data_processor
 import tensorflow as tf
+
 from absl.testing import absltest
+import .third_party.neptune.neptune_model._src.core as obm
 from .util.task.python import error as google_error
 
 
