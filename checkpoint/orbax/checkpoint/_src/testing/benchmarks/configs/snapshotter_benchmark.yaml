@@ -1,0 +1,12 @@
+# Configuration file for Orbax Snapshotter scale up and scale down benchmarks.
+suite_name: "Snapshotter Benchmark Suite"
+
+checkpoint_config:
+  spec: {}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.v1.snapshotter_benchmark.SnapshotterBenchmark"
+    options:
+      num_scale_down_slices: [1]
+      num_scale_up_slices: [2]
+      num_savings: 1
