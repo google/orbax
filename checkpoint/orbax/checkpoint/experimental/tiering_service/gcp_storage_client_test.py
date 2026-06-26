@@ -354,6 +354,50 @@ class GCPStorageClientHelpersTest(unittest.TestCase):
     with self.assertRaisesRegex(ValueError, "Lustre zone is missing"):
       gcp_storage_client.determine_client(source_tp, target_tp)
 
+  def test_get_client_from_status_gcs_to_gcs(self):
+    status = {"client_type": "GcsToGcsClient"}
+    client = gcp_storage_client.get_client_from_status(
+        status, project="my-proj"
+    )
+    self.assertIsInstance(client, gcp_storage_client.GcsToGcsClient)
+    self.assertEqual(client.project, "my-proj")
+
+  def test_get_client_from_status_gcs_to_lustre(self):
+    status = {
+        "client_type": "GcsToLustreClient",
+        "zone": "us-central1-f",
+    }
+    client = gcp_storage_client.get_client_from_status(
+        status, project="my-proj"
+    )
+    self.assertIsInstance(client, gcp_storage_client.GcsToLustreClient)
+    self.assertEqual(client.project, "my-proj")
+    self.assertEqual(client.zone, "us-central1-f")
+
+  def test_get_client_from_status_lustre_to_gcs(self):
+    status = {
+        "client_type": "LustreToGcsClient",
+        "zone": "us-central1-g",
+    }
+    client = gcp_storage_client.get_client_from_status(
+        status, project="my-proj"
+    )
+    self.assertIsInstance(client, gcp_storage_client.LustreToGcsClient)
+    self.assertEqual(client.project, "my-proj")
+    self.assertEqual(client.zone, "us-central1-g")
+
+  def test_get_client_from_status_invalid_raises(self):
+    status = {"client_type": "InvalidClient"}
+    with self.assertRaisesRegex(ValueError, "Unknown or missing client type"):
+      gcp_storage_client.get_client_from_status(status)
+
+  def test_get_client_from_status_missing_location_raises(self):
+    status = {"client_type": "GcsToLustreClient"}
+    with self.assertRaisesRegex(
+        ValueError, "zone is missing from transfer_status"
+    ):
+      gcp_storage_client.get_client_from_status(status)
+
   def test_transfer_status_serialization(self):
     status = tiering_service_pb2.TransferStatus(
         request_id="req-123",

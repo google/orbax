@@ -137,6 +137,26 @@ class TieringServiceWorkerTest(
     )
     self.determine_client_mock.return_value = self.gcp_client
 
+    def mock_get_client(status_dict, project=None, service_account=None):
+      del project, service_account  # Unused
+      client_type = status_dict.get("client_type")
+      if client_type not in {
+          "GcsToGcsClient",
+          "LustreToGcsClient",
+          "GcsToLustreClient",
+          "DummyGcpParallelstoreClient",
+      }:
+        raise ValueError(f"Unknown or missing client type: {client_type}")
+      return self.gcp_client
+
+    self.get_client_mock = self.enter_context(
+        mock.patch.object(
+            gcp_storage_client,
+            "get_client_from_status",
+            side_effect=mock_get_client,
+        )
+    )
+
     # Short poll interval for fast tests
     self.worker = job_worker.TieringServiceWorker(
         self.session_maker,
@@ -223,38 +243,27 @@ class TieringServiceWorkerTest(
     # Start worker to process the job
     await self.worker.start()
 
-    # Wait for job to trigger with timeout
+    # Wait for job to complete with timeout
     for _ in range(10):
-      await asyncio.sleep(0.5)
+      await asyncio.sleep(1.0)
       async with self.session_maker() as session:
         result = await session.execute(select(db_schema.AssetJob))
         job = result.scalars().first()
-        if (
-            job.status == db_schema.JobStatus.JOB_STATUS_PROCESSING
-            and job.transfer_status is not None
-            and "request_id" in job.transfer_status
-        ):
+        if job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED:
           break
 
     await self.worker.stop()
 
     async with self.session_maker() as session:
-      # Verify job status transitions to PROCESSING and has transfer metadata
+      # Verify job status transitions to COMPLETED
       result = await session.execute(select(db_schema.AssetJob))
       job = result.scalars().first()
-      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_PROCESSING)
-      self.assertIsNone(job.completed_at)
-      self.assertEqual(job.worker_host, self.worker._hostname)
-      self.assertEqual(job.worker_pid, self.worker._pid)
+      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED)
+      self.assertIsNotNone(job.completed_at)
+      self.assertIsNone(job.worker_host)
+      self.assertIsNone(job.worker_pid)
 
-      self.assertIsNotNone(job.transfer_status)
-      self.assertIn("request_id", job.transfer_status)
-      self.assertEqual(
-          job.transfer_status["client_type"], "DummyGcpParallelstoreClient"
-      )
-
-      # Verify target TierPath remains PENDING (since it is not yet completed
-      # by polling)
+      # Verify target TierPath is ready
       result_tp = await session.execute(
           select(db_schema.TierPath).where(
               db_schema.TierPath.asset_uuid == "asset-1"
@@ -262,8 +271,9 @@ class TieringServiceWorkerTest(
       )
       tps = result_tp.scalars().all()
       target_tp = next(tp for tp in tps if "lustre" in tp.path)
-      self.assertEqual(target_tp.state, db_schema.TierPathState.IN_PROGRESS)
-      self.assertIsNone(target_tp.ready_at)
+      self.assertEqual(target_tp.state, db_schema.TierPathState.READY)
+      self.assertIsNotNone(target_tp.ready_at)
+      self.assertIsNotNone(target_tp.expires_at)
 
   async def test_concurrency_limit_respected(self):
     async with self.session_maker() as session:
@@ -436,6 +446,308 @@ class TieringServiceWorkerTest(
       tps = result_tp.scalars().all()
       dest_tp = next(tp for tp in tps if "my-bucket" not in tp.path)
       self.assertEqual(dest_tp.state, db_schema.TierPathState.FAILED)
+
+  async def test_job_failure_clean_up_target_tier_path(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-1",
+          path="path/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+
+    # Mock poll_operation to return a failure
+    with mock.patch.object(
+        self.gcp_client,
+        "poll_operation",
+        autospec=True,
+        return_value=gcp_storage_client.Result(
+            status=gcp_storage_client.OperationStatus.FAILED,
+            detail_info={"error": "Mocked GCP error"},
+        ),
+    ):
+      await self.worker.start()
+      # Wait for job to fail
+      for _ in range(10):
+        await asyncio.sleep(1)
+        async with self.session_maker() as session:
+          result = await session.execute(select(db_schema.AssetJob))
+          job = result.scalars().first()
+          if job.status == db_schema.JobStatus.JOB_STATUS_FAILED:
+            break
+      await self.worker.stop()
+
+    async with self.session_maker() as session:
+      # Verify job status is FAILED, completed_at is set, and
+      # target_tier_path_id is preserved
+      result = await session.execute(select(db_schema.AssetJob))
+      job = result.scalars().first()
+      self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_FAILED)
+      self.assertIsNotNone(job.completed_at)
+      self.assertIsNotNone(job.target_tier_path_id)
+      self.assertIsNone(job.worker_host)
+      self.assertIsNone(job.worker_pid)
+
+      # Verify target TierPath is preserved but marked FAILED
+      result_tp = await session.execute(
+          select(db_schema.TierPath).where(
+              db_schema.TierPath.asset_uuid == "asset-1"
+          )
+      )
+      tps = result_tp.scalars().all()
+      # Both source (GCS) and target (Lustre) TierPaths should exist
+      self.assertLen(tps, 2)
+      dest_tp = next(tp for tp in tps if "my-bucket" not in tp.path)
+      self.assertEqual(dest_tp.state, db_schema.TierPathState.FAILED)
+
+  async def test_crash_recovery_on_lease_expiration(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      # Create a job that is already in PROCESSING state but has an
+      # expired lease
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-1",
+          path="path/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+          job_status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+      )
+      # Set expired lease
+      job.expiration_at = datetime.datetime(
+          2020, 1, 1, tzinfo=datetime.timezone.utc
+      )
+      job.worker_host = "dead-host"
+      job.worker_pid = 9999
+
+      # Populate dummy operation in client
+      op_id = "operations/import-dummy-id"
+      self.gcp_client.operations[op_id] = {
+          "status": gcp_storage_client.OperationStatus.IN_PROGRESS,
+          "progress": 0,
+          "type": "import",
+      }
+      job.transfer_status = {
+          "request_id": op_id,
+          "status": gcp_storage_client.OperationStatus.IN_PROGRESS.value,
+          "client_type": "GcsToLustreClient",
+          "zone": "us-central1-a",
+      }
+      await session.commit()
+
+    # Start worker
+    await self.worker.start()
+
+    # Wait for job to complete with timeout
+    for _ in range(10):
+      await asyncio.sleep(1)
+      async with self.session_maker() as session:
+        result = await session.execute(select(db_schema.AssetJob))
+        recovered_job = result.scalars().first()
+        if recovered_job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED:
+          break
+
+    await self.worker.stop()
+
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.AssetJob))
+      recovered_job = result.scalars().first()
+
+      # The worker should have reclaimed it and eventually completed it
+      # (via dummy client)
+      self.assertEqual(
+          recovered_job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+      )
+      self.assertIsNone(recovered_job.worker_host)
+
+  async def test_poll_permanent_logic_error_failing_job(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-err-1",
+          path="path/err/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+          job_status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+      )
+
+      # Set up ownership for this worker
+      job.worker_host = self.worker._hostname
+      job.worker_pid = self.worker._pid
+      # Set up an invalid client type in transfer_status to induce a ValueError
+      job.transfer_status = {
+          "request_id": "operations/dummy-op",
+          "status": gcp_storage_client.OperationStatus.IN_PROGRESS.value,
+          "client_type": "InvalidClientType",
+      }
+      await session.commit()
+
+    # Trigger polling manually
+    await self.worker._poll_active_jobs()
+
+    # Verify that the job is marked as FAILED
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.AssetJob))
+      recovered_job = result.scalars().first()
+      self.assertEqual(
+          recovered_job.status, db_schema.JobStatus.JOB_STATUS_FAILED
+      )
+      self.assertIn(
+          "Unknown or missing client type: InvalidClientType",
+          recovered_job.transfer_status.get("error", ""),
+      )
+
+  async def test_update_job_status_after_poll_acquires_lock(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-lock-1",
+          path="path/lock/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+          job_status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+      )
+      job.worker_host = self.worker._hostname
+      job.worker_pid = self.worker._pid
+      await session.commit()
+
+    original_get = AsyncSession.get
+    get_calls = []
+    async def mock_get(self_session, entity, ident, **kwargs):
+      get_calls.append((entity, ident, kwargs))
+      return await original_get(self_session, entity, ident, **kwargs)
+
+    with mock.patch.object(AsyncSession, "get", mock_get):
+      gcp_result = gcp_storage_client.Result(
+          status=gcp_storage_client.OperationStatus.IN_PROGRESS,
+          detail_info={"bytes_copied": 100, "total_bytes": 1000},
+      )
+      status_dict = {
+          "client_type": "GcsToLustreClient",
+          "zone": "us-central1-a",
+      }
+      now = datetime.datetime.now(datetime.timezone.utc)
+      await self.worker._update_job_status_after_poll(
+          job, gcp_result, status_dict, now
+      )
+
+    self.assertNotEmpty(get_calls)
+    entity, ident, kwargs = get_calls[0]
+    self.assertEqual(entity, db_schema.AssetJob)
+    self.assertEqual(ident, job.id)
+    self.assertTrue(kwargs.get("with_for_update"))
+
+  async def test_update_job_status_after_poll_extends_lease(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-lease-direct",
+          path="path/lease/direct",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+          job_status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+      )
+      job.worker_host = self.worker._hostname
+      job.worker_pid = self.worker._pid
+      # Set initial expiration to some past time
+      initial_expiration = datetime.datetime.now(
+          datetime.timezone.utc
+      ) - datetime.timedelta(seconds=10)
+      job.expiration_at = initial_expiration
+      await session.commit()
+
+    gcp_result = gcp_storage_client.Result(
+        status=gcp_storage_client.OperationStatus.IN_PROGRESS,
+        detail_info={"bytes_copied": 100, "total_bytes": 1000},
+    )
+    status_dict = {
+        "client_type": "GcsToLustreClient",
+        "zone": "us-central1-a",
+    }
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    # Call directly
+    await self.worker._update_job_status_after_poll(
+        job, gcp_result, status_dict, now
+    )
+
+    # Verify expiration_at is now updated to now + lease_duration
+    async with self.session_maker() as session:
+      db_job = await session.get(db_schema.AssetJob, job.id)
+      expected_expiration = now + self.worker._lease_duration
+      self.assertEqual(
+          db_job.expiration_at.replace(tzinfo=None),
+          expected_expiration.replace(tzinfo=None),
+      )
+
+  async def test_custom_transfer_status_details_preserved(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-custom-1",
+          path="path/custom/1",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+      )
+
+    with mock.patch.object(
+        self.gcp_client,
+        "poll_operation",
+        return_value=gcp_storage_client.Result(
+            status=gcp_storage_client.OperationStatus.IN_PROGRESS,
+            detail_info={
+                "bytes_copied": 500,
+                "total_bytes": 1000,
+                "custom_metric": "custom_value",
+            },
+        ),
+    ):
+      await self.worker.start()
+
+      custom_metric_val = None
+      for _ in range(20):
+        await asyncio.sleep(0.5)
+        async with self.session_maker() as session:
+          db_job = await session.get(db_schema.AssetJob, job.id)
+          if (
+              db_job.transfer_status
+              and db_job.transfer_status.get("custom_metric")
+          ):
+            custom_metric_val = db_job.transfer_status.get("custom_metric")
+            break
+
+      await self.worker.stop()
+      self.assertEqual(custom_metric_val, "custom_value")
 
 
 if __name__ == "__main__":

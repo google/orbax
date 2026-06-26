@@ -25,6 +25,7 @@ import random
 import socket
 from typing import Any
 from absl import logging
+from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
@@ -34,6 +35,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import sessionmaker
+
+
+_EXTRA_KEYS = frozenset({"bytes_copied", "total_bytes", "error"})
 
 
 class TieringServiceWorker:
@@ -86,6 +90,7 @@ class TieringServiceWorker:
     random.shuffle(self._backends_to_try)
 
     self._tasks.append(asyncio.create_task(self._run_acquisition_loop()))
+    self._tasks.append(asyncio.create_task(self._run_polling_loop()))
 
   async def stop(self):
     """Stops the background worker loops gracefully."""
@@ -123,6 +128,174 @@ class TieringServiceWorker:
       except Exception:  # pylint: disable=broad-except
         logging.exception("Error in job acquisition loop.")
       await asyncio.sleep(self._poll_interval)
+
+  async def _run_polling_loop(self):
+    """Periodically polls status of active jobs owned by this worker."""
+    while not self._shutdown_event.is_set():
+      try:
+        await self._poll_active_jobs()
+      except Exception:  # pylint: disable=broad-except
+        logging.exception("Error in job polling loop.")
+      await asyncio.sleep(self._poll_interval)
+
+  async def _poll_active_jobs(self):
+    """Polls status of active jobs owned by this worker."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    async with self._session_maker() as session:
+      active_jobs = await db_lib.get_active_jobs(
+          session, self._hostname, self._pid
+      )
+
+    for job in active_jobs:
+      await self._poll_single_job(job, now)
+
+  async def _poll_single_job(
+      self, job: db_schema.AssetJob, now: datetime.datetime
+  ):
+    """Polls a single active copy job and updates its status."""
+    logging.info("Polling job %d", job.id)
+
+    status_dict = job.transfer_status
+    if not status_dict or "request_id" not in status_dict:
+      logging.warning("Job %d in PROCESSING but has no request_id", job.id)
+      return
+
+    req_id = status_dict["request_id"]
+    try:
+      client = gcp_storage_client.get_client_from_status(
+          status_dict,
+          project=self._config.gcp_project or None,
+          service_account=self._config.service_account or None,
+      )
+      try:
+        # The network call to client.poll_operation happens OUTSIDE the DB
+        # transaction. GCS/Lustre clients don't use context.
+        gcp_result = await client.poll_operation(req_id)
+        logging.info(
+            "Job %d GCP status: %s, detail_info: %s",
+            job.id,
+            gcp_result.status,
+            gcp_result.detail_info,
+        )
+      finally:
+        await client.close()
+
+      await self._update_job_status_after_poll(
+          job, gcp_result, status_dict, now
+      )
+
+    except ValueError as e:
+      await self._handle_polling_error(job, e, status_dict, now)
+    except Exception:  # pylint: disable=broad-except
+      logging.exception("Error polling job %d", job.id)
+      # Note: lease is not extended if we hit transient error.
+      async with self._session_maker() as session:
+        async with session.begin():
+          merged_job = await session.get(
+              db_schema.AssetJob, job.id, with_for_update=True
+          )
+          if merged_job and (
+              merged_job.status == db_schema.JobStatus.JOB_STATUS_PROCESSING
+              and merged_job.worker_host == self._hostname
+              and merged_job.worker_pid == self._pid
+          ):
+            merged_job.last_updated_at = now
+            session.add(merged_job)
+
+  async def _update_job_status_after_poll(
+      self,
+      job: db_schema.AssetJob,
+      gcp_result: gcp_storage_client.Result,
+      status_dict: dict[str, Any],
+      now: datetime.datetime,
+  ):
+    """Updates the job status in the database after a poll iteration."""
+    # Update transfer_status JSON and heartbeat/lease in a short transaction
+    async with self._session_maker() as session:
+      async with session.begin():
+        merged_job = await session.get(
+            db_schema.AssetJob, job.id, with_for_update=True
+        )
+        if not merged_job:
+          logging.warning("Job %d was deleted", job.id)
+          return
+        if (
+            merged_job.status != db_schema.JobStatus.JOB_STATUS_PROCESSING
+            or merged_job.worker_host != self._hostname
+            or merged_job.worker_pid != self._pid
+        ):
+          logging.warning(
+              "Job %d is no longer owned by this worker (%s:%d). "
+              "Skipping status update.",
+              job.id,
+              self._hostname,
+              self._pid,
+          )
+          return
+
+        # Extend lease only after successful poll
+        await self._extend_lease(merged_job, now)
+
+        status_data = {
+            **status_dict,
+            "status": gcp_result.status.value,
+        }
+        for k, v in gcp_result.detail_info.items():
+          if k in _EXTRA_KEYS:
+            if k != "error":
+              status_data[k] = v
+          else:
+            status_data[k] = v
+
+        status_pb = gcp_storage_client.deserialize_transfer_status(status_data)
+
+        new_status = gcp_storage_client.serialize_transfer_status(status_pb)
+        merged_job.transfer_status = new_status
+        merged_job.last_updated_at = now
+
+        if gcp_result.status == gcp_storage_client.OperationStatus.SUCCESS:
+          await self._complete_job(session, merged_job, now)
+        elif gcp_result.status == gcp_storage_client.OperationStatus.FAILED:
+          error_msg = gcp_result.detail_info.get("error", "Unknown GCP error")
+          await self._fail_job(session, merged_job, error_msg, new_status, now)
+        else:
+          session.add(merged_job)
+
+  async def _handle_polling_error(
+      self,
+      job: db_schema.AssetJob,
+      error: ValueError,
+      status_dict: dict[str, Any],
+      now: datetime.datetime,
+  ):
+    """Handles permanent logic errors encountered during job polling."""
+    logging.exception("Permanent logic error polling job %d", job.id)
+    async with self._session_maker() as session:
+      async with session.begin():
+        merged_job = await session.get(
+            db_schema.AssetJob, job.id, with_for_update=True
+        )
+        if not merged_job:
+          logging.warning("Job %d was deleted", job.id)
+          return
+        if (
+            merged_job.status != db_schema.JobStatus.JOB_STATUS_PROCESSING
+            or merged_job.worker_host != self._hostname
+            or merged_job.worker_pid != self._pid
+        ):
+          logging.warning(
+              "Job %d is no longer owned by this worker (%s:%d). "
+              "Skipping error update.",
+              job.id,
+              self._hostname,
+              self._pid,
+          )
+          return
+        new_status = {
+            **status_dict,
+            "status": gcp_storage_client.OperationStatus.FAILED.value,
+        }
+        await self._fail_job(session, merged_job, str(error), new_status, now)
 
   async def _process_job(self, job: db_schema.AssetJob):
     """Triggers the GCP transfer for the acquired job."""
@@ -354,6 +527,52 @@ class TieringServiceWorker:
       session.add(target_tp)
 
     logging.error("Failed job %d: %s", job.id, error_msg)
+
+  async def _complete_job(
+      self,
+      session: AsyncSession,
+      job: db_schema.AssetJob,
+      now: datetime.datetime,
+  ):
+    """Marks the job as completed and updates target TierPath."""
+    job.status = db_schema.JobStatus.JOB_STATUS_COMPLETED
+    job.completed_at = now
+    job.worker_host = None
+    job.worker_pid = None
+    job.expiration_at = None
+    session.add(job)
+
+    # Mark target TierPath as ready
+    target_tp = await self._get_target_tier_path(
+        session, job, load_backend=True
+    )
+    if target_tp:
+      target_tp.state = db_schema.TierPathState.READY
+      target_tp.ready_at = now
+      # Calculate expiration for TierPath if it is Level 0 (Lustre)
+      # "the checkpoint could be removed from this location after it expires."
+      # GCS (Level 1) paths usually don't expire.
+      if (
+          target_tp.storage_backend.backend_type
+          == db_schema.BackendType.BACKEND_TYPE_LUSTRE
+      ):
+        ttl = datetime.timedelta(seconds=60 * 60)
+        target_tp.expires_at = assets.calculate_expires_at(ttl)
+      session.add(target_tp)
+
+    logging.info(
+        "Completed job %d, target TierPath %s marked ready",
+        job.id,
+        target_tp.path if target_tp else "None",
+    )
+
+  async def _extend_lease(
+      self,
+      job: db_schema.AssetJob,
+      now: datetime.datetime,
+  ):
+    """Extends the lease of the job (heartbeat)."""
+    job.expiration_at = now + self._lease_duration
 
 
 async def run_tiering_service_worker_loop(
