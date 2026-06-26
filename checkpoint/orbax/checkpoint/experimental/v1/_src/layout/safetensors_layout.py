@@ -32,7 +32,6 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types
 
-STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 CheckpointLayout = checkpoint_layout.CheckpointLayout
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
 Path = types.Path
@@ -712,9 +711,9 @@ class _MultiFileLoader:
         metadata[name] = jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
 
     logging.info("[safetensors] Loaded metadata in %.0fs", time.time() - start)
-    return metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]](
+    return metadata_types.CheckpointMetadata(
         path=self.path,
-        metadata={STATE_CHECKPOINTABLE_KEY: metadata},
+        metadata=metadata,
         commit_timestamp_nsecs=commit_timestamp_nsecs,
         custom_metadata=custom_metadata,
     )
@@ -740,27 +739,18 @@ class SafetensorsLayout(CheckpointLayout):
   async def checkpointables_metadata(
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
-    """Returns the metadata of the SafeTensors checkpoint."""
-    loader = _MultiFileLoader(path)
-    return await loader.load_metadata()
+    """A SafeTensors checkpoint is always a flat checkpoint; use `metadata`."""
+    raise NotImplementedError(
+        "SafetensorsLayout does not support `.checkpointables_metadata`. Use"
+        " `.metadata` instead."
+    )
 
   async def metadata(
       self, path: Path, checkpointable_name: str | None
   ) -> metadata_types.CheckpointMetadata[AbstractCheckpointable]:
-    """Returns the metadata describing a single checkpointable in the Safetensors checkpoint."""
-    checkpointables_metadata = await self.checkpointables_metadata(path)
-    key = checkpointable_name or STATE_CHECKPOINTABLE_KEY
-    if key not in checkpointables_metadata.metadata:
-      raise InvalidLayoutError(
-          f"Checkpointable '{key}' not found in checkpoint metadata."
-      )
-    return metadata_types.CheckpointMetadata(
-        path=checkpointables_metadata.path,
-        metadata=checkpointables_metadata.metadata[key],
-        init_timestamp_nsecs=checkpointables_metadata.init_timestamp_nsecs,
-        commit_timestamp_nsecs=checkpointables_metadata.commit_timestamp_nsecs,
-        custom_metadata=checkpointables_metadata.custom_metadata,
-    )
+    """Returns the flat checkpoint metadata for the Safetensors checkpoint."""
+    del checkpointable_name  # Safetensors is always flat; name is unused.
+    return await _MultiFileLoader(path).load_metadata()
 
   async def validate_checkpointables(self, path: Path):
     if await async_path.is_file(path):
@@ -785,7 +775,7 @@ class SafetensorsLayout(CheckpointLayout):
       )
 
   async def get_checkpointable_names(self, path: Path) -> list[str]:
-    return [STATE_CHECKPOINTABLE_KEY]
+    return []
 
   async def validate(self, path: Path, checkpointable_name: str | None) -> None:
     return
@@ -821,7 +811,8 @@ class SafetensorsLayout(CheckpointLayout):
       abstract_checkpointables: dict[str, AbstractCheckpointable] | None = None,
   ) -> Awaitable[dict[str, Checkpointable]]:
     raise NotImplementedError(
-        "SafetensorsLayout does not support `load_checkpointables.`"
+        "SafetensorsLayout does not support `.load_checkpointables`. Use"
+        " `.load` instead."
     )
 
   async def save_checkpointables(

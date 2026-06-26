@@ -234,7 +234,7 @@ class CheckpointablesMetadataTest(absltest.TestCase):
     self.assertSameElements(loaded.keys(), ['bar'])
     self.assertEqual(Foo(3, 'bar'), loaded['bar'])
 
-  def test_checkpointables_metadata_safetensors(self):
+  def test_metadata_safetensors(self):
     st_path = epath.Path(self.create_tempdir().full_path) / 'model.safetensors'
     tensor_data = {
         'item1': np.array([1.0], dtype=np.float32),
@@ -243,7 +243,7 @@ class CheckpointablesMetadataTest(absltest.TestCase):
     st_custom_meta = {'framework': 'test', 'version': '1.0'}
     safetensors.numpy.save_file(tensor_data, st_path, metadata=st_custom_meta)
 
-    expected_st_metadata = {
+    expected_metadata = {
         'item1': jax.ShapeDtypeStruct(shape=(1,), dtype=np.float32),
         'item2': jax.ShapeDtypeStruct(shape=(1,), dtype=np.int32),
     }
@@ -251,15 +251,12 @@ class CheckpointablesMetadataTest(absltest.TestCase):
     ctx = context_lib.Context()
     ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
     with ctx:
-      ckpt_metadata = ocp.checkpointables_metadata(st_path)
+      ckpt_metadata = ocp.metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
-    self.assertIn(STATE_CHECKPOINTABLE_KEY, ckpt_metadata.metadata)
-
-    st_pytree_metadata = ckpt_metadata.metadata[STATE_CHECKPOINTABLE_KEY]
-    self.assertEqual(st_pytree_metadata.keys(), expected_st_metadata.keys())
-    for key, expected_sds in expected_st_metadata.items():
-      actual_sds = st_pytree_metadata[key]
+    self.assertEqual(ckpt_metadata.metadata.keys(), expected_metadata.keys())
+    for key, expected_sds in expected_metadata.items():
+      actual_sds = ckpt_metadata.metadata[key]
       self.assertEqual(actual_sds.shape, expected_sds.shape)
       self.assertEqual(actual_sds.dtype, expected_sds.dtype)
 
@@ -267,12 +264,24 @@ class CheckpointablesMetadataTest(absltest.TestCase):
     self.assertEqual(ckpt_metadata.custom_metadata, st_custom_meta)
     self.assertIsNotNone(ckpt_metadata.commit_timestamp_nsecs)
 
-    # Test invalid path
+    # Test invalid path (non-SafeTensors checkpoint).
     with self.assertRaises(ocp.errors.InvalidLayoutError):
       ctx = context_lib.Context()
       ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
       with ctx:
-        ocp.checkpointables_metadata(self.directory)
+        ocp.metadata(self.directory)
+
+  def test_checkpointables_metadata_safetensors(self):
+    # SafeTensors is always flat; the composite API is unsupported.
+    st_path = epath.Path(self.create_tempdir().full_path) / 'model.safetensors'
+    safetensors.numpy.save_file(
+        {'item1': np.array([1.0], dtype=np.float32)}, st_path
+    )
+    ctx = context_lib.Context()
+    ctx.checkpoint_layout = options_lib.CheckpointLayout.SAFETENSORS
+    with ctx:
+      with self.assertRaises(NotImplementedError):
+        ocp.checkpointables_metadata(st_path)
 
 
   def test_checkpointables_metadata_with_incompatible_item(self):

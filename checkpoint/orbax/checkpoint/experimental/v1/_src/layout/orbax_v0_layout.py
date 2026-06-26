@@ -77,7 +77,7 @@ class OrbaxV0Layout(CheckpointLayout):
     """Returns candidate checkpointable names to use for loading.
 
     Checks all subdirectories and returns their names in an order that
-    prioritizes the 'pytree' checkpointable name if present, and sorts the rest
+    prioritizes the 'state' checkpointable name if present, and sorts the rest
     alphabetically.
 
     Args:
@@ -118,28 +118,46 @@ class OrbaxV0Layout(CheckpointLayout):
         custom_metadata=custom_metadata,
     )
 
+  async def _is_direct_checkpoint(self, path: Path) -> bool:
+    """Returns True if `path` is a flat (direct) V0 checkpoint.
+
+    A direct checkpoint stores a single PyTree at the root with no named
+    checkpointable subdirectories. It is recognized either by checkpoint
+    metadata whose `item_handlers` is a bare handler typestr (a string rather
+    than a name->typestr dict), or by a PyTree metadata file at the root.
+
+    Args:
+      path: The path to the checkpoint directory.
+    """
+    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
+    return (
+        checkpoint_metadata
+        and isinstance(checkpoint_metadata.item_handlers, str)
+    ) or await orbax_layout.has_pytree_metadata_file(path)
+
   async def checkpointables_metadata(
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
-    """Returns the metadata describing the Orbax checkpoint.
+    """Returns the metadata describing the composite Orbax checkpoint.
 
     Args:
       path: The path to the checkpoint directory.
 
     Returns:
       The metadata describing the Orbax checkpoint.
+
+    Raises:
+      InvalidLayoutError: If `path` is a flat (direct) checkpoint with no named
+        checkpointables.
     """
-    checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
-    if (
-        checkpoint_metadata
-        and isinstance(checkpoint_metadata.item_handlers, str)
-        or await orbax_layout.has_pytree_metadata_file(path)
-    ):
-      return await self._load_pytree_metadata(path, checkpoint_metadata)
-    # Delegate to OrbaxLayout if the checkpoint is a composite checkpoint.
-    # If there is no checkpoint metadata, we assume it is a composite
-    # checkpoint, and even if it is a direct pytree checkpoint it will load as
-    # a composite checkpoint as there is no metadata to indicate otherwise.
+    # A direct (flat) checkpoint has no named checkpointables; reject the
+    # composite API and direct the caller to the flat API.
+    if await self._is_direct_checkpoint(path):
+      raise InvalidLayoutError(
+          f"Checkpoint at {path} is a flat (direct) checkpoint with no"
+          " named checkpointables. Use `ocp.metadata` / `ocp.load` instead."
+      )
+    # Otherwise this is a composite checkpoint; delegate to OrbaxLayout.
     return await self._orbax_layout.checkpointables_metadata(path)
 
   async def metadata(
@@ -148,6 +166,13 @@ class OrbaxV0Layout(CheckpointLayout):
     """Returns the metadata describing a single checkpointable in the V0 checkpoint."""
     checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
     if checkpointable_name is None:
+      if not await self._is_direct_checkpoint(path):
+        raise InvalidLayoutError(
+            f"Checkpoint at {path} is a composite checkpoint with named"
+            " checkpointables. Use `ocp.checkpointables_metadata` or"
+            " `ocp.metadata(..., checkpointable_name='state')` instead of"
+            " `ocp.metadata(..., checkpointable_name=None)`."
+        )
       return await self._load_pytree_metadata(path, checkpoint_metadata)
     return await self._orbax_layout.metadata(path, checkpointable_name)
 
@@ -343,25 +368,13 @@ class OrbaxV0Layout(CheckpointLayout):
       FileNotFoundError: If handler cannot be found for `checkpointable_name`.
     """
     if checkpointable_name is None:
-      # Read checkpoint metadata and resolve pytree handler for loading.
-      # TODO(b/484400394): Find a better way to inform the user that they need
-      # to use load(..., checkpointable_name=None) when item_handlers is
-      # a str. An idea is to create a seperate validate_checkpointables method
-      # and we can read in checkpoint metadata at validation time for both
-      # validate_pytree and validate_checkpointables operations and warn the
-      # user if they are trying to load a composite checkpoint by calling
-      # load(checkpointable_name=None) or trying to load a composite
-      # checkpoint as a pytree checkpoint respectively.
-      checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(
-          path
-      )
+      checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
       if isinstance(checkpoint_metadata.item_handlers, dict):
-        logging.warning(
-            "Checkpoint looks like a V1 checkpoint. Calling"
-            " `loading.load(..., checkpointable_name=None)` is only"
-            " supported for loading legacy V0 checkpoints. If you intended to"
-            " load a specific checkpointable from the given path, then please"
-            " consider using `load` or  `load_checkpointables` instead."
+        raise InvalidLayoutError(
+            f"Checkpoint at {path} is a composite checkpoint with named"
+            " checkpointables. Use `ocp.load_checkpointables` or"
+            " `ocp.load(..., checkpointable_name='state')` instead of"
+            " `ocp.load(..., checkpointable_name=None)`."
         )
       handler_for_load = (
           await handler_resolution.get_handler_for_load_direct_pytree(
@@ -394,7 +407,16 @@ class OrbaxV0Layout(CheckpointLayout):
 
     Returns:
       An awaitable containing the loaded checkpointables.
+
+    Raises:
+      InvalidLayoutError: If `path` is a flat (direct) checkpoint with no named
+        checkpointables.
     """
+    if await self._is_direct_checkpoint(path):
+      raise InvalidLayoutError(
+          f"Checkpoint at {path} is a flat (direct checkpoint with no named"
+          " checkpointables. Use `ocp.metadata` / `ocp.load` instead."
+      )
     load_awaitable = await self._orbax_layout.load_checkpointables(
         path, abstract_checkpointables
     )

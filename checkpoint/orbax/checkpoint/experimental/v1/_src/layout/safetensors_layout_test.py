@@ -27,7 +27,6 @@ from orbax.checkpoint.experimental.v1._src.path import types
 from orbax.checkpoint.experimental.v1._src.saving import saving
 import safetensors.numpy
 
-STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 SafetensorsLayout = safetensors_layout.SafetensorsLayout
 np_save_file = safetensors.numpy.save_file
 InvalidLayoutError = checkpoint_layout.InvalidLayoutError
@@ -133,30 +132,9 @@ class SafetensorsLayoutTest(
         awaitable_fn = await layout.load(self.safetensors_path)
         _ = await awaitable_fn
 
-  async def test_checkpointables_metadata(self):
+  async def test_metadata(self):
     layout = SafetensorsLayout()
-    metadata = await layout.checkpointables_metadata(self.safetensors_path)
-    self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
-    self.assertEqual(
-        metadata.metadata,
-        {
-            STATE_CHECKPOINTABLE_KEY: {
-                'b': jax.ShapeDtypeStruct(shape=(3,), dtype=np.float32),
-                'a': jax.ShapeDtypeStruct(shape=(9,), dtype=np.int32),
-            }
-        },
-    )
-    self.assertEqual(metadata.custom_metadata, self.custom_metadata)
-    self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
-    self.assertGreater(metadata.commit_timestamp_nsecs, 0)
-
-  @parameterized.named_parameters(
-      ('state', STATE_CHECKPOINTABLE_KEY),
-      ('none', None),
-  )
-  async def test_metadata(self, checkpointable_name):
-    layout = SafetensorsLayout()
-    metadata = await layout.metadata(self.safetensors_path, checkpointable_name)
+    metadata = await layout.metadata(self.safetensors_path, None)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
         metadata.metadata,
@@ -168,6 +146,24 @@ class SafetensorsLayoutTest(
     self.assertEqual(metadata.custom_metadata, self.custom_metadata)
     self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
     self.assertGreater(metadata.commit_timestamp_nsecs, 0)
+
+  async def test_checkpointables_metadata_raises(self):
+    layout = SafetensorsLayout()
+    with self.assertRaisesRegex(
+        NotImplementedError,
+        'SafetensorsLayout does not support `.checkpointables_metadata`. Use'
+        ' `.metadata` instead.',
+    ):
+      await layout.checkpointables_metadata(self.safetensors_path)
+
+  async def test_load_checkpointables_raises(self):
+    layout = SafetensorsLayout()
+    with self.assertRaisesRegex(
+        NotImplementedError,
+        'SafetensorsLayout does not support `.load_checkpointables`. Use'
+        ' `.load` instead.',
+    ):
+      await layout.load_checkpointables(self.safetensors_path)
 
   async def test_save_raises_not_implemented(self):
     layout = SafetensorsLayout()
@@ -223,41 +219,37 @@ class SafetensorsLayoutDirectoryTest(
 
   async def test_checkpointables_metadata_directory(self):
     layout = SafetensorsLayout()
-    metadata = await layout.checkpointables_metadata(self.checkpoint_dir)
-    pytree_meta = metadata.metadata[STATE_CHECKPOINTABLE_KEY]
-    self.assertIn('a', pytree_meta)
-    self.assertIn('b', pytree_meta)
-    self.assertIn('c', pytree_meta)
-    self.assertIn('d', pytree_meta)
-    self.assertEqual(pytree_meta['a'].shape, (2,))
-    self.assertEqual(pytree_meta['a'].dtype, np.int32)
-    self.assertEqual(pytree_meta['b'].shape, (2,))
-    self.assertEqual(pytree_meta['b'].dtype, np.float32)
-    self.assertEqual(pytree_meta['c'].shape, (2,))
-    self.assertEqual(pytree_meta['c'].dtype, np.int32)
-    self.assertEqual(pytree_meta['d'].shape, (2,))
-    self.assertEqual(pytree_meta['d'].dtype, np.float32)
+    metadata = await layout.metadata(self.checkpoint_dir, None)
+    state_meta = metadata.metadata
+    self.assertIn('a', state_meta)
+    self.assertIn('b', state_meta)
+    self.assertIn('c', state_meta)
+    self.assertIn('d', state_meta)
+    self.assertEqual(state_meta['a'].shape, (2,))
+    self.assertEqual(state_meta['a'].dtype, np.int32)
+    self.assertEqual(state_meta['b'].shape, (2,))
+    self.assertEqual(state_meta['b'].dtype, np.float32)
+    self.assertEqual(state_meta['c'].shape, (2,))
+    self.assertEqual(state_meta['c'].dtype, np.int32)
+    self.assertEqual(state_meta['d'].shape, (2,))
+    self.assertEqual(state_meta['d'].dtype, np.float32)
 
-  @parameterized.named_parameters(
-      ('state', STATE_CHECKPOINTABLE_KEY),
-      ('none', None),
-  )
-  async def test_metadata_directory(self, checkpointable_name):
+  async def test_metadata_directory(self):
     layout = SafetensorsLayout()
-    metadata = await layout.metadata(self.checkpoint_dir, checkpointable_name)
-    pytree_meta = metadata.metadata
-    self.assertIn('a', pytree_meta)
-    self.assertIn('b', pytree_meta)
-    self.assertIn('c', pytree_meta)
-    self.assertIn('d', pytree_meta)
-    self.assertEqual(pytree_meta['a'].shape, (2,))
-    self.assertEqual(pytree_meta['a'].dtype, np.int32)
-    self.assertEqual(pytree_meta['b'].shape, (2,))
-    self.assertEqual(pytree_meta['b'].dtype, np.float32)
-    self.assertEqual(pytree_meta['c'].shape, (2,))
-    self.assertEqual(pytree_meta['c'].dtype, np.int32)
-    self.assertEqual(pytree_meta['d'].shape, (2,))
-    self.assertEqual(pytree_meta['d'].dtype, np.float32)
+    metadata = await layout.metadata(self.checkpoint_dir, None)
+    state_meta = metadata.metadata
+    self.assertIn('a', state_meta)
+    self.assertIn('b', state_meta)
+    self.assertIn('c', state_meta)
+    self.assertIn('d', state_meta)
+    self.assertEqual(state_meta['a'].shape, (2,))
+    self.assertEqual(state_meta['a'].dtype, np.int32)
+    self.assertEqual(state_meta['b'].shape, (2,))
+    self.assertEqual(state_meta['b'].dtype, np.float32)
+    self.assertEqual(state_meta['c'].shape, (2,))
+    self.assertEqual(state_meta['c'].dtype, np.int32)
+    self.assertEqual(state_meta['d'].shape, (2,))
+    self.assertEqual(state_meta['d'].dtype, np.float32)
 
   async def test_load_directory_abstract_tree_all_keys(self):
     layout = SafetensorsLayout()

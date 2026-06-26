@@ -170,13 +170,13 @@ class CheckpointLayoutResolver:
         except InvalidLayoutError:
           continue
 
-      if isinstance(layout, orbax_v0_layout.OrbaxV0Layout):
+      if not isinstance(layout, orbax_layout.OrbaxLayout):
         try:
           await layout.validate(path, None)
           logging.info(
               "AUTO resolution mode successfully identified a pytree at path"
-              " '%s'. Attempting to load as a flat layout V0 Orbax checkpoint."
-              " with checkpointable_name=None.",
+              " '%s'. Attempting to load as a flat layout checkpoint with"
+              " checkpointable_name=None.",
               path,
           )
           return cls(path, layout_enum, layout, None)

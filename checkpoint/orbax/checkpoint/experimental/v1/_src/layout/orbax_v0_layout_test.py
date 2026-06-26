@@ -142,7 +142,7 @@ class OrbaxV0LayoutTest(
 
   async def test_metadata_none_name(self):
     layout = orbax_v0_layout.OrbaxV0Layout()
-    with self.assertRaises(FileNotFoundError):
+    with self.assertRaisesRegex(InvalidLayoutError, 'composite checkpoint'):
       await layout.metadata(self.orbax_path / '0', None)
 
   async def test_metadata_none_name_direct_path(self):
@@ -264,6 +264,14 @@ class V0ValidationTest(
         )
     )
     test_utils.assert_tree_equal(self, self.pytree, loaded)
+
+  async def test_load_composite_checkpoint_name_none_raises(self):
+    # Composite checkpoints (item_handlers is a dict) must not be loaded via
+    # load(..., checkpointable_name=None). Callers must use load_checkpointables
+    # or specify the checkpointable name explicitly.
+    layout = orbax_v0_layout.OrbaxV0Layout()
+    with self.assertRaisesRegex(InvalidLayoutError, 'composite checkpoint'):
+      await layout.load(self.directory, None)
 
   async def test_v0_pytree_no_checkpoint_metadata(self):
     await async_path.unlink(

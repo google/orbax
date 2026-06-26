@@ -123,16 +123,21 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
       handler_registered: bool,
   ) -> Tuple[Type[Exception] | None, str | None]:
     """Encapsulates the complex boolean logic to determine load behavior."""
-    # Direct checkpoints cannot be loaded with load_checkpointables.
+    # Direct (flat) checkpoints have no named checkpointables, so the composite
+    # load_checkpointables API rejects them when they are recognizable as flat:
+    # either checkpoint metadata is present (item_handlers is a str) or a
+    # top-level pytree metadata file is present.
     if version == 'v0' and is_direct_checkpoint:
-      # Fails attempt to load explicit checkpointables.
+      if metadata_present or has_pytree_metadata:
+        return InvalidLayoutError, r'no named checkpointables'
+      # Not recognizable as flat (no checkpoint metadata, no pytree metadata):
+      # interpreted as composite, and loading its contents as checkpointables
+      # fails.
       if checkpointable_names_provided:
         return KeyError, (
             r'Requested checkpointables: .* for loading were not found in the'
             r' checkpoint'
         )
-      # In attempt to load everything, failure to load pytree contents as
-      # checkpointables themselves.
       return KeyError, (
           r'Failed to load checkpointable: .* due to incompatible handler: .*'
       )

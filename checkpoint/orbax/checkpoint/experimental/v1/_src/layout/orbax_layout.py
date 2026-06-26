@@ -179,7 +179,7 @@ def _none_checkpointable_name_not_supported_error(
       f"Attempting to load V1 checkpoint at {path} with"
       " `checkpointable_name=None`. This is only supported for legacy V0"
       " checkpoints. Please specify the name of the checkpointable to load."
-      " Otherwise, omit `checkpointable_name` to load default 'pytree'"
+      " Otherwise, omit `checkpointable_name` to load default 'state'"
       " checkpointable."
   )
 
@@ -207,7 +207,7 @@ class OrbaxLayout(CheckpointLayout):
     """Returns candidate checkpointable names to use for loading.
 
     Checks all subdirectories and returns their names in an order that
-    prioritizes the 'pytree' checkpointable name if present, and sorts the rest
+    prioritizes the 'state' checkpointable name if present, and sorts the rest
     alphabetically.
 
     Args:
@@ -223,7 +223,7 @@ class OrbaxLayout(CheckpointLayout):
         if n not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
     ]
     if STATE_CHECKPOINTABLE_KEY in checkpointable_names:
-      # Prioritize 'pytree' checkpointable name if present.
+      # Prioritize 'state' checkpointable name if present.
       other_names = sorted(
           [n for n in checkpointable_names if n != STATE_CHECKPOINTABLE_KEY]
       )
@@ -476,21 +476,6 @@ class OrbaxLayout(CheckpointLayout):
 
     # Read checkpoint metadata and resolve handlers for loading.
     checkpoint_metadata = await read_checkpoint_metadata(path)
-    # TODO(b/484400394): Find a better way to inform the user that they need
-    # to use load(..., checkpointable_name=None) when item_handlers is
-    # a str. An idea is to create a seperate validate_checkpointables method
-    # and we can read in checkpoint metadata at validation time for both
-    # validate_pytree and validate_checkpointables operations and warn the user
-    # know if they are trying to load a composite checkpoint by calling
-    # load(checkpointable_name=None) or trying to load a composite
-    # checkpoint as a pytree checkpoint respectively.
-    if isinstance(checkpoint_metadata.item_handlers, str):
-      logging.warning(
-          "Checkpoint looks like a legacy V0 checkpoint. This is only"
-          " supported for legacy V0 checkpoints. If you intended to load a"
-          " pytree checkpoint from the given path, then please consider using"
-          " `loading.load(..., checkpointable_name=None)` instead."
-      )
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,
         abstract_checkpointables,

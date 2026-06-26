@@ -74,10 +74,13 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
       is_pytree: bool,
   ) -> Tuple[Type[Exception] | None, str | None]:
     """Determines failure cases. All other cases default to Success."""
-    # If we indicate that this is a top level pytree checkpoint, but we do not
-    # have pytree metadata, then our metadata resolution fails.
-    if is_direct_checkpoint and metadata_present and not is_pytree:
-      return FileNotFoundError, r'Metadata file .* does not exist at .*'
+    # A flat (direct) checkpoint has no named checkpointables, so the composite
+    # `checkpointables_metadata` API rejects it. It is recognized as flat when
+    # it has checkpoint metadata (item_handlers is a str) or a top-level pytree
+    # metadata file -- i.e. when `metadata_present` or `is_pytree`. The direct
+    # remaining case (no metadata, no pytree) is interpreted as composite.
+    if is_direct_checkpoint and (metadata_present or is_pytree):
+      return InvalidLayoutError, r'no named checkpointables'
 
     # V1 strictly requires that a checkpoint has checkpoint metadata.
     if not is_direct_checkpoint and version == 'v1' and not metadata_present:
@@ -137,12 +140,6 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
         if not is_pytree:
           subdirectories = [x for x in path.iterdir() if x.is_dir()]
           expected = {subdir.name: None for subdir in subdirectories}
-        # If we find a direct checkpoint, we expect to load the top level
-        # pytree metadata, this is due to both pytree_metadata and
-        # checkpointables_metadata functions relying on the same
-        # metadata resolution functionality.
-        elif is_direct_checkpoint:
-          expected = self.expected_state_metadata
         else:
           expected = self.expected_checkpointables_metadata
 
