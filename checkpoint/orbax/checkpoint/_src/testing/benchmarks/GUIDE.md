@@ -267,7 +267,7 @@ The canonical generator: saves the pytree then restores it, measuring
 > Other generators in this directory (`checkpoint_manager_benchmark`,
 > `array_handler_benchmark`, `pytree_checkpoint_benchmark`,
 > `emergency_checkpoint_manager_benchmark`, `single_replica_benchmark`,
-> `lustre_benchmark`, `pytorch_checkpoint_benchmark`, …) target specific
+> `pytorch_checkpoint_benchmark`, …) target specific
 > subsystems and follow the same pattern.
 
 ---
