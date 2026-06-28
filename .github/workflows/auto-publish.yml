@@ -17,7 +17,7 @@ jobs:
 
     steps:
     # 1. Publish the sub-packages first
-    - uses: etils-actions/pypi-auto-publish@v1
+    - uses: etils-actions/pypi-auto-publish@e3c4b4afc3a5b12a44734da938741995538e8223 # v1
       with:
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
         gh-token: ${{ secrets.GH_PUBLISH_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
 
     steps:
     # 1. Publish the sub-packages first
-    - uses: etils-actions/pypi-auto-publish@v1
+    - uses: etils-actions/pypi-auto-publish@e3c4b4afc3a5b12a44734da938741995538e8223 # v1
       with:
         # NOTE: Do not use gh-token here, as it would conflict with orbax-checkpoint.
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
