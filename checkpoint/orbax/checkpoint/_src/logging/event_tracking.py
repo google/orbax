@@ -125,7 +125,6 @@ class OperationRecorder:
     """Records the completion of the blocking part of an operation."""
     match self._operation_type:
       case OperationType.SAVE:
-        record_write_event(self._path)
         if multihost.is_primary_host(self._primary_host):
           if self._async_origin:
             # Keep both /jax/checkpoint/write/... and /jax/orbax/write/...
