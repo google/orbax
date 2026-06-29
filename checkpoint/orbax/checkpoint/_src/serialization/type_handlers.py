@@ -23,6 +23,7 @@ from typing import Any, Dict, Optional, Sequence, TypeAlias, Union
 from absl import logging
 import jax
 import numpy as np
+from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.multihost import multihost
@@ -144,7 +145,12 @@ class NumpyHandler(types.TypeHandler):
       if multihost.process_index() == 0:
         ts_context = info.ts_context
         write_coros.append(self._open_and_write(value, tspec, ts_context))
-    await asyncio.gather(*write_coros)
+    gather_future = asyncio.gather(*write_coros)
+    await asyncio_utils.cancellable(
+        gather_future,
+        message='[process=%s] Numpy handler gather was cancelled.',
+        process_index=multihost.process_index(),
+    )
 
   async def serialize(
       self,
@@ -323,8 +329,20 @@ class StringHandler(types.TypeHandler):
             context=self._ts_context,
         )
         write_coros.append(t.with_transaction(txn).write(value))  # pytype: disable=attribute-error
-    await asyncio.gather(*write_coros)
-    await txn.commit_async()
+
+    gather_future = asyncio.gather(*write_coros)
+    await asyncio_utils.cancellable(
+        gather_future,
+        message='[process=%s] String handler gather was cancelled.',
+        process_index=multihost.process_index(),
+    )
+
+    commit_future = txn.commit_async()
+    await asyncio_utils.cancellable(
+        commit_future,
+        message='[process=%s] String handler commit was cancelled.',
+        process_index=multihost.process_index(),
+    )
 
   async def serialize(
       self,

@@ -197,7 +197,8 @@ async def _async_serialize_shardings(
             serialized_sharding
         )
 
-  await sharding_metadata_txn.commit_async()
+  commit_future = sharding_metadata_txn.commit_async()
+  await asyncio_utils.cancellable(commit_future)
 
 
 def _get_replica_slices(
@@ -660,7 +661,7 @@ def _serialize_arrays(
     )
   else:
 
-    def _serialize_batch(
+    async def _serialize_batch(
         batch_infos: Sequence[types.ParamInfo],
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
@@ -723,7 +724,7 @@ def _serialize_arrays(
         await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
-        _serialize_batch(infos, args, arrays)
+        await _serialize_batch(infos, args, arrays)
       if deprioritized:
         assert device_host_max_bytes is not None
         for (
@@ -736,7 +737,7 @@ def _serialize_arrays(
             replica_id=replica_id,
             dispatcher=dispatcher,
         ):
-          _serialize_batch(b_infos, b_args, b_arrays)
+          await _serialize_batch(b_infos, b_args, b_arrays)
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(),
@@ -829,9 +830,32 @@ async def _async_serialize_replica_slices(
         )
     )
 
-  await asyncio.gather(*write_coros)
+  gather_future = asyncio.gather(*write_coros)
+  try:
+    await asyncio_utils.cancellable(
+        gather_future,
+        message='[process=%s] Array handler gather was cancelled.',
+        process_index=multihost.process_index(),
+    )
+  except asyncio.CancelledError:
+    if ocdbt_transaction is not None:
+      logging.info(
+          '[process=%s] Aborting OCDBT transaction', multihost.process_index()
+      )
+      ocdbt_transaction.abort()
+    raise
+
   if ocdbt_transaction is not None:
-    await ocdbt_transaction.commit_async()
+    commit_future = ocdbt_transaction.commit_async()
+    try:
+      await asyncio_utils.cancellable(
+          commit_future,
+          message='[process=%s] OCDBT transaction commit was cancelled.',
+          process_index=multihost.process_index(),
+      )
+    except asyncio.CancelledError:
+      ocdbt_transaction.abort()
+      raise
 
 
 def _wrap_random_key_data(
@@ -1441,10 +1465,18 @@ class ArrayHandler(types.TypeHandler):
     if self._enable_write_sharding_file:
       future_list.append(
           future.CommitFutureAwaitingContractedSignals(
-              _async_serialize_shardings(
-                  shardings=[arr.sharding for arr in arrays],
-                  infos=infos,
-                  primary_host=self._primary_host,
+              asyncio_utils.cancellable(
+                  _async_serialize_shardings(
+                      shardings=[arr.sharding for arr in arrays],
+                      infos=infos,
+                      primary_host=self._primary_host,
+                  ),
+                  message=(
+                      '[process=%s] Sharding metadata commit was safely'
+                      ' cancelled.'
+                  ),
+                  process_index=multihost.process_index(),
+                  reraise=False,
               ),
               name='serialize_shardings',
           )
