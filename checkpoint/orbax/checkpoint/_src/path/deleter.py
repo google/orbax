@@ -34,6 +34,7 @@ from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import utils as path_utils
 
+
 urlparse = parse.urlparse
 PurePosixPath = pathlib.PurePosixPath
 
@@ -403,6 +404,7 @@ class ThreadedCheckpointDeleter:
         num_threads=num_threads,
     )
     self._delete_queue = queue.Queue()
+    self._exception = None
     # Turn on daemon=True so the thread won't block the main thread and die
     # when the program exits.
     self._delete_thread = threading.Thread(
@@ -417,10 +419,14 @@ class ThreadedCheckpointDeleter:
   def _delete_thread_run(self) -> None:
     logging.info('Delete thread has started.')
     while True:
-      step = self._delete_queue.get(block=True)
-      if step < 0:
+      try:
+        step = self._delete_queue.get(block=True)
+        if step < 0:
+          break
+        self._standard_deleter.delete(step)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        self._exception = e
         break
-      self._standard_deleter.delete(step)
     logging.info('Delete thread exited.')
 
   def delete(self, step: int) -> None:
@@ -436,6 +442,9 @@ class ThreadedCheckpointDeleter:
     if self._delete_thread and self._delete_thread.is_alive():
       self._delete_queue.put(-1)
       self._delete_thread.join()
+
+    if self._exception:
+      raise self._exception
 
     self._standard_deleter.close()
 
