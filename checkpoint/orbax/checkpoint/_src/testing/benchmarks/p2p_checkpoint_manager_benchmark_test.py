@@ -317,12 +317,12 @@ class P2pCheckpointManagerBenchmarkTest(parameterized.TestCase):
 
 class HelperFunctionsTest(parameterized.TestCase):
 
-  @mock.patch.object(p2p_checkpoint_manager, 'CheckpointManager', autospec=True)
   @mock.patch.object(p2p_options, 'CheckpointManagerOptions', autospec=True)
+  @mock.patch.object(p2p_checkpoint_manager, 'CheckpointManager', autospec=True)
   def test_create_checkpoint_manager(
       self,
-      mock_checkpoint_manager_options_cls,
       mock_checkpoint_manager_cls,
+      mock_checkpoint_manager_options_cls,
   ):
     local_dir = epath.Path('/tmp/local')
     persistent_dir = epath.Path('/tmp/persistent')
