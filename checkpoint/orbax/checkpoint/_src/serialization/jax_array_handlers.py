@@ -641,6 +641,7 @@ def _serialize_arrays(
 
   deprioritized = prioritized_async + deprioritized
 
+
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
         prioritized,
