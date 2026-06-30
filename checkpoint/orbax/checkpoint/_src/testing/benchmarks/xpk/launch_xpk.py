@@ -708,7 +708,7 @@ def construct_workload_command(
           ),
           (
               'export JAX_COORDINATOR_ADDRESS=$(if [ "$JAX_PROCESS_ID" = "0" ];'
-              f' then echo "localhost"; else echo "{fqdn_address}"; fi):1234'
+              f' then echo "127.0.0.1"; else echo "{fqdn_address}"; fi):1234'
           ),
           'export XLA_FLAGS="--xla_cpu_collective_timeout_seconds=600"',
           'echo JOB_INDEX = $JOB_INDEX',
