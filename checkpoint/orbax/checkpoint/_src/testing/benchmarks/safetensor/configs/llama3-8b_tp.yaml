@@ -1,0 +1,19 @@
+# Captures a baseline for Llama-3-8B under inner-dim TP-8 (gated alt
+# to `mistral7b_tp.yaml`).
+#
+# Gated; requires HF_TOKEN with Meta-terms accepted. See
+# `llama3-8b.yaml` for the FSDP variant.
+
+suite_name: "safetensor_load_llama3-8b_tp"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 8}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-8b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-8b_tp8.json"
+      enable_trace: true

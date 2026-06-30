@@ -1,0 +1,38 @@
+# HuggingFace safetensors load benchmark.
+#
+# Drives the SafetensorLoadBenchmark against a real HuggingFace model
+# (GPT-2), pre-staged to GCS once with `prepare.py`:
+#
+#   python -m orbax.checkpoint._src.testing.benchmarks.safetensor.prepare \
+#     --repo gpt2 --gcs gs://orbax-benchmarks/fixtures/gpt2/
+#
+# Capture phase (baseline revision): add
+# `baseline_capture_path: gs://orbax-benchmarks/baselines/` (top level) to this
+# config, then run it:
+#
+#   python -m orbax.checkpoint._src.testing.benchmarks.run_benchmarks \
+#     --config_file=safetensor/configs/hf.yaml \
+#     --output_directory=gs://orbax-benchmarks/runs/baseline/
+#
+# Compare phase (candidate revision): set
+# `baseline_path: gs://orbax-benchmarks/baselines/<sha>.json` instead, then run
+# again.
+#
+# Defaults to GPT-2 (small, fast download, public) — swap for a larger
+# model when you want a real production-shape A/B.
+
+suite_name: "safetensor_load_hf_gpt2"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["data"]
+  ici_parallelism: {"data": 8}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/gpt2/"
+      # No sharding_config_path — fully replicated across local devices.
+      # For larger models that need real sharding, point this at a JSON
+      # describing the target Mesh + PartitionSpec per tensor.
+      enable_trace: true

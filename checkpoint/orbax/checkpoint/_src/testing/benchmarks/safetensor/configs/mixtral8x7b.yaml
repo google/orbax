@@ -1,0 +1,31 @@
+# Safetensors load benchmark for Mixtral 8x7B v0.1.
+#
+# Tier 3 of the suite: 47B-param MoE shipped as 19 sharded safetensors
+# files totalling ~93 GB in bf16. The smallest fully-real workload in
+# the ladder where the per-file scheduler's cross-tensor coalescing
+# and the bounded-ratio partition policy earn their keep: 19 files
+# times hundreds of expert tensors per layer creates many disjoint
+# byte runs per host, and the partitioner is what keeps the per-host
+# read count from blowing up to thousands of GETs.
+#
+# Mixtral 8x7B v0.1 is openly licensed; no HF token or gated-access
+# form. Repo URL: https://huggingface.co/mistralai/Mixtral-8x7B-v0.1
+#
+# Hardware: requires at least 16 chips (e.g. v5p-16 / v5e-16). bf16 +
+# fsdp=16 -> ~5.8 GB per chip for params; fits comfortably with
+# headroom for activations / buffers.
+
+suite_name: "safetensor_load_mixtral8x7b"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 16}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/mixtral8x7b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/mixtral8x7b_fsdp16.json"
+      enable_trace: true
+      # Capture-only.

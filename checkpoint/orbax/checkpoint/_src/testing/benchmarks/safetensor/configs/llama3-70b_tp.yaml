@@ -1,0 +1,21 @@
+# Captures a baseline for Llama-3-70B under inner-dim TP-128 (gated;
+# see `llama3-8b_tp.yaml` for HF token setup).
+#
+# Production-shape tier-3 case: 30 files times the row-parallel TP
+# pattern. The new loader's coalesce policy is most stressed when
+# many thousands of strided byte runs need to be partitioned across
+# all 128 hosts.
+
+suite_name: "safetensor_load_llama3-70b_tp"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 128}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-70b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-70b_tp128.json"
+      enable_trace: true

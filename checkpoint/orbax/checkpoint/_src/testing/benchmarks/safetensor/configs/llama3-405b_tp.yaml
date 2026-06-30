@@ -1,0 +1,21 @@
+# Captures a baseline for Llama-3-405B under inner-dim TP-256.
+#
+# Tier-4 stress case under inner-dim sharding. ~100 files * ~1000
+# tensors-per-file * 256-way TP = the largest cross-tensor coalesce
+# decision space in the suite. See `llama3-8b_tp.yaml` for HF token +
+# gated-access setup; pre-stage the model + TP-256 spec with `prepare.py`
+# (--strategy tp_inner --axis-size 256).
+
+suite_name: "safetensor_load_llama3-405b_tp"
+num_repeats: 2
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 256}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-405b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-405b_tp256.json"
+      enable_trace: true

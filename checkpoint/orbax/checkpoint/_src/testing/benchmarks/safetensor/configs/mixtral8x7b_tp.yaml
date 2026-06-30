@@ -1,0 +1,24 @@
+# Captures a baseline for Mixtral 8x7B under inner-dim TP-16.
+#
+# Pair to `mixtral8x7b.yaml` (FSDP-16). The MoE shape makes
+# this particularly interesting: 19 files times 8 experts per layer
+# times 3 weight matrices per expert times 32 layers => roughly 15K
+# tensors per file the loader must enumerate, with each shard splitting
+# the inner dim of every weight. The bounded-over-read coalesce policy
+# on the new loader has the most work to do here.
+#
+# See `mistral7b_tp.yaml` for the full rationale.
+
+suite_name: "safetensor_load_mixtral8x7b_tp"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 16}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/mixtral8x7b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/mixtral8x7b_tp16.json"
+      enable_trace: true

@@ -1,0 +1,30 @@
+# Safetensors load benchmark for Llama 3 405B.
+#
+# Tier 4 -- the stress-test scale. ~810 GB bf16 across ~100 safetensors
+# files, 126 transformer layers. fsdp=256 mesh (v5p-256 / v5e-256+).
+# Exercises the loader's behaviour when:
+#   * file count dominates RPC count even with cross-tensor coalescing
+#     (100 files * 9 weight matrices per layer * 126 layers = a lot
+#     of byte runs to bin-pack);
+#   * per-host shard sizes are tiny relative to file sizes (4 GB
+#     shards out of 100+ GB files);
+#   * concurrent reads cap (`_MAX_CONCURRENT_READS`) is the active
+#     bottleneck, not bandwidth.
+#
+# Llama 3 405B is gated; see safetensor_load_llama3-8b.yaml.
+# GCS pre-staging is *strongly* recommended -- 810 GB download per VM
+# is hours of wall clock per A/B run.
+
+suite_name: "safetensor_load_llama3-405b"
+num_repeats: 2
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 256}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/llama3-405b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/llama3-405b_fsdp256.json"
+      enable_trace: true

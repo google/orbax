@@ -1,0 +1,29 @@
+# Captures a baseline for DeepSeek-V3 under inner-dim TP-256.
+#
+# Tier-4 open alternative under inner-dim sharding. `prepare.py` reads
+# tensor names + shapes from the actual safetensors headers, so it
+# handles DeepSeek-V3's non-Llama naming. Stage the model and its
+# inner-dim TP-256 spec to GCS once:
+#
+#   python -m orbax.checkpoint._src.testing.benchmarks.safetensor.prepare \\
+#       --repo deepseek-ai/DeepSeek-V3 \\
+#       --gcs gs://orbax-benchmarks/fixtures/deepseek-v3/ \\
+#       --axis-size 256 --strategy tp_inner \\
+#       --sharding-out gs://orbax-benchmarks/sharding/deepseek-v3_tp256.json
+#
+# (Shards any tensor whose last dim is divisible by 256; replicates the
+# rest.) Then this YAML runs as-is.
+
+suite_name: "safetensor_load_deepseek-v3_tp"
+num_repeats: 2
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 256}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/deepseek-v3/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/deepseek-v3_tp256.json"
+      enable_trace: true

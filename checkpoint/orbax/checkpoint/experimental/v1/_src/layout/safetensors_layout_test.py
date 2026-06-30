@@ -372,5 +372,18 @@ class GetTensorBundlesTest(parameterized.TestCase):
     self.assertEqual(bundles, [['tensor1'], ['tensor2', 'tensor3']])
 
 
+class RecordReadStatsTest(absltest.TestCase):
+  """`_record_read_stats` reports per-host bytes/reads via jax.monitoring."""
+
+  def test_emits_bytes_and_reads_only(self):
+    with mock.patch.object(jax.monitoring, 'record_scalar') as rec:
+      safetensors_layout._record_read_stats(bytes_read=2048, num_reads=3)
+    emitted = {c.args[0]: c.args[1] for c in rec.call_args_list}
+    self.assertEqual(emitted['/jax/orbax/read/safetensors/bytes_read'], 2048.0)
+    self.assertEqual(emitted['/jax/orbax/read/safetensors/num_reads'], 3.0)
+    # storage_reads would equal num_reads for this loader, so it is not emitted.
+    self.assertNotIn('/jax/orbax/read/safetensors/storage_reads', emitted)
+
+
 if __name__ == '__main__':
   absltest.main()

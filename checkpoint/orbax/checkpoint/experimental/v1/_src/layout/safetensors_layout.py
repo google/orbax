@@ -15,10 +15,11 @@
 """Defines `SafetensorsLayout`, a class to handle Safetensors checkpoint formats."""
 
 import asyncio
+from collections.abc import Awaitable
 import dataclasses
 import json
 import time
-from typing import Any, Awaitable, cast
+from typing import Any, cast
 
 from absl import logging
 import jax
@@ -394,6 +395,26 @@ def _build_transient_array(
     raise e
 
 
+def _record_read_stats(bytes_read: int, num_reads: int) -> None:
+  """Reports this host's safetensors read accounting via `jax.monitoring`.
+
+  Emitted once per load so a benchmark can compare this loader against the
+  sharding-driven one on the same per-host bytes/reads channel. It publishes
+  only `bytes_read` and `num_reads`; this loader reads each bundle in a single
+  contiguous read with no chunking, so `storage_reads` would equal `num_reads`.
+
+  Args:
+    bytes_read: Total data bytes this host read from storage.
+    num_reads: Number of read operations this host issued.
+  """
+  jax.monitoring.record_scalar(
+      "/jax/orbax/read/safetensors/bytes_read", float(bytes_read)
+  )
+  jax.monitoring.record_scalar(
+      "/jax/orbax/read/safetensors/num_reads", float(num_reads)
+  )
+
+
 class _SingleFileLoader:
   """Single-file loader for Safetensors checkpoints."""
 
@@ -440,8 +461,8 @@ class _SingleFileLoader:
       bundle_start_offset = 0
     return bundle_bytes, bundle_start_offset
 
-  async def load_single_host(self) -> dict[str, np.ndarray]:
-    """Loads tensors from a safetensors file into host NumPy arrays."""
+  async def load_single_host(self) -> tuple[dict[str, np.ndarray], int]:
+    """Loads all tensors into host NumPy arrays; returns (tensors, bytes_read)."""
     header, data_start_offset = await self.read_header()
     tensors = {}
     async with async_path.open_file(self.path, mode="rb") as f:
@@ -457,7 +478,7 @@ class _SingleFileLoader:
       if not np.isfinite(np_array).all():
         raise ValueError(f"Non-finite values found in tensor {name}.")
       tensors[name] = np_array
-    return tensors
+    return tensors, len(data_bytes)
 
   async def load_multi_host(
       self, abstract_state: dict[str, Any]
@@ -482,7 +503,8 @@ class _SingleFileLoader:
     Returns:
       A tuple containing:
         - A dictionary mapping tensor names to restored jax.Arrays.
-        - A dictionary containing metrics (io_time, reshard_time).
+        - A dictionary of metrics (io_time, reshard_time, bytes_read,
+          num_reads) for this host.
 
     Raises:
       ValueError: If the number of devices is not uniform across hosts, or if a
@@ -563,7 +585,13 @@ class _SingleFileLoader:
         )
         reshard_time += time.time() - t0
 
-    return restored_pytree, {"io_time": io_time, "reshard_time": reshard_time}
+    return restored_pytree, {
+        "io_time": io_time,
+        "reshard_time": reshard_time,
+        # This host reads its bundle in one contiguous read (or none if empty).
+        "bytes_read": len(bundle_bytes),
+        "num_reads": 1 if bundle_bytes else 0,
+    }
 
 
 class _MultiFileLoader:
@@ -590,11 +618,17 @@ class _MultiFileLoader:
       load_ops.append(loader.load_single_host())
 
     restored_pytree = {}
-    for file_tensors in await asyncio.gather(*load_ops):
+    total_bytes_read = 0
+    num_reads = 0
+    for file_tensors, bytes_read in await asyncio.gather(*load_ops):
+      total_bytes_read += bytes_read
+      num_reads += 1  # one whole-file data read per file.
       for name, arr in file_tensors.items():
         if name in restored_pytree:
           raise ValueError(f"Duplicate tensor {name} found in multiple files.")
         restored_pytree[name] = arr
+
+    _record_read_stats(total_bytes_read, num_reads)
 
     logging.info(
         "[safetensors][single-host] Loaded tensors in %.0fs",
@@ -642,13 +676,19 @@ class _MultiFileLoader:
     restored_pytree = {}
     total_io_time = 0.0
     total_reshard_time = 0.0
+    total_bytes_read = 0
+    total_num_reads = 0
     for file_tensors, metrics in await asyncio.gather(*load_ops):
       total_io_time += metrics["io_time"]
       total_reshard_time += metrics["reshard_time"]
+      total_bytes_read += metrics["bytes_read"]
+      total_num_reads += metrics["num_reads"]
       for name, arr in file_tensors.items():
         if name in restored_pytree:
           raise ValueError(f"Duplicate tensor {name} found in multiple files.")
         restored_pytree[name] = arr
+
+    _record_read_stats(total_bytes_read, total_num_reads)
 
     # Validate that all requested tensors were found in at least one file.
     for k in abstract_state:

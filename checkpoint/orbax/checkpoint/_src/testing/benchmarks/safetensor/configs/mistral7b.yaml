@@ -1,0 +1,27 @@
+# Safetensors load benchmark for Mistral 7B v0.1.
+#
+# Tier 2 of the suite: real ~14 GB safetensors model, naturally sharded
+# into 2 files, leading-dim FSDP across 8 devices. First HF model in the
+# ladder where multi-file load + real per-host shard reads kick in.
+#
+# Mistral 7B v0.1 is openly licensed (no HF token required for read
+# access; no gated access form to accept). Repo URL:
+# https://huggingface.co/mistralai/Mistral-7B-v0.1
+#
+# Hardware: any device topology with 8 chips (v5p-8, v5e-8, v4-8, GPU-8).
+# bf16 weights at fsdp=8 -> ~1.75 GB per chip, comfortable on any v5p/v5e.
+
+suite_name: "safetensor_load_mistral7b"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["fsdp"]
+  ici_parallelism: {"fsdp": 8}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/mistral7b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/mistral7b_fsdp8.json"
+      enable_trace: true
+      # Capture-only.

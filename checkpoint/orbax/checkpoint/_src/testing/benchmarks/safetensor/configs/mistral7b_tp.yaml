@@ -1,0 +1,45 @@
+# Safetensors load benchmark for Mistral 7B
+# under inner-dim tensor parallelism (TP-8).
+#
+# Pair to `mistral7b.yaml` (FSDP-8). Same model, same mesh size,
+# but every 2D+ weight is split along its INNER dim instead of the
+# leading dim. In HF safetensors storage (`Linear` weights stored as
+# `(out, in)`), this is the row-parallel-TP equivalent and is the
+# load-bearing case for the new loader's bounded-over-read coalesce
+# policy:
+#
+#   * Each device's shard is NOT contiguous in the file blob -- it is
+#     a set of strided runs (one short run per leading-dim coordinate).
+#   * The new loader's per-file scheduler coalesces those runs up to a
+#     2x over-read ratio (configurable); beyond that, it splits into
+#     many smaller reads.
+#   * The old transient-array loader reads a contiguous 1/N slab per
+#     host and then JIT-reshards to the target inner-dim sharding via
+#     a per-tensor `jnp.sum(axis=0)` collective.
+#
+# So the diff between baseline (old loader) and candidate (new loader)
+# on this YAML answers: which strategy wins on inner-dim TP, and by
+# how much?
+#
+# Watch in the dashboard:
+#   * `6_io/file_reads_per_host_count` -- old: ~1 per file per host
+#     (the bundle read); new: many strided reads after the ratio cap
+#     splits.
+#   * `load_total_gbps` -- the headline; whichever pays less in
+#     overhead wins.
+#   * `load_6_tensorstore/...bytes_read` -- per-host bytes pulled;
+#     new loader's reads should be bounded at 2x ideal, not K x.
+
+suite_name: "safetensor_load_mistral7b_tp"
+num_repeats: 4
+
+mesh_config:
+  mesh_axes: ["tp"]
+  ici_parallelism: {"tp": 8}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.safetensor.load_benchmark.SafetensorLoadBenchmark"
+    options:
+      checkpoint_path: "gs://orbax-benchmarks/fixtures/mistral7b/"
+      sharding_config_path: "gs://orbax-benchmarks/sharding/mistral7b_tp8.json"
+      enable_trace: true
