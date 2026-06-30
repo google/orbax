@@ -192,8 +192,7 @@ jobs:
 
   multiprocess-checkpoint-benchmarks:
     name: "multiprocess-checkpoint-benchmarks (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-g2-16-l4-1gpu-x4
-    # runs-on: linux-x86-ct5lp-4tpu-x4
+    runs-on: linux-x86-ct5lp-4tpu-x4
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -222,6 +221,7 @@ jobs:
         fi
         pip install gcsfs
         pip install portpicker tensorboard
+        python -c "import jax; jax.distributed.initialize(); print('Available Devices:', jax.devices())"
     - name: Run Correctness Integration Tests
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
