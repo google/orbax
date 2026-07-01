@@ -138,14 +138,13 @@ class CheckpointableHandler(Protocol[_Checkpointable, _AbstractCheckpointable]):
   Crucially, once implemented, the handler must be registered with the
   global registry or a context-local registry so that `save_checkpointables`
   and `load_checkpointables` can automatically detect and use it for the
-  corresponding types. Use `orbax.checkpoint.v1.handlers.register_handler`
-  for global registration, or provide handlers via
-  `orbax.checkpoint.v1.context.CheckpointablesOptions` for context-local
-  registration.
+  corresponding types. Use :py:func:`.register_handler` for global
+  registration, or provide handlers via :py:class:`.CheckpointablesOptions`
+  for context-local registration.
 
-  First, take a look at
-  orbax/checkpoint/experimental/v1/_src/testing/handler_utils.py
-  for some toy implementations used for unit testing.
+  First, take a look at `handler_utils.py <
+  https://github.com/google/orbax/blob/main/checkpoint/orbax/checkpoint/experimental/v1/_src/testing/handler_utils.py
+  >`_ for some toy implementations used for unit testing.
 
   Here are some details on how to implement `is_handleable` and
   `is_abstract_handleable`.
