@@ -67,7 +67,7 @@ class ArrayMetadata(AbstractShardedArray):
   storage_metadata: value_metadata.StorageMetadata | None
 
   @property
-  def sharding(self) -> jax.sharding.Sharding | None:
+  def sharding(self) -> jax.sharding.Sharding | None:  # pyrefly: ignore[bad-override]
     """Returns the `jax.sharding.Sharding` from the `sharding_metadata` if possible.
 
     An exception is thrown if the hardware topology has changed and the sharding
@@ -105,7 +105,7 @@ def _create_v0_saving_paraminfo(
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
-      enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,
+      enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -120,7 +120,7 @@ def _create_v0_savearg(
   return type_handlers_v0.SaveArgs(
       dtype=jnp.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
+      shard_axes=storage_options.shard_axes,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -172,7 +172,7 @@ def _create_v0_restorearg(
   value = param.value
   if value is None or isinstance(value, type):
     return restore_arg_cls(restore_type=jax.Array)
-  elif protocol_utils.is_subclass_protocol(value, AbstractShardedArray):
+  elif protocol_utils.is_subclass_protocol(value, AbstractShardedArray):  # pyrefly: ignore[bad-argument-type]
     value = typing.cast(AbstractShardedArray, value)
     return restore_arg_cls(
         restore_type=jax.Array,
@@ -260,7 +260,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
         self._handler_impl.deserialize(paraminfos, restoreargs)
     )
 
-  async def metadata(
+  async def metadata(  # pyrefly: ignore[bad-override]
       self,
       params: Sequence[types.DeserializationParam[None | AbstractShardedArray]],
       deserialization_context: types.DeserializationContext,
@@ -276,7 +276,7 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
       Sequence of ArrayMetadata for each provided ArrayDeserializationParam.
     """
     paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
+        _create_v0_restore_paraminfo(p, self._context, deserialization_context)  # pyrefly: ignore[bad-argument-type]
         for p in params
     ]
 

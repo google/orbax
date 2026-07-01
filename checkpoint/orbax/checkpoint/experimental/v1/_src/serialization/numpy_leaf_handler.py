@@ -107,7 +107,7 @@ def _create_v0_savearg(
   return type_handlers_v0.SaveArgs(
       dtype=np.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
+      shard_axes=storage_options.shard_axes,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -215,7 +215,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     """
     # validate all parameters
     paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
+        _create_v0_restore_paraminfo(p, self._context, deserialization_context)  # pyrefly: ignore[bad-argument-type]
         for p in params
     ]
     restoreargs = [_create_v0_restorearg(p) for p in params]
@@ -240,7 +240,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
       Sequence of NumpyMetadata for each provided DeserializationParam.
     """
     paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
+        _create_v0_restore_paraminfo(p, self._context, deserialization_context)  # pyrefly: ignore[bad-argument-type]
         for p in params
     ]
 

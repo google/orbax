@@ -155,7 +155,7 @@ class DefaultCheckpointHandlerRegistry(CheckpointHandlerRegistry):
       ), handler in other_registry.get_all_entries().items():
         self.add(item, args_type, handler)
 
-  def add(
+  def add(  # pyrefly: ignore[bad-override]
       self,
       item: Optional[str],
       args: Union[Type[CheckpointArgs], CheckpointArgs],

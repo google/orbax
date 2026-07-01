@@ -71,7 +71,7 @@ class RegistryTest(RegistrationTestBase):
     self.assertEqual(local_registry.get('foo'), handler_utils.FooHandler)
     expected = [handler_utils.FooHandler, handler_utils.BarHandler]
     if include_global_registry:
-      expected.append(handler_utils.BazHandler)
+      expected.append(handler_utils.BazHandler)  # pyrefly: ignore[bad-argument-type]
     self.assertSameElements(
         expected,
         [handler for handler, _ in local_registry.get_all_entries()],

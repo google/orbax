@@ -56,7 +56,7 @@ class CheckpointInfo:
   def __str__(self) -> str:
     return f'Checkpoint[step={self.step} | time={self.time}]'
 
-  def __eq__(self, other: CheckpointInfo) -> bool:
+  def __eq__(self, other: CheckpointInfo) -> bool:  # pyrefly: ignore[bad-override]
     return self.step == other.step and self.time == other.time
 
   def __hash__(self) -> int:

@@ -119,8 +119,8 @@ class NestedKeyMetadataEntry:
       cls, json_dict: Dict[str, Union[str, int]]
   ) -> NestedKeyMetadataEntry:
     return NestedKeyMetadataEntry(
-        nested_key_name=json_dict[_KEY_NAME],
-        key_type=KeyType.from_json(json_dict[_KEY_TYPE]),
+        nested_key_name=json_dict[_KEY_NAME],  # pyrefly: ignore[bad-argument-type]
+        key_type=KeyType.from_json(json_dict[_KEY_TYPE]),  # pyrefly: ignore[bad-argument-type]
     )
 
 
@@ -393,7 +393,7 @@ class InternalTreeMetadata:
         and self.value_metadata_tree is not None
     ):
       json_object[_VALUE_METADATA_TREE] = (
-          tree_rich_types.value_metadata_tree_to_json_str(
+          tree_rich_types.value_metadata_tree_to_json_str(  # pyrefly: ignore[unsupported-operation]
               self.value_metadata_tree
           )
       )
@@ -1012,7 +1012,7 @@ class _TreeMetadataImpl(TreeMetadata):
     if issubclass(tree_type, dict) or tree_utils.issubclass_of_namedtuple(
         tree_type
     ):
-      tree = tree_type(**{
+      tree = tree_type(**{  # pyrefly: ignore[bad-unpacking]
           tree_utils.get_key_name(k): v for k, v in zip(tree_keys, flat_tree)
       })
     elif issubclass(tree_type, (list, tuple)):

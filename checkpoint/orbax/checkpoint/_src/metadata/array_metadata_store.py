@@ -194,11 +194,11 @@ class Store:
     await self._maybe_create_base_dir(file_path.parent)
     if await async_path.exists(file_path):
       _, all_array_metadatas = await self._get_array_metadatas(file_path)
-      all_array_metadatas.extend(array_metadatas)
+      all_array_metadatas.extend(array_metadatas)  # pyrefly: ignore[bad-argument-type]
     else:
       all_array_metadatas = array_metadatas
     await async_path.write_text(
-        file_path, self._serializer.serialize(all_array_metadatas)
+        file_path, self._serializer.serialize(all_array_metadatas)  # pyrefly: ignore[bad-argument-type]
     )
     logging.info(
         '[process=%s][thread=%s] Wrote %d array_metadata.ArrayMetadata to %s',

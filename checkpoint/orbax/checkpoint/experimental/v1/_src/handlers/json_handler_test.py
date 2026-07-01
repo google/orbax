@@ -48,7 +48,7 @@ class JsonHandlerTest(parameterized.TestCase):
     item = {'a': 1, 'b': {'c': 'test1', 'b': 'test2'}, 'd': 5.5}
     self._handler.save(
         directory=self.directory,
-        checkpointable=item,
+        checkpointable=item,  # pyrefly: ignore[bad-argument-type]
     )
     restored = self._handler.load(self.directory)
     self.assertEqual(item, restored)
@@ -62,7 +62,7 @@ class JsonHandlerTest(parameterized.TestCase):
     item = {'a': 1, 'b': 'test'}
     self._handler.save(
         directory=self.directory,
-        checkpointable=item,
+        checkpointable=item,  # pyrefly: ignore[bad-argument-type]
     )
     self.assertTrue((self.directory / 'data.json').exists())
     src = self.directory / 'data.json'

@@ -56,7 +56,7 @@ def _get_deserialization_params(pytree):
     ret.append(
         array_leaf_handler.ArrayDeserializationParam(
             keypath=keypath,
-            value=shapedtype,
+            value=shapedtype,  # pyrefly: ignore[bad-argument-type]
         )
     )
   return ret

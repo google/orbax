@@ -158,11 +158,11 @@ class StandardCheckpointHandlerTestBase(
     # create a custom layout
     arr_layout = arrays_sharding_lib.get_device_local_layout(arr)
     custom_layout = Format(  # pytype: disable=wrong-keyword-args
-        DLL(
+        DLL(  # pyrefly: ignore[bad-argument-type]
             major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
             tiling=arr_layout.tiling,  # pytype: disable=attribute-error
         ),
-        sharding=arr.sharding,
+        sharding=arr.sharding,  # pyrefly: ignore[unexpected-keyword]
     )
     arr_new_layout = jax.device_put(arr, custom_layout)
     self.assertNotEqual(arr_new_layout.format, arr.format)
@@ -410,7 +410,7 @@ class StandardCheckpointHandlerTestBase(
     custom_metadata = {'foo': 1}
     self.handler.save(
         self.directory,
-        args=self.save_args_cls(self.pytree, custom_metadata=custom_metadata),
+        args=self.save_args_cls(self.pytree, custom_metadata=custom_metadata),  # pyrefly: ignore[bad-argument-type]
     )
     metadata = self.handler.metadata(self.directory)
     self.assertEqual(metadata.custom_metadata, custom_metadata)
@@ -429,7 +429,7 @@ class StandardCheckpointHandlerTestBase(
     invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(  # pytype: disable=wrong-arg-types
         shape=np.array([2, 4]),
         axis_names=['x'],
-        partition_spec=(jax.sharding.PartitionSpec('x'),),
+        partition_spec=(jax.sharding.PartitionSpec('x'),),  # pyrefly: ignore[bad-argument-type]
         device_mesh=sharding_metadata.DeviceMetadataMesh.from_dict(
             {'mesh': {'id': 1000}}
         ),

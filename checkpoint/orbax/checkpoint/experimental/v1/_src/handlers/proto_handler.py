@@ -93,10 +93,10 @@ class ProtoHandler(
       primary_host: int | None = None
   ):
     if multihost.is_primary_host(primary_host):
-      directory = await directory.await_creation()
+      directory = await directory.await_creation()  # pyrefly: ignore[bad-assignment]
       path = directory / self._filename
       str_msg = text_format.MessageToString(checkpointable)
-      await async_path.write_text(path, str_msg)
+      await async_path.write_text(path, str_msg)  # pyrefly: ignore[bad-argument-type]
 
   async def save(
       self,

@@ -53,7 +53,7 @@ class ValueMetadataEntry:
     if self.write_shape is not None:
       # Convert to list because JSON does not support tuples.
       # Make sure to convert back to tuple in `from_json`.
-      json_dict[_WRITE_SHAPE] = list(self.write_shape)
+      json_dict[_WRITE_SHAPE] = list(self.write_shape)  # pyrefly: ignore[unsupported-operation]
     return json_dict
 
   @classmethod

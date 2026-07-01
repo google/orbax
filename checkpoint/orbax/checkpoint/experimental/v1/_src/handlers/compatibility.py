@@ -115,7 +115,7 @@ class CompatibilityCheckpointHandler(
     ...
 
   def __repr__(self):
-    return f'CompatibilityCheckpointHandler({handler_types.typestr(type(self._handler))})'
+    return f'CompatibilityCheckpointHandler({handler_types.typestr(type(self._handler))})'  # pyrefly: ignore[bad-argument-type]
 
 
 @dataclasses.dataclass
@@ -134,6 +134,6 @@ def get_compatibility_handler(
 
     @classmethod
     def typestr(cls) -> str:
-      return handler_types.typestr(type(handler))
+      return handler_types.typestr(type(handler))  # pyrefly: ignore[bad-argument-type]
 
   return _CompatibilityHandler(handler)

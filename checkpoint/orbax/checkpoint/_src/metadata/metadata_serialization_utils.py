@@ -43,7 +43,7 @@ def _validate_type(obj: Any, field_type: type[Any] | Sequence[type[Any]]):
 def validate_and_process_item_handlers(
     item_handlers: Any,
 ) -> (
-    CompositeCheckpointHandlerTypeStrs[str, Any]
+    CompositeCheckpointHandlerTypeStrs[str, Any]  # pyrefly: ignore[unsupported-operation]
     | CheckpointHandlerTypeStr
     | None
 ):

@@ -85,7 +85,7 @@ def _get_v0_save_args(
         if resolved_options.dtype is not None
         else None,
         chunk_byte_size=resolved_options.chunk_byte_size,
-        shard_axes=resolved_options.shard_axes,
+        shard_axes=resolved_options.shard_axes,  # pyrefly: ignore[bad-argument-type]
     )
 
   return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
@@ -337,7 +337,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
       start_time: float,
   ):
     timeout_secs = self._context.async_options.timeout_secs
-    directory = await directory.await_creation()
+    directory = await directory.await_creation()  # pyrefly: ignore[bad-assignment]
     active_processes = self._multiprocessing_options.active_processes or set(
         range(multihost.process_count())
     )
@@ -368,7 +368,7 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
           ),
       )
     # Finalize.
-    await self._finalize(directory)
+    await self._finalize(directory)  # pyrefly: ignore[bad-argument-type]
     # Global sync to ensure all hosts are aware that the finalize operation
     # has completed before returning to the user.
     barrier_name = f'save_and_finalize_{operation_id}_finalize_complete'

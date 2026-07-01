@@ -271,7 +271,7 @@ class RegistryTest(parameterized.TestCase):
     # Register the handlers
     reg = registry.BaseLeafHandlerRegistry()
     for leaf, abstract, handler in entries_to_register:
-      reg.add(leaf, abstract, handler)
+      reg.add(leaf, abstract, handler)  # pyrefly: ignore[bad-argument-type]
 
     # Run the assertions (which should pass regardless of registration order)
     # An abstract object that satisfies BOTH protocols. The specific protocol
@@ -351,7 +351,7 @@ class RegistryTest(parameterized.TestCase):
     # Adding Any as a leaf_type should trigger TypeError in issubclass
     reg.add(int, int, DummyIntHandlerInt)
     # This shouldn't crash
-    reg.add(Any, Any, DummyGenericHandler)
+    reg.add(Any, Any, DummyGenericHandler)  # pyrefly: ignore[bad-argument-type]
     # Verify scores are still sensible for the valid types
     for entry in reg._entries:
       if entry.leaf_type == int:

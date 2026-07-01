@@ -726,7 +726,7 @@ def resolve_handler_for_load(
   # 4. Any handler that can handle the object.
   if abstract_checkpointable is not None:
     possible_handlers = _get_possible_handlers(
-        registry, is_handleable, abstract_checkpointable
+        registry, is_handleable, abstract_checkpointable  # pyrefly: ignore[bad-argument-type]
     )
     if possible_handlers:
       return possible_handlers[-1]

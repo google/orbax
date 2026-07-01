@@ -78,7 +78,7 @@ def _create_v0_savearg(
   return type_handlers_v0.SaveArgs(
       dtype=np.dtype(storage_options.dtype) if storage_options.dtype else None,
       chunk_byte_size=storage_options.chunk_byte_size,
-      shard_axes=storage_options.shard_axes,
+      shard_axes=storage_options.shard_axes,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -173,7 +173,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
     saveargs = [_create_v0_savearg(p, self._context) for p in params]
 
     commit_futures = await self._handler_impl.serialize(
-        values, paraminfos, saveargs
+        values, paraminfos, saveargs  # pyrefly: ignore[bad-argument-type]
     )
     assert commit_futures
 
@@ -197,7 +197,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
 
     # validate all parameters
     paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
+        _create_v0_restore_paraminfo(p, self._context, deserialization_context)  # pyrefly: ignore[bad-argument-type]
         for p in params
     ]
     restoreargs = [_create_v0_restorearg(p) for p in params]
@@ -222,7 +222,7 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
       Sequence of ScalarMetadata for each provided DeserializationParam.
     """
     paraminfos = [
-        _create_v0_restore_paraminfo(p, self._context, deserialization_context)
+        _create_v0_restore_paraminfo(p, self._context, deserialization_context)  # pyrefly: ignore[bad-argument-type]
         for p in params
     ]
 

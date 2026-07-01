@@ -98,7 +98,7 @@ def get_array_handler(
       return jax_array_handlers.SingleReplicaArrayHandler(
           dispatcher=None,
           **common_kwargs,
-          **load_and_broadcast_kwargs,
+          **load_and_broadcast_kwargs,  # pyrefly: ignore[bad-argument-type]
       )
     return jax_array_handlers.ArrayHandler(dispatcher=None, **common_kwargs)
 

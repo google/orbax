@@ -40,7 +40,7 @@ class Metadata:
   name: str
   directory: Optional[epath.Path]
 
-  def __eq__(self, other: Metadata) -> bool:
+  def __eq__(self, other: Metadata) -> bool:  # pyrefly: ignore[bad-override]
     return isinstance(other, Metadata)
 
   def __repr__(self) -> str:
@@ -97,7 +97,7 @@ class ArrayMetadata(Metadata):
       directory: Optional[epath.Path] = None,
   ) -> ArrayMetadata:
     return cls(
-        name=name,
+        name=name,  # pyrefly: ignore[bad-argument-type]
         directory=directory,
         shape=s.shape,
         sharding=s.sharding,

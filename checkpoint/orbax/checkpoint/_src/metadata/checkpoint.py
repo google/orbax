@@ -276,7 +276,7 @@ class _BlockingMetadataStore(MetadataStore):
   _store_impl: _MetadataStoreImpl = dataclasses.field(init=False)
 
   def __post_init__(self):
-    self._store_impl = _MetadataStoreImpl()
+    self._store_impl = _MetadataStoreImpl()  # pyrefly: ignore[bad-instantiation]
     if self.enable_write:
       self._write_lock = threading.RLock()
 
@@ -337,7 +337,7 @@ class _NonBlockingMetadataStore(MetadataStore):
   )
 
   def __post_init__(self):
-    self._store_impl = _MetadataStoreImpl()
+    self._store_impl = _MetadataStoreImpl()  # pyrefly: ignore[bad-instantiation]
     if self.enable_write:
       self._write_lock = threading.RLock()
       self._single_thread_executor = concurrent.futures.ThreadPoolExecutor(
@@ -459,8 +459,8 @@ class _NonBlockingMetadataStore(MetadataStore):
         logging.info('Closing %s', self)
 
 
-_METADATA_STORE_FOR_WRITES = _BlockingMetadataStore(enable_write=True)
-_METADATA_STORE_FOR_READS = _BlockingMetadataStore(enable_write=False)
+_METADATA_STORE_FOR_WRITES = _BlockingMetadataStore(enable_write=True)  # pyrefly: ignore[bad-instantiation]
+_METADATA_STORE_FOR_READS = _BlockingMetadataStore(enable_write=False)  # pyrefly: ignore[bad-instantiation]
 _METADATA_STORE_NON_BLOCKING_FOR_READS = (
     _NonBlockingMetadataStore(enable_write=False)
 )

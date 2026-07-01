@@ -188,7 +188,7 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     """
     super().__init__(key_name or 'jax_random_key')
 
-  def checkpoint_save_args(
+  def checkpoint_save_args(  # pyrefly: ignore[bad-override]
       self, args: JaxRandomKeySaveArgs
   ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
@@ -206,7 +206,7 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
         JsonSaveArgs(metadata),
     )
 
-  def checkpoint_restore_args(
+  def checkpoint_restore_args(  # pyrefly: ignore[bad-override]
       self, args: JaxRandomKeyRestoreArgs
   ) -> CheckpointArgs:
     return ArrayRestoreArgs(restore_args=args.restore_args)
@@ -257,7 +257,7 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
     """
     super().__init__(key_name or 'np_random_key')
 
-  def checkpoint_save_args(
+  def checkpoint_save_args(  # pyrefly: ignore[bad-override]
       self, args: NumpyRandomKeySaveArgs
   ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
@@ -271,7 +271,7 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
 
     return (PyTreeSaveArgs(item), JsonSaveArgs(metadata))
 
-  def checkpoint_restore_args(
+  def checkpoint_restore_args(  # pyrefly: ignore[bad-override]
       self, args: NumpyRandomKeyRestoreArgs
   ) -> CheckpointArgs:
     return PyTreeRestoreArgs()

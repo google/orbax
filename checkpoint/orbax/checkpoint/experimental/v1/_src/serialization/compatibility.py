@@ -108,8 +108,8 @@ def _construct_serialization_context(
           info.parent_dir, synchronization.get_operation_id()
       ),
       ts_context=info.ts_context,
-      byte_limiter=info.byte_limiter,
-      device_host_byte_limiter=info.device_host_byte_limiter,
+      byte_limiter=info.byte_limiter,  # pyrefly: ignore[bad-argument-type]
+      device_host_byte_limiter=info.device_host_byte_limiter,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -199,7 +199,7 @@ def _construct_deserialization_param(
 
   logging.vlog(1, 'deserialization_param.value: %r', value)
 
-  return types.DeserializationParam(
+  return types.DeserializationParam(  # pyrefly: ignore[bad-return]
       keypath=info.keypath
       if info.keypath is not None
       else _keypath_from_param_name(info.name),
@@ -212,10 +212,10 @@ def _construct_deserialization_context(
 ) -> types.DeserializationContext:
   return types.DeserializationContext(
       parent_dir=info.parent_dir,
-      ocdbt_checkpoint=info.is_ocdbt_checkpoint,
-      zarr3_checkpoint=info.use_zarr3,
+      ocdbt_checkpoint=info.is_ocdbt_checkpoint,  # pyrefly: ignore[bad-argument-type]
+      zarr3_checkpoint=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       ts_context=info.ts_context,
-      byte_limiter=info.byte_limiter,
+      byte_limiter=info.byte_limiter,  # pyrefly: ignore[bad-argument-type]
   )
 
 
@@ -278,7 +278,7 @@ class CompatibleTypeHandler(
 
   def __init__(
       self,
-      leaf_handler: types.LeafHandler[types.Leaf, types.AbstractLeaf],
+      leaf_handler: types.LeafHandler[types.Leaf, types.AbstractLeaf],  # pyrefly: ignore[invalid-type-var]
       typestr: str,
   ):
     self._leaf_handler = leaf_handler
@@ -289,7 +289,7 @@ class CompatibleTypeHandler(
 
   async def serialize(
       self,
-      values: Sequence[types.Leaf],
+      values: Sequence[types.Leaf],  # pyrefly: ignore[invalid-type-var]
       infos: Sequence[types_v0.ParamInfo],
       args: Sequence[types_v0.SaveArgs] | None = None,
   ) -> Sequence[future.Future]:
@@ -321,7 +321,7 @@ class CompatibleTypeHandler(
       self,
       infos: Sequence[types_v0.ParamInfo],
       args: Sequence[types_v0.RestoreArgs] | None = None,
-  ) -> Sequence[types.Leaf]:
+  ) -> Sequence[types.Leaf]:  # pyrefly: ignore[invalid-type-var]
     _validate_deserialization_infos(infos)
 
     params = []
@@ -388,7 +388,7 @@ class CompatibleTypeHandler(
     for info, metadata in zip(infos, metadatas):
       ret.append(
           _convert_v1_metadata_to_v0(
-              info.name, info.parent_dir / info.name, metadata
+              info.name, info.parent_dir / info.name, metadata  # pyrefly: ignore[bad-argument-type]
           )
       )
     return ret

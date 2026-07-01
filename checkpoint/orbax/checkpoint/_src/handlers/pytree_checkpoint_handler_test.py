@@ -173,7 +173,7 @@ class PyTreeCheckpointHandlerTest(
     handler_registry = copy.deepcopy(
         type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
     )
-    handler_registry.get(jax.Array)._array_metadata_store = (
+    handler_registry.get(jax.Array)._array_metadata_store = (  # pyrefly: ignore[missing-attribute]
         array_metadata_store
     )
 
@@ -316,7 +316,7 @@ class PyTreeCheckpointHandlerTest(
       if isinstance(value, (float, int)):
         dtype = np.float64 if isinstance(value, float) else np.int64
         return value_metadata.ScalarMetadata(
-            name='', directory=None, dtype=dtype
+            name='', directory=None, dtype=dtype  # pyrefly: ignore[bad-argument-type]
         )  # pytype: disable=wrong-arg-types  # jnp-type
       if isinstance(value, str):
         return value_metadata.StringMetadata(name='', directory=None)
@@ -1177,7 +1177,7 @@ class PyTreeCheckpointHandlerTest(
         ),
         'split1': jax.make_array_from_callback(
             (),
-            restore_args['split1'].sharding,
+            restore_args['split1'].sharding,  # pyrefly: ignore[bad-argument-type]
             lambda idx: np.asarray(5.0)[idx],
         ),
         'split2': np.asarray(10.0),
@@ -1506,7 +1506,7 @@ class PyTreeCheckpointHandlerTest(
 
     handler = PyTreeCheckpointHandler()
     if not with_metadata:
-      handler._read_metadata_file = _raise_file_not_found_error
+      handler._read_metadata_file = _raise_file_not_found_error  # pyrefly: ignore[missing-attribute]
     restored = handler.restore(path)
     self.validate_restore(test_utils.setup_pytree(), restored)
     if with_metadata:
@@ -1533,7 +1533,7 @@ class PyTreeCheckpointHandlerTest(
     )
     handler = PyTreeCheckpointHandler()
     if not with_metadata:
-      handler._read_metadata_file = _raise_file_not_found_error
+      handler._read_metadata_file = _raise_file_not_found_error  # pyrefly: ignore[missing-attribute]
     restored = handler.restore(path)
     self.validate_restore(test_utils.setup_pytree(), restored)
     if with_metadata:
@@ -1925,7 +1925,7 @@ class PyTreeCheckpointHandlerTest(
 
     class PlusOneHandler(type_handlers.ScalarHandler):
 
-      async def serialize(
+      async def serialize(  # pyrefly: ignore[bad-override]
           self,
           values: Sequence[int],  # pytype: disable=signature-mismatch
           infos: Sequence[ParamInfo],
@@ -2096,7 +2096,7 @@ class PyTreeCheckpointHandlerTest(
     custom_metadata = {'foo': 1}
     self.handler.save(
         self.directory,
-        args=PyTreeSaveArgs(self.pytree, custom_metadata=custom_metadata),
+        args=PyTreeSaveArgs(self.pytree, custom_metadata=custom_metadata),  # pyrefly: ignore[bad-argument-type]
     )
     metadata = self.handler.metadata(self.directory)
     self.assertEqual(metadata.custom_metadata, custom_metadata)
