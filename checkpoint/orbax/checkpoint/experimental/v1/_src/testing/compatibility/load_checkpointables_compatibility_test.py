@@ -270,7 +270,7 @@ class LoadCheckpointablesCompatibilityTest(parameterized.TestCase):
             self, loaded, self.expected_checkpointables
         )
       else:
-        with self.assertRaisesRegex(error_type, expected_error_msg):
+        with self.assertRaisesRegex(error_type, expected_error_msg):  # pyrefly: ignore[bad-argument-type]
           ocp.load_checkpointables(
               path,
               abstract_checkpointables=abstract_checkpointables,

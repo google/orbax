@@ -116,7 +116,7 @@ class UtilsTest(parameterized.TestCase):
 
   def test_tree_memory_per_device(self):
     mesh = jax.sharding.Mesh(
-        np.reshape(jax.devices(), (len(jax.devices()) // 2, 2)),
+        np.reshape(jax.devices(), (len(jax.devices()) // 2, 2)),  # pyrefly: ignore[no-matching-overload]
         ('axis1', 'axis2'),
     )
     tree, expected_tree_memory = setup_pytree(mesh)
@@ -130,7 +130,7 @@ class UtilsTest(parameterized.TestCase):
     dtype = jax.numpy.bfloat16
     arr = jax.random.uniform(key, shape, dtype=dtype)
     mesh = jax.sharding.Mesh(
-        np.reshape(jax.devices(), (len(jax.devices()) // 2, 2)),
+        np.reshape(jax.devices(), (len(jax.devices()) // 2, 2)),  # pyrefly: ignore[no-matching-overload]
         ('axis1', 'axis2'),
     )
     sharding = jax.sharding.NamedSharding(
@@ -161,7 +161,7 @@ class UtilsTest(parameterized.TestCase):
         np.arange(3 * array_size * 16).reshape((16, 3 * array_size)) * 4,
     ]
     arrays, mesh, mesh_axes = setup_replica_sharded_arrays(
-        arr, (2, len(jax.devices()) // 2)
+        arr, (2, len(jax.devices()) // 2)  # pyrefly: ignore[bad-argument-type]
     )
     replica_axis_index = 0
 
@@ -209,7 +209,7 @@ class UtilsTest(parameterized.TestCase):
     global_mesh = cast(jax.sharding.NamedSharding, shardings[0])
     _, num_broadcasts = multislice.broadcast_one_replica_to_all(
         deserialized,
-        global_mesh.mesh,
+        global_mesh.mesh,  # pyrefly: ignore[bad-argument-type]
         replica_axis_index,
         is_in_primary_replica,
         memory_limit_bytes=broadcast_memory_limit_bytes,
@@ -227,7 +227,7 @@ class UtilsTest(parameterized.TestCase):
         )
     ]
     arrays, mesh, _ = setup_replica_sharded_arrays(
-        arr, (2, num_devices_per_replica)
+        arr, (2, num_devices_per_replica)  # pyrefly: ignore[bad-argument-type]
     )
     sharded_arr = arrays[0]
     replica_axis_index = 0

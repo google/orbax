@@ -151,14 +151,14 @@ class GCPStorageClient(abc.ABC):
       else:
         self._credentials = base_credentials
 
-    if not self._credentials.valid:
+    if not self._credentials.valid:  # pyrefly: ignore[missing-attribute]
       with httpx.Client() as client:
-        await asyncio.to_thread(self._credentials.refresh, HttpxRequest(client))
+        await asyncio.to_thread(self._credentials.refresh, HttpxRequest(client))  # pyrefly: ignore[missing-attribute]
 
     if not self.project:
       raise ValueError("GCP Project ID must be specified or auto-detected.")
 
-    return self._credentials.token, self.project
+    return self._credentials.token, self.project  # pyrefly: ignore[missing-attribute]
 
   @abc.abstractmethod
   async def trigger_copy(

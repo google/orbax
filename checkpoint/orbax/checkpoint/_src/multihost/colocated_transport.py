@@ -304,7 +304,7 @@ def colocated_cpu_sharding(
         cpu_devices[0], memory_kind=sharding.memory_kind
     )
   if isinstance(sharding, jax.sharding.NamedSharding):
-    cpu_mesh = colocated_cpu_mesh(sharding.mesh)
+    cpu_mesh = colocated_cpu_mesh(sharding.mesh)  # pyrefly: ignore[bad-argument-type]
     return jax.sharding.NamedSharding(
         cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
     )
@@ -461,7 +461,7 @@ def to_final_specs(
 def shape_dtype_struct_for_array(array: jax.Array) -> jax.ShapeDtypeStruct:
   """Builds a ShapeDtypeStruct from a jax.Array."""
   return cast(
-      jax.ShapeDtypeStruct, abstract_arrays.to_shape_dtype_struct(array)
+      jax.ShapeDtypeStruct, abstract_arrays.to_shape_dtype_struct(array)  # pyrefly: ignore[bad-argument-type]
   )
 
 

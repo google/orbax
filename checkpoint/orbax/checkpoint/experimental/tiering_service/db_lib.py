@@ -407,13 +407,13 @@ async def _claim_eligible_job(
     job.worker_host = hostname
     job.worker_pid = pid
     job.last_updated_at = now
-    session.add(job)
+    session.add(job)  # pyrefly: ignore[missing-attribute]
     if (
         job.request_type == db_schema.RequestType.REQUEST_TYPE_COPY
         and job.target_tier_path
     ):
       job.target_tier_path.state = db_schema.TierPathState.IN_PROGRESS
-      session.add(job.target_tier_path)
+      session.add(job.target_tier_path)  # pyrefly: ignore[missing-attribute]
 
   return job
 

@@ -155,7 +155,7 @@ def _create_global_mesh() -> tuple[jax.sharding.Mesh, list[list[jax.Device]]]:
   global_mesh = jax.sharding.Mesh(
       np.array(devices_by_host), ("hosts", "devices")
   )
-  return global_mesh, devices_by_host
+  return global_mesh, devices_by_host  # pyrefly: ignore[bad-return]
 
 
 def _get_abstract_transient_array(
@@ -215,7 +215,7 @@ def _get_zero_shard_view(
 
   # Pad with 0 for remaining dimensions to reduce rank if needed.
   while len(slices) < len(zero_buf.shape):
-    slices.append(0)
+    slices.append(0)  # pyrefly: ignore[bad-argument-type]
 
   return zero_buf[tuple(slices)]
 
@@ -366,7 +366,7 @@ def _build_transient_array(
     if ctx.host_id == owner:
       device_buffers.append(
           _create_data_buffer(
-              np_array,
+              np_array,  # pyrefly: ignore[bad-argument-type]
               d,
               shard_size,
               i,
@@ -407,7 +407,7 @@ class _SingleFileLoader:
       if not header_size_bytes:
         raise ValueError("Could not read header size from safetensors file.")
 
-      header_size = int.from_bytes(header_size_bytes, byteorder="little")
+      header_size = int.from_bytes(header_size_bytes, byteorder="little")  # pyrefly: ignore[bad-argument-type]
       header_bytes = await f.read(header_size)
       if len(header_bytes) != header_size:
         raise ValueError("Could not read header content from safetensors file.")
@@ -453,7 +453,7 @@ class _SingleFileLoader:
       shape, dtype = _get_array_properties(info)
       start_offset, end_offset = info["data_offsets"]
       tensor_bytes = data_bytes[start_offset:end_offset]
-      np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)
+      np_array = np.frombuffer(tensor_bytes, dtype=dtype).reshape(shape)  # pyrefly: ignore[no-matching-overload]
       if not np.isfinite(np_array).all():
         raise ValueError(f"Non-finite values found in tensor {name}.")
       tensors[name] = np_array
@@ -680,7 +680,7 @@ class _MultiFileLoader:
     if multihost.process_count() > 1:
       return await self._load_multi_host(abstract_state)
     else:
-      return await self._load_single_host(abstract_state)
+      return await self._load_single_host(abstract_state)  # pyrefly: ignore[bad-argument-type]
 
   async def load_metadata(self):
     """Loads the metadata from a safetensors checkpoint."""
@@ -774,7 +774,7 @@ class SafetensorsLayout(CheckpointLayout):
           f"Path {path} is neither a file nor a directory or does not exist."
       )
 
-  async def get_checkpointable_names(self, path: Path) -> list[str]:
+  async def get_checkpointable_names(self, path: Path) -> list[str]:  # pyrefly: ignore[bad-override]
     return []
 
   async def validate(self, path: Path, checkpointable_name: str | None) -> None:

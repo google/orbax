@@ -273,7 +273,7 @@ class LoadCompatibilityTest(parameterized.TestCase):
         )
         test_utils.assert_tree_equal(self, loaded, self.expected_state)
       else:
-        with self.assertRaisesRegex(error_type, expected_error_msg):
+        with self.assertRaisesRegex(error_type, expected_error_msg):  # pyrefly: ignore[bad-argument-type]
           ocp.load(
               path,
               checkpointable_name=checkpointable_name,

@@ -73,7 +73,7 @@ class OrbaxV0Layout(CheckpointLayout):
     )
     self._orbax_layout = orbax_layout.OrbaxLayout()
 
-  async def get_checkpointable_names(self, path: Path) -> list[str]:
+  async def get_checkpointable_names(self, path: Path) -> list[str]:  # pyrefly: ignore[bad-override]
     """Returns candidate checkpointable names to use for loading.
 
     Checks all subdirectories and returns their names in an order that
@@ -130,7 +130,7 @@ class OrbaxV0Layout(CheckpointLayout):
       path: The path to the checkpoint directory.
     """
     checkpoint_metadata = await orbax_layout.read_checkpoint_metadata(path)
-    return (
+    return (  # pyrefly: ignore[bad-return]
         checkpoint_metadata
         and isinstance(checkpoint_metadata.item_handlers, str)
     ) or await orbax_layout.has_pytree_metadata_file(path)

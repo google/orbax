@@ -287,7 +287,7 @@ class ColocatedTransportTest(absltest.TestCase):
         side_effect=[cpu0, cpu1],
     ):
       cpu_mesh = colocated_transport._normalize_mesh_to_colocated_cpu(  # pytype: disable=wrong-arg-types # pylint: disable=protected-access
-          mesh
+          mesh  # pyrefly: ignore[bad-argument-type]
       )
 
     self.assertEqual(cpu_mesh.axis_names, mesh.axis_names)

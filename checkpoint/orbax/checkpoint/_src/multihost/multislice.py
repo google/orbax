@@ -266,7 +266,7 @@ def _globalize_single_replica_arrays(
     else:
       # Use jax.numpy.zeros to allocate directly on device
       # to avoid Host RAM spike.
-      slice_shape = _get_slice_shape(index, global_shape)
+      slice_shape = _get_slice_shape(index, global_shape)  # pyrefly: ignore[bad-argument-type]
       sd_mesh = jax.sharding.Mesh(np.array([d]), ('_single',))
       if hasattr(jax, 'set_mesh'):
         with jax.set_mesh(sd_mesh):
@@ -333,7 +333,7 @@ def broadcast_one_replica_to_all(
       - number of broadcasts performed.
   """
   if memory_limit_bytes is None:
-    memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)
+    memory_limit_bytes = get_available_memory(in_tree, memory_scaling_factor)  # pyrefly: ignore[bad-argument-type]
     logging.info('Using available memory of %d bytes.', memory_limit_bytes)
 
   tree_len = len(in_tree)

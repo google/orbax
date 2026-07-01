@@ -97,22 +97,22 @@ class BenchmarkOptions(benchmarks_core.BenchmarkOptions):
   @property
   def context(self) -> ocp.Context:
     ctx = ocp.Context()
-    ctx.array.saving.storage_options.chunk_byte_size = self.chunk_byte_size
-    ctx.array.saving.use_ocdbt = self.use_ocdbt
-    ctx.array.saving.use_zarr3 = self.use_zarr3
-    ctx.array.saving.use_replica_parallel = self.use_replica_parallel
-    ctx.array.saving.use_compression = self.use_compression
+    ctx.array.saving.storage_options.chunk_byte_size = self.chunk_byte_size  # pyrefly: ignore[bad-assignment]
+    ctx.array.saving.use_ocdbt = self.use_ocdbt  # pyrefly: ignore[bad-assignment]
+    ctx.array.saving.use_zarr3 = self.use_zarr3  # pyrefly: ignore[bad-assignment]
+    ctx.array.saving.use_replica_parallel = self.use_replica_parallel  # pyrefly: ignore[bad-assignment]
+    ctx.array.saving.use_compression = self.use_compression  # pyrefly: ignore[bad-assignment]
     ctx.array.saving.enable_replica_parallel_separate_folder = (
-        self.enable_replica_parallel_separate_folder
+        self.enable_replica_parallel_separate_folder  # pyrefly: ignore[bad-assignment]
     )
-    ctx.array.loading.use_load_and_broadcast = self.use_load_and_broadcast
+    ctx.array.loading.use_load_and_broadcast = self.use_load_and_broadcast  # pyrefly: ignore[bad-assignment]
     ctx.memory.write_concurrent_bytes = (
-        self.save_concurrent_gb * 1024**3
+        self.save_concurrent_gb * 1024**3  # pyrefly: ignore[unsupported-operation]
         if self.save_concurrent_gb is not None
         else None
     )
     ctx.memory.read_concurrent_bytes = (
-        self.restore_concurrent_gb * 1024**3
+        self.restore_concurrent_gb * 1024**3  # pyrefly: ignore[unsupported-operation]
         if self.restore_concurrent_gb is not None
         else None
     )
@@ -170,10 +170,10 @@ class Benchmark(benchmarks_core.BenchmarksGenerator):
         jax.profiler.start_trace(str(save_trace))
       with metrics.measure("save", metrics_to_measure):
         if options.async_enabled:
-          f = ocp.save_async(save_path, pytree)
+          f = ocp.save_async(save_path, pytree)  # pyrefly: ignore[bad-argument-type]
           f.result()
         else:
-          ocp.save(save_path, pytree)
+          ocp.save(save_path, pytree)  # pyrefly: ignore[bad-argument-type]
       context.pytree = clear_pytree(context.pytree)
       if save_trace is not None:
         jax.profiler.stop_trace()

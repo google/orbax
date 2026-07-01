@@ -144,7 +144,7 @@ def v0_generate_case(
       else 'pytree_checkpointable_missing_metadata'
   )
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v0_checkpoints'
       / ckpt_type
       / metadata_dir
@@ -172,7 +172,7 @@ def v0_missing_checkpoint_metadata_field(
       'direct_checkpoint' if is_direct_checkpoint else 'composite_checkpoint'
   )
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v0_checkpoints'
       / ckpt_type
       / 'non_critical_metadata_alterations'
@@ -199,7 +199,7 @@ def v0_missing_pytree_data(
       else 'non_critical_metadata_alterations'
   )
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v0_checkpoints'
       / ckpt_type
       / alteration_type
@@ -216,7 +216,7 @@ def v0_missing_pytree_data(
 
 def main(argv):
   del argv
-  epath.Path(_BASE_DIR.value).mkdir(parents=True, exist_ok=True)
+  epath.Path(_BASE_DIR.value).mkdir(parents=True, exist_ok=True)  # pyrefly: ignore[bad-argument-type]
 
   test_utils.set_tensorstore_driver_for_test()
 

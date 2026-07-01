@@ -149,7 +149,7 @@ class CheckpointablesMetadataCompatibilityTest(parameterized.TestCase):
           actual = compatibility_test_utils.strip_sharding_metadata(actual)
         test_utils.assert_tree_equal(self, expected, actual)
       else:
-        with self.assertRaisesRegex(error_type, expected_error_msg):
+        with self.assertRaisesRegex(error_type, expected_error_msg):  # pyrefly: ignore[bad-argument-type]
           ocp.checkpointables_metadata(path)
 
   @parameterized.product(
