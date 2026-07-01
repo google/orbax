@@ -30,7 +30,7 @@ TensorSpecWithDefault = utils.TensorSpecWithDefault
 )
 def _tf_simple_pre_processor(a: tf.Tensor) -> tf.Tensor:
   """A simple pre-processor function."""
-  return a + 1
+  return a + 1  # pyrefly: ignore[bad-return, unsupported-operation]
 
 
 var = tf.Variable(100.0)
@@ -50,7 +50,7 @@ def _tf_pre_processor(a: tf.Tensor) -> tf.Tensor:
       default_value=10000.0,
   )
   return tf.cast(
-      tf.cast(a**2, tf.float32) + var + vocab.lookup(tf.constant('v')),
+      tf.cast(a**2, tf.float32) + var + vocab.lookup(tf.constant('v')),  # pyrefly: ignore[unsupported-operation]
       tf.float32,
   )
 

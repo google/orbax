@@ -210,7 +210,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.SAVE_SHLO_TO_FILE,
     )
 
-    self._checkpoint_path: str = None
+    self._checkpoint_path: str = None  # pyrefly: ignore[bad-assignment]
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path()
 
@@ -409,13 +409,13 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         polymorphic_constraints_mapping[key] = polymorphic_constraints
     return polymorphic_constraints_mapping  # pytype: disable=bad-return-type
 
-  def export_module(
+  def export_module(  # pyrefly: ignore[bad-override]
       self,
   ) -> Union[tf.Module, orbax_module_base.OrbaxModuleBase]:
     return self
 
   @property
-  def apply_fn_map(
+  def apply_fn_map(  # pyrefly: ignore[bad-override]
       self,
   ) -> Mapping[
       str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
@@ -424,7 +424,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self._apply_fn_map
 
   @property
-  def export_version(self) -> constants.ExportModelType:
+  def export_version(self) -> constants.ExportModelType:  # pyrefly: ignore[bad-override]
     """Returns the export version."""
     return constants.ExportModelType.ORBAX_MODEL
 

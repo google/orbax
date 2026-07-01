@@ -81,7 +81,7 @@ def mse(
   predictions = model.apply(
       params, x_batched, training=True, rngs={"dropout": rng_key}
   )
-  return jnp.mean(optax.losses.squared_error(predictions, y_batched)) * 0.5
+  return jnp.mean(optax.losses.squared_error(predictions, y_batched)) * 0.5  # pyrefly: ignore[bad-argument-type]
 
 
 def generate_samples(

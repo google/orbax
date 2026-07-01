@@ -90,7 +90,7 @@ class DtensorUtilsTest(parameterized.TestCase):
     global_arr = np.arange(np.prod(shape)).reshape(shape)
     jax_arr = _create_sharded_jax_array(global_arr, pspec, self._mesh)
     dmesh = dtensor_utils.jax_mesh_to_dtensor_mesh(self._mesh)
-    dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)
+    dt_arr = dtensor_utils.jax_array_to_dtensor(jax_arr, pspec, dmesh)  # pyrefly: ignore[bad-argument-type]
 
     self.assertEqual(
         _get_dtensor_shard_shape(dt_arr),

@@ -202,7 +202,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
       case constants.ExportModelType.TF_SAVEDMODEL:
         self._export_module = tensorflow_module.TensorFlowModule(
             params=params,
-            apply_fn=apply_fn,
+            apply_fn=apply_fn,  # pyrefly: ignore[bad-argument-type]
             trainable=trainable,
             input_polymorphic_shape=input_polymorphic_shape,
             jit_compile=jit_compile,
@@ -228,7 +228,7 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
         )
 
   @property
-  def apply_fn_map(
+  def apply_fn_map(  # pyrefly: ignore[bad-override]
       self,
   ) -> Mapping[
       str, orbax_export_typing.ApplyFn | orbax_export_typing.ApplyFnInfo
@@ -267,11 +267,11 @@ class JaxModule(orbax_module_base.OrbaxModuleBase):
     return jax.tree.leaves(param_names_tree)
 
   @property
-  def export_version(self) -> constants.ExportModelType:
+  def export_version(self) -> constants.ExportModelType:  # pyrefly: ignore[bad-override]
     """Returns the export version."""
     return self._export_version
 
-  def export_module(self) -> orbax_module_base.OrbaxModuleBase:
+  def export_module(self) -> orbax_module_base.OrbaxModuleBase:  # pyrefly: ignore[bad-override]
     """Returns the export module."""
     return self._export_module
 

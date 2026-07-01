@@ -223,7 +223,7 @@ def with_default_args(
     bound_args.apply_defaults()
     return tf_fn(*bound_args.args, **bound_args.kwargs)
 
-  fn_with_defaults.__signature__ = py_signature_with_defaults
+  fn_with_defaults.__signature__ = py_signature_with_defaults  # pyrefly: ignore[missing-attribute]
 
   # Generate a tf.function and return.
   return tf.function(

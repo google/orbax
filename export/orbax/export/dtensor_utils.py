@@ -291,7 +291,7 @@ def jax_array_to_dtensor(
   else:
     resharded_arr = _reshard_jax_array(
         arr,
-        jax_mesh,
+        jax_mesh,  # pyrefly: ignore[bad-argument-type]
         jax.sharding.PartitionSpec(*[
             axis_name if axis_name != dtensor.UNSHARDED else None
             for axis_name in dspec

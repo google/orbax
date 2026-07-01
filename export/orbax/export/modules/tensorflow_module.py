@@ -196,7 +196,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
           jit_compile,
       )
 
-  def export_module(
+  def export_module(  # pyrefly: ignore[bad-override]
       self,
   ) -> Union[tf.Module, orbax_module_base.OrbaxModuleBase]:
     return self
@@ -310,7 +310,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
                 pspec,
                 mesh.dtensor_mesh,
                 mesh.jax_mesh,
-                allow_multi_axis_sharding_consolidation,
+                allow_multi_axis_sharding_consolidation,  # pyrefly: ignore[bad-argument-type]
             ),
             trainable=trainable,
             shape=x.shape,
@@ -378,7 +378,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
       # '__inference_predict_fn_x', which does not contain special characters.
       return apply_fn_tf(
           export_utils.get_variable_tree(
-              self._tf_var_treedef, self._tf_var_leaves
+              self._tf_var_treedef, self._tf_var_leaves  # pyrefly: ignore[bad-argument-type]
           ),
           x,
       )
@@ -392,7 +392,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   def _get_variable_tree(self) -> PyTree:
     """Returns the PyTree of the tf.Variables associated with self."""
     return jax.tree_util.tree_unflatten(
-        self._nontrackable_metadata.tf_var_treedef, self._tf_var_leaves
+        self._nontrackable_metadata.tf_var_treedef, self._tf_var_leaves  # pyrefly: ignore[bad-argument-type]
     )
 
   @property
@@ -455,8 +455,8 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
     jax.tree_util.tree_map(
         lambda v, new_v: v.assign(new_v),
         export_utils.get_variable_tree(
-            self._tf_var_treedef,
-            self._tf_var_leaves,
+            self._tf_var_treedef,  # pyrefly: ignore[bad-argument-type]
+            self._tf_var_leaves,  # pyrefly: ignore[bad-argument-type]
         ),
         new_vars,
     )

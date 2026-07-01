@@ -72,6 +72,6 @@ class ObmExport(export_base.ExportBase):
     raise NotImplementedError("ObmExport.load not implemented yet.")
 
   @property
-  def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:
+  def serving_signatures(self) -> Mapping[str, Callable[..., Any]]:  # pyrefly: ignore[bad-override]
     """Returns a map of signature keys to serving functions."""
     raise NotImplementedError("ObmExport.load not implemented yet.")
