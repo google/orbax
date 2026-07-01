@@ -55,7 +55,7 @@ class MemoryOptionsTest(parameterized.TestCase):
     ctx.memory.write_concurrent_bytes = 1024
     ctx.memory.read_concurrent_bytes = 2048
     ctx.memory.transfer_concurrent_bytes = 512
-    ctx.memory.is_prioritized_key_fn = is_prioritized_key_fn
+    ctx.memory.is_prioritized_key_fn = is_prioritized_key_fn  # pyrefly: ignore[bad-assignment]
     with ctx:
       with mock.patch(
           'orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler',
@@ -71,7 +71,7 @@ class MemoryOptionsTest(parameterized.TestCase):
 
         # save will eventually call BasePyTreeCheckpointHandler
         try:
-          saving.save('/tmp/test', pytree)
+          saving.save('/tmp/test', pytree)  # pyrefly: ignore[bad-argument-type]
         except Exception:  # pylint: disable=broad-except
           # We might get some errors because we mocked too much,
           # but we check if mock_handler_class was called.

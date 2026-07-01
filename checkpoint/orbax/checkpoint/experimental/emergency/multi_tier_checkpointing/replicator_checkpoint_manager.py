@@ -726,7 +726,7 @@ class _ReplicatorLocalCheckpointEngine:
 
     return self._get_mesh_consistent_result(
         original_args,
-        restored,
+        restored,  # pyrefly: ignore[bad-argument-type]
         default_item_mode=default_item_mode,
     )
 

@@ -107,7 +107,7 @@ class SerializeTreeTest(parameterized.TestCase):
         1,
         {'a': 'b', 'c': 'd'},
         [optax.EmptyState(), optax.EmptyState()],
-        [{}, {'x': 'y'}, None],
+        [{}, {'x': 'y'}, None],  # pyrefly: ignore[bad-argument-type]
     )
     serialized = tree_utils.serialize_tree(foo, keep_empty_nodes=True)
     expected = {

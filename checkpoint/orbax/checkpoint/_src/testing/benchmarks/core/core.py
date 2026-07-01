@@ -401,7 +401,7 @@ class BenchmarksGenerator(abc.ABC):
   ) -> Sequence[jax.sharding.Mesh]:
     """Returns a list of meshes for all mesh configs that are compatible with the runtime environment."""
     meshes = []
-    for mesh_config in self._mesh_configs:
+    for mesh_config in self._mesh_configs:  # pyrefly: ignore[not-iterable]
       try:
         mesh = device_mesh.create_mesh(mesh_config)
         meshes.append(mesh)
@@ -448,7 +448,7 @@ class BenchmarksGenerator(abc.ABC):
         option_combinations, meshes, self._checkpoint_configs
     ):
       benchmark_name = self.generate_benchmark_name(
-          test_config_options, mesh, checkpoint_config
+          test_config_options, mesh, checkpoint_config  # pyrefly: ignore[bad-argument-type]
       )
       benchmark_obj = Benchmark(
           test_fn=self.test_fn,

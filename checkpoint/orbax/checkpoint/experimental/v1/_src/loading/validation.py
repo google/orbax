@@ -89,7 +89,7 @@ def validate_abstract_checkpointables(
 
 
 def validate_abstract_state(
-    abstract_state: tree_types.PyTreeOf[tree_types.AbstractLeaf] | None,
+    abstract_state: tree_types.PyTreeOf[tree_types.AbstractLeaf] | None,  # pyrefly: ignore[bad-specialization]
 ) -> None:
   """Validates an abstract PyTree state before loading."""
   if abstract_state is None:

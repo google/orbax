@@ -88,15 +88,15 @@ def to_shape_dtype_struct(
   ):
     # For random keys, extract the dtype and shape as a regular Jax array.
     # Stored metadata will help restoring the original random key.
-    arr = jax.random.key_data(arr)
+    arr = jax.random.key_data(arr)  # pyrefly: ignore[bad-assignment]
 
   if _is_scalar(arr):
     if scalar_dtype is not None:
-      return scalar_dtype(arr)
-    return arr
+      return scalar_dtype(arr)  # pyrefly: ignore[not-callable]
+    return arr  # pyrefly: ignore[bad-return]
   elif isinstance(arr, np.ndarray):
     dtype = dtype or arr.dtype
-    return jax.ShapeDtypeStruct(_get_shape(arr), dtype)
+    return jax.ShapeDtypeStruct(_get_shape(arr), dtype)  # pyrefly: ignore[bad-argument-type]
   else:
     shape = _get_shape(arr)
     dtype = dtype or arr.dtype

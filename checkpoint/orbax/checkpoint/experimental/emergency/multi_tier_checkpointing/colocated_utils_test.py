@@ -80,7 +80,7 @@ class ColocatedUtilsTest(absltest.TestCase):
     )
 
     value = colocated_utils.require_unanimous_scalar_result(  # pytype: disable=wrong-arg-types
-        result, op_name='test_op'
+        result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
     )
 
     self.assertTrue(value)
@@ -106,7 +106,7 @@ class ColocatedUtilsTest(absltest.TestCase):
     )
 
     values = colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
-        result, op_name='test_op'
+        result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
     )
 
     np.testing.assert_array_equal(values[0], np.asarray([1, 2]))
@@ -119,7 +119,7 @@ class ColocatedUtilsTest(absltest.TestCase):
 
     with self.assertRaisesRegex(ValueError, 'expected array shard value'):
       colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
-          result, op_name='test_op'
+          result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
       )
 
   def test_require_unanimous_scalar_result_raises_on_disagreement(self):

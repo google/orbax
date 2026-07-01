@@ -55,9 +55,9 @@ def rename_by_regex(
       raise ValueError(
           'Can only rename parameters in a single parameter structure.'
       )
-    params = params[0]
+    params = params[0]  # pyrefly: ignore[bad-assignment]
     result = {}
-    for key, val in params.items():
+    for key, val in params.items():  # pyrefly: ignore[missing-attribute]
       new_key = key
       for pattern, replacement in compiled_rules:
         new_key = pattern.sub(replacement, new_key)

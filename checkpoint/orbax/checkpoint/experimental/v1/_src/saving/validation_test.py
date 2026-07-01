@@ -90,11 +90,11 @@ class ValidationTest(parameterized.TestCase):
     validation.validate_state(state)
 
   def test_validate_state_empty_nodes_and_none(self):
-    validation.validate_state(optax.EmptyState())
-    validation.validate_state(None)
-    validation.validate_state({})
-    validation.validate_state([])
-    validation.validate_state(())
+    validation.validate_state(optax.EmptyState())  # pyrefly: ignore[bad-argument-type]
+    validation.validate_state(None)  # pyrefly: ignore[bad-argument-type]
+    validation.validate_state({})  # pyrefly: ignore[bad-argument-type]
+    validation.validate_state([])  # pyrefly: ignore[bad-argument-type]
+    validation.validate_state(())  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.parameters(list(zip(_VALID_STATE_PYTREES)))
   def test_validate_state_valid_specific_containers(self, state):
@@ -107,16 +107,16 @@ class ValidationTest(parameterized.TestCase):
 
   def test_validate_state_invalid_leaves(self):
     with self.assertRaises(ValueError):
-      validation.validate_state(object())
+      validation.validate_state(object())  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaises(ValueError):
-      validation.validate_state({'a': object()})
+      validation.validate_state({'a': object()})  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaises(ValueError):
-      validation.validate_state({'a': {'b': [object()]}})
+      validation.validate_state({'a': {'b': [object()]}})  # pyrefly: ignore[bad-argument-type]
 
   def test_validate_state_jax_array(self):
-    validation.validate_state({
+    validation.validate_state({  # pyrefly: ignore[bad-argument-type]
         'a': jnp.ones((2, 2)),
         'b': jnp.ones((2, 2)),
     })

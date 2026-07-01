@@ -116,7 +116,7 @@ def _snapshot_checkpoint(
       step_dir, snapshot_path, set_immutable=set_immutable
   )
   with _manage_snapshot_file_not_found(
-      ignore_errors=ignore_file_not_found_error,
+      ignore_errors=ignore_file_not_found_error,  # pyrefly: ignore[bad-argument-type]
       formatted_message=(
           f'Ignoring error when snapshotting checkpoint for step: {step}'
       ),
@@ -141,7 +141,7 @@ def _release_snapshot(
     snapshot_path = snapshot_dir / step_name_format.build_name(step)
     snapshot_impl = snapshot_lib.create_instance(checkpoint_dir, snapshot_path)
     with _manage_snapshot_file_not_found(
-        ignore_errors=ignore_file_not_found_error,
+        ignore_errors=ignore_file_not_found_error,  # pyrefly: ignore[bad-argument-type]
         formatted_message=(
             f'Ignoring error when releasing snapshot for step: {step}'
         ),
@@ -202,10 +202,10 @@ def _wait_for_new_checkpoint(
 
       steps = utils.checkpoint_steps(checkpoint_dir)
       checkpoint_step = max(steps) if steps else None
-      if _reached_desired_step(checkpoint_step, until_step):
+      if _reached_desired_step(checkpoint_step, until_step):  # pyrefly: ignore[bad-argument-type]
         if not _snapshot_checkpoint(
             checkpoint_dir,
-            checkpoint_step,
+            checkpoint_step,  # pyrefly: ignore[bad-argument-type]
             step_name_format,
             snapshot_dir,
             set_immutable=set_immutable,
@@ -217,7 +217,7 @@ def _wait_for_new_checkpoint(
       elif _sleep_and_maybe_exit():
         break
 
-  result = multihost.broadcast_one_to_all(np.int32(result)).item()
+  result = multihost.broadcast_one_to_all(np.int32(result)).item()  # pyrefly: ignore[bad-argument-type]
   wait_duration = time.time() - start
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/checkpoint_utils/wait_duration', wait_duration
@@ -403,7 +403,7 @@ def checkpoints_iterator(
     for step_dir in snapshot_dir.iterdir():
       snapshot_impl = snapshot_lib.create_instance(checkpoint_dir, step_dir)
       with _manage_snapshot_file_not_found(
-          ignore_errors=ignore_snapshot_errors,
+          ignore_errors=ignore_snapshot_errors,  # pyrefly: ignore[bad-argument-type]
           formatted_message=(
               'Ignoring error when cleaning up leftover snapshot:'
               f' {step_dir.name}'

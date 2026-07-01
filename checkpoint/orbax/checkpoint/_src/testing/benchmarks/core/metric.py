@@ -50,7 +50,7 @@ class BaseMetric:
 
   def start(self):
     """Start the metric collection."""
-    self._start_time = time.perf_counter()
+    self._start_time = time.perf_counter()  # pyrefly: ignore[bad-assignment]
     logging.info(
         "[process_id=%s] Starting metric: '%s'...",
         multihost.get_process_index(),
@@ -399,14 +399,14 @@ class JaxMonitoringMetric(BaseMetric):
     self._duration_cb = _on_duration
     self._event_cb = _on_event
     jax.monitoring.register_scalar_listener(_on_scalar)
-    jax.monitoring.register_event_duration_secs_listener(_on_duration)
+    jax.monitoring.register_event_duration_secs_listener(_on_duration)  # pyrefly: ignore[bad-argument-type]
     jax.monitoring.register_event_listener(_on_event)
 
   def stop(self) -> dict[str, tuple[Any, str]]:
     results = super().stop()
     try:
       jax.monitoring.unregister_scalar_listener(self._scalar_cb)
-      jax.monitoring.unregister_event_duration_listener(self._duration_cb)
+      jax.monitoring.unregister_event_duration_listener(self._duration_cb)  # pyrefly: ignore[bad-argument-type]
       jax.monitoring.unregister_event_listener(self._event_cb)
     except (ValueError, AttributeError) as e:
       logging.warning("Failed to unregister jax.monitoring listener: %s", e)

@@ -176,7 +176,7 @@ def _get_abstract_state(
     devices: list[jax.Device] | None = None,
 ) -> Any:
   """Creates abstract state for a provided CheckpointConfig."""
-  path = epath.Path(config.path)
+  path = epath.Path(config.path)  # pyrefly: ignore[bad-argument-type]
   devices = devices or jax.devices()
   with checkpointer.Checkpointer(
       pytree_checkpoint_handler.PyTreeCheckpointHandler(use_ocdbt=use_ocdbt)

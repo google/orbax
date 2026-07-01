@@ -129,7 +129,7 @@ class PersistentCheckpointManager:
         )
     )
     if utils.pygrain() is not None:
-      item_handlers['data_iter'] = utils.pygrain().PyGrainCheckpointHandler()
+      item_handlers['data_iter'] = utils.pygrain().PyGrainCheckpointHandler()  # pyrefly: ignore[missing-attribute]
 
     self._manager = checkpoint_manager.CheckpointManager(
         self._directory,
@@ -209,7 +209,7 @@ class PersistentCheckpointManager:
     restore_kwargs = {'state': restore_args_obj}
     if constants.DATA_ITER_KEY in args:
       restore_kwargs[constants.DATA_ITER_KEY] = args.data_iter
-    return self._manager.restore(
+    return self._manager.restore(  # pyrefly: ignore[bad-return]
         step, args=p2p_args_lib.Composite(**restore_kwargs)
     )
 

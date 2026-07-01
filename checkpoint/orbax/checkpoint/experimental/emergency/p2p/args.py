@@ -29,8 +29,8 @@ def _check_data_iter(value: Any):
   if not isinstance(
       value,
       (
-          utils.pygrain().PyGrainCheckpointSave,
-          utils.pygrain().PyGrainCheckpointRestore,
+          utils.pygrain().PyGrainCheckpointSave,  # pyrefly: ignore[missing-attribute]
+          utils.pygrain().PyGrainCheckpointRestore,  # pyrefly: ignore[missing-attribute]
       ),
   ):
     raise TypeError(f'Unsupported type for data_iter: {type(value)}')

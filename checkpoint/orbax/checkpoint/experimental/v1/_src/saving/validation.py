@@ -59,7 +59,7 @@ def validate_save_checkpointables(
     )
 
 
-def validate_state(state: tree_types.PyTreeOf[tree_types.Leaf]) -> None:
+def validate_state(state: tree_types.PyTreeOf[tree_types.Leaf]) -> None:  # pyrefly: ignore[bad-specialization]
   """Validates that all leaves of the PyTree are supported leaf types."""
   leaves = jax.tree.leaves(state)
   for leaf in leaves:

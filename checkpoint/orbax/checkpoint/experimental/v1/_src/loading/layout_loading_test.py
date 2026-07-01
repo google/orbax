@@ -64,7 +64,7 @@ class LayoutLoadingTest(parameterized.TestCase):
         'b': np.array([0, 1, 0.2], dtype=np.float32),
     }
     np_save_file(self.object_to_save, self.safetensors_path)
-    saving.save(self.orbax_pytree_path, self.object_to_save)
+    saving.save(self.orbax_pytree_path, self.object_to_save)  # pyrefly: ignore[bad-argument-type]
 
     # Create a mock Orbax checkpoint checkpointables
     self.checkpointables_to_save = {
@@ -144,7 +144,7 @@ class LayoutLoadingTest(parameterized.TestCase):
         path=self.orbax_pytree_path, metadata=abstract_pytree
     )
 
-    loaded = loading.load(self.orbax_pytree_path, abstract_state=metadata)
+    loaded = loading.load(self.orbax_pytree_path, abstract_state=metadata)  # pyrefly: ignore[bad-argument-type]
     test_utils.assert_tree_equal(self, self.object_to_save, loaded)
 
   def test_load_checkpointables_with_checkpoint_metadata(self):
@@ -276,7 +276,7 @@ class LayoutLoadingTest(parameterized.TestCase):
 
     data = {'w': np.ones((8, 8), dtype=np.float32)}
     save_path = epath.Path(self.test_dir.full_path) / 'abstract_mesh_checkpoint'
-    saving.save(save_path, data)
+    saving.save(save_path, data)  # pyrefly: ignore[bad-argument-type]
 
     # Construct an AbstractMesh and NamedSharding and an abstract_pytree that
     # uses it, simulating the output of nnx.eval_shape().
@@ -293,13 +293,13 @@ class LayoutLoadingTest(parameterized.TestCase):
     # Load with a concrete mesh context and validate.
     concrete_mesh = Mesh(np.array(jax.devices()[:1]).reshape(1, 1), ('x', 'y'))
     with jax.set_mesh(concrete_mesh):
-      loaded = loading.load(save_path, abstract_state=abstract_pytree)
+      loaded = loading.load(save_path, abstract_state=abstract_pytree)  # pyrefly: ignore[bad-argument-type]
 
     # Convert to numpy for comparison with the original numpy 'data'
     loaded_np = jax.tree.map(np.array, loaded)
     test_utils.assert_tree_equal(self, data, loaded_np)
     # Verify the loaded array has the concrete sharding/devices
-    self.assertEqual(loaded['w'].sharding.mesh, concrete_mesh)
+    self.assertEqual(loaded['w'].sharding.mesh, concrete_mesh)  # pyrefly: ignore[bad-index]
 
 
 if __name__ == '__main__':

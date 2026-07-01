@@ -38,7 +38,7 @@ from orbax.checkpoint.experimental.emergency.p2p import utils
 
 if utils.pygrain() is not None:
 
-  class _LocalPyGrainHandlerMixin(utils.pygrain().PyGrainCheckpointHandler):
+  class _LocalPyGrainHandlerMixin(utils.pygrain().PyGrainCheckpointHandler):  # pyrefly: ignore[invalid-inheritance]
     """Mixin for Local PyGrain handler."""
 
     def __init__(self, process_index: int):
@@ -49,7 +49,7 @@ if utils.pygrain() is not None:
       item = item or args.item
       state = item.get_state()
 
-      if isinstance(item, utils.pygrain().DatasetIterator):
+      if isinstance(item, utils.pygrain().DatasetIterator):  # pyrefly: ignore[missing-attribute]
         state_val = state
       else:
         # DataLoaderIterator state is bytes, decode to string for JSON
@@ -89,7 +89,7 @@ if utils.pygrain() is not None:
 
       state_val = combined_data[my_key]
 
-      if isinstance(item, utils.pygrain().DatasetIterator):
+      if isinstance(item, utils.pygrain().DatasetIterator):  # pyrefly: ignore[missing-attribute]
         # DatasetIterator expects a dict
         state = state_val
       else:
@@ -106,7 +106,7 @@ if utils.pygrain() is not None:
 
   @ocp.args.register_with_handler(_LocalPyGrainHandlerMixin, for_restore=True)
   @dataclasses.dataclass
-  class LocalPyGrainRestore(utils.pygrain().PyGrainCheckpointRestore):
+  class LocalPyGrainRestore(utils.pygrain().PyGrainCheckpointRestore):  # pyrefly: ignore[invalid-inheritance]
     item: Any
 
 
@@ -249,7 +249,7 @@ class LocalCheckpointManager:
       args_dict[constants.DATA_ITER_KEY] = LocalPyGrainSave(
           item=original_save.item
       )
-      args = args_lib.Composite(**args_dict)
+      args = args_lib.Composite(**args_dict)  # pyrefly: ignore[bad-assignment]
 
     return self._manager.save(step, args=args, force=force)
 
@@ -286,7 +286,7 @@ class LocalCheckpointManager:
       args_dict[constants.DATA_ITER_KEY] = LocalPyGrainRestore(
           original_restore.item
       )
-    args = args_lib.Composite(**args_dict)
+    args = args_lib.Composite(**args_dict)  # pyrefly: ignore[bad-assignment]
 
     # 2. Delegate to Orbax
     restored = self._manager.restore(
@@ -294,7 +294,7 @@ class LocalCheckpointManager:
         args=args,
         directory=directory,
     )
-    return restored
+    return restored  # pyrefly: ignore[bad-return]
 
   def __getattr__(self, name: str) -> Any:
     return getattr(self._manager, name)

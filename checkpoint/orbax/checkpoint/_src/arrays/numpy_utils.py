@@ -53,7 +53,7 @@ def resolve_slice(xs: NdSlice, shape: Shape) -> NdSlice:
   return tuple(
       slice(*x.indices(n))
       if isinstance(x, slice) else slice(x, x+1, 1)
-      for x, n in zip(() if xs is Ellipsis else xs, shape))
+      for x, n in zip(() if xs is Ellipsis else xs, shape))  # pyrefly: ignore[bad-argument-type]
 
 
 def to_hashable_index(
@@ -71,9 +71,9 @@ def to_hashable_index(
   Returns:
     A hashable index.
   """
-  idx = resolve_slice(idx, shape) if shape else idx
+  idx = resolve_slice(idx, shape) if shape else idx  # pyrefly: ignore[bad-assignment]
 
-  return tuple([int_tuple_from_slice(s) for s in idx])
+  return tuple([int_tuple_from_slice(s) for s in idx])  # pyrefly: ignore[bad-return]
 
 
 def from_hashable_index(idx: HashableIndex) -> Index:
@@ -105,7 +105,7 @@ def dissolve_slice(
   ys = tuple(
       slice(x.start or None,
             x.stop if x.stop != dim else None,
-            x.step if x.step != 1 else None) for x, dim in zip(xs, shape))
+            x.step if x.step != 1 else None) for x, dim in zip(xs, shape))  # pyrefly: ignore[bad-argument-type]
   if not preserve_rank:
     while ys and ys[-1] == slice(None):
       ys = ys[:-1]
@@ -144,7 +144,7 @@ def normalize_slice(resolved_slice: Index, shape: Shape) -> Index:
 
 def slice_shape(xs: NdSlice) -> Shape:
   """Calculates the shape of the given slice."""
-  return tuple((s.stop - s.start + (s.step - 1)) // s.step for s in xs)
+  return tuple((s.stop - s.start + (s.step - 1)) // s.step for s in xs)  # pyrefly: ignore[not-iterable]
 
 
 def _pretty_slice(s: slice) -> str:
@@ -159,6 +159,6 @@ def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:
   idx_str = (
       '...'
       if not idx or idx is Ellipsis
-      else ', '.join(_pretty_slice(s) for s in idx)
+      else ', '.join(_pretty_slice(s) for s in idx)  # pyrefly: ignore[not-iterable]
   )
   return f'np.s_[{idx_str}]'

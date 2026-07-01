@@ -107,11 +107,11 @@ class ValidationTest(parameterized.TestCase):
     validation.validate_abstract_state(state)
 
   def test_validate_abstract_state_empty_nodes_and_none(self):
-    validation.validate_abstract_state(optax.EmptyState())
+    validation.validate_abstract_state(optax.EmptyState())  # pyrefly: ignore[bad-argument-type]
     validation.validate_abstract_state(None)
-    validation.validate_abstract_state({})
-    validation.validate_abstract_state([])
-    validation.validate_abstract_state(())
+    validation.validate_abstract_state({})  # pyrefly: ignore[bad-argument-type]
+    validation.validate_abstract_state([])  # pyrefly: ignore[bad-argument-type]
+    validation.validate_abstract_state(())  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.parameters(list(zip(_VALID_ABSTRACT_PYTREES)))
   def test_validate_abstract_state_valid_specific_containers(self, state):
@@ -124,22 +124,22 @@ class ValidationTest(parameterized.TestCase):
 
   def test_validate_abstract_state_invalid_leaves(self):
     with self.assertRaises(TypeError):
-      validation.validate_abstract_state(object())
+      validation.validate_abstract_state(object())  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaises(TypeError):
-      validation.validate_abstract_state({'a': object()})
+      validation.validate_abstract_state({'a': object()})  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaises(TypeError):
-      validation.validate_abstract_state({'a': {'b': [object()]}})
+      validation.validate_abstract_state({'a': {'b': [object()]}})  # pyrefly: ignore[bad-argument-type]
 
   def test_validate_abstract_state_shape_dtype_struct(self):
-    validation.validate_abstract_state({
+    validation.validate_abstract_state({  # pyrefly: ignore[bad-argument-type]
         'a': jax.ShapeDtypeStruct((2, 2), np.float32),
         'b': jax.ShapeDtypeStruct((2, 2), np.float32),
     })
 
   def test_validate_abstract_state_jax_array(self):
-    validation.validate_abstract_state({'a': jax.Array, 'b': jax.Array})
+    validation.validate_abstract_state({'a': jax.Array, 'b': jax.Array})  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == '__main__':

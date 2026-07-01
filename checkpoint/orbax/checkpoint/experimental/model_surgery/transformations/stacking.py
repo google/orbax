@@ -65,7 +65,7 @@ def _streaming_stack(
     stacked_chunk = jnp.stack(chunk_list, axis=axis)
     return stacked_chunk
 
-  return jax.make_array_from_callback(tuple(final_shape), sharding, _callback)
+  return jax.make_array_from_callback(tuple(final_shape), sharding, _callback)  # pyrefly: ignore[bad-argument-type]
 
 
 def _is_host_array(x) -> bool:
@@ -94,7 +94,7 @@ def _select_stack_fn(
   if any(isinstance(x, np.ndarray) for x in items):
     return np.stack
   if sharding is not None and all(_is_host_array(x) for x in items):
-    return lambda items, axis: _streaming_stack(items, axis, sharding)
+    return lambda items, axis: _streaming_stack(items, axis, sharding)  # pyrefly: ignore[bad-argument-type]
   return jnp.stack
 
 
@@ -163,7 +163,7 @@ def stack(
       raise ValueError(
           "Can only stack parameters in a single parameter structure."
       )
-    params = params[0]
+    params = params[0]  # pyrefly: ignore[bad-assignment]
     if inplace and not isinstance(params, dict):
       raise ValueError("Inplace operations require parameters to be a dict.")
 
@@ -174,7 +174,7 @@ def stack(
 
     keys_to_delete = []
 
-    for key, value in params.items():
+    for key, value in params.items():  # pyrefly: ignore[missing-attribute]
       match = compiled_pattern.search(key)
       if not match:
         unmatched[key] = value
@@ -285,7 +285,7 @@ def stack(
           if is_numpy:
             stacked[tuple(slices)] = val
           else:
-            stacked = stacked.at[tuple(slices)].set(val)
+            stacked = stacked.at[tuple(slices)].set(val)  # pyrefly: ignore[missing-attribute]
 
         if len(idx_dict) != local_expected_count:
           logging.warning(
