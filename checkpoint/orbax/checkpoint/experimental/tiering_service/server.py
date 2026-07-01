@@ -160,9 +160,15 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         )
         return tiering_service_pb2.ReserveResponse()
 
+      tier_path_uuid = ""
+      for tp in db_asset.tier_paths:
+        if tp.storage_backend_id == backend.id:
+          tier_path_uuid = tp.tier_path_uuid
+          break
       return tiering_service_pb2.ReserveResponse(
           asset=assets.proto_from_db_asset(db_asset),
           keep_alive_interval_seconds=self._config.client_keep_alive_interval_seconds,
+          tier_path_uuid=tier_path_uuid,
       )
 
   async def ReserveKeepAlive(
@@ -331,6 +337,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
               keep_alive_interval_seconds=(
                   self._config.client_keep_alive_interval_seconds
               ),
+              closest_tier_path_uuid=tp.tier_path_uuid,
           )
 
       # No existing TierPath, we need to prefetch
@@ -386,9 +393,16 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         await context.abort(grpc.StatusCode.NOT_FOUND, "Asset not found")
         return tiering_service_pb2.PrefetchResponse()
 
+      closest_tier_path_uuid = ""
+      for tp in db_asset.tier_paths:
+        if tp.storage_backend_id == closest_backend.id:
+          closest_tier_path_uuid = tp.tier_path_uuid
+          break
+
       return tiering_service_pb2.PrefetchResponse(
           asset=assets.proto_from_db_asset(db_asset),
           keep_alive_interval_seconds=self._config.client_keep_alive_interval_seconds,
+          closest_tier_path_uuid=closest_tier_path_uuid,
       )
 
   async def PrefetchKeepAlive(

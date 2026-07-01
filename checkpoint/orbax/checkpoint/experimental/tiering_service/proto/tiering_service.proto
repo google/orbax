@@ -85,6 +85,7 @@ message ReserveRequest {
 message ReserveResponse {
   Asset asset = 1;
   int64 keep_alive_interval_seconds = 2;
+  string tier_path_uuid = 3;
 }
 
 message ReserveKeepAliveRequest {
@@ -116,6 +117,7 @@ message PrefetchRequest {
 message PrefetchResponse {
   Asset asset = 1;
   int64 keep_alive_interval_seconds = 2;
+  string closest_tier_path_uuid = 3;
 }
 
 message PrefetchKeepAliveRequest {
