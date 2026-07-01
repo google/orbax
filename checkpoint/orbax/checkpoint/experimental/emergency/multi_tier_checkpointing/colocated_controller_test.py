@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import collections
+import threading
 from unittest import mock
 
 from absl.testing import absltest
@@ -251,9 +252,26 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     controller._worker_cpu_devices = (device,)
     controller._state_cpu_devices = (device,)
     controller._colocated_cpu_ids = frozenset({device.id})
-    controller._pending_save = None
+    controller._save_lifecycle = controller_lib._ControllerSaveHandoffLifecycle(
+        worker_wait_until_finished=lambda: (  # pylint: disable=unnecessary-lambda
+            controller._worker_wait_until_finished()
+        ),
+        save_persistent_dataset=lambda step, dataset_args, *, force: (
+            controller._save_persistent_dataset(
+                step, dataset_args, force=force
+            )
+        ),
+    )
     controller._enable_async_checkpointing = True
     return controller, device
+
+  def _join_pending_handoff(self, controller):
+    pending_save = controller._pending_save
+    self.assertIsNotNone(pending_save)
+    thread = pending_save.handoff_thread
+    if thread is not None:
+      thread.join(timeout=5)
+      self.assertFalse(thread.is_alive())
 
   def _make_controller_for_restore(self):
     controller, device = self._make_controller_for_specialization()
@@ -405,30 +423,6 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
 
     self.assertEqual(target_shardings['x'], sharding)
 
-  def test_restore_out_specs_use_worker_structure_for_empty_namedtuple(self):
-    controller, sharding = self._make_controller_for_restore()
-    shape_dtype_tree = {
-        'opt_state': [
-            EmptyState(),
-            {'count': jax.ShapeDtypeStruct((), jnp.int32)},
-        ],
-        'weights': jax.ShapeDtypeStruct((2,), jnp.float32),
-    }
-    target_shardings = {
-        'opt_state': [EmptyState(), {'count': sharding}],
-        'weights': sharding,
-    }
-
-    out_specs = controller._restore_out_specs_from_shape_dtype_tree(
-        shape_dtype_tree,
-        target_shardings,
-        source_name='restore item',
-    )
-
-    self.assertIsNone(out_specs['opt_state'][0])
-    self.assertEqual(out_specs['opt_state'][1]['count'].shape, ())
-    self.assertEqual(out_specs['weights'].shape, (2,))
-
   def test_rebuild_restored_state_restores_empty_namedtuple_from_none(self):
     controller, sharding = self._make_controller_for_restore()
     del sharding
@@ -467,6 +461,24 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     )
     np.testing.assert_array_equal(
         rebuilt['weights'], restored_state['params']['weights']
+    )
+
+  def test_rebuild_restored_state_unwraps_state_mapping_wrapper(self):
+    controller, sharding = self._make_controller_for_restore()
+    del sharding
+    restored_state = {
+        'metadata': {'step': jnp.asarray(7, dtype=jnp.int32)},
+        'state': {'weights': jnp.arange(2, dtype=jnp.float32)},
+    }
+    template_state = {'weights': jax.ShapeDtypeStruct((2,), jnp.float32)}
+
+    rebuilt = controller._rebuild_restored_state(restored_state, template_state)
+
+    self.assertEqual(
+        jax.tree.structure(rebuilt), jax.tree.structure(template_state)
+    )
+    np.testing.assert_array_equal(
+        rebuilt['weights'], restored_state['state']['weights']
     )
 
   def test_rebuild_restored_state_rejects_arbitrary_suffix_mapping(self):
@@ -630,7 +642,16 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
   def test_save_tracks_pending_worker_result_until_lifecycle_drain(self):
     controller, _ = self._make_controller_for_restore()
     state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
-    result = jax.device_put(jnp.array(True))
+    result = object()
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
 
     with mock.patch.object(
         controller, 'should_save', return_value=True
@@ -638,6 +659,10 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         controller, '_prepare_state_for_save', return_value=state
     ), mock.patch.object(
         controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
     ), mock.patch.object(
         controller, '_save_persistent_dataset'
     ) as mock_save_dataset, mock.patch.object(
@@ -652,10 +677,13 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
           args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
       )
       self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
       self.assertIsNotNone(controller._pending_save)
+      self.assertIsNotNone(controller._pending_save.keepalive)
       self.assertTrue(controller.is_saving_in_progress())
       mock_save_dataset.assert_not_called()
 
+      release_handoff.set()
       controller._finish_pending_save()
 
       self.assertIsNone(controller._pending_save)
@@ -665,10 +693,15 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     controller, _ = self._make_controller_for_restore()
     state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
     result = object()
-    worker_wait_result = object()
-    controller._worker_manager.wait_until_finished.return_value = (
-        worker_wait_result
-    )
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
 
     with mock.patch.object(
         controller, 'should_save', return_value=True
@@ -677,28 +710,127 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     ), mock.patch.object(
         controller, '_get_worker_save_call', return_value=lambda *_: result
     ), mock.patch.object(
-        controller_lib.jax, 'block_until_ready'
-    ) as mock_block, mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller, '_save_persistent_dataset'
+    ), mock.patch.object(
         controller_lib.colocated_utils,
         'require_unanimous_scalar_result',
         return_value=True,
-    ):
+    ), mock.patch.object(
+        controller, '_worker_wait_until_finished'
+    ) as mock_worker_wait:
       saved = controller.save(
           9,
           args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
       )
 
       self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
       self.assertIsNotNone(controller._pending_save)
-      mock_block.assert_not_called()
+      mock_worker_wait.assert_not_called()
 
-      controller.wait_until_finished()
+      wait_errors = []
+      wait_done = threading.Event()
 
-    mock_block.assert_has_calls([
-        mock.call(result),
-        mock.call(worker_wait_result),
-    ])
+      def _wait_until_finished():
+        try:
+          controller.wait_until_finished()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          wait_errors.append(e)
+        finally:
+          wait_done.set()
+
+      wait_thread = threading.Thread(target=_wait_until_finished)
+      wait_thread.start()
+      self.assertFalse(wait_done.wait(timeout=0.1))
+      mock_worker_wait.assert_not_called()
+
+      release_handoff.set()
+      wait_thread.join(timeout=5)
+      self.assertFalse(wait_thread.is_alive())
+
+    self.assertEmpty(wait_errors)
+    mock_worker_wait.assert_called_once_with()
     self.assertIsNone(controller._pending_save)
+
+  def test_worker_handoff_releases_keepalive_after_worker_result(self):
+    controller, _ = self._make_controller_for_restore()
+    keepalive = (mock.sentinel.state,)
+    result = object()
+    pending_save = controller_lib._PendingSave(
+        step=9,
+        force=False,
+        result=result,
+        keepalive=keepalive,
+        dataset_args=None,
+        start_time=0.0,
+    )
+
+    with mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ) as mock_block, mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      saved = controller._save_lifecycle.await_handoff(pending_save)
+
+    self.assertTrue(saved)
+    mock_block.assert_called_once_with(result)
+    self.assertIsNone(pending_save.keepalive)
+
+  def test_worker_handoff_releases_keepalive_when_worker_does_not_save(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+    result = object()
+    pending_save = controller_lib._PendingSave(
+        step=9,
+        force=False,
+        result=result,
+        keepalive=(mock.sentinel.state,),
+        dataset_args=None,
+        start_time=0.0,
+    )
+
+    with mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=False,
+    ):
+      saved = controller._save_lifecycle.await_handoff(pending_save)
+
+    self.assertFalse(saved)
+    self.assertIsNone(pending_save.keepalive)
+
+  def test_worker_handoff_rejects_mixed_handoff_ack(self):
+    controller, _ = self._make_controller_for_restore()
+    result = object()
+    pending_save = controller_lib._PendingSave(
+        step=9,
+        force=False,
+        result=result,
+        keepalive=(mock.sentinel.state,),
+        dataset_args=None,
+        start_time=0.0,
+    )
+
+    with mock.patch.object(
+        controller_lib.jax, 'block_until_ready'
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        side_effect=ValueError('mixed votes'),
+    ):
+      with self.assertRaisesRegex(ValueError, 'mixed votes'):
+        controller._save_lifecycle.await_handoff(pending_save)
+
+    self.assertIsNone(pending_save.keepalive)
 
   def test_sync_save_drains_worker_result_before_returning(self):
     controller, _ = self._make_controller_for_restore()
@@ -765,22 +897,156 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
 
       controller._finish_pending_save()
 
-    controller._persistent_checkpoint_manager.save.assert_called_once()
-    call_args = controller._persistent_checkpoint_manager.save.call_args
-    self.assertEqual(call_args.args[0], 9)
-    self.assertIs(call_args.kwargs['args']['dataset'], dataset_arg)
-    self.assertFalse(call_args.kwargs['force'])
+      controller._persistent_checkpoint_manager.save.assert_called_once_with(
+          9,
+          args=args_lib.Composite(dataset=dataset_arg),
+          force=False,
+      )
+      self.assertIsNone(controller._pending_save)
 
-  def test_save_retries_persistent_dataset_until_it_succeeds(self):
+  def test_finish_pending_save_re_raises_completed_handoff_error(self):
     controller, _ = self._make_controller_for_restore()
     state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
     result = object()
-    dataset_arg = mock.Mock()
-    controller._persistent_checkpoint_manager = mock.Mock()
-    controller._persistent_checkpoint_manager.save.side_effect = [
-        ValueError('temporary dataset failure'),
-        None,
-    ]
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        side_effect=RuntimeError('colocated save handoff failed'),
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+      self.assertIsNotNone(controller._pending_save)
+
+      release_handoff.set()
+      self._join_pending_handoff(controller)
+      with self.assertRaisesRegex(
+          RuntimeError, 'colocated save handoff failed'
+      ):
+        controller._finish_pending_save()
+
+    self.assertIsNotNone(controller._pending_save)
+
+  def test_finish_pending_save_waits_for_worker_completion_when_saved(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    worker_wait_result = object()
+    controller._worker_manager.wait_until_finished.return_value = (
+        worker_wait_result
+    )
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ) as mock_block, mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+
+      release_handoff.set()
+      controller._finish_pending_save()
+
+    mock_block.assert_has_calls([
+        mock.call(result),
+        mock.call(worker_wait_result),
+    ])
+    self.assertIsNone(controller._pending_save)
+
+  def test_finish_pending_save_skips_worker_poll_when_not_saved(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=False,
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+
+      release_handoff.set()
+      controller._finish_pending_save()
+
+    controller._worker_manager.wait_until_finished.assert_not_called()
+    self.assertIsNone(controller._pending_save)
+
+  def test_finish_pending_save_releases_keepalive_even_when_worker_fails(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
 
     with mock.patch.object(
         controller, 'should_save', return_value=True
@@ -792,27 +1058,133 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         controller_lib.colocated_utils,
         'require_unanimous_scalar_result',
         return_value=True,
+    ), mock.patch.object(
+        controller,
+        '_worker_wait_until_finished',
+        side_effect=RuntimeError('worker wait failed'),
     ):
-      self.assertTrue(
-          controller.save(
-              9,
-              args_lib.Composite(
-                  state=args_lib.PyTreeSave(item=state),
-                  dataset=dataset_arg,
-              ),
-          )
+      controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
       )
-      with self.assertRaisesRegex(ValueError, 'temporary dataset failure'):
+
+      with self.assertRaisesRegex(RuntimeError, 'worker wait failed'):
         controller._finish_pending_save()
 
-      assert controller._pending_save is not None
-      self.assertIsNone(controller._pending_save.saved)
-      self.assertTrue(controller._finish_pending_save())
+      self.assertIsNone(controller._pending_save)
 
-  def test_finish_pending_save_rejects_non_bool_worker_result(self):
+  def test_wait_until_finished_finishes_pending_save(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, '_finish_pending_save'
+    ) as mock_finish_pending, mock.patch.object(
+        controller, '_worker_wait_until_finished'
+    ) as mock_worker_wait:
+      controller.wait_until_finished()
+
+    mock_finish_pending.assert_called_once_with()
+    mock_worker_wait.assert_called_once_with()
+
+  def test_wait_until_finished_waits_on_persistent_manager_after_pending_save(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+    persistent_manager = mock.Mock()
+    controller._persistent_checkpoint_manager = persistent_manager
+    order = []
+
+    def _finish_pending():
+      order.append('finish_pending')
+
+    persistent_manager.wait_until_finished.side_effect = lambda: order.append(
+        'persistent'
+    )
+
+    with mock.patch.object(
+        controller, '_finish_pending_save', side_effect=_finish_pending
+    ), mock.patch.object(controller, '_worker_wait_until_finished'):
+      controller.wait_until_finished()
+
+    self.assertEqual(order, ['finish_pending', 'persistent'])
+
+  def test_wait_until_finished_skips_worker_poll_when_pending_save_existed(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+
+    def _finish():
+      pass
+
+    with mock.patch.object(
+        controller._save_lifecycle, 'has_pending_save', return_value=True
+    ), mock.patch.object(
+        controller, '_finish_pending_save', side_effect=_finish
+    ), mock.patch.object(
+        controller, '_worker_wait_until_finished'
+    ) as mock_worker_wait:
+      controller.wait_until_finished()
+
+    mock_worker_wait.assert_not_called()
+
+  def test_close_finishes_pending_save(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, '_finish_pending_save'
+    ) as mock_finish_pending, mock.patch.object(
+        controller, '_worker_close'
+    ) as mock_worker_close:
+      controller.close()
+
+    mock_finish_pending.assert_called_once_with()
+    mock_worker_close.assert_called_once_with()
+
+  def test_close_waits_for_pending_save_even_when_worker_close_fails(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, '_finish_pending_save'
+    ) as mock_finish_pending, mock.patch.object(
+        controller,
+        '_worker_close',
+        side_effect=RuntimeError('worker close failed'),
+    ):
+      with self.assertRaisesRegex(RuntimeError, 'worker close failed'):
+        controller.close()
+
+    mock_finish_pending.assert_called_once_with()
+
+  def test_close_calls_worker_close_even_when_pending_save_fails(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller,
+        '_finish_pending_save',
+        side_effect=RuntimeError('finish failed'),
+    ), mock.patch.object(
+        controller, '_worker_close'
+    ) as mock_worker_close:
+      with self.assertRaisesRegex(RuntimeError, 'finish failed'):
+        controller.close()
+
+    mock_worker_close.assert_called_once_with()
+
+  def test_check_for_errors_surfaces_completed_handoff_error_without_polling(
+      self,
+  ):
     controller, _ = self._make_controller_for_restore()
     state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
     result = object()
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
 
     with mock.patch.object(
         controller, 'should_save', return_value=True
@@ -821,18 +1193,307 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     ), mock.patch.object(
         controller, '_get_worker_save_call', return_value=lambda *_: result
     ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
         controller_lib.colocated_utils,
         'require_unanimous_scalar_result',
-        return_value=1,
+        side_effect=RuntimeError('colocated save handoff failed'),
+    ), mock.patch.object(
+        controller, '_worker_wait_until_finished'
+    ) as mock_worker_wait, mock.patch.object(
+        controller_lib.logging, 'exception'
     ):
-      self.assertTrue(
-          controller.save(
-              9,
-              args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
-          )
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
       )
-      with self.assertRaisesRegex(TypeError, 'expected.*bool scalar'):
-        controller._finish_pending_save()
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+      self.assertIsNotNone(controller._pending_save)
+
+      release_handoff.set()
+      self._join_pending_handoff(controller)
+      with self.assertRaisesRegex(
+          RuntimeError, 'colocated save handoff failed'
+      ):
+        controller.check_for_errors()
+
+      mock_worker_wait.assert_not_called()
+
+  def test_close_surfaces_subsequent_worker_error_after_pending_save_error(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller,
+        '_finish_pending_save',
+        side_effect=RuntimeError('finish failed'),
+    ), mock.patch.object(
+        controller,
+        '_worker_close',
+        side_effect=RuntimeError('worker close failed'),
+    ), mock.patch.object(
+        controller_lib.logging, 'exception'
+    ) as mock_log:
+      with self.assertRaisesRegex(RuntimeError, 'finish failed'):
+        controller.close()
+
+    mock_log.assert_called_once()
+    self.assertIn('worker close failed', str(mock_log.call_args))
+
+  def test_close_executes_worker_and_persistent_close_even_on_failure(self):
+    controller, _ = self._make_controller_for_restore()
+    persistent_manager = mock.Mock()
+    controller._persistent_checkpoint_manager = persistent_manager
+    persistent_manager.close.side_effect = RuntimeError('persistent failed')
+
+    with mock.patch.object(
+        controller,
+        '_finish_pending_save',
+        side_effect=RuntimeError('finish failed'),
+    ), mock.patch.object(
+        controller,
+        '_worker_close',
+        side_effect=RuntimeError('worker close failed'),
+    ), mock.patch.object(
+        controller_lib.logging, 'exception'
+    ) as mock_log:
+      with self.assertRaisesRegex(RuntimeError, 'finish failed'):
+        controller.close()
+
+    persistent_manager.close.assert_called_once_with()
+    self.assertEqual(mock_log.call_count, 2)
+    logged = [str(call) for call in mock_log.call_args_list]
+    self.assertTrue(any('persistent failed' in msg for msg in logged))
+    self.assertTrue(any('worker close failed' in msg for msg in logged))
+
+  def test_close_waits_for_handoff_even_when_worker_close_fails(self):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ), mock.patch.object(
+        controller,
+        '_worker_wait_until_finished',
+    ) as mock_worker_wait, mock.patch.object(
+        controller,
+        '_worker_close',
+        side_effect=RuntimeError('worker close failed'),
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+      assert controller._pending_save is not None
+      self.assertIsNotNone(controller._pending_save.keepalive)
+
+      close_errors = []
+      close_done = threading.Event()
+
+      def _close():
+        try:
+          controller.close()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          close_errors.append(e)
+        finally:
+          close_done.set()
+
+      close_thread = threading.Thread(target=_close)
+      close_thread.start()
+      self.assertFalse(close_done.wait(timeout=0.1))
+      mock_worker_wait.assert_not_called()
+
+      release_handoff.set()
+      close_thread.join(timeout=5)
+      self.assertFalse(close_thread.is_alive())
+
+    self.assertLen(close_errors, 1)
+    self.assertIsInstance(close_errors[0], RuntimeError)
+    self.assertIn('worker close failed', str(close_errors[0]))
+    mock_worker_wait.assert_called_once_with()
+    self.assertIsNone(controller._pending_save)
+
+  def test_close_waits_for_handoff_and_persistent_close_even_on_worker_error(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    persistent_manager = mock.Mock()
+    controller._persistent_checkpoint_manager = persistent_manager
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ), mock.patch.object(
+        controller,
+        '_worker_wait_until_finished',
+    ) as mock_worker_wait, mock.patch.object(
+        controller,
+        '_worker_close',
+        side_effect=RuntimeError('worker close failed'),
+    ):
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+      assert controller._pending_save is not None
+      self.assertIsNotNone(controller._pending_save.keepalive)
+
+      close_errors = []
+      close_done = threading.Event()
+
+      def _close():
+        try:
+          controller.close()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          close_errors.append(e)
+        finally:
+          close_done.set()
+
+      close_thread = threading.Thread(target=_close)
+      close_thread.start()
+      self.assertFalse(close_done.wait(timeout=0.1))
+      mock_worker_wait.assert_not_called()
+      persistent_manager.close.assert_not_called()
+
+      release_handoff.set()
+      close_thread.join(timeout=5)
+      self.assertFalse(close_thread.is_alive())
+
+    self.assertLen(close_errors, 1)
+    self.assertIsInstance(close_errors[0], RuntimeError)
+    self.assertIn('worker close failed', str(close_errors[0]))
+    mock_worker_wait.assert_called_once_with()
+    persistent_manager.close.assert_called_once_with()
+    self.assertIsNone(controller._pending_save)
+
+  def test_close_waits_for_handoff_and_worker_close_even_on_persistent_error(
+      self,
+  ):
+    controller, _ = self._make_controller_for_restore()
+    state = {'x': jax.device_put(jnp.arange(1, dtype=jnp.int32))}
+    result = object()
+    persistent_manager = mock.Mock()
+    controller._persistent_checkpoint_manager = persistent_manager
+    persistent_manager.close.side_effect = RuntimeError('persistent failed')
+    handoff_started = threading.Event()
+    release_handoff = threading.Event()
+
+    def _block_until_ready(value):
+      if value is result:
+        handoff_started.set()
+        if not release_handoff.wait(timeout=5):
+          raise TimeoutError('handoff test did not release worker result')
+      return value
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=True
+    ), mock.patch.object(
+        controller, '_prepare_state_for_save', return_value=state
+    ), mock.patch.object(
+        controller, '_get_worker_save_call', return_value=lambda *_: result
+    ), mock.patch.object(
+        controller_lib.jax,
+        'block_until_ready',
+        side_effect=_block_until_ready,
+    ), mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ), mock.patch.object(
+        controller,
+        '_worker_wait_until_finished',
+    ) as mock_worker_wait, mock.patch.object(
+        controller,
+        '_worker_close',
+    ) as mock_worker_close:
+      saved = controller.save(
+          9,
+          args_lib.Composite(state=args_lib.PyTreeSave(item=state)),
+      )
+      self.assertTrue(saved)
+      self.assertTrue(handoff_started.wait(timeout=5))
+      assert controller._pending_save is not None
+      self.assertIsNotNone(controller._pending_save.keepalive)
+
+      close_errors = []
+      close_done = threading.Event()
+
+      def _close():
+        try:
+          controller.close()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          close_errors.append(e)
+        finally:
+          close_done.set()
+
+      close_thread = threading.Thread(target=_close)
+      close_thread.start()
+      self.assertFalse(close_done.wait(timeout=0.1))
+      mock_worker_wait.assert_not_called()
+      mock_worker_close.assert_not_called()
+
+      release_handoff.set()
+      close_thread.join(timeout=5)
+      self.assertFalse(close_thread.is_alive())
+
+    self.assertLen(close_errors, 1)
+    self.assertIsInstance(close_errors[0], RuntimeError)
+    self.assertIn('persistent failed', str(close_errors[0]))
+    mock_worker_wait.assert_called_once_with()
+    mock_worker_close.assert_called_once_with()
+    self.assertIsNone(controller._pending_save)
 
   def test_prepare_state_for_save_does_not_block_on_colocated_state(self):
     controller, _ = self._make_controller_for_restore()
@@ -860,29 +1521,115 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
   def test_is_saving_in_progress_returns_worker_vote(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._worker_manager.is_saving_in_progress.return_value = object()
+    result = object()
+    controller._worker_manager.is_saving_in_progress.return_value = result
 
     with mock.patch.object(
         controller_lib.colocated_utils,
-        'require_unanimous_scalar_result',
-        return_value=False,
-    ) as mock_unanimous:
+        'scalar_result_values',
+        return_value=[False, False],
+    ) as mock_values:
       in_progress = controller.is_saving_in_progress()
 
     self.assertFalse(in_progress)
     controller._worker_manager.is_saving_in_progress.assert_called_once_with(
         controller._dummy
     )
-    mock_unanimous.assert_called_once()
+    mock_values.assert_called_once_with(
+        result, op_name='is_saving_in_progress'
+    )
+
+  def test_is_saving_in_progress_allows_mixed_worker_status(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    result = object()
+    controller._worker_manager.is_saving_in_progress.return_value = result
+
+    with mock.patch.object(
+        controller_lib.colocated_utils,
+        'scalar_result_values',
+        return_value=[True, True, False, False, False, False, False, True],
+    ):
+      self.assertTrue(controller.is_saving_in_progress())
+
+  def test_is_saving_in_progress_rejects_non_bool_worker_status(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.is_saving_in_progress.return_value = object()
+
+    with mock.patch.object(
+        controller_lib.colocated_utils,
+        'scalar_result_values',
+        return_value=[False, 1],
+    ):
+      with self.assertRaisesRegex(TypeError, 'expected worker results'):
+        controller.is_saving_in_progress()
 
   def test_is_saving_in_progress_includes_pending_save(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
-    controller._pending_save = mock.Mock()
+    controller._pending_save = controller_lib._PendingSave(
+        step=9,
+        force=False,
+        result=mock.sentinel.result,
+        keepalive=(mock.sentinel.state,),
+        dataset_args=None,
+        start_time=0.0,
+    )
 
     self.assertTrue(controller.is_saving_in_progress())
 
     controller._worker_manager.is_saving_in_progress.assert_not_called()
+
+  def test_is_saving_in_progress_advances_dataset_save_after_handoff(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._pending_save = controller_lib._PendingSave(
+        step=9,
+        force=True,
+        result=mock.sentinel.result,
+        keepalive=None,
+        dataset_args=args_lib.Composite(dataset=mock.sentinel.dataset),
+        start_time=0.0,
+        handoff_done=True,
+        handoff_saved=True,
+    )
+
+    with mock.patch.object(
+        controller, '_save_persistent_dataset'
+    ) as mock_save_dataset, mock.patch.object(
+        controller, '_worker_is_saving_in_progress', return_value=False
+    ) as mock_worker_in_progress:
+      self.assertFalse(controller.is_saving_in_progress())
+
+    mock_save_dataset.assert_called_once_with(
+        9,
+        args_lib.Composite(dataset=mock.sentinel.dataset),
+        force=True,
+    )
+    mock_worker_in_progress.assert_called_once_with()
+    assert controller._pending_save is not None
+    self.assertTrue(controller._pending_save.saved)
+
+  def test_is_saving_in_progress_polls_worker_after_keepalive_handoff(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._pending_save = controller_lib._PendingSave(
+        step=9,
+        force=False,
+        result=mock.sentinel.result,
+        keepalive=None,
+        dataset_args=None,
+        start_time=0.0,
+        handoff_done=True,
+        handoff_saved=True,
+        saved=True,
+    )
+
+    with mock.patch.object(
+        controller, '_worker_is_saving_in_progress', return_value=False
+    ) as mock_worker_in_progress:
+      self.assertFalse(controller.is_saving_in_progress())
+
+    mock_worker_in_progress.assert_called_once_with()
 
   def test_wait_until_finished_blocks_on_worker_result(self):
     controller, _ = self._make_controller_for_restore()
@@ -923,7 +1670,12 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         mesh, jax.sharding.PartitionSpec()
     )
     restored_cpu_state = {
-        'params': {
+        'metadata': {
+            'step': jax.device_put(
+                jnp.asarray(7, dtype=jnp.int32), cpu_sharding
+            )
+        },
+        'state': {
             'weights': jax.device_put(
                 jnp.arange(2, dtype=jnp.float32),
                 cpu_sharding,
@@ -954,6 +1706,14 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
 
     controller._worker_manager.wait_until_finished.assert_not_called()
     controller._worker_manager.restore_infer.assert_called_once()
+    specialize_kwargs = (
+        controller._worker_manager.restore_infer.specialize.call_args.kwargs
+    )
+    self.assertIn('in_specs', specialize_kwargs)
+    self.assertEqual(
+        specialize_kwargs['devices'], controller._state_cpu_devices
+    )
+    self.assertNotIn('out_specs_fn', specialize_kwargs)
     _, partial_restore_arg = (
         controller._worker_manager.restore_infer.call_args.args
     )
@@ -1213,9 +1973,9 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         controller, return_value=restored_cpu_state
     )
 
-    def _specialize_fn(*, out_specs_fn, devices):
+    def _specialize_fn(*, in_specs, devices):
+      captured['in_specs'] = in_specs
       captured['devices'] = devices
-      captured['out_specs'] = out_specs_fn(None)
       return controller._worker_manager.restore_infer
 
     controller._worker_manager.restore_infer.specialize.side_effect = (
@@ -1233,12 +1993,15 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         default_item_mode=True,
     )
 
-    self.assertIsNone(captured['out_specs']['opt_state'][0])
+    self.assertIn('in_specs', captured)
     self.assertEqual(captured['devices'], controller._state_cpu_devices)
     self.assertEqual(
         jax.tree.structure(result), jax.tree.structure(template_state)
     )
     self.assertEqual(result['opt_state'][0], EmptyState())
+    np.testing.assert_array_equal(
+        np.asarray(result['opt_state'][1]['count']), 7
+    )
     np.testing.assert_array_equal(
         np.asarray(result['weights']), np.arange(2, dtype=np.float32)
     )
@@ -1444,6 +2207,35 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         np.asarray(result['weights']), np.arange(2, dtype=np.float32)
     )
 
+  def test_restore_does_not_retry_type_error(self):
+    controller, sharding = self._make_controller_for_restore()
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+    first_restore_call = mock.Mock(side_effect=TypeError('bad restore type'))
+    controller._worker_manager.restore_infer.specialize.side_effect = None
+    controller._worker_manager.restore_infer.specialize.return_value = (
+        first_restore_call
+    )
+
+    with self.assertRaisesRegex(TypeError, 'bad restore type'):
+      controller.restore(
+          7,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+    controller._worker_manager.restore_infer.specialize.assert_called_once()
+    first_restore_call.assert_called_once()
+
   def test_restore_does_not_retry_non_retriable_error(self):
     controller, sharding = self._make_controller_for_restore()
     template_state = {
@@ -1474,3 +2266,4 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
 
 if __name__ == '__main__':
   absltest.main()
+

@@ -39,7 +39,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.manager._save_concurrent_gb = None
     self.manager._restore_concurrent_gb = None
 
-  def test_save_delegates_to_rcm_and_packs_result(self):
+  def test_save_delegates_to_rcm_and_packs_handoff_ack(self):
     state = {'weights': np.arange(4)}
     step_array = jnp.asarray(7, dtype=np.int32)
     force_array = jnp.asarray(True)
@@ -61,6 +61,24 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.assertIsInstance(kwargs['args'], args_lib.Composite)
     self.assertIsInstance(kwargs['args']['state'], args_lib.PyTreeSave)
     self.assertIs(kwargs['args']['state'].item, state)
+    mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
+
+  def test_save_returns_handoff_ack_when_local_rcm_does_not_save(self):
+    state = {'weights': np.arange(4)}
+    step_array = jnp.asarray(7, dtype=np.int32)
+    force_array = jnp.asarray(False)
+    packed_result = object()
+    self.manager._rcm.save.return_value = False
+
+    with mock.patch.object(
+        sidecar_lib.colocated_utils,
+        'make_scalar_on_like',
+        return_value=packed_result,
+    ) as mock_make_scalar:
+      result = self.manager.save(step_array, force_array, state)
+
+    self.assertIs(result, packed_result)
+    self.manager._rcm.save.assert_called_once()
     mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
 
   def test_save_skips_protocol_no_checkpoint_sentinel(self):
@@ -134,6 +152,16 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.assertIsNone(args[1]['state'].item)
     self.assertIsNone(args[1]['state'].restore_args)
     self.assertTrue(args[1]['state'].partial_restore)
+
+  def test_restore_infer_unwraps_state_mapping(self):
+    restored_state = {'weights': np.arange(2, dtype=np.float32)}
+    self.manager._rcm.restore.return_value = {'state': restored_state}
+
+    result = self.manager.restore_infer(
+        jnp.asarray(5, dtype=np.int32), jnp.asarray(True)
+    )
+
+    self.assertEqual(result, restored_state)
 
   def test_restore_infer_negative_step_requests_latest(self):
     self.manager._rcm.restore.return_value = args_lib.Composite(state={'x': 1})
