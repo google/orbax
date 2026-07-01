@@ -17,6 +17,7 @@
 from collections.abc import Mapping
 import dataclasses
 import math
+import threading
 import time
 from typing import Any, Callable
 
@@ -27,9 +28,6 @@ import jax.numpy as jnp
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.handlers import handler_registration
-from orbax.checkpoint._src.handlers.pytree_checkpoint_handler import (
-    PyTreeCheckpointHandler,
-)
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.multihost import colocated_transport
@@ -99,7 +97,7 @@ def _run_lifecycle_ops(*ops: Callable[[], None]) -> None:
         first_error = e
       else:
         logging.exception(
-            'Additional colocated checkpoint lifecycle operation failed.'
+            'Additional colocated checkpoint lifecycle operation failed: %s', e
         )
   if first_error is not None:
     raise first_error
@@ -120,10 +118,6 @@ def _validate_colocated_options(options: Any) -> None:
     )
 
 
-class _MissingShapeDtypeError(ValueError):
-  """Raised when a restore spec source cannot provide shape/dtype."""
-
-
 @dataclasses.dataclass(frozen=True)
 class _ExpectedLeaf:
   """Metadata extracted from a state tree's expected leaf layout."""
@@ -139,10 +133,235 @@ class _PendingSave:
   step: int
   force: bool
   result: Any
-  keepalive: tuple[Any, ...]
+  keepalive: tuple[Any, ...] | None
   dataset_args: args_lib.Composite | None
   start_time: float
+  handoff_thread: threading.Thread | None = None
+  handoff_done: bool = False
+  handoff_saved: bool | None = None
+  handoff_error: BaseException | None = None
   saved: bool | None = None
+  drain_lock: threading.Lock = dataclasses.field(
+      default_factory=threading.Lock, init=False, repr=False
+  )
+
+
+class _ControllerSaveHandoffLifecycle:
+  """Owns Pathways controller-side handoff state for one worker save.
+
+  Worker sidecars already delegate checkpoint I/O and async finalization to the
+  regular Orbax/RCM save path. This helper only tracks the controller-owned
+  colocated call result and payload anchors until the sidecar reports that it
+  accepted ownership of the save payload.
+  """
+
+  def __init__(
+      self,
+      *,
+      worker_wait_until_finished: Callable[[], None],
+      save_persistent_dataset: Callable[..., None],
+  ) -> None:
+    self._lock = threading.RLock()
+    self._pending_save: _PendingSave | None = None
+    self._worker_wait_until_finished = worker_wait_until_finished
+    self._save_persistent_dataset = save_persistent_dataset
+
+  @property
+  def pending_save(self) -> _PendingSave | None:
+    with self._lock:
+      return self._pending_save
+
+  @pending_save.setter
+  def pending_save(self, pending_save: _PendingSave | None) -> None:
+    with self._lock:
+      self._pending_save = pending_save
+
+  def has_pending_save(self) -> bool:
+    with self._lock:
+      return self._pending_save is not None
+
+  def has_undrained_pending_save(self) -> bool:
+    with self._lock:
+      pending_save = self._pending_save
+      return pending_save is not None and pending_save.saved is None
+
+  def start_handoff_drain(self, pending_save: _PendingSave) -> None:
+    """Publishes `pending_save` and starts its background handoff drain."""
+
+    def _drain_handoff() -> None:
+      try:
+        saved = self.await_handoff(pending_save)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception(
+            'Pathways colocated MTC save step=%s: async worker handoff failed.',
+            pending_save.step,
+        )
+        self.release_keepalive(pending_save, 'sidecar save handoff failed')
+        handoff_error = e.with_traceback(None)
+        with self._lock:
+          pending_save.handoff_error = handoff_error
+          pending_save.handoff_done = True
+        return
+      with self._lock:
+        pending_save.handoff_saved = saved
+        pending_save.handoff_done = True
+        if not saved or pending_save.dataset_args is None:
+          pending_save.saved = saved
+
+    thread = threading.Thread(
+        name=f'pathways_mtc_save_handoff_{pending_save.step}',
+        target=_drain_handoff,
+        daemon=True,
+    )
+    with self._lock:
+      self._pending_save = pending_save
+      pending_save.handoff_thread = thread
+    thread.start()
+
+  def await_handoff(self, pending_save: _PendingSave) -> bool:
+    """Waits for sidecar save result and releases controller anchors."""
+    block_start = time.time()
+    logging.vlog(
+        1,
+        'Pathways colocated MTC save step=%s: draining async worker handoff.',
+        pending_save.step,
+    )
+    jax.block_until_ready(pending_save.result)
+    logging.vlog(
+        1,
+        'Pathways colocated MTC save step=%s: async worker handoff ready '
+        'elapsed=%.3fs total_elapsed=%.3fs.',
+        pending_save.step,
+        time.time() - block_start,
+        time.time() - pending_save.start_time,
+    )
+    try:
+      value = colocated_utils.require_unanimous_scalar_result(
+          pending_save.result, op_name='save_handoff'
+      )
+      if not isinstance(value, bool):
+        raise TypeError(
+            'save_handoff: expected unanimous worker result to be a bool'
+            f' scalar, got {type(value).__name__}: {value!r}.'
+        )
+      return value
+    finally:
+      self.release_keepalive(
+          pending_save, 'sidecar save result accepted ownership'
+      )
+
+  def join_handoff(self, pending_save: _PendingSave, *, wait: bool) -> bool:
+    """Returns whether the pending save handoff has completed."""
+    handoff_thread = pending_save.handoff_thread
+    if handoff_thread is not None:
+      if wait:
+        handoff_thread.join()
+      elif handoff_thread.is_alive():
+        return False
+    with self._lock:
+      return pending_save.handoff_done
+
+  def drain(self, *, wait: bool = True) -> bool | None:
+    """Drains a pending worker save result, if one exists."""
+    with self._lock:
+      pending_save = self._pending_save
+    if pending_save is None:
+      return None
+    return self._drain(pending_save, wait=wait)
+
+  def _drain(self, pending_save: _PendingSave, *, wait: bool) -> bool | None:
+    """Drains `pending_save` without re-reading current lifecycle state."""
+    with pending_save.drain_lock:
+      if pending_save.saved is not None:
+        return pending_save.saved
+      if not self.join_handoff(pending_save, wait=wait):
+        return None
+      if pending_save.handoff_error is not None:
+        raise pending_save.handoff_error
+      saved = pending_save.handoff_saved
+      if saved is None:
+        return None
+      if saved:
+        self._save_persistent_dataset(
+            pending_save.step,
+            pending_save.dataset_args,
+            force=pending_save.force,
+        )
+      with self._lock:
+        pending_save.saved = saved
+      logging.vlog(
+          1,
+          'Pathways colocated MTC save step=%s: drained async save saved=%s.',
+          pending_save.step,
+          saved,
+      )
+      return saved
+
+  def check_handoff_error(self) -> None:
+    """Surfaces completed handoff errors without starting finalization work."""
+    with self._lock:
+      pending_save = self._pending_save
+    if pending_save is None:
+      return
+    if not self.join_handoff(pending_save, wait=False):
+      return
+    with self._lock:
+      handoff_error = pending_save.handoff_error
+    if handoff_error is not None:
+      raise handoff_error
+
+  def release_keepalive(
+      self, pending_save: _PendingSave, reason: str
+  ) -> None:
+    """Releases controller payload anchors for the pending worker save."""
+    with self._lock:
+      if pending_save.keepalive is None:
+        return
+      pending_save.keepalive = None
+    logging.info(
+        'Pathways colocated MTC save step=%s: released controller async save '
+        'payload anchors: %s.',
+        pending_save.step,
+        reason,
+    )
+
+  def finish(self) -> bool | None:
+    """Finishes pending worker async save work and releases payload anchors."""
+    with self._lock:
+      pending_save = self._pending_save
+    if pending_save is None:
+      return None
+    saved = self._drain(pending_save, wait=True)
+    try:
+      if pending_save.saved:
+        wait_start = time.time()
+        logging.info(
+            'Pathways colocated MTC save step=%s: waiting for worker-side'
+            ' async save finalization.',
+            pending_save.step,
+        )
+        self._worker_wait_until_finished()
+        logging.info(
+            'Pathways colocated MTC save step=%s: worker-side async save'
+            ' finalizer wait returned wait_elapsed=%.3fs'
+            ' pending_save_age=%.3fs. This is controller observation time, not'
+            ' payload anchor lifetime or worker save duration.',
+            pending_save.step,
+            time.time() - wait_start,
+            time.time() - pending_save.start_time,
+        )
+      return saved
+    finally:
+      step = pending_save.step
+      self.release_keepalive(pending_save, 'pending save lifecycle finished')
+      with self._lock:
+        if self._pending_save is pending_save:
+          self._pending_save = None
+      logging.info(
+          'Pathways colocated MTC save step=%s: finished pending async save'
+          ' lifecycle.',
+          step,
+      )
 
 
 def _step_arr_on_state_devices(step: int, state: PyTree) -> jax.Array:
@@ -205,32 +424,69 @@ def _single_mapping_child(tree: PyTree) -> Any | None:
   return None
 
 
+def _state_mapping_child(tree: PyTree) -> Any | None:
+  if isinstance(tree, Mapping) and _STATE_ITEM_NAME in tree:
+    return tree[_STATE_ITEM_NAME]
+  return None
+
+
 def _scalar_spec_like(
     arg_spec: jax.ShapeDtypeStruct, dtype: jnp.dtype
 ) -> jax.ShapeDtypeStruct:
   return jax.ShapeDtypeStruct((), dtype=dtype, sharding=arg_spec.sharding)
 
 
+def _call_worker_restore_infer(
+    worker_manager: Any,
+    *,
+    state_cpu_devices: tuple[jax.Device, ...],
+    step_arr: jax.Array,
+    partial_restore_arr: jax.Array,
+) -> PyTree:
+  """Calls worker restore inference with runtime-inferred output specs."""
+
+  in_specs = (
+      (
+          colocated_transport.shape_dtype_struct_for_array(step_arr),
+          colocated_transport.shape_dtype_struct_for_array(partial_restore_arr),
+      ),
+      {},
+  )
+  restore_call = worker_manager.restore_infer.specialize(
+      in_specs=in_specs,
+      devices=state_cpu_devices,
+  )
+  return _invoke_restore_call_with_retry(
+      restore_call, step_arr, partial_restore_arr
+  )
+
+
+def _invoke_restore_call_with_retry(
+    restore_call: Callable[..., PyTree],
+    step_arr: jax.Array,
+    partial_restore_arr: jax.Array,
+) -> PyTree:
+  """Invokes restore and retries once for transient colocated failures."""
+  try:
+    result = restore_call(step_arr, partial_restore_arr)
+    jax.block_until_ready(result)
+    return result
+  except _RETRIABLE_COLOCATED_CALL_EXCEPTIONS as e:
+    logging.vlog(
+        1,
+        'restore_infer dispatch failed (%s: %s); retrying once',
+        type(e).__name__,
+        e,
+    )
+    result = restore_call(step_arr, partial_restore_arr)
+    jax.block_until_ready(result)
+    return result
+
+
 def _serialize_for_colocated_transport(tree: PyTree) -> PyTree:
   """Canonicalizes a PyTree before it crosses the colocated boundary."""
   return tree_metadata.serialize_tree(
       tree, tree_metadata.PYTREE_METADATA_OPTIONS
-  )
-
-
-def _uses_legacy_empty_namedtuple_restore(value: Any) -> bool:
-  """Returns whether legacy metadata restore represents `value` as `None`."""
-  return tree_utils.isinstance_of_namedtuple(value) and not value
-
-
-def _to_worker_restore_structure(tree: PyTree) -> PyTree:
-  """Matches worker-side bare restore for legacy empty namedtuples."""
-  # Sidecars restore with bare PyTreeRestore(), so legacy metadata restore does
-  # not have the caller item needed to reconstruct zero-leaf namedtuples.
-  return jax.tree.map(
-      lambda x: None if _uses_legacy_empty_namedtuple_restore(x) else x,
-      tree,
-      is_leaf=_uses_legacy_empty_namedtuple_restore,
   )
 
 
@@ -510,12 +766,23 @@ class ColocatedController:
 
     self._worker_save_call = None
     self._worker_save_call_in_specs = None
-    self._pending_save = None
+    self._save_lifecycle = _ControllerSaveHandoffLifecycle(
+        worker_wait_until_finished=self._worker_wait_until_finished,
+        save_persistent_dataset=self._save_persistent_dataset,
+    )
 
   @property
   def directory(self) -> epath.Path:
     """Returns the local checkpoint directory."""
     return self._local_directory
+
+  @property
+  def _pending_save(self) -> _PendingSave | None:
+    return self._save_lifecycle.pending_save
+
+  @_pending_save.setter
+  def _pending_save(self, pending_save: _PendingSave | None) -> None:
+    self._save_lifecycle.pending_save = pending_save
 
   def latest_step(self) -> int | None:
     """Returns the highest step present on every worker, or `None`."""
@@ -578,13 +845,10 @@ class ColocatedController:
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether any async save work is in flight."""
-    if self._pending_save is not None:
+    self._save_lifecycle.drain(wait=False)
+    if self._save_lifecycle.has_undrained_pending_save():
       return True
-    result = self._worker_manager.is_saving_in_progress(self._dummy)
-    jax.block_until_ready(result)
-    worker_value = colocated_utils.require_unanimous_scalar_result(
-        result, op_name='is_saving_in_progress'
-    )
+    worker_value = self._worker_is_saving_in_progress()
     persistent_value = (
         self._persistent_checkpoint_manager is not None
         and self._persistent_checkpoint_manager.is_saving_in_progress()
@@ -614,17 +878,22 @@ class ColocatedController:
     if not force:
       should_save_start = time.time()
       should_save = self.should_save(step)
-      logging.info(
+      logging.vlog(
+          1,
           'Pathways colocated MTC save step=%s: should_save=%s elapsed=%.3fs.',
           step,
           should_save,
           time.time() - should_save_start,
       )
       if not should_save:
+        self._save_lifecycle.drain(wait=False)
         return False
 
+    dataset_args = self._persistent_dataset_args(args)
+    self._validate_persistent_dataset_args(dataset_args)
+
     pending_start = time.time()
-    had_pending_save = self._pending_save is not None
+    had_pending_save = self._save_lifecycle.has_pending_save()
     self._finish_pending_save()
     if had_pending_save:
       logging.info(
@@ -640,7 +909,8 @@ class ColocatedController:
     )
     prepare_start = time.time()
     state = self._prepare_state_for_save(step, args)
-    logging.info(
+    logging.vlog(
+        1,
         'Pathways colocated MTC save step=%s: prepared state elapsed=%.3fs.',
         step,
         time.time() - prepare_start,
@@ -651,7 +921,8 @@ class ColocatedController:
     )
     specialize_start = time.time()
     save_call = self._get_worker_save_call(step_arr, force_arr, state)
-    logging.info(
+    logging.vlog(
+        1,
         'Pathways colocated MTC save step=%s: worker save call ready '
         'elapsed=%.3fs.',
         step,
@@ -659,20 +930,22 @@ class ColocatedController:
     )
     dispatch_start = time.time()
     result = save_call(step_arr, force_arr, state)
-    logging.info(
+    logging.vlog(
+        1,
         'Pathways colocated MTC save step=%s: save_call returned '
         'elapsed=%.3fs.',
         step,
         time.time() - dispatch_start,
     )
-    self._pending_save = _PendingSave(
+    pending_save = _PendingSave(
         step=step,
         force=force,
         result=result,
         keepalive=(step_arr, force_arr, state),
-        dataset_args=self._persistent_dataset_args(args),
+        dataset_args=dataset_args,
         start_time=save_start,
     )
+    self._start_pending_save_handoff_drain(pending_save)
     if not self._enable_async_checkpointing:
       logging.info(
           'Pathways colocated MTC save step=%s: async checkpointing disabled; '
@@ -746,29 +1019,16 @@ class ColocatedController:
         transport_target_shardings,
     )
     step_arr = _step_arr_on_state_devices(resolved_step, cpu_target_shardings)
-    out_specs = self._restore_out_specs(
-        resolved_step, state_restore_args, transport_target_shardings
-    )
     partial_restore_arr = jax.device_put(
         jnp.array(state_restore_args.partial_restore, dtype=jnp.bool_),
         step_arr.sharding,
     )
-    restore_call = self._worker_manager.restore_infer.specialize(
-        out_specs_fn=lambda *_unused_specs: out_specs,
-        devices=self._state_cpu_devices,
+    result = _call_worker_restore_infer(
+        self._worker_manager,
+        state_cpu_devices=self._state_cpu_devices,
+        step_arr=step_arr,
+        partial_restore_arr=partial_restore_arr,
     )
-    try:
-      result = restore_call(step_arr, partial_restore_arr)
-      jax.block_until_ready(result)
-    except _RETRIABLE_COLOCATED_CALL_EXCEPTIONS as e:
-      logging.vlog(
-          1,
-          'restore_infer dispatch failed (%s: %s); retrying once',
-          type(e).__name__,
-          e,
-      )
-      result = restore_call(step_arr, partial_restore_arr)
-      jax.block_until_ready(result)
     # Keep alive anchor to prevent aggressive garbage collection during async
     # restore.
     del step_arr, partial_restore_arr
@@ -838,7 +1098,7 @@ class ColocatedController:
 
   def wait_until_finished(self) -> None:
     """Blocks until persistent and worker-side async save work finishes."""
-    pending_save_exists = self._pending_save is not None
+    pending_save_exists = self._save_lifecycle.has_pending_save()
     ops = [self._finish_pending_save]
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.wait_until_finished)
@@ -848,7 +1108,7 @@ class ColocatedController:
 
   def check_for_errors(self) -> None:
     """Raises async checkpoint errors from persistent and worker managers."""
-    ops = [self._drain_pending_save]
+    ops = [self._check_pending_save_handoff_error]
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.check_for_errors)
     ops.append(self._worker_check_for_errors)
@@ -863,8 +1123,26 @@ class ColocatedController:
     _run_lifecycle_ops(*ops)
 
   def _worker_wait_until_finished(self) -> None:
+    """Waits for worker-side checkpoint manager operations to finish."""
     result = self._worker_manager.wait_until_finished(self._dummy)
     jax.block_until_ready(result)
+
+  def _worker_is_saving_in_progress(self) -> bool:
+    """Returns whether worker-side checkpoint manager is saving."""
+    result = self._worker_manager.is_saving_in_progress(self._dummy)
+    jax.block_until_ready(result)
+    values = colocated_utils.scalar_result_values(
+        result, op_name='is_saving_in_progress'
+    )
+    non_bool_values = [value for value in values if not isinstance(value, bool)]
+    if non_bool_values:
+      raise TypeError(
+          'is_saving_in_progress: expected worker results to be bool scalars, '
+          f'got {[(type(value).__name__, value) for value in non_bool_values]}.'
+      )
+    # This is local worker status, not a global consensus decision: mixed
+    # values simply mean some sidecars are still finalizing async save work.
+    return any(values)
 
   def _worker_check_for_errors(self) -> None:
     result = self._worker_manager.check_for_errors(self._dummy)
@@ -969,97 +1247,39 @@ class ColocatedController:
     """Saves persistent dataset if present in args."""
     if dataset_args is None:
       return
-    if self._persistent_checkpoint_manager is None:
-      raise NotImplementedError(
-          'colocated save does not support dataset state without a '
-          'persistent_directory.'
-      )
+    self._validate_persistent_dataset_args(dataset_args)
+    assert self._persistent_checkpoint_manager is not None
     self._persistent_checkpoint_manager.save(
         step,
         args=dataset_args,
         force=force,
     )
 
-  def _drain_pending_save(self) -> bool | None:
-    """Drains a pending worker save result, if one exists."""
-    pending_save = self._pending_save
-    if pending_save is None:
-      return None
-    if pending_save.saved is not None:
-      return pending_save.saved
-    block_start = time.time()
-    logging.info(
-        'Pathways colocated MTC save step=%s: draining async worker result.',
-        pending_save.step,
+  def _validate_persistent_dataset_args(
+      self,
+      dataset_args: args_lib.Composite | None,
+  ) -> None:
+    """Validates persistent dataset save configuration before worker dispatch."""
+    if dataset_args is None or self._persistent_checkpoint_manager is not None:
+      return
+    raise NotImplementedError(
+        'colocated save does not support dataset state without a '
+        'persistent_directory.'
     )
-    jax.block_until_ready(pending_save.result)
-    logging.info(
-        'Pathways colocated MTC save step=%s: async worker result ready '
-        'elapsed=%.3fs total_elapsed=%.3fs.',
-        pending_save.step,
-        time.time() - block_start,
-        time.time() - pending_save.start_time,
-    )
-    value = colocated_utils.require_unanimous_scalar_result(
-        pending_save.result, op_name='save'
-    )
-    if not isinstance(value, bool):
-      raise TypeError(
-          'save: expected unanimous worker result to be a bool scalar, got '
-          f'{type(value).__name__}: {value!r}.'
-      )
-    saved = value
-    if saved:
-      # Mark the pending save as drained only after the persistent dataset save
-      # succeeds. If this raises, the next lifecycle call retries the dataset
-      # save instead of silently treating the checkpoint as fully complete.
-      self._save_persistent_dataset(
-          pending_save.step,
-          pending_save.dataset_args,
-          force=pending_save.force,
-      )
-    pending_save.saved = saved
-    logging.info(
-        'Pathways colocated MTC save step=%s: drained async save saved=%s.',
-        pending_save.step,
-        saved,
-    )
-    return saved
+
+  def _start_pending_save_handoff_drain(
+      self, pending_save: _PendingSave
+  ) -> None:
+    self._save_lifecycle.start_handoff_drain(pending_save)
+
+  def _drain_pending_save(self, *, wait: bool = True) -> bool | None:
+    return self._save_lifecycle.drain(wait=wait)
+
+  def _check_pending_save_handoff_error(self) -> None:
+    self._save_lifecycle.check_handoff_error()
 
   def _finish_pending_save(self) -> bool | None:
-    """Finishes pending worker async save work and releases payload anchors."""
-    saved = self._drain_pending_save()
-    pending_save = self._pending_save
-    if pending_save is None:
-      return saved
-    if pending_save.saved:
-      wait_start = time.time()
-      logging.info(
-          'Pathways colocated MTC save step=%s: waiting for worker-side async '
-          'save finalization before releasing payload anchors.',
-          pending_save.step,
-      )
-      self._worker_wait_until_finished()
-      logging.info(
-          'Pathways colocated MTC save step=%s: worker-side async save '
-          'finalizer wait returned wait_elapsed=%.3fs '
-          'payload_anchor_age=%.3fs. This is controller observation time, not '
-          'worker save duration.',
-          pending_save.step,
-          time.time() - wait_start,
-          time.time() - pending_save.start_time,
-      )
-    step = pending_save.step
-    # Release keep-alive anchors only after the sidecar result has been drained
-    # and the worker-side async checkpoint finalizer has completed.
-    self._pending_save = None
-    del pending_save
-    logging.info(
-        'Pathways colocated MTC save step=%s: released async save payload '
-        'anchors.',
-        step,
-    )
-    return saved
+    return self._save_lifecycle.finish()
 
   def _prepare_state_for_save(
       self, step: int, args: args_lib.Composite
@@ -1113,140 +1333,6 @@ class ColocatedController:
     )
     return state
 
-  def _restore_out_specs(
-      self,
-      step: int,
-      state_restore_args: args_lib.PyTreeRestore,
-      target_shardings: PyTree,
-  ) -> PyTree:
-    """Builds colocated restore output specs for worker-side restore_infer."""
-    errors = []
-    if state_restore_args.item is not None:
-      # Prefer caller-provided shape/dtype when available, normalizing the
-      # output structure to match what worker-side metadata restore returns.
-      try:
-        return self._restore_out_specs_from_shape_dtype_tree(
-            _serialize_for_colocated_transport(state_restore_args.item),
-            target_shardings,
-            source_name='restore item',
-        )
-      except _MissingShapeDtypeError as e:
-        errors.append(str(e))
-
-    if state_restore_args.restore_args is not None:
-      try:
-        return self._restore_out_specs_from_shape_dtype_tree(
-            _serialize_for_colocated_transport(state_restore_args.restore_args),
-            target_shardings,
-            source_name='restore_args',
-        )
-      except _MissingShapeDtypeError as e:
-        errors.append(str(e))
-
-    try:
-      return self._restore_out_specs_from_metadata(step, target_shardings)
-    except ValueError as e:
-      errors.append(str(e))
-      raise ValueError(
-          'colocated restore requires at least one source of shape/dtype '
-          'information to specialize restore_infer: restore item, shapeful '
-          'restore_args, or readable PyTree metadata. '
-          f'Attempted sources failed with: {errors}'
-      ) from e
-
-  def _restore_out_specs_from_shape_dtype_tree(
-      self,
-      shape_dtype_tree: PyTree,
-      target_shardings: PyTree,
-      *,
-      source_name: str,
-  ) -> PyTree:
-    """Builds colocated restore output specs from a shape/dtype tree."""
-    shape_dtype_tree = _to_worker_restore_structure(shape_dtype_tree)
-    target_shardings = _to_worker_restore_structure(target_shardings)
-    if jax.tree.structure(shape_dtype_tree) != jax.tree.structure(
-        target_shardings
-    ):
-      raise ValueError(
-          f'colocated restore {source_name} structure does not match '
-          f'restore_args. {source_name}: '
-          f'{jax.tree.structure(shape_dtype_tree)} vs restore_args: '
-          f'{jax.tree.structure(target_shardings)}'
-      )
-
-    def _make_out_spec(
-        leaf: Any, sharding: jax.sharding.Sharding
-    ) -> jax.ShapeDtypeStruct:
-      shape = getattr(leaf, 'global_shape', None)
-      if shape is None:
-        shape = getattr(leaf, 'shape', None)
-      dtype = getattr(leaf, 'dtype', None)
-      if shape is None or dtype is None:
-        raise _MissingShapeDtypeError(
-            f'colocated restore {source_name} leaves must provide '
-            f'shape/global_shape and dtype. Got: {leaf!r}'
-        )
-      return jax.ShapeDtypeStruct(
-          tuple(shape),
-          dtype=dtype,
-          sharding=colocated_transport.colocated_cpu_sharding(sharding),
-      )
-
-    out_specs = jax.tree.map(
-        _make_out_spec, shape_dtype_tree, target_shardings
-    )
-    colocated_utils.assert_specs_on_allowed_cpu_ids(
-        out_specs,
-        allowed_ids=self._colocated_cpu_ids,
-        tree_name='restore_out_specs_for_colocated',
-    )
-    return out_specs
-
-  def _restore_out_specs_from_metadata(
-      self,
-      step: int,
-      target_shardings: PyTree,
-  ) -> PyTree:
-    """Builds colocated restore output specs from PyTree metadata."""
-    state_dir = epath.Path(self.directory) / str(step) / _STATE_ITEM_NAME
-    try:
-      metadata_tree = PyTreeCheckpointHandler().metadata(state_dir).tree
-    except Exception as e:
-      raise ValueError(
-          'colocated restore requires readable PyTree metadata to specialize '
-          f'restore_infer. Failed to read metadata from {state_dir}.'
-      ) from e
-
-    shardings_for_specs = target_shardings
-    if jax.tree.structure(
-        _to_worker_restore_structure(metadata_tree)
-    ) != jax.tree.structure(_to_worker_restore_structure(target_shardings)):
-      child = _single_mapping_child(metadata_tree)
-      if child is None or jax.tree.structure(
-          _to_worker_restore_structure(child)
-      ) != jax.tree.structure(
-          _to_worker_restore_structure(target_shardings)
-      ):
-        raise ValueError(
-            'colocated restore metadata structure does not match '
-            'restore_args. '
-            f'Metadata: {jax.tree.structure(metadata_tree)} vs '
-            f'restore_args: {jax.tree.structure(target_shardings)}'
-        )
-      wrapper_key = next(iter(metadata_tree))
-      shardings_for_specs = {wrapper_key: target_shardings}
-
-    try:
-      return self._restore_out_specs_from_shape_dtype_tree(
-          metadata_tree,
-          shardings_for_specs,
-          source_name='metadata',
-      )
-    except _MissingShapeDtypeError as e:
-      raise ValueError(
-          'colocated restore metadata leaves must provide shape and dtype.'
-      ) from e
-
   def _rebuild_restored_state(
       self,
       restored_state: PyTree,
@@ -1255,23 +1341,24 @@ class ColocatedController:
     """Rebuilds restored state to match template structure."""
     if template_state is None:
       return restored_state
-    if jax.tree.structure(restored_state) == jax.tree.structure(template_state):
-      return restored_state
-    rebuilt = _try_deserialize_from_colocated_transport(
-        restored_state, template_state
-    )
-    if rebuilt is not None:
-      return rebuilt
 
-    # Worker inference may return one checkpoint-state wrapper above the caller
-    # template. Support only that narrow compatibility case.
-    child = _single_mapping_child(restored_state)
-    if child is not None and jax.tree.structure(child) == jax.tree.structure(
-        template_state
-    ):
-      return child
-    if child is not None:
-      rebuilt = _try_deserialize_from_colocated_transport(child, template_state)
+    def _try_rebuild(candidate: PyTree) -> PyTree | None:
+      if jax.tree.structure(candidate) == jax.tree.structure(template_state):
+        return candidate
+      return _try_deserialize_from_colocated_transport(
+          candidate, template_state
+      )
+
+    candidates = [restored_state]
+    state_child = _state_mapping_child(restored_state)
+    if state_child is not None:
+      candidates.append(state_child)
+    single_child = _single_mapping_child(restored_state)
+    if single_child is not None and single_child is not state_child:
+      candidates.append(single_child)
+
+    for candidate in candidates:
+      rebuilt = _try_rebuild(candidate)
       if rebuilt is not None:
         return rebuilt
 

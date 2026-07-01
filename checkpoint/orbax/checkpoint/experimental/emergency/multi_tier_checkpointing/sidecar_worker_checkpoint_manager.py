@@ -14,6 +14,7 @@
 
 """Worker-side colocated checkpoint manager for Pathways SC."""
 import collections
+from collections.abc import Mapping
 import itertools
 import time
 from typing import Any
@@ -34,6 +35,15 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import rep
 
 PyTree = Any
 _STATE_ITEM_NAME = 'state'
+
+
+def _unwrap_restored_state(result: Any) -> Any:
+  """Unwraps the state item returned by a composite restore."""
+  if isinstance(result, args_lib.Composite):
+    return result[_STATE_ITEM_NAME]
+  if isinstance(result, Mapping) and _STATE_ITEM_NAME in result:
+    return result[_STATE_ITEM_NAME]
+  return result
 
 
 def _check_unique_ids(name: str, ids: tuple[int, ...]) -> None:
@@ -234,8 +244,11 @@ class WorkerCheckpointManagerRaw:
         force,
         time.time() - save_start,
     )
+    # The controller uses this result as a payload-handoff acknowledgement.
+    # The local RCM `saved` value is logged above, but is not a global
+    # controller contract because sidecars can report local no-ops.
     return colocated_utils.make_scalar_on_like(
-        saved, step_array, dtype=jnp.bool_
+        True, step_array, dtype=jnp.bool_
     )
 
   def should_save(self, step_array: jax.Array) -> jax.Array:
@@ -284,9 +297,7 @@ class WorkerCheckpointManagerRaw:
             state=args_lib.PyTreeRestore(partial_restore=partial_restore),
         ),
     )
-    if isinstance(result, args_lib.Composite):
-      result = result[_STATE_ITEM_NAME]
-    return result
+    return _unwrap_restored_state(result)
 
   def latest_step(self, dummy_array: jax.Array) -> jax.Array:
     """Returns latest_step_or_sentinel as a scalar int32."""
