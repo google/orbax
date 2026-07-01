@@ -83,9 +83,9 @@ class ValidationJob:
       with_xprof: whether to run xprof. Unused.
       # Unless GOOGLE-INTERNAL.
     """
-    self._baseline_inference_fn = baseline_inference_fn
-    self._candidate_inference_fn = candidate_inference_fn
-    self._batch_input = batch_input
+    self._baseline_inference_fn = baseline_inference_fn  # pyrefly: ignore[invalid-type-var]
+    self._candidate_inference_fn = candidate_inference_fn  # pyrefly: ignore[invalid-type-var]
+    self._batch_input = batch_input  # pyrefly: ignore[invalid-type-var]
     self._with_xprof = with_xprof
 
   def _calc_result(

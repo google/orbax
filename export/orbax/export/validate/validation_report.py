@@ -181,11 +181,11 @@ class ValidationReport:
     candidate_url = candidate.xprof_url
 
     num_batches, avg_in_ms, p90_in_ms, p99_in_ms = get_latency_stat(
-        baseline_latencies)
+        baseline_latencies)  # pyrefly: ignore[bad-argument-type]
     baseline_latency_stat = LatencyStat(num_batches, avg_in_ms, p90_in_ms,
                                         p99_in_ms)
     num_batches, avg_in_ms, p90_in_ms, p99_in_ms = get_latency_stat(
-        candidate_latencies)
+        candidate_latencies)  # pyrefly: ignore[bad-argument-type]
     candidate_latency_stat = LatencyStat(num_batches, avg_in_ms, p90_in_ms,
                                          p99_in_ms)
 
@@ -199,10 +199,10 @@ class ValidationReport:
       )
 
     baseline_floatings, baseline_non_floatings = (
-        split_tf_floating_and_discrete_groups(baseline_outputs)
+        split_tf_floating_and_discrete_groups(baseline_outputs)  # pyrefly: ignore[bad-argument-type]
     )
     candidate_floatings, candidate_non_floatings = (
-        split_tf_floating_and_discrete_groups(candidate_outputs)
+        split_tf_floating_and_discrete_groups(candidate_outputs)  # pyrefly: ignore[bad-argument-type]
     )
 
     if baseline_floatings.size != candidate_floatings.size:

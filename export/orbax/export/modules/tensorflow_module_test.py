@@ -354,14 +354,14 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     # `add` cannot accept polymorphic shapes.
     with self.assertRaisesRegex(ValueError, 'syntax error'):
-      tf_module.methods['add'].get_concrete_function(
+      tf_module.methods['add'].get_concrete_function(  # pyrefly: ignore[missing-attribute]
           tf.TensorSpec([None], tf.int32)
       )
 
     # `add` can accept fixed shapes.
-    tf_module.methods['add'].get_concrete_function(tf.TensorSpec([1], tf.int32))
+    tf_module.methods['add'].get_concrete_function(tf.TensorSpec([1], tf.int32))  # pyrefly: ignore[missing-attribute]
     # `sub` can accept polymorphic shapes.
-    tf_module.methods['sub'].get_concrete_function(
+    tf_module.methods['sub'].get_concrete_function(  # pyrefly: ignore[missing-attribute]
         tf.TensorSpec([None], tf.int32)
     )
 

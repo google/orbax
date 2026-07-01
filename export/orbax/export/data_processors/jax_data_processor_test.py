@@ -111,7 +111,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     )
     closure = processor.save_fn
     temp_dir = self.create_tempdir().full_path
-    result = closure(temp_dir)
+    result = closure(temp_dir)  # pyrefly: ignore[not-callable]
 
     with self.subTest(name='Result contains params_add_params'):
       self.assertIn(weights_name, result)
@@ -142,7 +142,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     )
     closure = processor.save_fn
     temp_dir = self.create_tempdir().full_path
-    closure(temp_dir)
+    closure(temp_dir)  # pyrefly: ignore[not-callable]
     checkpoint_path = pathlib.Path(temp_dir) / 'processor' / 'add_params'
     self.assertTrue(checkpoint_path.exists())
 

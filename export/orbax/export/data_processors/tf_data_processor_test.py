@@ -81,11 +81,11 @@ class TfDataProcessorTest(googletest.TestCase):
     self.assertIsNotNone(processor.obm_function)
 
     self.assertEqual(
-        processor.input_signature[0][0],
+        processor.input_signature[0][0],  # pyrefly: ignore[bad-index, unsupported-operation]
         obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64, name='x'),
     )
     self.assertEqual(
-        processor.input_signature[0][1],
+        processor.input_signature[0][1],  # pyrefly: ignore[bad-index, unsupported-operation]
         obm.ShloTensorSpec(shape=(None, 3), dtype=obm.ShloDType.f64, name='y'),
     )
     self.assertEqual(
@@ -116,13 +116,13 @@ class TfDataProcessorTest(googletest.TestCase):
         ),
     )
     self.assertEqual(
-        processor.input_signature[0][0],
+        processor.input_signature[0][0],  # pyrefly: ignore[bad-index, unsupported-operation]
         obm.ShloTensorSpec(
             shape=(None, 4), dtype=obm.ShloDType.f32, name='not_x'
         ),
     )
     self.assertEqual(
-        processor.input_signature[0][1],
+        processor.input_signature[0][1],  # pyrefly: ignore[bad-index, unsupported-operation]
         obm.ShloTensorSpec(
             shape=(None, 4), dtype=obm.ShloDType.f32, name='not_y'
         ),
@@ -267,7 +267,7 @@ class TfDataProcessorTest(googletest.TestCase):
         tf.bfloat16,
     )
     self.assertEqual(
-        processor.input_signature[0][0],
+        processor.input_signature[0][0],  # pyrefly: ignore[bad-index, unsupported-operation]
         obm.ShloTensorSpec(shape=(1,), dtype=obm.ShloDType.bf16, name='x'),
     )
 
@@ -287,7 +287,7 @@ class TfDataProcessorTest(googletest.TestCase):
     self.assertIsNotNone(processor.prepared_function)
     self.assertIsNotNone(processor.obm_function)
     self.assertEqual(
-        processor.input_signature[0][0],
+        processor.input_signature[0][0],  # pyrefly: ignore[bad-index, unsupported-operation]
         (
             obm.ShloTensorSpec(
                 shape=(None, 3), dtype=obm.ShloDType.f32, name='inputs_0'

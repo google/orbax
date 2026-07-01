@@ -89,7 +89,7 @@ class ValidateReportTest(absltest.TestCase):
                                          self.candidate_result)
 
     # test to_dict.
-    result_dict = validation_report.to_dict()
+    result_dict = validation_report.to_dict()  # pyrefly: ignore[missing-attribute]
     expect_dict = {
         'outputs': {
             'FloatingPointDiffReport': {
@@ -111,7 +111,7 @@ class ValidateReportTest(absltest.TestCase):
     self.assertDictEqual(result_dict['outputs'], expect_dict['outputs'])
 
     # test to_json
-    result_json = validation_report.to_json()
+    result_json = validation_report.to_json()  # pyrefly: ignore[missing-attribute]
     new_result_dict = json.loads(result_json)
     self.assertDictEqual(new_result_dict['outputs'], expect_dict['outputs'])
 

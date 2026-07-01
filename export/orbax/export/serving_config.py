@@ -349,7 +349,7 @@ class ServingConfig:
         if self.tf_postprocessor:
           if self.preprocess_output_passthrough_enabled:
             postprocessor_outputs = postprocessor(
-                jax_outputs, postprocessor_inputs_extra
+                jax_outputs, postprocessor_inputs_extra  # pyrefly: ignore[unbound-name]
             )
           else:
             postprocessor_outputs = postprocessor(jax_outputs)
