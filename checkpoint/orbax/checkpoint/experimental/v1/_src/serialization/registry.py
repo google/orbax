@@ -429,4 +429,4 @@ class StandardLeafHandlerRegistry(BaseLeafHandlerRegistry):
         typestrs,
         handler_class,
     ) in STANDARD_TYPE_AND_ABSTRACT_TYPE_AND_TYPESTR_TO_HANDLER:
-      self.add(ty, abstract_ty, handler_class, secondary_typestrs=typestrs)
+      self.add(ty, abstract_ty, handler_class, secondary_typestrs=typestrs)  # pyrefly: ignore[bad-argument-type]

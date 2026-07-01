@@ -92,7 +92,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       item = args.item
       save_args = args.save_args
 
-    if not self._is_supported_type(item):
+    if not self._is_supported_type(item):  # pyrefly: ignore[bad-argument-type]
       raise TypeError(f'Unsupported type: {type(item)}.')
 
     if save_args is None:

@@ -139,7 +139,7 @@ class PointLeafHandler(serialization_types.LeafHandler[Point, AbstractPoint]):
 
     return _background_serialize()
 
-  async def deserialize(
+  async def deserialize(  # pyrefly: ignore[bad-override]
       self,
       params: Sequence[
           serialization_types.DeserializationParam[
@@ -749,7 +749,7 @@ class PyTreeHandlerTest(
 
     with handler_with_options(
         use_ocdbt=False,
-        scoped_storage_options_creator=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(
+        scoped_storage_options_creator=lambda k, v: options_lib.ArrayOptions.Saving.StorageOptions(  # pyrefly: ignore[bad-argument-type]
             dtype=save_dtype
         ),
     ) as checkpoint_handler:
@@ -793,7 +793,7 @@ class PyTreeHandlerTest(
     with handler_with_options(
         use_ocdbt=False,
         array_storage_options=global_opts,
-        scoped_storage_options_creator=my_callback,
+        scoped_storage_options_creator=my_callback,  # pyrefly: ignore[bad-argument-type]
     ) as checkpoint_handler:
       pytree, _ = create_mixed_format_pytree(
           include_scalars=False
@@ -1473,7 +1473,7 @@ class PyTreeHandlerTest(
       ) -> Awaitable[None]:
         updated_params = [
             scalar_leaf_handler.ScalarSerializationParam(
-                keypath=param.keypath, value=param.value + 1
+                keypath=param.keypath, value=param.value + 1  # pyrefly: ignore[unsupported-operation]
             )
             for param in params
         ]

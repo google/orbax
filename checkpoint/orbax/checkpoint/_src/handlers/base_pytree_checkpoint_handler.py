@@ -664,11 +664,11 @@ class BasePyTreeCheckpointHandler(
       )
     else:
       device_host_byte_limiter = limits.get_byte_limiter(
-          device_host_concurrent_bytes
+          device_host_concurrent_bytes  # pyrefly: ignore[bad-argument-type]
       )
     param_infos = self._get_param_infos(
         item,
-        directory,
+        directory,  # pyrefly: ignore[bad-argument-type]
         use_ocdbt=self._use_ocdbt,
         ocdbt_target_data_file_size=ocdbt_target_data_file_size,
         byte_limiter=byte_limiter,
@@ -692,7 +692,7 @@ class BasePyTreeCheckpointHandler(
     batch_requests_ready_time = time.time()
     if args.partial_save_mode:
       requests_to_save = await self._async_partial_save(
-          directory, item, batch_requests
+          directory, item, batch_requests  # pyrefly: ignore[bad-argument-type]
       )
     else:
       requests_to_save = batch_requests
@@ -758,7 +758,7 @@ class BasePyTreeCheckpointHandler(
         total_serialization_initiated_time - batch_requests_ready_time,
         async_save_end_time - total_serialization_initiated_time,
     )
-    return chained_futures
+    return chained_futures  # pyrefly: ignore[bad-return]
 
   def save(self, directory: epath.Path, *args, **kwargs):
     """Saves the provided item.

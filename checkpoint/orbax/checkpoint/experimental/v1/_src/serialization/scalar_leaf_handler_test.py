@@ -163,7 +163,7 @@ class ScalarLeafHandlerTest(
 
       deserialization_task = await handler.deserialize(
           _get_deserialization_params(
-              self.pytree, cast_to=cast_to, pass_scalar=(cast_to == 'scalar')
+              self.pytree, cast_to=cast_to, pass_scalar=(cast_to == 'scalar')  # pyrefly: ignore[bad-argument-type]
           ),
           deserialization_context=deserialization_context,
       )

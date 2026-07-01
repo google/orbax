@@ -41,7 +41,7 @@ class PyTreeMetadataTest(parameterized.TestCase):
     item = {'a': np.array([1, 2, 3]), 'b': {'c': 'test'}}
     custom_metadata = {'key1': 'value1', 'key2': 123}
     handler.save(
-        directory, args=PyTreeSaveArgs(item, custom_metadata=custom_metadata)
+        directory, args=PyTreeSaveArgs(item, custom_metadata=custom_metadata)  # pyrefly: ignore[bad-argument-type]
     )
 
     metadata_path = directory / format_utils.PYTREE_METADATA_FILE
@@ -63,7 +63,7 @@ class PyTreeMetadataTest(parameterized.TestCase):
     handler = PyTreeCheckpointHandler(use_ocdbt=use_ocdbt, use_zarr3=use_zarr3)
     handler.save(
         directory,
-        args=PyTreeSaveArgs(item, custom_metadata=custom_metadata),
+        args=PyTreeSaveArgs(item, custom_metadata=custom_metadata),  # pyrefly: ignore[bad-argument-type]
     )
 
     metadata_path = directory / format_utils.PYTREE_METADATA_FILE

@@ -257,7 +257,7 @@ class StandardCheckpointHandler(
         arg: pytree_checkpoint_handler.RestoreArgs,
     ) -> pytree_checkpoint_handler.RestoreArgs:
       if hasattr(arg, 'strict'):
-        return dataclasses.replace(arg, strict=False)
+        return dataclasses.replace(arg, strict=False)  # pyrefly: ignore[unexpected-keyword]
       return arg
 
     if not args.strict:
@@ -376,7 +376,7 @@ def _construct_restore_args(
         item_leaf, support_format=support_layout
     )
     if sharding is not None:
-      return sharding
+      return sharding  # pyrefly: ignore[bad-return]
 
     # 2. If item_leaf.sharding is None, try to get from metadata_tree.
     # We iterate on the target tree and use path-based lookups for metadata

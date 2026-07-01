@@ -104,10 +104,10 @@ def _maybe_shard_array(value, args):
   if hasattr(value, 'reshape') and isinstance(args, ArrayRestoreArgs):
     value = value.reshape(args.global_shape)
     sharding = args.sharding or jax.sharding.NamedSharding(
-        args.mesh, args.mesh_axes
+        args.mesh, args.mesh_axes  # pyrefly: ignore[bad-argument-type]
     )
     value = jax.make_array_from_callback(
-        value.shape, sharding, lambda idx: value[idx]
+        value.shape, sharding, lambda idx: value[idx]  # pyrefly: ignore[bad-argument-type]
     )
   return value
 
@@ -165,7 +165,7 @@ def _find_matching_input_args(
             # the item.
             input_key_pattern = _keystr(output_key)
           else:
-            input_key_pattern = match.expand(transform.original_key)
+            input_key_pattern = match.expand(transform.original_key)  # pyrefly: ignore[no-matching-overload]
           if input_key_pattern == _keystr(input_key):
             return flat_restore_args[output_key]
   return None
@@ -378,7 +378,7 @@ def _multi_value_fns_with_args(
     def _multi_value_fn_with_args(transform_key: str, tree: PyTree) -> Any:
       nonlocal transform
       transform = typing.cast(RestoreTransform, transform)
-      return transform.multi_value_fn(
+      return transform.multi_value_fn(  # pyrefly: ignore[not-callable]
           transform_key, tree, flat_restore_args[transform_key]
       )
 
@@ -598,8 +598,8 @@ class PyTreeCheckpointHandler(
         self._save_device_host_concurrent_bytes,
     )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
-        save_concurrent_bytes=self._save_concurrent_bytes,
-        restore_concurrent_bytes=self._restore_concurrent_bytes,
+        save_concurrent_bytes=self._save_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
+        restore_concurrent_bytes=self._restore_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
         memory_limit_options=memory_limit_options,
         use_ocdbt=use_ocdbt,
@@ -664,8 +664,8 @@ class PyTreeCheckpointHandler(
       A Future that will commit the data to `directory` when awaited. Copying
       the data from its source will be awaited in this function.
     """
-    args = _get_impl_save_args(item, save_args, args)
-    return await self._handler_impl.async_save(directory, args=args)
+    args = _get_impl_save_args(item, save_args, args)  # pyrefly: ignore[bad-assignment]
+    return await self._handler_impl.async_save(directory, args=args)  # pyrefly: ignore[bad-argument-type]
 
   def save(
       self,
@@ -675,7 +675,7 @@ class PyTreeCheckpointHandler(
       args: Optional[PyTreeSaveArgs] = None,
   ):
     """Saves the provided item. See async_save."""
-    args = _get_impl_save_args(item, save_args, args)
+    args = _get_impl_save_args(item, save_args, args)  # pyrefly: ignore[bad-assignment]
     self._handler_impl.save(directory, args=args)
 
   async def _maybe_deserialize(
@@ -686,7 +686,7 @@ class PyTreeCheckpointHandler(
       restore_args: PyTree,
   ) -> PyTree:
     """Deserializes values or gets them from the aggregate file."""
-    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
+    byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)  # pyrefly: ignore[bad-argument-type]
     param_infos = jax.tree.map(
         lambda info: info.replace(byte_limiter=byte_limiter),
         param_infos,
@@ -863,12 +863,12 @@ class PyTreeCheckpointHandler(
         and transforms is None
         and legacy_transform_fn is None
     ):
-      args = BasePyTreeRestoreArgs(
+      args = BasePyTreeRestoreArgs(  # pyrefly: ignore[bad-assignment]
           item,
           restore_args=restore_args,
           partial_restore=args.partial_restore,
       )
-      return self._handler_impl.restore(directory, args=args)
+      return self._handler_impl.restore(directory, args=args)  # pyrefly: ignore[bad-argument-type]
 
     logging.vlog(1, 'directory=%s, restore_args=%s', directory, restore_args)
     if not directory.exists():

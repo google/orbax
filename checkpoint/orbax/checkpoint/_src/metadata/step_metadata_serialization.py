@@ -181,7 +181,7 @@ class InternalCheckpointMetadata:
         item_handlers=handler_typestrs,
         init_timestamp_nsecs=init_timestamp_nsecs,
         commit_timestamp_nsecs=commit_timestamp_nsecs,
-        custom_metadata=custom_metadata,
+        custom_metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
     )
 
 
@@ -198,8 +198,8 @@ def get_step_metadata(path: epath.PathLike) -> StepMetadata:
 
 def serialize(metadata: StepMetadata) -> SerializedMetadata:
   """Serializes `metadata` to a dictionary."""
-  metadata = InternalCheckpointMetadata.from_step_metadata(metadata)
-  return metadata.serialize()
+  metadata = InternalCheckpointMetadata.from_step_metadata(metadata)  # pyrefly: ignore[bad-assignment]
+  return metadata.serialize()  # pyrefly: ignore[missing-attribute]
 
 
 def serialize_for_update(**kwargs) -> SerializedMetadata:

@@ -120,7 +120,7 @@ class ProtoCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     if args:
       item = args.item
     path = directory / self._filename
-    return text_format.Parse(path.read_text(), item())
+    return text_format.Parse(path.read_text(), item())  # pyrefly: ignore[not-callable]
 
 
 @register_with_handler(ProtoCheckpointHandler, for_save=True)

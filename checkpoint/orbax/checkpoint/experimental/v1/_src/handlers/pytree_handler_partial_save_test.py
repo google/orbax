@@ -146,7 +146,7 @@ class PyTreeHandlerPartialSaveTest(
     self.assertLen(pending_dirs, 1)
     self.assertTrue((pending_dirs[0] / STATE_CHECKPOINTABLE_KEY).exists())
 
-    partial_saving.save(final_path, second_save_pytree)
+    partial_saving.save(final_path, second_save_pytree)  # pyrefly: ignore[bad-argument-type]
     pending_dirs = asyncio.run(snapshot.list_pending_dirs(partial_path))
     self.assertLen(pending_dirs, 2)
     for d in pending_dirs:
@@ -178,7 +178,7 @@ class PyTreeHandlerPartialSaveTest(
         pytree_handler.PartialSaveReplacementError,
         'Partial saving currently does not support REPLACEMENT.',
     ):
-      partial_saving.save(final_path, second_save_pytree)
+      partial_saving.save(final_path, second_save_pytree)  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.product(first_save_leaf_is_subtree=(True, False))
   def test_partial_save_subtree_replacement_raises_error(
@@ -193,12 +193,12 @@ class PyTreeHandlerPartialSaveTest(
       first_save_pytree = {'a': 2}
       second_save_pytree = {'a': {'b': 1}}
 
-    partial_saving.save(final_path, first_save_pytree)
+    partial_saving.save(final_path, first_save_pytree)  # pyrefly: ignore[bad-argument-type]
     with self.assertRaisesRegex(
         pytree_handler.PartialSaveReplacementError,
         'Partial saving currently does not support REPLACEMENT.',
     ):
-      partial_saving.save(final_path, second_save_pytree)
+      partial_saving.save(final_path, second_save_pytree)  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == '__main__':

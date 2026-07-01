@@ -67,7 +67,7 @@ class DeviceMetadata:
         id=device.id,
     )
 
-  def __eq__(self, other: DeviceMetadata):
+  def __eq__(self, other: DeviceMetadata):  # pyrefly: ignore[bad-override]
     return self.id == other.id
 
 
@@ -199,7 +199,7 @@ class NamedShardingMetadata(ShardingMetadata):
         axis_names=list(jax_sharding.mesh.axis_names),
         axis_types=tuple(jax_sharding.mesh.axis_types),
         partition_spec=tuple(jax_sharding.spec),
-        device_mesh=DeviceMetadataMesh.from_jax_mesh(jax_sharding.mesh),
+        device_mesh=DeviceMetadataMesh.from_jax_mesh(jax_sharding.mesh),  # pyrefly: ignore[bad-argument-type]
     )
 
   def to_jax_sharding(self) -> jax.sharding.NamedSharding:
