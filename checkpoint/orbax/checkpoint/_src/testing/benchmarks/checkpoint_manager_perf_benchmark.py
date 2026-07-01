@@ -122,7 +122,7 @@ class CheckpointManagerPerfBenchmark(benchmarks_core.BenchmarksGenerator):
     assert mngr.all_steps() == [options.train_steps - 1]
 
     abstract_pytree = jax.tree.map(
-        lambda x: ocp.utils.to_shape_dtype_struct(x)
+        lambda x: ocp.utils.to_shape_dtype_struct(x)  # pyrefly: ignore[bad-argument-type]
         if isinstance(x, jax.Array)
         else x,
         pytree,

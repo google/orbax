@@ -84,15 +84,15 @@ def _create_checkpoint_manager(
       abstract_state=abstract_state,
       options=emergency_checkpoint_manager.CheckpointManagerOptions(
           local=emergency_checkpoint_manager.LocalCheckpointOptions(
-              save_interval_steps=options.local_save_interval_steps,
-              max_to_keep=options.local_max_to_keep,
+              save_interval_steps=options.local_save_interval_steps,  # pyrefly: ignore[bad-argument-type]
+              max_to_keep=options.local_max_to_keep,  # pyrefly: ignore[bad-argument-type]
           ),
           persistent=emergency_checkpoint_manager.PersistentCheckpointOptions(
-              save_interval_steps=options.persistent_save_interval_steps,
-              max_to_keep=options.persistent_max_to_keep,
+              save_interval_steps=options.persistent_save_interval_steps,  # pyrefly: ignore[bad-argument-type]
+              max_to_keep=options.persistent_max_to_keep,  # pyrefly: ignore[bad-argument-type]
           ),
-          replica_axis_index=options.replica_axis_index,
-          single_host_load_and_broadcast=options.single_host_load_and_broadcast,
+          replica_axis_index=options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
+          single_host_load_and_broadcast=options.single_host_load_and_broadcast,  # pyrefly: ignore[bad-argument-type]
       ),
   )
 
@@ -191,7 +191,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     mesh_utils.pretty_log_mesh("Global Mesh: ", mesh)
     mesh_utils.pretty_log_mesh(
         "Local Replica Mesh: ",
-        mesh_utils.get_local_replica_mesh(mesh, options.replica_axis_index),
+        mesh_utils.get_local_replica_mesh(mesh, options.replica_axis_index),  # pyrefly: ignore[bad-argument-type]
     )
 
     with metrics.measure("create_directories"):
@@ -219,7 +219,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
 
     is_in_primary_slice = _is_in_replica(
         mesh,
-        options.replica_axis_index,
+        options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
         emergency_checkpoint_manager._PRIMARY_REPLICA_ID,  # pylint: disable=protected-access
     )
     logging.info(
@@ -230,7 +230,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
 
     is_in_secondary_slice = _is_in_replica(
         mesh,
-        options.replica_axis_index,
+        options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
         emergency_checkpoint_manager._SECONDARY_REPLICA_ID,  # pylint: disable=protected-access
     )
     logging.info(
@@ -257,7 +257,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
 
     start_step = step + 1 if step is not None else 0
     with metrics.measure("train_loop"):
-      for step in range(start_step, options.train_steps):
+      for step in range(start_step, options.train_steps):  # pyrefly: ignore[bad-argument-type]
         logging.info("Training step %d", step)
         with metrics.measure(f"save_{step}"):
           manager.save(
@@ -269,7 +269,7 @@ class EmergencyCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         with metrics.measure(f"wait_until_finished_{step}"):
           manager.wait_until_finished()
 
-        if step % options.local_save_interval_steps == 0:
+        if step % options.local_save_interval_steps == 0:  # pyrefly: ignore[unsupported-operation]
           with metrics.measure(f"restore_and_validate_{step}"):
             _restore_and_validate(
                 manager,

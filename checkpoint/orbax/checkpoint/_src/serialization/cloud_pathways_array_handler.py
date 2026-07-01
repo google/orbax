@@ -102,13 +102,13 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
     """Uses Pathways Persistence API to serialize a jax array."""
     types.check_input_arguments(values, infos, args)
 
-    if any([arg.dtype is not None for arg in args]):
+    if any([arg.dtype is not None for arg in args]):  # pyrefly: ignore[not-iterable]
       raise ValueError("Casting during save not supported for Pathways.")
 
     array_metadatas = []
     any_random_key = False
     arrays = []
-    for v, info, arg in zip(values, infos, args):
+    for v, info, arg in zip(values, infos, args):  # pyrefly: ignore[bad-argument-type]
       ext_metadata = None
       if jax.dtypes.issubdtype(v.dtype, jax.dtypes.prng_key):
         any_random_key = True
@@ -120,7 +120,7 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
           ArrayMetadata(
               param_name=info.name,
               shape=v.shape,
-              dtype=(arg.dtype if arg is not None else v.dtype),
+              dtype=(arg.dtype if arg is not None else v.dtype),  # pyrefly: ignore[bad-argument-type]
               write_shape=getattr(v, "local_shape", v.shape),
               chunk_shape=getattr(v, "local_shape", v.shape),
               use_ocdbt=False,
@@ -191,7 +191,7 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
         global_meshes.append(arg.mesh)
         mesh_axes.append(arg.mesh_axes)
         shardings.append(
-            jax.sharding.NamedSharding(mesh=arg.mesh, spec=arg.mesh_axes)
+            jax.sharding.NamedSharding(mesh=arg.mesh, spec=arg.mesh_axes)  # pyrefly: ignore[bad-argument-type]
         )
       else:
         if not isinstance(arg.sharding, jax.sharding.NamedSharding):
@@ -250,7 +250,7 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
       grouped_arrays, read_future = cloud_pathways_helper.read_arrays(
           locations[0],
           names,
-          grouped_dtypes,
+          grouped_dtypes,  # pyrefly: ignore[bad-argument-type]
           grouped_global_shapes,
           grouped_shardings,
           global_mesh.devices,

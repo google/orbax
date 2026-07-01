@@ -212,7 +212,7 @@ class AsyncIoEngine:
             logging_serialize(
                 request.handler,
                 request.handler.serialize(
-                    request.values, request.infos, request.args
+                    request.values, request.infos, request.args  # pyrefly: ignore[bad-argument-type]
                 ),
             )
         )
@@ -229,7 +229,7 @@ class AsyncIoEngine:
     deserialized_batches_ops = []
     for request in batch_requests:
       deserialized_batches_ops.append(
-          request.handler.deserialize(request.infos, request.args)
+          request.handler.deserialize(request.infos, request.args)  # pyrefly: ignore[bad-argument-type]
       )
     deserialized_batches = await asyncio.gather(*deserialized_batches_ops)
     return deserialized_batches

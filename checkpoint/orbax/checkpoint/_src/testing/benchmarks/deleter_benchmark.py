@@ -54,9 +54,9 @@ class DeleterBenchmark(benchmarks_core.BenchmarksGenerator):
     assert isinstance(options, DeleterBenchmarkOptions)
 
     cm_options = checkpoint_manager.CheckpointManagerOptions(
-        save_interval_steps=options.save_interval_steps,
-        max_to_keep=options.max_to_keep,
-        num_deletion_threads=options.num_deletion_threads,
+        save_interval_steps=options.save_interval_steps,  # pyrefly: ignore[bad-argument-type]
+        max_to_keep=options.max_to_keep,  # pyrefly: ignore[bad-argument-type]
+        num_deletion_threads=options.num_deletion_threads,  # pyrefly: ignore[bad-argument-type]
     )
     mngr = checkpoint_manager.CheckpointManager(
         context.path, options=cm_options
@@ -72,7 +72,7 @@ class DeleterBenchmark(benchmarks_core.BenchmarksGenerator):
     composite_args = args_lib.Composite(**save_kwargs)
 
     step_saved = -1
-    for step in range(options.train_steps):
+    for step in range(options.train_steps):  # pyrefly: ignore[bad-argument-type]
       logging.info('Saving checkpoint at step %d', step)
       with metrics.measure(f'save_{step}'):
         if mngr.save(step, args=composite_args):

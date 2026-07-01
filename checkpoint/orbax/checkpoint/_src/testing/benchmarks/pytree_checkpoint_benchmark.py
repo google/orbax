@@ -112,9 +112,9 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
   def register_array_type_handler(self, options: PyTreeCheckpointOptions):
     if not ocp.multihost.is_pathways_backend():
       array_handler = ocp.type_handlers.ArrayHandler(
-          use_replica_parallel=options.use_replica_parallel,
+          use_replica_parallel=options.use_replica_parallel,  # pyrefly: ignore[bad-argument-type]
           enable_replica_parallel_separate_folder=(
-              options.enable_replica_parallel_separate_folder
+              options.enable_replica_parallel_separate_folder  # pyrefly: ignore[bad-argument-type]
           ),
       )
       logging.info("Registering MC-JAX array type handler")
@@ -125,7 +125,7 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
       )
     else:
       checkpointing_impl = ocp.pathways.CheckpointingImpl.from_options(
-          use_colocated_python=options.use_colocated_python,
+          use_colocated_python=options.use_colocated_python,  # pyrefly: ignore[bad-argument-type]
       )
       ocp.pathways.register_type_handlers(
           checkpointing_impl=checkpointing_impl,
@@ -161,13 +161,13 @@ class PyTreeCheckpointBenchmark(benchmarks_core.BenchmarksGenerator):
     self.register_array_type_handler(options)
 
     handler = ocp.PyTreeCheckpointHandler(
-        use_ocdbt=options.use_ocdbt,
-        use_zarr3=options.use_zarr3,
-        use_compression=options.use_compression,
-        save_concurrent_gb=options.save_concurrent_gb,
-        restore_concurrent_gb=options.restore_concurrent_gb,
-        save_device_host_concurrent_gb=options.save_device_host_concurrent_gb,
-        is_prioritized_key_fn=lambda key: "a" in ocp.tree.str_keypath(key),
+        use_ocdbt=options.use_ocdbt,  # pyrefly: ignore[bad-argument-type]
+        use_zarr3=options.use_zarr3,  # pyrefly: ignore[bad-argument-type]
+        use_compression=options.use_compression,  # pyrefly: ignore[bad-argument-type]
+        save_concurrent_gb=options.save_concurrent_gb,  # pyrefly: ignore[bad-argument-type]
+        restore_concurrent_gb=options.restore_concurrent_gb,  # pyrefly: ignore[bad-argument-type]
+        save_device_host_concurrent_gb=options.save_device_host_concurrent_gb,  # pyrefly: ignore[bad-argument-type]
+        is_prioritized_key_fn=lambda key: "a" in ocp.tree.str_keypath(key),  # pyrefly: ignore[bad-argument-type]
     )
 
     if options.async_enabled:

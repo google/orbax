@@ -120,7 +120,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
     pathways_handler_registry.register_pathways_handlers(
         use_single_replica_array_handler=True,
         checkpointing_impl=pathways_handler_registry.CheckpointingImpl.from_options(
-            use_colocated_python=options.use_colocated_python,
+            use_colocated_python=options.use_colocated_python,  # pyrefly: ignore[bad-argument-type]
         ),
         replica_axis_index=options.replica_axis_index,
         primary_replica_id=options.primary_replica_id,
@@ -147,7 +147,7 @@ class SingleReplicaBenchmark(benchmarks_core.BenchmarksGenerator):
       with metrics.measure("construct_restore_args"):
         restore_args = self._construct_restore_args(
             abstract_pytree,
-            options.replica_axis_index,
+            options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
         )
         logging.info("restore_args: %s", restore_args)
 

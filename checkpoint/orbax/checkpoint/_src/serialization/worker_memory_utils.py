@@ -107,7 +107,7 @@ def _estimate_worker_memory_usage(
     if replica_id is not None and shard.replica_id != replica_id:
       continue
     worker_id = device_to_worker_ids_map[shard.device.id]
-    worker_memory_usage[worker_id] += shard_memory_size
+    worker_memory_usage[worker_id] += shard_memory_size  # pyrefly: ignore[unsupported-operation]
   return worker_memory_usage
 
 

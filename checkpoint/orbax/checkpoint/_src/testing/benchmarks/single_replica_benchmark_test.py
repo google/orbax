@@ -74,8 +74,8 @@ class SingleReplicaBenchmarkTest(parameterized.TestCase):
         restore_args, pytree_checkpoint_handler.PyTreeRestoreArgs
     )
     self.assertEqual(restore_args.item, abstract_pytree)
-    self.assertIn('a', restore_args.restore_args)
-    restore_arg_a = restore_args.restore_args['a']
+    self.assertIn('a', restore_args.restore_args)  # pyrefly: ignore[bad-argument-type]
+    restore_arg_a = restore_args.restore_args['a']  # pyrefly: ignore[unsupported-operation]
     self.assertIsInstance(
         restore_arg_a, type_handlers.SingleReplicaArrayRestoreArgs
     )

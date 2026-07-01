@@ -308,7 +308,7 @@ class ParamInfo:
 
   @path.setter
   def path(self, value: epath.Path | path_types.PathAwaitingCreation | None):
-    self._path = value
+    self._path = value  # pyrefly: ignore[bad-assignment]
 
   def replace(self, **kwargs) -> ParamInfo:
     new = copy.copy(self)
