@@ -178,5 +178,94 @@ class LaunchXpkTest(parameterized.TestCase):
     self.assertEqual(launch_xpk.get_hardware_type(tpu, device), expected)
 
 
+class ParseTpuSpecToTopologyTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      # Cloud TPU specs
+      dict(
+          testcase_name='v6e_256',
+          tpu_type='v6e-256',
+          expected_version='v6e',
+          expected_topology='16,16,1',
+      ),
+      dict(
+          testcase_name='v6e_16',
+          tpu_type='v6e-16',
+          expected_version='v6e',
+          expected_topology='4,4,1',
+      ),
+      dict(
+          testcase_name='v5e_8',
+          tpu_type='v5litepod-8',
+          expected_version='v5e',
+          expected_topology='2,4,1',
+      ),
+      dict(
+          testcase_name='v4_8',
+          tpu_type='v4-8',
+          expected_version='v4',
+          expected_topology='2,2,1',
+      ),
+      dict(
+          testcase_name='v5p_8',
+          tpu_type='v5p-8',
+          expected_version='v5p',
+          expected_topology='2,2,1',
+      ),
+      dict(
+          testcase_name='v6e_8',
+          tpu_type='v6e-8',
+          expected_version='v6e',
+          expected_topology='2,4,1',
+      ),
+  )
+  def test_parse_tpu_spec_to_topology(
+      self, tpu_type, expected_version, expected_topology
+  ):
+    version, topology = launch_xpk.parse_tpu_spec_to_topology(tpu_type)
+    self.assertEqual(version, expected_version)
+    self.assertEqual(topology, expected_topology)
+
+
+class ConstructXpkCommandTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    flags.FLAGS.set_default('xpk_path', 'xpk')
+    flags.FLAGS.set_default('cluster_name', 'test-cluster')
+    flags.FLAGS.set_default('project', 'test-project')
+    flags.FLAGS.set_default('zone', 'test-zone')
+    flags.FLAGS.set_default('num_slices', 1)
+    flags.FLAGS.set_default('priority', 'medium')
+    flags.FLAGS.set_default('storage', 'local')
+
+  def test_simdevice_ignores_tpu_type_in_xpk_flags(self):
+    flags.FLAGS.set_default('enable_simdevice', True)
+    flags.FLAGS.set_default('tpu_type', 'v6e-8')
+    flags.FLAGS.set_default('device_type', 'n2-standard-4')
+
+    xpk_cmd = launch_xpk.construct_xpk_command(
+        workload_name='test-workload',
+        workload_command='python3 benchmark.py',
+    )
+
+    # We should see device-type but not tpu-type in the XPK command flags
+    self.assertIn('--device-type=n2-standard-4', xpk_cmd)
+    self.assertNotIn('--tpu-type=v6e-8', xpk_cmd)
+    self.assertNotIn('--tpu-type', xpk_cmd)
+
+  def test_normal_tpu_uses_tpu_type_in_xpk_flags(self):
+    flags.FLAGS.set_default('enable_simdevice', False)
+    flags.FLAGS.set_default('tpu_type', 'v6e-8')
+
+    xpk_cmd = launch_xpk.construct_xpk_command(
+        workload_name='test-workload',
+        workload_command='python3 benchmark.py',
+    )
+
+    # We should see tpu-type in the XPK command flags
+    self.assertIn('--tpu-type=v6e-8', xpk_cmd)
+
+
 if __name__ == '__main__':
   absltest.main()
