@@ -197,7 +197,7 @@ class TemporaryPathBase(atomicity_types.TemporaryPath):
     if snapshot_type is not None:
       self._snapshot = snapshot_lib.create_instance(
           source=final_path,
-          snapshot=temporary_path,
+          snapshot=temporary_path,  # pyrefly: ignore[bad-argument-type]
           set_immutable=False,
           snapshot_type=snapshot_type,
       )
@@ -517,8 +517,8 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
       FileExistsError: if tmp directory already exists.
     """
     return await _create_tmp_directory(
-        async_path.mkdir,
-        self._tmp_path,
+        async_path.mkdir,  # pyrefly: ignore[bad-argument-type]
+        self._tmp_path,  # pyrefly: ignore[bad-argument-type]
         path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
         snapshot=self._snapshot,
@@ -539,7 +539,7 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
       )
       await asyncio.to_thread(
           self._checkpoint_metadata_store.update,
-          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
+          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),  # pyrefly: ignore[bad-argument-type]
           commit_timestamp_nsecs=time.time_ns(),
       )
       await asyncio.to_thread(
@@ -549,7 +549,7 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
     if self._snapshot is not None:
       await self._snapshot.replace_source()
     else:
-      await async_path.rename(self._tmp_path, self._final_path)
+      await async_path.rename(self._tmp_path, self._final_path)  # pyrefly: ignore[bad-argument-type]
 
   def __repr__(self) -> str:
     return (
@@ -647,8 +647,8 @@ class CommitFileTemporaryPath(TemporaryPathBase):
       FileExistsError: if tmp directory already exists.
     """
     return await _create_tmp_directory(
-        async_path.mkdir,
-        self._tmp_path,
+        async_path.mkdir,  # pyrefly: ignore[bad-argument-type]
+        self._tmp_path,  # pyrefly: ignore[bad-argument-type]
         path_permission_mode=self._path_permission_mode,
         checkpoint_metadata_store=self._checkpoint_metadata_store,
     )
@@ -668,7 +668,7 @@ class CommitFileTemporaryPath(TemporaryPathBase):
       )
       await asyncio.to_thread(
           self._checkpoint_metadata_store.update,
-          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),
+          file_path=checkpoint_metadata.step_metadata_file_path(self._tmp_path),  # pyrefly: ignore[bad-argument-type]
           commit_timestamp_nsecs=time.time_ns(),
       )
       await asyncio.to_thread(

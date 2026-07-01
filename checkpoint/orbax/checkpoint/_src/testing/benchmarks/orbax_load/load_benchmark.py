@@ -97,9 +97,9 @@ class OrbaxLoadBenchmarkOptions(benchmarks_core.BenchmarkOptions):
   @property
   def context(self) -> ocp.Context:
     ctx = ocp.Context()
-    ctx.array.loading.use_load_and_broadcast = self.use_load_and_broadcast
+    ctx.array.loading.use_load_and_broadcast = self.use_load_and_broadcast  # pyrefly: ignore[bad-assignment]
     ctx.memory.read_concurrent_bytes = (
-        self.restore_concurrent_gb * 1024**3
+        self.restore_concurrent_gb * 1024**3  # pyrefly: ignore[unsupported-operation]
         if self.restore_concurrent_gb is not None
         else None
     )

@@ -54,7 +54,7 @@ if enable_telemetry.lower() == 'true':
 
     def _Cleanup():
       if os.getpid() == _creator_pid:
-        shutil.rmtree(_prometheus_multiproc_dir, ignore_errors=True)
+        shutil.rmtree(_prometheus_multiproc_dir, ignore_errors=True)  # pyrefly: ignore[no-matching-overload]
 
     atexit.register(_Cleanup)
 

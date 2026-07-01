@@ -384,7 +384,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         directory,
         options=local_options,
         metadata=metadata,
-        item_handlers=dict(
+        item_handlers=dict(  # pyrefly: ignore[bad-argument-type]
             state=_local_checkpoint_handler(multiprocessing_options),
             process_metadata=ProcessMetadataCheckpointHandler,
         ),
@@ -1487,7 +1487,7 @@ class CheckpointManager(
     if isinstance(self._checkpoint_manager, _MultisliceCheckpointManager):
       restore = self._checkpoint_manager.restore(step, args=args)
     else:
-      restore = self._checkpoint_manager.restore(step, args=args).state
+      restore = self._checkpoint_manager.restore(step, args=args).state  # pyrefly: ignore[missing-attribute]
     if restored_dataset:
       return args_lib.Composite(
           state=restore,

@@ -71,8 +71,8 @@ class FixtureTest(absltest.TestCase):
     with tempfile.TemporaryDirectory() as d:
       ckpt = _small_fixture(d)
       restored = ocp.load(ckpt)
-      self.assertEqual(set(restored), {"w", "b"})
-      self.assertEqual(restored["w"].shape, (32, 32))
+      self.assertEqual(set(restored), {"w", "b"})  # pyrefly: ignore[bad-argument-type]
+      self.assertEqual(restored["w"].shape, (32, 32))  # pyrefly: ignore[bad-index]
 
 
 class LoadFlowTest(absltest.TestCase):

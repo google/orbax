@@ -109,5 +109,5 @@ class Composite(Mapping):
   def values(self) -> ValuesView[Any]:
     return self._items.values()
 
-  def __contains__(self, key: str) -> bool:
+  def __contains__(self, key: str) -> bool:  # pyrefly: ignore[bad-override]
     return key in self._items

@@ -181,4 +181,4 @@ def process_allgather(in_tree, tiled: bool | None = None):
   """All-gather data from all hosts."""
   if is_pathways_backend():
     return in_tree
-  return multihost_utils.process_allgather(in_tree, tiled=tiled)
+  return multihost_utils.process_allgather(in_tree, tiled=tiled)  # pyrefly: ignore[bad-argument-type]
