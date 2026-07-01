@@ -62,8 +62,8 @@ class JsonHandler(CheckpointableHandler[JsonType, None]):
   `CheckpointablesOptions`, which only applies to save/load operations
   strictly within the Context scope.
 
-  See :py:class:`~orbax.checkpoint.options.CheckpointablesOptions` for more
-  details on handler registration.
+  See :py:class:`.CheckpointablesOptions` for more details on handler
+  registration.
 
   Example Usage:
     Save a dictionary configuration::
