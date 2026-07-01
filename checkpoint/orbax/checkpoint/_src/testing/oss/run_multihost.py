@@ -42,6 +42,9 @@ def run_worker_and_command(command):
   coordinator_address = os.environ.get("JAX_COORDINATOR_ADDRESS")
   num_processes = os.environ.get("JAX_NUM_PROCESSES")
   process_id = os.environ.get("JAX_PROCESS_ID")
+  print(f"[Coordinator address {coordinator_address}]")
+  print(f"[Num Processes {num_processes}]")
+  print(f"[Process ID {process_id}]")
 
   if coordinator_address is None:
     raise ValueError(
@@ -55,7 +58,6 @@ def run_worker_and_command(command):
       num_processes=int(num_processes),
       process_id=int(process_id),
   )
-
   print(f"[Rank {process_id}] JAX Initialized. Executing: {' '.join(command)}")
   print(f"[Rank {process_id}] JAX devices: {jax.devices()}")
 

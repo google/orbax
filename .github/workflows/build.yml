@@ -5,6 +5,9 @@ on:
   schedule:
     # Run every 4 hour
     - cron: "0 */4 * * *"
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -57,6 +60,7 @@ jobs:
         python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. $(find orbax/checkpoint/ -name "*.proto")
         pip uninstall -y orbax
         pip install tensorboard
+
         if [[ "${{ matrix.jax-version }}" == "newest" ]]; then
           pip install -U jax jaxlib
         elif [[ "${{ matrix.jax-version }}" == "nightly" ]]; then
@@ -188,8 +192,7 @@ jobs:
 
   multiprocess-checkpoint-benchmarks:
     name: "multiprocess-checkpoint-benchmarks (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-g2-16-l4-1gpu-x4
-    # runs-on: linux-x86-ct5lp-4tpu-x4
+    runs-on: linux-x86-ct5lp-4tpu-x4
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
@@ -218,6 +221,7 @@ jobs:
         fi
         pip install gcsfs
         pip install portpicker tensorboard
+        python -c "import jax; jax.distributed.initialize(); print('Available Devices:', jax.devices())"
     - name: Run Correctness Integration Tests
       env:
         GCS_BUCKET_PATH: gs://orbax-benchmarks/benchmark-results/${{ github.run_id }}
@@ -266,15 +270,15 @@ jobs:
 
   multiprocess-unit-tests:
     name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
-    runs-on: linux-x86-ct5lp-224-8tpu
+    runs-on: linux-x86-ct6e-180-8tpu
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
         working-directory: checkpoint
     strategy:
       matrix:
-        python-version: ["3.11"]
-        jax-version: ["0.10.1"]
+        python-version: ["3.12"]
+        jax-version: ["0.10.2"]
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
     - name: Set up Python ${{ matrix.python-version }}
@@ -283,11 +287,6 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install -e .
-        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-        pip uninstall -y orbax
-        pip install gcsfs
-        pip install portpicker pytest chex pyyaml tensorboard
         if [ "${{ matrix.jax-version }}" = "newest" ]; then
           pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         elif [ "${{ matrix.jax-version }}" = "nightly" ]; then
@@ -295,6 +294,13 @@ jobs:
         else
           pip install "jax[tpu]==${{ matrix.jax-version }}" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
         fi
+        pip install -e .
+        pip install -e .[testing,gcs] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+        pip uninstall -y orbax
+        pip install gcsfs
+        pip install portpicker pytest chex pyyaml tensorboard
+        python -c "import jax; print('Available Devices:', jax.devices())"
+        python -c "import jax; jax.distributed.initialize(); print('Available Devices:', jax.devices())"
     - name: Run 2 multiprocess tests
       env:
         TEST_TMPDIR: /tmp/orbax_test
