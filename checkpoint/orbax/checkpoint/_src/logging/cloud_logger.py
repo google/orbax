@@ -90,5 +90,5 @@ class CloudLogger(abstract_logger.AbstractLogger):
     entry['job_name'] = self.job_name
     self._logger.log_struct(
         entry,
-        severity=_get_severity(severity),
+        severity=_get_severity(severity),  # pyrefly: ignore[bad-argument-type]
     )

@@ -180,17 +180,17 @@ class Checkpointer(epy.ContextManager):
         save_decision_policies.ContinuousCheckpointingPolicy(),
         save_decision_policies.PreemptionCheckpointingPolicy(),
     ])
-    save_decision_policy = save_decision_policy or default_save_decision_policy
+    save_decision_policy = save_decision_policy or default_save_decision_policy  # pyrefly: ignore[bad-assignment]
     default_preservation_policy = preservation_policies.PreserveAll()
-    preservation_policy = preservation_policy or default_preservation_policy
+    preservation_policy = preservation_policy or default_preservation_policy  # pyrefly: ignore[bad-assignment]
 
     self._step_name_format = (
         step_name_format or path_step_lib.standard_name_format()
     )
     options = checkpoint_manager.CheckpointManagerOptions(
-        save_decision_policy=save_decision_policy,
-        preservation_policy=preservation_policy,
-        step_name_format=step_name_format,
+        save_decision_policy=save_decision_policy,  # pyrefly: ignore[bad-argument-type]
+        preservation_policy=preservation_policy,  # pyrefly: ignore[bad-argument-type]
+        step_name_format=step_name_format,  # pyrefly: ignore[bad-argument-type]
         cleanup_tmp_directories=cleanup_tmp_directories,
         lightweight_initialize=lightweight_initialize,
         max_to_keep=None,  # Unlimited.
@@ -205,7 +205,7 @@ class Checkpointer(epy.ContextManager):
     self._manager = checkpoint_manager.CheckpointManager(
         directory,
         options=options,
-        metadata=custom_metadata,
+        metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
     )
 
   @property
@@ -284,7 +284,7 @@ class Checkpointer(epy.ContextManager):
   def save(
       self,
       step: int,
-      state: tree_types.PyTreeOf[tree_types.Leaf],
+      state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
       *,
       checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
       force: bool = False,
@@ -473,7 +473,7 @@ class Checkpointer(epy.ContextManager):
   def save_async(
       self,
       step: int,
-      state: tree_types.PyTreeOf[tree_types.Leaf],
+      state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
       *,
       checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
       force: bool = False,
@@ -590,7 +590,7 @@ class Checkpointer(epy.ContextManager):
           args=args,
           metrics=metrics,
           force=force,
-          custom_metadata=custom_metadata,
+          custom_metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
       )
       if not save_initiated:
         return None
@@ -600,11 +600,11 @@ class Checkpointer(epy.ContextManager):
       self,
       step: int | CheckpointMetadata | None = None,
       abstract_state: (
-          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
+          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None  # pyrefly: ignore[bad-specialization]
       ) = None,
       *,
       checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
-  ) -> tree_types.PyTreeOf[tree_types.Leaf]:
+  ) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
     """Loads a PyTree checkpoint at the given step.
 
     This method behaves similarly to the standalone free function
@@ -787,9 +787,9 @@ class Checkpointer(epy.ContextManager):
       self,
       step: int | CheckpointMetadata | None = None,
       abstract_state: (
-          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None
+          tree_types.PyTreeOf[tree_types.AbstractLeaf] | None  # pyrefly: ignore[bad-specialization]
       ) = None,
-  ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
+  ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:  # pyrefly: ignore[bad-specialization]
     """Not yet supported."""
     raise NotImplementedError()
 

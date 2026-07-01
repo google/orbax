@@ -81,7 +81,7 @@ class _PartialSavePyTree(handler_types.StatefulCheckpointable):
 
 def save(
     path: path_types.PathLike,
-    state: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ):
@@ -152,7 +152,7 @@ def save(
 
 def save_async(
     path: path_types.PathLike,
-    state: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
     *,
     custom_metadata: tree_types.JsonType | None = None,
 ) -> async_types.AsyncResponse[None]:

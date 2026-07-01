@@ -233,7 +233,7 @@ class Checkpointer(
         directory,
         operation_type=event_tracking.OperationType.SAVE,
         async_origin=False,
-        primary_host=self._primary_host,
+        primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(checkpoint_start_time)
     self.synchronize_next_awaitable_signal_operation_id()
@@ -299,7 +299,7 @@ class Checkpointer(
         directory,
         operation_type=event_tracking.OperationType.LOAD,
         async_origin=False,
-        primary_host=self._primary_host,
+        primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(restore_start_time)
     if not directory.exists():
@@ -381,7 +381,7 @@ class Checkpointer(
             directory,
         )
       else:
-        update_dict['item_handlers'] = partial_metadata.item_handlers
+        update_dict['item_handlers'] = partial_metadata.item_handlers  # pyrefly: ignore[bad-assignment]
     else:
       try:
         item_handler = self._handler.typestr()
@@ -394,7 +394,7 @@ class Checkpointer(
         item_handler = (
             f'{self._handler.__module__}.{self._handler.__class__.__qualname__}'
         )
-      update_dict['item_handlers'] = item_handler
+      update_dict['item_handlers'] = item_handler  # pyrefly: ignore[bad-assignment]
     self._metadata_store.update(
         file_path=checkpoint.step_metadata_file_path(directory),
         **step_metadata_serialization.serialize_for_update(**update_dict),

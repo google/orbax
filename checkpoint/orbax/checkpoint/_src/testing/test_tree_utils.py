@@ -39,7 +39,7 @@ def create_namedtuple(
   fields, values = zip(*field_value_tuples)
   module_name, class_name = tree_rich_types._module_and_class_name(cls)  # pylint: disable=protected-access
   new_type = tree_rich_types._new_namedtuple_type(module_name, class_name, fields)  # pylint: disable=protected-access
-  return new_type(*values)
+  return new_type(*values)  # pyrefly: ignore[bad-return]
 
 
 class MuNu(NamedTuple):
@@ -598,8 +598,8 @@ TEST_PYTREES = [
                 my_chex=MyChex(
                     my_jax_array=jnp.arange(8), my_np_array=np.arange(8)
                 ),
-                my_dict={'a': jnp.arange(8), 'b': np.arange(8)},
-                my_list=[jnp.arange(8), np.arange(8)],
+                my_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type]
+                my_list=[jnp.arange(8), np.arange(8)],  # pyrefly: ignore[bad-argument-type]
                 my_empty_chex=MyEmptyChex(),
             )
         },
@@ -842,7 +842,7 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'named_tuple_with_nested_attrs': NamedTupleWithNestedAttributes(
                 nested_mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
-                nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},
+                nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type]
                 nested_tuple=(jnp.arange(8), jnp.arange(8)),
                 nested_empty_named_tuple=EmptyNamedTuple(),
                 my_empty_chex=MyEmptyChex(),
@@ -893,7 +893,7 @@ TEST_PYTREES = [
         expected_nested_tree_metadata_with_rich_types={
             'named_tuple_with_nested_attrs': create_namedtuple(
                 NamedTupleWithNestedAttributes,
-                [
+                [  # pyrefly: ignore[bad-argument-type]
                     (
                         'nested_mu_nu',
                         create_namedtuple(

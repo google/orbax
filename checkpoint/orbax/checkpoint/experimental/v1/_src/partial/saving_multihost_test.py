@@ -126,8 +126,8 @@ class PartialSavingMultihostTest(
     final_path = self.directory / 'test_finalize_file_collision'
     partial_path = partial_path_lib.add_partial_save_suffix(final_path)
 
-    saving.save(final_path, {'a': 1})
-    saving.save(final_path, {'b': 2})
+    saving.save(final_path, {'a': 1})  # pyrefly: ignore[bad-argument-type]
+    saving.save(final_path, {'b': 2})  # pyrefly: ignore[bad-argument-type]
 
     pending_dirs = asyncio.run(snapshot.list_pending_dirs(partial_path))
     self.assertLen(pending_dirs, 2)

@@ -138,7 +138,7 @@ class DataclassHandler:
       primary_host: int | None,
   ):
     if multihost.is_primary_host(primary_host):
-      directory = await directory.await_creation()
+      directory = await directory.await_creation()  # pyrefly: ignore[bad-assignment]
       async with aiofiles.open(directory / 'foo.txt', 'w') as f:
         contents = json.dumps(dataclasses.asdict(checkpointable))
         await f.write(contents)
@@ -188,7 +188,7 @@ class Point:
   x: int
   y: int
 
-  def __eq__(self, other: Point) -> bool:
+  def __eq__(self, other: Point) -> bool:  # pyrefly: ignore[bad-override]
     return isinstance(other, Point) and self.x == other.x and self.y == other.y
 
   async def save(
@@ -215,7 +215,7 @@ class Foo:
   x: int
   y: str
 
-  def __eq__(self, other: Foo) -> bool:
+  def __eq__(self, other: Foo) -> bool:  # pyrefly: ignore[bad-override]
     return isinstance(other, Foo) and self.x == other.x and self.y == other.y
 
 
@@ -262,7 +262,7 @@ class Bar:
   a: int
   b: str
 
-  def __eq__(self, other: Bar) -> bool:
+  def __eq__(self, other: Bar) -> bool:  # pyrefly: ignore[bad-override]
     return isinstance(other, Bar) and self.a == other.a and self.b == other.b
 
 
@@ -309,7 +309,7 @@ class Baz:
   int_val: int
   str_val: str
 
-  def __eq__(self, other: Baz) -> bool:
+  def __eq__(self, other: Baz) -> bool:  # pyrefly: ignore[bad-override]
     return (
         isinstance(other, Baz)
         and self.int_val == other.int_val
@@ -374,7 +374,7 @@ class DictHandler(handler_types.CheckpointableHandler[BasicDict, None]):
     if multihost.is_primary_host(
         context_lib.get_context().multiprocessing_options.primary_host
     ):
-      directory = await directory.await_creation()
+      directory = await directory.await_creation()  # pyrefly: ignore[bad-assignment]
       async with aiofiles.open(directory / 'data.txt', 'w') as f:
         await f.write(str(dict(checkpointable)))
     return self._background_save()

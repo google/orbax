@@ -158,7 +158,7 @@ class EveryNSteps(PreservationPolicy):
         if i == 0:
           result.append(True)  # Always preserve the first checkpoint.
           previous_step = ckpt.step
-        elif ckpt.step - previous_step >= self.interval_steps:
+        elif ckpt.step - previous_step >= self.interval_steps:  # pyrefly: ignore[unsupported-operation]
           result.append(True)
           previous_step = ckpt.step
         else:
@@ -248,7 +248,7 @@ class CustomSteps(PreservationPolicy):
   steps: dataclasses.InitVar[Sequence[int]]
   _steps_set: Set[int] = dataclasses.field(init=False)
 
-  def __post_init__(self, steps_init: Sequence[int]):
+  def __post_init__(self, steps_init: Sequence[int]):  # pyrefly: ignore[bad-function-definition]
     """Initializes the internal set of steps after the object is created."""
     self._steps_set = set(steps_init)
 

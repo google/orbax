@@ -57,7 +57,7 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
   async def assertNotExists(self, path: epath.Path):
     self.assertFalse(await async_path.exists(path))
 
-  def assertBetween(self, a, b, c):
+  def assertBetween(self, a, b, c):  # pyrefly: ignore[bad-override]
     self.assertGreater(b, a)
     self.assertGreater(c, b)
 

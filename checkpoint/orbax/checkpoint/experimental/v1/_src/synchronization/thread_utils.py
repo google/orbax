@@ -40,7 +40,7 @@ class BackgroundThreadRunner(Generic[T]):
     r = self._future.result(timeout=timeout)
     if self._runner:
       self._runner.shutdown()
-      self._runner = None
+      self._runner = None  # pyrefly: ignore[bad-assignment]
     return r
 
   def on_complete(self, callback: Callable[[T], None]) -> None:

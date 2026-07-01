@@ -109,7 +109,7 @@ class OptionalRef(Generic[_T]):
   def map(self, func: Callable[[_T], _R]) -> _R:
     """Applies `func` to the value and returns the result."""
     with self._lock:
-      return func(self._value)
+      return func(self._value)  # pyrefly: ignore[bad-argument-type]
 
 
 class Ref(Generic[_T]):

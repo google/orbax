@@ -194,7 +194,7 @@ class PartialSavingTest(parameterized.TestCase):
     }
 
     # Second save.
-    saving.save(final_path, new_node_pytree)
+    saving.save(final_path, new_node_pytree)  # pyrefly: ignore[bad-argument-type]
     self.assertTrue(partial_path.exists())
     self.assertFalse(final_path.exists())
 
@@ -226,7 +226,7 @@ class PartialSavingTest(parameterized.TestCase):
         pytree_handler.PartialSaveReplacementError,
         'Partial saving currently does not support REPLACEMENT.',
     ):
-      saving.save(final_path, replacement_pytree)
+      saving.save(final_path, replacement_pytree)  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.parameters(True, False)
   def test_save_pytree_subtree_replacement_raises_error(
@@ -243,14 +243,14 @@ class PartialSavingTest(parameterized.TestCase):
       second_save_pytree = {'a': {'b': 1}}
 
     # First save.
-    saving.save(final_path, first_save_pytree)
+    saving.save(final_path, first_save_pytree)  # pyrefly: ignore[bad-argument-type]
 
     # Second save, with subtree replacement.
     with self.assertRaisesRegex(
         pytree_handler.PartialSaveReplacementError,
         'Partial saving currently does not support REPLACEMENT.',
     ):
-      saving.save(final_path, second_save_pytree)
+      saving.save(final_path, second_save_pytree)  # pyrefly: ignore[bad-argument-type]
 
   def test_partial_save_disk_usage_not_copied(self):
     """Tests that partial saves don't recursively copy existing data."""
@@ -260,7 +260,7 @@ class PartialSavingTest(parameterized.TestCase):
     # Use a large enough array so metadata overhead is negligible.
     arr_size_bytes = 512 * 1024
     arr1 = np.ones(arr_size_bytes // 4, dtype=np.float32)
-    saving.save(final_path, {'arr1': arr1})
+    saving.save(final_path, {'arr1': arr1})  # pyrefly: ignore[bad-argument-type]
 
     with self.subTest('first_save_pending_dir'):
       pending_dirs = asyncio.run(snapshot.list_pending_dirs(partial_path))
@@ -278,7 +278,7 @@ class PartialSavingTest(parameterized.TestCase):
     base_size = get_dir_size(pending_dirs[0])
 
     arr2 = np.ones(arr_size_bytes // 4, dtype=np.float32)
-    saving.save(final_path, {'arr2': arr2})
+    saving.save(final_path, {'arr2': arr2})  # pyrefly: ignore[bad-argument-type]
     pending_dirs = asyncio.run(snapshot.list_pending_dirs(partial_path))
 
     with self.subTest('second_save_pending_dirs'):
@@ -297,8 +297,8 @@ class PartialSavingTest(parameterized.TestCase):
       # Finalize to ensure the checkpoint is valid
       saving.finalize(final_path)
       restored = loading.load(final_path)
-      self.assertIn('arr1', restored)
-      self.assertIn('arr2', restored)
+      self.assertIn('arr1', restored)  # pyrefly: ignore[bad-argument-type]
+      self.assertIn('arr2', restored)  # pyrefly: ignore[bad-argument-type]
 
   def test_empty_initial_save(self):
     """Tests that save() raises an error if the initial save is empty."""
@@ -306,7 +306,7 @@ class PartialSavingTest(parameterized.TestCase):
 
     # First save - empty.
     with self.assertRaisesRegex(ValueError, 'Found empty item.'):
-      saving.save(final_path, {})
+      saving.save(final_path, {})  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.named_parameters(
       ('none_then_meta', None, {'meta1': 'val1'}, {'meta1': 'val1'}),
@@ -322,8 +322,8 @@ class PartialSavingTest(parameterized.TestCase):
     """Tests that save() saves custom metadata correctly."""
     final_path = self.directory / 'custom_metadata'
 
-    saving.save(final_path, {'a': 1}, custom_metadata=meta1)
-    saving.save(final_path, {'b': 2}, custom_metadata=meta2)
+    saving.save(final_path, {'a': 1}, custom_metadata=meta1)  # pyrefly: ignore[bad-argument-type]
+    saving.save(final_path, {'b': 2}, custom_metadata=meta2)  # pyrefly: ignore[bad-argument-type]
     saving.finalize(final_path)
 
     restored_metadata = metadata_loading.checkpointables_metadata(final_path)
@@ -332,20 +332,20 @@ class PartialSavingTest(parameterized.TestCase):
   def test_save_no_changes(self):
     """Tests that save() raises an error if no changes occur."""
     final_path = self.directory / 'save_no_changes'
-    saving.save(final_path, {'a': 1})
+    saving.save(final_path, {'a': 1})  # pyrefly: ignore[bad-argument-type]
     with self.assertRaisesRegex(
         pytree_handler.PartialSaveReplacementError,
         'Partial saving currently does not support REPLACEMENT.',
     ):
-      saving.save(final_path, {'a': 1})  # Save the same tree again
+      saving.save(final_path, {'a': 1})  # Save the same tree again  # pyrefly: ignore[bad-argument-type]
 
   def test_finalize_file_collision(self):
     """Tests that finalize() raises FileExistsError on file collision."""
     final_path = self.directory / 'test_finalize_file_collision'
     partial_path = partial_path_lib.add_partial_save_suffix(final_path)
 
-    saving.save(final_path, {'a': 1})
-    saving.save(final_path, {'b': 2})
+    saving.save(final_path, {'a': 1})  # pyrefly: ignore[bad-argument-type]
+    saving.save(final_path, {'b': 2})  # pyrefly: ignore[bad-argument-type]
 
     pending_dirs = asyncio.run(snapshot.list_pending_dirs(partial_path))
     self.assertLen(pending_dirs, 2)
@@ -363,12 +363,12 @@ class PartialSavingTest(parameterized.TestCase):
   def test_save_after_finalize(self):
     """Tests save() error if the final path already exists."""
     final_path = self.directory / 'save_after_finalize'
-    saving.save(final_path, {'a': 1})
+    saving.save(final_path, {'a': 1})  # pyrefly: ignore[bad-argument-type]
     saving.finalize(final_path)
     self.assertTrue(final_path.exists())
 
     with self.assertRaises(FileExistsError):
-      saving.save(final_path, {'b': 2})
+      saving.save(final_path, {'b': 2})  # pyrefly: ignore[bad-argument-type]
 
 if __name__ == '__main__':
   absltest.main()

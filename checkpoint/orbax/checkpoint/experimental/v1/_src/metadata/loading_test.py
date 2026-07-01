@@ -157,10 +157,10 @@ class PyTreeMetadataTest(absltest.TestCase):
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(
-        ckpt_metadata.metadata.keys(), expected_metadata_tree.keys()
+        ckpt_metadata.metadata.keys(), expected_metadata_tree.keys()  # pyrefly: ignore[missing-attribute]
     )
     for key, expected_sds in expected_metadata_tree.items():
-      actual_sds = ckpt_metadata.metadata[key]
+      actual_sds = ckpt_metadata.metadata[key]  # pyrefly: ignore[bad-index]
       self.assertEqual(actual_sds.shape, expected_sds.shape)
       self.assertEqual(actual_sds.dtype, expected_sds.dtype)
     self.assertIsNone(ckpt_metadata.init_timestamp_nsecs)
@@ -254,9 +254,9 @@ class CheckpointablesMetadataTest(absltest.TestCase):
       ckpt_metadata = ocp.metadata(st_path)
 
     self.assertIsInstance(ckpt_metadata, metadata_types.CheckpointMetadata)
-    self.assertEqual(ckpt_metadata.metadata.keys(), expected_metadata.keys())
+    self.assertEqual(ckpt_metadata.metadata.keys(), expected_metadata.keys())  # pyrefly: ignore[missing-attribute]
     for key, expected_sds in expected_metadata.items():
-      actual_sds = ckpt_metadata.metadata[key]
+      actual_sds = ckpt_metadata.metadata[key]  # pyrefly: ignore[bad-index]
       self.assertEqual(actual_sds.shape, expected_sds.shape)
       self.assertEqual(actual_sds.dtype, expected_sds.dtype)
 

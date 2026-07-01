@@ -31,7 +31,7 @@ CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 
 @typing.final
 class CheckpointMetadata(
-    metadata_types.CheckpointMetadata[CheckpointableMetadataT],
+    metadata_types.CheckpointMetadata[CheckpointableMetadataT],  # pyrefly: ignore[invalid-inheritance]
 ):
   """Represents metadata for a single checkpoint (corresponding to a step).
 
@@ -121,7 +121,7 @@ class CheckpointMetadata(
   @property
   def time(self) -> datetime.datetime:
     return datetime.datetime.fromtimestamp(
-        self.commit_timestamp_nsecs / 1e9, tz=datetime.timezone.utc
+        self.commit_timestamp_nsecs / 1e9, tz=datetime.timezone.utc  # pyrefly: ignore[unsupported-operation]
     )
 
   def _properties_strings(self) -> dict[str, str]:

@@ -118,7 +118,7 @@ def _background_wait_for_commit_futures(
               prefix=barrier_sync_key_prefix,
               suffix=f'{directory.name}',
           ),
-          int(time_remaining_secs * 1000),
+          int(time_remaining_secs * 1000),  # pyrefly: ignore[unsupported-operation]
       )
     except jax.errors.JaxRuntimeError as e:
       if sys.version_info >= (3, 11):
@@ -142,7 +142,7 @@ def _background_wait_for_commit_futures(
               prefix=barrier_sync_key_prefix,
               suffix=f'{directory.name}',
           ),
-          int(time_remaining_secs * 1000),
+          int(time_remaining_secs * 1000),  # pyrefly: ignore[unsupported-operation]
       )
     except jax.errors.JaxRuntimeError as e:
       if sys.version_info >= (3, 11):
@@ -230,7 +230,7 @@ class _AsyncManager:
           directory,
           commit_futures,
           on_commit_callback,
-          barrier_sync_key_prefix=self._barrier_sync_key_prefix,
+          barrier_sync_key_prefix=self._barrier_sync_key_prefix,  # pyrefly: ignore[bad-argument-type]
           sync_fn=self._sync_fn,
           timeout_secs=self._timeout_secs,
           primary_host=self._primary_host,
@@ -342,7 +342,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           multihost.process_index(),
           type(handler),
       )
-      handler = checkpointer.get_legacy_handler_wrapper(handler)
+      handler = checkpointer.get_legacy_handler_wrapper(handler)  # pyrefly: ignore[bad-assignment]
       assert isinstance(
           handler, async_checkpoint_handler.AsyncCheckpointHandler
       )
@@ -436,7 +436,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           tmpdir.get_final(),
           operation_type=event_tracking.OperationType.SAVE,
           async_origin=True,
-          primary_host=self._primary_host,
+          primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
       )
       operation_recorder.record_completion(time.time() - checkpoint_start_time)
       # Clean up all awaitable signals for the current operation id as they are
@@ -493,7 +493,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     else:
       path = tmpdir.get()
     commit_ops.extend(
-        await self._handler.async_save(path, args=ckpt_args) or []
+        await self._handler.async_save(path, args=ckpt_args) or []  # pyrefly: ignore[bad-argument-type]
     )
     commit_ops, _ = jax.tree.flatten(commit_ops)
     commit_ops = [op for op in commit_ops if op is not None]
@@ -546,7 +546,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         directory,
         operation_type=event_tracking.OperationType.SAVE,
         async_origin=True,
-        primary_host=self._primary_host,
+        primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(start_time=checkpoint_start_time)
     tmpdir = self.get_temporary_path(directory)

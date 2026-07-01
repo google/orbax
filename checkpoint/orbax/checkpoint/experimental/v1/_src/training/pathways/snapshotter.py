@@ -26,7 +26,7 @@ from pathwaysutils.experimental import concatenate_by_mesh_axis
 from pathwaysutils.experimental import split_by_mesh_axis
 
 
-def is_shardable_array(x: ...) -> bool:
+def is_shardable_array(x: ...) -> bool:  # pyrefly: ignore[invalid-annotation]
   """Returns True if x is a concrete shardable array."""
   return isinstance(x, jax.Array)
 
