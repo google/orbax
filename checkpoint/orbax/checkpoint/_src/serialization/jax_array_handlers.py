@@ -627,7 +627,7 @@ def _serialize_arrays(
       prioritized.append((value, info, arg))
   else:
     for info, arg, value in zip(infos, args, arrays):
-      prioritization = callback.key_priority(info.keypath)
+      prioritization = callback.key_priority(info.keypath)  # pyrefly: ignore[bad-argument-type]
       if prioritization == types.TransferPriority.SYNCHRONOUS:
         prioritized.append((value, info, arg))
       elif prioritization == types.TransferPriority.ASYNCHRONOUS_PRIORITIZED:
@@ -787,9 +787,9 @@ async def _async_serialize_replica_slices(
         global_shape=value.global_shape,
         local_shape=value.local_shape,
         dtype=value.dtype,
-        use_ocdbt=info.is_ocdbt_checkpoint,
+        use_ocdbt=info.is_ocdbt_checkpoint,  # pyrefly: ignore[bad-argument-type]
         process_index=ocdbt_utils.get_process_index_for_subdir(
-            info.is_ocdbt_checkpoint
+            info.is_ocdbt_checkpoint  # pyrefly: ignore[bad-argument-type]
         ),
         replica_separate_folder=replica_separate_folder,
         metadata_key=metadata_key,
@@ -895,7 +895,7 @@ async def _validate_non_ocdbt_files(
 ):
   await asyncio.gather(*[
       ts_utils.assert_parameter_files_exist(  # pylint: disable=protected-access
-          info.parent_dir / info.name, metadata_key, info.use_zarr3
+          info.parent_dir / info.name, metadata_key, info.use_zarr3  # pyrefly: ignore[bad-argument-type]
       )
       for info in infos
   ])
@@ -981,7 +981,7 @@ async def _deserialize_arrays(
     """This function contains the core TensorStore read logic from ArrayHandler.deserialize."""
     use_ocdbt = _validate_ocdbt_settings(infos)
     if not use_ocdbt:
-      await _validate_non_ocdbt_files(infos, metadata_key)
+      await _validate_non_ocdbt_files(infos, metadata_key)  # pyrefly: ignore[bad-argument-type]
     deserialize_ops = []
     for info, arg, sharding in zip(infos, args, shardings):
       array_read_spec = ts_utils.build_array_read_spec(
@@ -1315,7 +1315,7 @@ class ArrayHandler(types.TypeHandler):
       use_ocdbt = info.is_ocdbt_checkpoint
       array_read_spec = ts_utils.build_array_read_spec(
           info,
-          use_ocdbt=use_ocdbt,
+          use_ocdbt=use_ocdbt,  # pyrefly: ignore[bad-argument-type]
           metadata_key=self._metadata_key,
           raise_array_data_missing_error=info.raise_array_data_missing_error,
       )
@@ -1603,7 +1603,7 @@ def _validate_sharding_and_get_primary_replica_processes(
   primary_replica_device_ids, primary_replica_pids = (
       multislice.get_primary_replica_ids_and_pids(
           replica_axis_idx=replica_axis_index,
-          mesh=sharding.mesh,
+          mesh=sharding.mesh,  # pyrefly: ignore[bad-argument-type]
           primary_replica_id=primary_replica_id,
       )
   )
@@ -1684,7 +1684,7 @@ async def _single_replica_deserialize_and_broadcast(
         jax.sharding.NamedSharding, single_replica_shardings[0]
     ).mesh
     if hasattr(jax, 'set_mesh'):
-      with jax.set_mesh(local_mesh):
+      with jax.set_mesh(local_mesh):  # pyrefly: ignore[bad-argument-type]
         deserialized = create_zeros(tuple(shape_dtype))
     else:
       with local_mesh:
@@ -1695,7 +1695,7 @@ async def _single_replica_deserialize_and_broadcast(
   global_mesh = cast(jax.sharding.NamedSharding, shardings[0]).mesh
   shared_state, _ = multislice.broadcast_one_replica_to_all(
       deserialized,
-      global_mesh,
+      global_mesh,  # pyrefly: ignore[bad-argument-type]
       replica_axis_index,
       _is_host_for_primary_replica(primary_replica_pids),
       memory_limit_bytes=broadcast_memory_limit_bytes,
@@ -1801,9 +1801,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
     """Constructs a single replica sharding."""
     assert isinstance(sharding, jax.sharding.NamedSharding)
     local_replica_devices = multislice.local_replica_devices(
-        sharding.mesh, replica_axis_index=self.replica_axis_index
+        sharding.mesh, replica_axis_index=self.replica_axis_index  # pyrefly: ignore[bad-argument-type]
     )
-    local_replica_devices = np.expand_dims(
+    local_replica_devices = np.expand_dims(  # pyrefly: ignore[no-matching-overload]
         local_replica_devices, axis=self.replica_axis_index
     )
     replica_mesh = jax.sharding.Mesh(
@@ -1812,7 +1812,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     )
     return jax.sharding.NamedSharding(replica_mesh, sharding.spec)
 
-  async def deserialize(
+  async def deserialize(  # pyrefly: ignore[bad-override]
       self,
       infos: Sequence[types.ParamInfo],
       args: Sequence[SingleReplicaArrayRestoreArgs] | None = None,  # pytype: disable=signature-mismatch
@@ -1852,7 +1852,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     single_replica_shardings = [
         arg.single_replica_sharding
         if arg.single_replica_sharding
-        else self._construct_single_replica_sharding(arg.sharding)
+        else self._construct_single_replica_sharding(arg.sharding)  # pyrefly: ignore[bad-argument-type]
         for arg in args
     ]
     shardings = [arg.sharding for arg in args]
@@ -1861,10 +1861,10 @@ class SingleReplicaArrayHandler(ArrayHandler):
       ret = await _single_replica_deserialize_and_broadcast(
           infos,
           args,
-          shardings,
+          shardings,  # pyrefly: ignore[bad-argument-type]
           single_replica_shardings,
-          self.replica_axis_index,
-          self.primary_replica_id,
+          self.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
+          self.primary_replica_id,  # pyrefly: ignore[bad-argument-type]
           self._metadata_key,
           self.broadcast_memory_limit_bytes,
           self.broadcast_memory_scaling_factor,
@@ -1872,11 +1872,11 @@ class SingleReplicaArrayHandler(ArrayHandler):
     else:
       primary_replica_devices = multislice.replica_devices(
           shardings[0].mesh,
-          replica_id=self.primary_replica_id,
-          replica_axis_index=self.replica_axis_index,
+          replica_id=self.primary_replica_id,  # pyrefly: ignore[bad-argument-type]
+          replica_axis_index=self.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
       ).flatten()
       dummy_input_array = dispatchers.get_dummy_input_array(
-          primary_replica_devices
+          primary_replica_devices  # pyrefly: ignore[bad-argument-type]
       )
       # Step 1: Deserialize arrays on a single replica.
       ret = self._dispatcher.dispatch(

@@ -154,7 +154,7 @@ def get_bulk_write_request(
 ) -> str:
   """Returns a string representation of a bulk write request, writes multiple arrays with one call."""
   write_requests = [
-      get_write_request(location_path, name, jax_array, timeout, True)[
+      get_write_request(location_path, name, jax_array, timeout, True)[  # pyrefly: ignore[bad-index]
           "persistenceWriteRequest"
       ]
       for name, jax_array in zip(names, jax_arrays)
@@ -176,7 +176,7 @@ def get_read_request(
 ) -> str | Mapping[str, Any]:
   """Returns a string representation of the plugin program which reads the given array from the given location into the provided sharding."""
   if not isinstance(devices, np.ndarray):
-    devices = np.array(devices)
+    devices = np.array(devices)  # pyrefly: ignore[bad-assignment]
 
   timeout_seconds, timeout_fractional_seconds = divmod(
       timeout.total_seconds(), 1
@@ -191,7 +191,7 @@ def get_read_request(
               sharding, len(shape)
           ),
           "devices": {
-              "device_ids": [device.id for device in devices.flatten()]
+              "device_ids": [device.id for device in devices.flatten()]  # pyrefly: ignore[missing-attribute]
           },
           "timeout": {
               "seconds": int(timeout_seconds),
@@ -216,7 +216,7 @@ def get_bulk_read_request(
 ) -> str:
   """Returns a string representation of a bulk read request, reads multiple arrays with one call."""
   read_requests = [
-      get_read_request(
+      get_read_request(  # pyrefly: ignore[bad-index]
           location_path, name, dtype, shape, sharding, devices, timeout, True
       )["persistenceReadRequest"]
       for name, dtype, shape, sharding in zip(names, dtypes, shapes, shardings)
@@ -235,7 +235,7 @@ def write_one_array(
   """Creates the write array plugin program string, compiles it to an executable, calls it and returns an awaitable future."""
   write_request = get_write_request(location, name, value, timeout)
   write_executable = cloud_pathways_plugin_executable.PluginExecutable(
-      write_request
+      write_request  # pyrefly: ignore[bad-argument-type]
   )
   _, write_future = write_executable.call([value])
   return write_future
@@ -268,7 +268,7 @@ def read_arrays(
   """Creates the read array plugin program string, compiles it to an executable, calls it and returns the result."""
 
   bulk_read_request = get_bulk_read_request(
-      location, names, dtypes, shapes, shardings, devices, timeout
+      location, names, dtypes, shapes, shardings, devices, timeout  # pyrefly: ignore[bad-argument-type]
   )
   bulk_read_executable = cloud_pathways_plugin_executable.PluginExecutable(
       bulk_read_request

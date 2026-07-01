@@ -134,7 +134,7 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     metrics = metric_lib.Metrics()
     options = test_context.options
     assert isinstance(options, ArrayHandlerBenchmarkOptions)
-    if 'array' not in test_context.pytree:
+    if 'array' not in test_context.pytree:  # pyrefly: ignore[not-iterable]
       raise ValueError("Expected 'array' key in test_context.pytree")
     array_metadata_store = (
         array_metadata_store_lib.Store() if options.use_metadata_store else None
@@ -144,15 +144,15 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
       dispatcher = dispatchers.ColocatedPythonDispatcher()
 
     handler = type_handlers.ArrayHandler(
-        use_replica_parallel=options.use_replica_parallel,
-        enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,
+        use_replica_parallel=options.use_replica_parallel,  # pyrefly: ignore[bad-argument-type]
+        enable_replica_parallel_separate_folder=options.enable_replica_parallel_separate_folder,  # pyrefly: ignore[bad-argument-type]
         array_metadata_store=array_metadata_store,
         dispatcher=dispatcher,
     )
-    sharded_array = test_context.pytree['array']
+    sharded_array = test_context.pytree['array']  # pyrefly: ignore[unsupported-operation]
     array_name = 'array'
 
-    ts_context = ts_utils.get_ts_context(use_ocdbt=options.use_ocdbt)
+    ts_context = ts_utils.get_ts_context(use_ocdbt=options.use_ocdbt)  # pyrefly: ignore[bad-argument-type]
     value_typestr = type_handler_registry.get_param_typestr(
         sharded_array,
         type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,
@@ -162,8 +162,8 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
     param_info = type_handlers.ParamInfo(
         name=array_name,
         parent_dir=test_context.path,
-        use_zarr3=options.use_zarr3,
-        is_ocdbt_checkpoint=options.use_ocdbt,
+        use_zarr3=options.use_zarr3,  # pyrefly: ignore[bad-argument-type]
+        is_ocdbt_checkpoint=options.use_ocdbt,  # pyrefly: ignore[bad-argument-type]
         ts_context=ts_context,
         enable_pinned_host_transfer=False,
         value_typestr=value_typestr,
@@ -194,7 +194,7 @@ class ArrayHandlerBenchmark(core.BenchmarksGenerator):
             ocdbt_utils.merge_ocdbt_per_process_files(
                 test_context.path,
                 ts_context=ts_context,
-                use_zarr3=options.use_zarr3,
+                use_zarr3=options.use_zarr3,  # pyrefly: ignore[bad-argument-type]
             )
         )
         multihost.sync_global_processes('merge_ocdbt complete')

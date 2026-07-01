@@ -95,7 +95,7 @@ class ReplicaSlice:
       # errors. To avoid this, we temporarily set a mesh constructed from
       # array's devices.
       mesh = jax.sharding.Mesh(
-          np.array(list(self.unsliced_data.sharding.device_set)), ('data',)
+          np.array(list(self.unsliced_data.sharding.device_set)), ('data',)  # pyrefly: ignore[missing-attribute]
       )
       with jax.sharding.set_mesh(mesh):
         sliced_data = jax.lax.slice_in_dim(
@@ -155,7 +155,7 @@ class ReplicaSlices:
         dtype=self.dtype,
         fragments=[
             fragments.ConcreteFragment(
-                index=numpy_utils.resolve_slice(
+                index=numpy_utils.resolve_slice(  # pyrefly: ignore[bad-argument-type]
                     rslice.index, self.global_shape
                 ),
                 value=rslice.data(),
@@ -446,7 +446,7 @@ def transfer_arrays_to_host(
     assert isinstance(data, jax.Array)
     device = data.device
     # Start the asynchronous device-to-host copy
-    if use_pinned_host_transfer(device):
+    if use_pinned_host_transfer(device):  # pyrefly: ignore[bad-argument-type]
       # If available, transfer to pinned host memory
       data = jax.device_put(
           data,

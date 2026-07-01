@@ -84,14 +84,14 @@ def _create_checkpoint_manager(
       abstract_state=abstract_state,
       options=p2p_options.CheckpointManagerOptions(
           local=p2p_options.LocalCheckpointOptions(
-              save_interval_steps=options.local_save_interval_steps,
-              max_to_keep=options.local_max_to_keep,
+              save_interval_steps=options.local_save_interval_steps,  # pyrefly: ignore[bad-argument-type]
+              max_to_keep=options.local_max_to_keep,  # pyrefly: ignore[bad-argument-type]
           ),
           persistent=p2p_options.PersistentCheckpointOptions(
-              save_interval_steps=options.persistent_save_interval_steps,
-              max_to_keep=options.persistent_max_to_keep,
+              save_interval_steps=options.persistent_save_interval_steps,  # pyrefly: ignore[bad-argument-type]
+              max_to_keep=options.persistent_max_to_keep,  # pyrefly: ignore[bad-argument-type]
           ),
-          replica_axis_index=options.replica_axis_index,
+          replica_axis_index=options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
       ),
   )
 
@@ -142,7 +142,7 @@ def _restore_and_validate(
     multihost.sync_global_processes(f'{prefix}save_completed_{step}')
 
   with metrics.measure(f'{prefix}restore_{step}'):
-    restored = manager.restore(
+    restored = manager.restore(  # pyrefly: ignore[unsupported-operation]
         step,
         args=p2p_args_lib.Composite(
             state=pytree_checkpoint_handler.PyTreeRestoreArgs(
@@ -198,7 +198,7 @@ class P2pCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       manager = _create_checkpoint_manager(
           local_directory=local_directory,
           persistent_directory=persistent_directory,
-          global_mesh=mesh,
+          global_mesh=mesh,  # pyrefly: ignore[bad-argument-type]
           abstract_state=abstract_pytree,
           options=options,
       )
@@ -220,7 +220,7 @@ class P2pCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
 
     start_step = step + 1 if step is not None else 0
     with metrics.measure(f'{test_name}_train_loop'):
-      for step in range(start_step, options.train_steps):
+      for step in range(start_step, options.train_steps):  # pyrefly: ignore[bad-argument-type]
         logging.info('Test %s: Training step %d', test_name, step)
         with metrics.measure(f'{test_name}_save_{step}'):
           manager.save(
@@ -232,7 +232,7 @@ class P2pCheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
         with metrics.measure(f'{test_name}_wait_until_finished_{step}'):
           manager.wait_until_finished()
 
-        if step % options.local_save_interval_steps == 0 and step != 0:
+        if step % options.local_save_interval_steps == 0 and step != 0:  # pyrefly: ignore[unsupported-operation]
           with metrics.measure(f'{test_name}_restore_and_validate_{step}'):
             _delete_checkpoints(
                 manager,

@@ -368,12 +368,12 @@ def build_zarr_shard_and_chunk_metadata(
     # Zarr v2.
     metadata['chunks'] = chunk_shape
     if use_compression:
-      metadata['compressor'] = {'id': 'zstd'}
+      metadata['compressor'] = {'id': 'zstd'}  # pyrefly: ignore[bad-assignment]
     else:
-      metadata['compressor'] = None
+      metadata['compressor'] = None  # pyrefly: ignore[bad-assignment]
   else:
     # Zarr v3.
-    metadata['chunk_grid'] = {
+    metadata['chunk_grid'] = {  # pyrefly: ignore[bad-assignment]
         'name': 'regular',
         'configuration': {
             'chunk_shape': chunk_shape,
@@ -382,7 +382,7 @@ def build_zarr_shard_and_chunk_metadata(
     # TODO: b/354139177 - Consider if using write shape equal to shard shape and
     # read shape equal to chosen chunk shape would be a better setting.
     del shard_shape  # Currently unused.
-    metadata['codecs'] = [
+    metadata['codecs'] = [  # pyrefly: ignore[bad-assignment]
         {
             'name': 'sharding_indexed',
             'configuration': {
@@ -400,7 +400,7 @@ def build_zarr_shard_and_chunk_metadata(
     ]
     if use_compression:
       # Remove zstd codec if not using compression.
-      metadata['codecs'][0]['configuration']['codecs'].append({'name': 'zstd'})
+      metadata['codecs'][0]['configuration']['codecs'].append({'name': 'zstd'})  # pyrefly: ignore[bad-index]
 
   return metadata
 
@@ -803,8 +803,8 @@ def get_json_tspec_write(
   tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
       global_shape=global_shape,
       shard_shape=local_shape,
-      use_compression=info.use_compression,
-      use_zarr3=info.use_zarr3,
+      use_compression=info.use_compression,  # pyrefly: ignore[bad-argument-type]
+      use_zarr3=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       chunk_shape=chunk_shape,
   )
 
@@ -825,7 +825,7 @@ def build_array_read_spec(
   return ArrayReadSpec(
       directory=info.parent_dir.as_posix(),
       relative_array_filename=info.name,
-      use_zarr3=info.use_zarr3,
+      use_zarr3=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       use_ocdbt=use_ocdbt,
       metadata_key=metadata_key,
       raise_array_data_missing_error=raise_array_data_missing_error,
@@ -862,8 +862,8 @@ def build_array_write_spec(
       target_dtype=(arg.dtype if arg is not None else None),
       chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
       shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      use_compression=info.use_compression,
-      use_zarr3=info.use_zarr3,
+      use_compression=info.use_compression,  # pyrefly: ignore[bad-argument-type]
+      use_zarr3=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       use_ocdbt=use_ocdbt,
       process_id=process_index,
       replica_separate_folder=replica_separate_folder,

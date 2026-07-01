@@ -44,7 +44,7 @@ class SaveDecisionPolicyOptions:
     if self.policy_type == 'FixedIntervalPolicy':
       return f'FixedIntervalPolicy_{self.interval_steps}'
     elif self.policy_type == 'SpecificStepsPolicy':
-      custom_steps_str = '_'.join(str(step) for step in self.custom_steps)
+      custom_steps_str = '_'.join(str(step) for step in self.custom_steps)  # pyrefly: ignore[not-iterable]
       return f'SpecificStepsPolicy_{custom_steps_str}'
     elif self.policy_type == 'ContinuousCheckpointingPolicy':
       return f'ContinuousCheckpointingPolicy_{self.minimum_interval_secs}'
@@ -60,11 +60,11 @@ class SaveDecisionPolicyOptions:
 
     if self.policy_type == 'FixedIntervalPolicy':
       return save_decision_policy_lib.FixedIntervalPolicy(
-          interval=self.interval_steps
+          interval=self.interval_steps  # pyrefly: ignore[bad-argument-type]
       )
     elif self.policy_type == 'SpecificStepsPolicy':
       return save_decision_policy_lib.SpecificStepsPolicy(
-          steps=self.custom_steps
+          steps=self.custom_steps  # pyrefly: ignore[bad-argument-type]
       )
     elif self.policy_type == 'ContinuousCheckpointingPolicy':
       return save_decision_policy_lib.ContinuousCheckpointingPolicy(
@@ -97,7 +97,7 @@ class PreservationPolicyOptions:
     elif self.policy_type == 'EveryNSteps':
       return f'EveryNSteps_{self.interval_steps}'
     elif self.policy_type == 'CustomSteps':
-      return f'CustomSteps_{"_".join(str(step) for step in self.custom_steps)}'
+      return f'CustomSteps_{"_".join(str(step) for step in self.custom_steps)}'  # pyrefly: ignore[not-iterable]
     else:
       return self.policy_type
 
@@ -108,14 +108,14 @@ class PreservationPolicyOptions:
       return preservation_policy_lib.LatestN(n=self.n)
     elif self.policy_type == 'EveryNSeconds':
       return preservation_policy_lib.EveryNSeconds(
-          interval_secs=self.interval_secs
+          interval_secs=self.interval_secs  # pyrefly: ignore[bad-argument-type]
       )
     elif self.policy_type == 'EveryNSteps':
       return preservation_policy_lib.EveryNSteps(
-          interval_steps=self.interval_steps
+          interval_steps=self.interval_steps  # pyrefly: ignore[bad-argument-type]
       )
     elif self.policy_type == 'CustomSteps':
-      return preservation_policy_lib.CustomSteps(steps=self.custom_steps)
+      return preservation_policy_lib.CustomSteps(steps=self.custom_steps)  # pyrefly: ignore[bad-argument-type]
     else:
       raise ValueError(f'Unsupported policy type: {self.policy_type}')
 
@@ -236,13 +236,13 @@ class CheckpointPolicyBenchmark(benchmarks_core.BenchmarksGenerator):
             save_decision_policy=save_decision_policy,
         ),
     )
-    for step in range(options.num_checkpoints):
+    for step in range(options.num_checkpoints):  # pyrefly: ignore[bad-argument-type]
       with metrics.measure(f'saving step {step}'):
         checkpointer_manager.save(step, args=ocp.args.PyTreeSave(pytree))
     checkpointer_manager.wait_until_finished()
     all_steps = checkpointer_manager.all_steps()
     assert len(all_steps) >= 1
-    assert len(all_steps) <= options.num_checkpoints
+    assert len(all_steps) <= options.num_checkpoints  # pyrefly: ignore[unsupported-operation]
     logging.info('all_steps: %s', all_steps)
 
     if policies_options.expected_preserve_checkpoints is not None:

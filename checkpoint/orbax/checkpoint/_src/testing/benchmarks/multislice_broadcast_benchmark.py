@@ -69,7 +69,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
       multihost.initialize_distributed_to_device_ids()
 
     local_replica_mesh = mesh_utils.get_local_replica_mesh(
-        mesh, options.replica_axis_index
+        mesh, options.replica_axis_index  # pyrefly: ignore[bad-argument-type]
     )
     mesh_utils.pretty_log_mesh("Global Mesh: ", mesh)
     mesh_utils.pretty_log_mesh(
@@ -79,7 +79,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
 
     with metrics.measure("process_spans_multiple_replicas"):
       if multislice.process_spans_multiple_replicas(
-          mesh, replica_axis_index=options.replica_axis_index
+          mesh, replica_axis_index=options.replica_axis_index  # pyrefly: ignore[bad-argument-type]
       ):
         logging.warning(
             "Process spans multiple replicas. Mesh: %r, replica_axis_index: %r",
@@ -91,7 +91,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
         multihost.process_index(),
         mesh,
         replica_id=0,
-        replica_axis_index=options.replica_axis_index,
+        replica_axis_index=options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
     )
     logging.info(
         "Process %d is in source replica: %s",
@@ -120,7 +120,7 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
           multislice.broadcast_one_replica_to_all(
               tuple(single_replica_arr_list),
               mesh,
-              replica_axis_index=options.replica_axis_index,
+              replica_axis_index=options.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
               is_source=is_source_replica,
               memory_limit_bytes=1024 * 1024 * 1024,  # 1GB
           )

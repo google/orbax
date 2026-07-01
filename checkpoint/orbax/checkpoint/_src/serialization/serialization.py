@@ -404,7 +404,7 @@ async def async_deserialize(
   byte_limiter = byte_limiter or limits.get_byte_limiter()
   context = context or ts_utils.get_ts_context(use_ocdbt=False)
   sharding = (
-      user_sharding.sharding
+      user_sharding.sharding  # pyrefly: ignore[missing-attribute]
       if isinstance(user_sharding, Format)
       else user_sharding
   )
@@ -416,7 +416,7 @@ async def async_deserialize(
 
   if isinstance(user_sharding, Format):
     dll = (
-        user_sharding.layout
+        user_sharding.layout  # pyrefly: ignore[missing-attribute]
         if jax.__version_info__ >= (0, 6, 3)
         else user_sharding.device_local_layout  # type: ignore
     )
@@ -440,7 +440,7 @@ async def async_deserialize(
       global_shape=global_shape,
       new_shard_shape=new_shard_shape,
       sharding=sharding,
-      dtype=dtype,
+      dtype=dtype,  # pyrefly: ignore[bad-argument-type]
       byte_limiter=byte_limiter,
       strict=strict,
       dll=dll,

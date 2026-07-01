@@ -30,8 +30,8 @@ class PluginExecutable:
 
   def __init__(self, prog_str: str):
     ifrt_client = jax.local_devices()[0].client
-    program = ifrt_programs.make_plugin_program(prog_str)
-    options = ifrt_programs.make_plugin_compile_options()
+    program = ifrt_programs.make_plugin_program(prog_str)  # pyrefly: ignore[missing-attribute]
+    options = ifrt_programs.make_plugin_compile_options()  # pyrefly: ignore[missing-attribute]
     self.compiled = ifrt_client.compile_ifrt_program(program, options)
 
   def call(

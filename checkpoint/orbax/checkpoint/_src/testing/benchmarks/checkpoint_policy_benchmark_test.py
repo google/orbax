@@ -82,7 +82,7 @@ class CheckpointPolicyBenchmarkTest(parameterized.TestCase):
       self.assertIsInstance(benchmark.options, CheckpointPolicyBenchmarkOptions)
       preservation_policy, save_decision_policy = (
           generator._get_checkpoint_policies(
-              benchmark.options.checkpoint_policies_options
+              benchmark.options.checkpoint_policies_options  # pyrefly: ignore[bad-argument-type]
           )
       )
       self.assertIsInstance(

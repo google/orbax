@@ -44,7 +44,7 @@ def log_pytree_fn(inp: Any, metadata: dict[str, Any]):
     assert isinstance(sharding, jax.sharding.NamedSharding)
 
     pytree_utils.log_pytree('array_in_worker', arr)
-    mesh_utils.pretty_log_mesh('array mesh in worker: ', sharding.mesh)
+    mesh_utils.pretty_log_mesh('array mesh in worker: ', sharding.mesh)  # pyrefly: ignore[bad-argument-type]
     logging.info(
         'process=%s/%s, addressable_shards=%s, mesh_devices=%s',
         multihost.process_index(),
@@ -88,9 +88,9 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
     metrics = metric_lib.Metrics()
     options = test_context.options
     assert isinstance(options, MultihostDispatchersBenchmarkOptions)
-    if 'array' not in test_context.pytree:
+    if 'array' not in test_context.pytree:  # pyrefly: ignore[not-iterable]
       raise ValueError("Expected 'array' key in test_context.pytree")
-    array = test_context.pytree['array']
+    array = test_context.pytree['array']  # pyrefly: ignore[unsupported-operation]
     dispatcher = None
     if options.use_colocated:
       dispatcher = dispatchers.ColocatedPythonDispatcher()
@@ -126,7 +126,7 @@ class MultihostDispatchersBenchmark(core.BenchmarksGenerator):
       )
 
     if options.device_count is not None:
-      devices = jax.devices()[: options.device_count]
+      devices = jax.devices()[: options.device_count]  # pyrefly: ignore[bad-index]
     else:
       devices = jax.devices()
 
