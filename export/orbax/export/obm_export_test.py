@@ -24,7 +24,7 @@ from absl.testing import parameterized
 from google.protobuf import text_format
 import jax
 import jax.numpy as jnp
-from jaxtyping import PyTree
+import jaxtyping
 from orbax.export import constants
 from orbax.export import export_testing_utils
 from orbax.export import jax_module
