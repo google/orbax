@@ -52,8 +52,8 @@ class ProtoHandler(
   approach is to use `ocp.Context` with `CheckpointablesOptions`. This allows
   you to bind the handler to a specific dictionary key within the Context scope.
 
-  See :py:class:`~orbax.checkpoint.options.CheckpointablesOptions` for more
-  details on handler registration.
+  See :py:class:`.CheckpointablesOptions` for more details on handler
+  registration.
 
   Example Usage:
     Save a protobuf message configuration::
