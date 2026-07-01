@@ -124,7 +124,7 @@ def v1_generate_case(
       else 'pytree_checkpointable_missing_metadata'
   )
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v1_checkpoints'
       / 'composite_checkpoint'
       / metadata_dir
@@ -148,7 +148,7 @@ def v1_missing_checkpoint_metadata_field(
 ) -> None:
   """Saves V1 checkpoint and removes a field from _CHECKPOINT_METADATA."""
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v1_checkpoints'
       / 'composite_checkpoint'
       / 'non_critical_metadata_alterations'
@@ -169,7 +169,7 @@ def v1_missing_pytree_data(
       else 'non_critical_metadata_alterations'
   )
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v1_checkpoints'
       / 'composite_checkpoint'
       / alteration_type
@@ -191,7 +191,7 @@ def v1_dummy_checkpointable_present() -> None:
   # `abstract_checkpointables=None`, which attempts to load all contents of the
   # checkpoint and will fail to restore the contents of a dummmy checkpointable.
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v1_checkpoints'
       / 'composite_checkpoint'
       / 'critical_general_alterations'
@@ -209,7 +209,7 @@ def v1_delete_checkpointable() -> None:
   # Restoring the checkpoint does not raise an error, as long as we don't
   # attempt to restore the deleted checkpointable.
   path = (
-      epath.Path(_BASE_DIR.value)
+      epath.Path(_BASE_DIR.value)  # pyrefly: ignore[bad-argument-type]
       / 'v1_checkpoints'
       / 'composite_checkpoint'
       / 'non_critical_general_alterations'
@@ -221,7 +221,7 @@ def v1_delete_checkpointable() -> None:
 
 def main(argv):
   del argv
-  epath.Path(_BASE_DIR.value).mkdir(parents=True, exist_ok=True)
+  epath.Path(_BASE_DIR.value).mkdir(parents=True, exist_ok=True)  # pyrefly: ignore[bad-argument-type]
   test_utils.set_tensorstore_driver_for_test()
   print('Generating V1 Checkpoints...')
 

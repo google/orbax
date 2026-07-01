@@ -75,8 +75,8 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     np_save_file(self.object_to_save, self.safetensors_path)
     saving.save(
         self.orbax_path / '0',
-        self.object_to_save,
-        custom_metadata=self.custom_metadata,
+        self.object_to_save,  # pyrefly: ignore[bad-argument-type]
+        custom_metadata=self.custom_metadata,  # pyrefly: ignore[bad-argument-type]
     )
 
   async def test_valid_orbax_checkpoint(self):
@@ -149,7 +149,7 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     custom_path = epath.Path(self.test_dir.full_path) / 'custom_checkpoint'
     saving.save(
         custom_path,
-        self.object_to_save,
+        self.object_to_save,  # pyrefly: ignore[bad-argument-type]
         checkpointable_name='my_custom_name',
     )
     self.assertTrue((custom_path / 'my_custom_name').exists())
@@ -292,8 +292,8 @@ class IsOrbaxV1CheckpointTest(parameterized.TestCase):
     np_save_file(self.object_to_save, self.safetensors_path)
     saving.save(
         self.orbax_path / '0',
-        self.object_to_save,
-        custom_metadata=self.custom_metadata,
+        self.object_to_save,  # pyrefly: ignore[bad-argument-type]
+        custom_metadata=self.custom_metadata,  # pyrefly: ignore[bad-argument-type]
     )
     self.composite_dir = (
         epath.Path(self.test_dir.full_path) / 'composite_checkpoint'

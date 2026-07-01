@@ -55,7 +55,7 @@ class SafetensorsLayoutTest(
         self.safetensors_path,
         metadata=self.custom_metadata,
     )
-    saving.save(self.orbax_path, self.object_to_save)
+    saving.save(self.orbax_path, self.object_to_save)  # pyrefly: ignore[bad-argument-type]
 
   async def test_valid_safetensors_checkpoint(self):
     layout = SafetensorsLayout()
@@ -91,7 +91,7 @@ class SafetensorsLayoutTest(
     """Tests loading a SafeTensors checkpoint with various dtypes."""
     test_path = (
         epath.Path(self.test_dir.full_path)
-        / f'test_{dtype.__name__}.safetensors'
+        / f'test_{dtype.__name__}.safetensors'  # pyrefly: ignore[missing-attribute]
     )
     if dtype == np.bool_:
       arr = np.array([True, False, True, False])

@@ -107,9 +107,9 @@ class SnapshotterBenchmark(benchmarks_core.BenchmarksGenerator):
 
       # 1. Take snapshot of full PyTree (e.g. 2 slices)
       pytree_full, abstract_full = create_sharded_state(
-          options.num_scale_up_slices
+          options.num_scale_up_slices  # pyrefly: ignore[bad-argument-type]
       )
-      _, abstract_down = create_sharded_state(options.num_scale_down_slices)
+      _, abstract_down = create_sharded_state(options.num_scale_down_slices)  # pyrefly: ignore[bad-argument-type]
 
       logging.info("save: abstract pytree:\n%s", pprint.pformat(abstract_full))
 
@@ -150,7 +150,7 @@ class SnapshotterBenchmark(benchmarks_core.BenchmarksGenerator):
       benchmark.clear_pytree(pytree_full)
 
       # 3. Test scale up (saving on fewer slices and loading onto more slices)
-      pytree_down, _ = create_sharded_state(options.num_scale_down_slices)
+      pytree_down, _ = create_sharded_state(options.num_scale_down_slices)  # pyrefly: ignore[bad-argument-type]
       snapshot_mgr_up = snapshotter.Snapshotter(replica_axis_index=0)
 
       with metrics.measure("save_scale_down_state", metrics_to_measure):

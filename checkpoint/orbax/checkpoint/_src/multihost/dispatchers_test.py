@@ -125,7 +125,7 @@ class ColocatedPythonDispatcherTest(parameterized.TestCase):
         return f(*args, **kwargs)
 
       self.mock_specialize.return_value = specialized_wrapper
-      unspecialized_wrapper.specialize = self.mock_specialize
+      unspecialized_wrapper.specialize = self.mock_specialize  # pyrefly: ignore[missing-attribute]
       return unspecialized_wrapper
 
     self.mock_cp_colocated_python.side_effect = cp_decorator
@@ -435,7 +435,7 @@ class PrngKeyDispatchTest(parameterized.TestCase):
           return f(*a, **kw)
 
         mock_specialize.return_value = specialized_wrapper
-        unspecialized_wrapper.specialize = mock_specialize
+        unspecialized_wrapper.specialize = mock_specialize  # pyrefly: ignore[missing-attribute]
         return unspecialized_wrapper
 
       mock_cp.side_effect = cp_decorator
@@ -508,7 +508,7 @@ class PrngKeyDispatchTest(parameterized.TestCase):
           return f(*a, **kw)
 
         mock_specialize.return_value = specialized_wrapper
-        unspecialized_wrapper.specialize = mock_specialize
+        unspecialized_wrapper.specialize = mock_specialize  # pyrefly: ignore[missing-attribute]
         return unspecialized_wrapper
 
       mock_cp.side_effect = cp_decorator

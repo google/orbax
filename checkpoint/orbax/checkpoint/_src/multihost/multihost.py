@@ -31,10 +31,10 @@ _DEFAULT_BARRIER_TIMEOUT = 300
 _TEST_CASE_INDEX = None
 
 # Map from distributed process index to device ids.
-_DISTRIBUTED_TO_DEVICE_IDS: List[List[int]] = None
+_DISTRIBUTED_TO_DEVICE_IDS: List[List[int]] = None  # pyrefly: ignore[bad-assignment]
 
 # Map from runtime process index to distributed process index.
-_RUNTIME_TO_DISTRIBUTED_ID: List[int] = None
+_RUNTIME_TO_DISTRIBUTED_ID: List[int] = None  # pyrefly: ignore[bad-assignment]
 
 # Marks the colocated-Python runtime in Pathways single-controller mode.
 _PATHWAYS_COLOCATED_RUNTIME_ACTIVE = False
@@ -130,11 +130,11 @@ def initialize_distributed_to_device_ids():
     distributed_id = int(key.split('/')[-1])
     # Remove the list brackets.
     device_ids = device_ids[1 : len(device_ids) - 1]
-    results[distributed_id] = [
+    results[distributed_id] = [  # pyrefly: ignore[unsupported-operation]
         int(device_id) for device_id in device_ids.split(', ')
     ]
   assert None not in results
-  _DISTRIBUTED_TO_DEVICE_IDS = results
+  _DISTRIBUTED_TO_DEVICE_IDS = results  # pyrefly: ignore[bad-assignment]
   logging.vlog(
       1,
       '[process=%s][thread=%s] distributed_to_device_ids: %s',

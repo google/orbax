@@ -62,7 +62,7 @@ _ZARRAY_FILE = ".zarray"
 
 async def checkpoint_version(path: path_types.PathLike) -> CheckpointVersion:
   """Returns the checkpoint version of the given path."""
-  if await has_indicator_file(path):
+  if await has_indicator_file(path):  # pyrefly: ignore[bad-argument-type]
     return CheckpointVersion.V1
   else:
     return CheckpointVersion.V0
@@ -150,12 +150,12 @@ async def _create_orbax_identifier_file(
     directory: path_types.PathAwaitingCreation, primary_host: int | None
 ):
   """Creates a file called `orbax.checkpoint` for easy identification."""
-  directory = await directory.await_creation()
+  directory = await directory.await_creation()  # pyrefly: ignore[bad-assignment]
   if multihost.is_primary_host(primary_host):
     # We allow the indicator file to already exist, in case we are performing
     # partial saving to a checkpoint in which the indicator is already present.
     await async_path.touch(
-        directory / ORBAX_CHECKPOINT_INDICATOR_FILE, exist_ok=True
+        directory / ORBAX_CHECKPOINT_INDICATOR_FILE, exist_ok=True  # pyrefly: ignore[bad-argument-type]
     )
 
 
@@ -203,7 +203,7 @@ class OrbaxLayout(CheckpointLayout):
         include_global_registry=False,
     )
 
-  async def get_checkpointable_names(self, path: Path) -> list[str]:
+  async def get_checkpointable_names(self, path: Path) -> list[str]:  # pyrefly: ignore[bad-override]
     """Returns candidate checkpointable names to use for loading.
 
     Checks all subdirectories and returns their names in an order that

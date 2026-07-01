@@ -310,7 +310,7 @@ async def create_or_fetch_asset(
   db_asset.tier_paths.append(tier_path)
 
   try:
-    session.add(db_asset)
+    session.add(db_asset)  # pyrefly: ignore[missing-attribute]
     await session.commit()
     # Refresh the asset to load DB updated fields such as updated_at.
     await session.refresh(
@@ -507,7 +507,7 @@ async def create_prefetch_job(
       status=db_schema.JobStatus.JOB_STATUS_QUEUED,
       target_tier_path=new_tp,
   )
-  session.add(db_job)
+  session.add(db_job)  # pyrefly: ignore[missing-attribute]
 
   asset_uuid = db_asset.asset_uuid
   backend_id = backend.id
@@ -642,6 +642,6 @@ async def queue_delete_asset_job(
       request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
       status=db_schema.JobStatus.JOB_STATUS_QUEUED,
   )
-  session.add(db_job)
+  session.add(db_job)  # pyrefly: ignore[missing-attribute]
 
   await session.commit()

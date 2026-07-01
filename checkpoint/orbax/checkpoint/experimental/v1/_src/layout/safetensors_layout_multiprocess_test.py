@@ -144,7 +144,7 @@ class ShardedSafetensorsLayoutTest(
     mesh = Mesh(np.array(jax.devices()).reshape(mesh_shape), mesh_axes)
     st_path = self.test_dir / f"{self.id()}.safetensors"
     if jax.process_index() == 0:
-      np_save_file(tensor_data, st_path)
+      np_save_file(tensor_data, st_path)  # pyrefly: ignore[bad-argument-type]
     test_utils.sync_global_processes(self.id())
 
     abstract_sharding = NamedSharding(mesh, sharding_spec)

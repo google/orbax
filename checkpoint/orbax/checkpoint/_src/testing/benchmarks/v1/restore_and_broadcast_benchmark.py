@@ -103,6 +103,7 @@ class RestoreAndBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
 
     if context.mesh.devices.ndim != 2:
       raise ValueError(
+          # pyrefly: ignore[missing-attribute]
           "Found mesh with unexpected number of dimensions:"
           f" {context.mesh.ndim}"
       )

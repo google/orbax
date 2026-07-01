@@ -51,7 +51,7 @@ class PyTreeCheckpointableResolutionAsyncTest(
     self.v1_directory = self.root_directory / 'v1'
     saving.save(
         self.v1_directory,
-        {'a': 1, 'b': 2},
+        {'a': 1, 'b': 2},  # pyrefly: ignore[bad-argument-type]
     )
     self.v0_directory = self.root_directory / 'v0'
     ckptr = checkpointer.Checkpointer(
@@ -200,7 +200,7 @@ class IsOrbaxCheckpointTest(parameterized.TestCase):
     self.v1_directory = self.root_directory / 'v1'
     saving.save(
         self.v1_directory,
-        {'a': 1, 'b': 2},
+        {'a': 1, 'b': 2},  # pyrefly: ignore[bad-argument-type]
     )
     self.composite_dir = self.root_directory / 'composite_checkpoint'
     mngr = CheckpointManager(self.composite_dir)

@@ -78,7 +78,7 @@ class TieringServiceWorker:
     self._shutdown_event.clear()
 
     # fetch and cache all storage backends if not already cached.
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       self._backends = await storage_backend.find_backends_by_level(
           session, level=None
       )
@@ -108,7 +108,7 @@ class TieringServiceWorker:
       try:
         for backend_id in self._backends_to_try:
           job = await db_lib.acquire_next_job(
-              session_maker=self._session_maker,
+              session_maker=self._session_maker,  # pyrefly: ignore[bad-argument-type]
               backend_id=backend_id,
               lease_duration=self._lease_duration,
               hostname=self._hostname,
@@ -141,7 +141,7 @@ class TieringServiceWorker:
   async def _poll_active_jobs(self):
     """Polls status of active jobs owned by this worker."""
     now = datetime.datetime.now(datetime.timezone.utc)
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       active_jobs = await db_lib.get_active_jobs(
           session, self._hostname, self._pid
       )
@@ -189,7 +189,7 @@ class TieringServiceWorker:
     except Exception:  # pylint: disable=broad-except
       logging.exception("Error polling job %d", job.id)
       # Note: lease is not extended if we hit transient error.
-      async with self._session_maker() as session:
+      async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
         async with session.begin():
           merged_job = await session.get(
               db_schema.AssetJob, job.id, with_for_update=True
@@ -211,7 +211,7 @@ class TieringServiceWorker:
   ):
     """Updates the job status in the database after a poll iteration."""
     # Update transfer_status JSON and heartbeat/lease in a short transaction
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       async with session.begin():
         merged_job = await session.get(
             db_schema.AssetJob, job.id, with_for_update=True
@@ -270,7 +270,7 @@ class TieringServiceWorker:
   ):
     """Handles permanent logic errors encountered during job polling."""
     logging.exception("Permanent logic error polling job %d", job.id)
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       async with session.begin():
         merged_job = await session.get(
             db_schema.AssetJob, job.id, with_for_update=True
@@ -315,7 +315,7 @@ class TieringServiceWorker:
       # TODO: b/503445463 - Support DELETE jobs.
       logging.warning("Unsupported job request type: %s", job.request_type)
       # Mark as failed for now if not COPY
-      async with self._session_maker() as session:
+      async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
         async with session.begin():
           merged_job = await session.get(
               db_schema.AssetJob, job.id, with_for_update=True
@@ -354,7 +354,7 @@ class TieringServiceWorker:
 
   async def _fail_job_by_id(self, job_id: int, error_msg: str):
     """Fails a job by ID, verifying hostname/PID ownership first."""
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       async with session.begin():
         merged_job = await session.get(
             db_schema.AssetJob, job_id, with_for_update=True
@@ -381,7 +381,7 @@ class TieringServiceWorker:
       zone: str | None,
   ):
     """Saves the details of a successfully triggered transfer to the job."""
-    async with self._session_maker() as session:
+    async with self._session_maker() as session:  # pyrefly: ignore[not-callable]
       async with session.begin():
         merged_job = await session.get(
             db_schema.AssetJob, job_id, with_for_update=True
@@ -516,7 +516,7 @@ class TieringServiceWorker:
       transfer_status = dict(transfer_status)
     transfer_status["error"] = error_msg
     job.transfer_status = transfer_status
-    session.add(job)
+    session.add(job)  # pyrefly: ignore[missing-attribute]
 
     # Clean up target TierPath on failure (set state to FAILED)
     target_tp = await self._get_target_tier_path(
@@ -524,7 +524,7 @@ class TieringServiceWorker:
     )
     if target_tp:
       target_tp.state = db_schema.TierPathState.FAILED
-      session.add(target_tp)
+      session.add(target_tp)  # pyrefly: ignore[missing-attribute]
 
     logging.error("Failed job %d: %s", job.id, error_msg)
 
@@ -540,7 +540,7 @@ class TieringServiceWorker:
     job.worker_host = None
     job.worker_pid = None
     job.expiration_at = None
-    session.add(job)
+    session.add(job)  # pyrefly: ignore[missing-attribute]
 
     # Mark target TierPath as ready
     target_tp = await self._get_target_tier_path(
@@ -558,7 +558,7 @@ class TieringServiceWorker:
       ):
         ttl = datetime.timedelta(seconds=60 * 60)
         target_tp.expires_at = assets.calculate_expires_at(ttl)
-      session.add(target_tp)
+      session.add(target_tp)  # pyrefly: ignore[missing-attribute]
 
     logging.info(
         "Completed job %d, target TierPath %s marked ready",

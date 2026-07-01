@@ -208,7 +208,7 @@ class MetadataCompatibilityTest(parameterized.TestCase):
           actual = compatibility_test_utils.strip_sharding_metadata(actual)
         test_utils.assert_tree_equal(self, expected, actual)
       else:
-        with self.assertRaisesRegex(error_type, error_msg):
+        with self.assertRaisesRegex(error_type, error_msg):  # pyrefly: ignore[bad-argument-type]
           ocp.metadata(
               path,
               checkpointable_name=checkpointable_name,
@@ -269,7 +269,7 @@ class MetadataCompatibilityTest(parameterized.TestCase):
     # Missing sharding metadata results in a pytree identical to expected
     # values except sharding metadata is None.
     loaded = ocp.metadata(path, checkpointable_name='state')
-    self.assertIsNone(loaded.metadata['a'].sharding_metadata)
+    self.assertIsNone(loaded.metadata['a'].sharding_metadata)  # pyrefly: ignore[bad-index]
 
   @parameterized.product(
       version=['v0', 'v1'],
