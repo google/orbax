@@ -46,7 +46,7 @@ def _int_list_flip_index_and_value(int_list: List[int]):
   """
   result = [None for _ in range(len(int_list))]
   for index, value in enumerate(int_list):
-    result[value] = index
+    result[value] = index  # pyrefly: ignore[unsupported-operation]
   assert None not in result
   return result
 
@@ -70,7 +70,7 @@ def _get_runtime_id_across_restarts(
       runtime_to_distributed_ids()
   )
   previous_dist_to_runtime_id = _int_list_flip_index_and_value(
-      previous_runtime_to_dist_id
+      previous_runtime_to_dist_id  # pyrefly: ignore[bad-argument-type]
   )
 
   result = [None for _ in range(jax.process_count())]
@@ -78,7 +78,7 @@ def _get_runtime_id_across_restarts(
   for i in range(jax.process_count()):
     result[previous_dist_to_runtime_id[i]] = current_dist_to_runtime_id[i]
   assert None not in result
-  return result
+  return result  # pyrefly: ignore[bad-return]
 
 
 def process_index_from_device_id(device_id: int) -> int:

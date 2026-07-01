@@ -548,8 +548,8 @@ class CheckpointerTestBase:
             step_metadata.performance_metrics,
             step_statistics.SaveStepStatistics(),
         )
-        self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
-        self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
+        self.assertGreater(step_metadata.init_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
+        self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
         self.assertEqual(step_metadata.custom_metadata, {'a': 1, 'b': 2})
 
     def test_save_and_get_metadata(self):
@@ -595,12 +595,12 @@ class CheckpointerTestBase:
         self.assertIsNotNone(metadata.item_handlers)
         self.assertIn('state', metadata.item_handlers)
         self.assertEqual(
-            metadata.item_handlers['state'],
+            metadata.item_handlers['state'],  # pyrefly: ignore[bad-index]
             PyTreeCheckpointHandler().typestr(),
         )
         self.assertIn('other', metadata.item_handlers)
         self.assertEqual(
-            metadata.item_handlers['other'],
+            metadata.item_handlers['other'],  # pyrefly: ignore[bad-index]
             json_checkpoint_handler.JsonCheckpointHandler().typestr(),
         )
 

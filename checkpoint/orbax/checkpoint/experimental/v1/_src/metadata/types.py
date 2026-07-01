@@ -29,7 +29,7 @@ CheckpointableMetadataT = TypeVar('CheckpointableMetadataT')
 SerializedMetadata = TypeVar('SerializedMetadata', bound=dict[str, Any])
 
 
-PyTreeMetadata = tree_types.PyTreeOf[tree_types.AbstractLeaf]
+PyTreeMetadata = tree_types.PyTreeOf[tree_types.AbstractLeaf]  # pyrefly: ignore[bad-specialization]
 """
 Metadata describing a `PyTree` checkpoint.
 

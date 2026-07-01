@@ -68,7 +68,7 @@ def create_sharded_pytree(
     devices = jax.devices()
   num_devices = len(devices)
   devices = (
-      np.asarray(list(reversed(devices)))
+      np.asarray(list(reversed(devices)))  # pyrefly: ignore[bad-assignment]
       if reverse_devices
       else np.asarray(devices)
   )
@@ -79,13 +79,13 @@ def create_sharded_pytree(
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
   if replicated_arrays:
     mesh_axes_2d = jax.sharding.PartitionSpec(None, 'y')
-  mesh_1d = jax.sharding.Mesh(devices, ('x',))
+  mesh_1d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_1d = jax.sharding.PartitionSpec(
       'x',
   )
   if replicated_arrays:
     mesh_axes_1d = jax.sharding.PartitionSpec(None,)
-  mesh_0d = jax.sharding.Mesh(devices, ('x',))
+  mesh_0d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_0d = jax.sharding.PartitionSpec(
       None,
   )
@@ -113,7 +113,7 @@ def as_abstract_type(value) -> Any:
   """Converts a value to its abstract type."""
 
   if isinstance(value, jax.Array):
-    return abstract_arrays.to_shape_dtype_struct(value)
+    return abstract_arrays.to_shape_dtype_struct(value)  # pyrefly: ignore[bad-argument-type]
   elif isinstance(value, np.ndarray):
     return numpy_leaf_handler.NumpyShapeDtype(value.shape, value.dtype)
   elif isinstance(value, int):

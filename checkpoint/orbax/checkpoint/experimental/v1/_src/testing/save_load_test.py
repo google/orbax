@@ -244,7 +244,7 @@ class SaveLoadTestSuite:
       with self.assertRaisesRegex(
           ValueError, 'checkpointable must not be None for saving'
       ):
-        ocp.save(self.directory, None)
+        ocp.save(self.directory, None)  # pyrefly: ignore[bad-argument-type]
 
     # Note the ommission of jax.Array, since this is covered in
     # several other tests.
@@ -256,12 +256,12 @@ class SaveLoadTestSuite:
         (np.asarray(3.14),),
     )
     def test_standard_leaf_types(self, value):
-      ocp.save(self.directory, dict(k=value))
+      ocp.save(self.directory, dict(k=value))  # pyrefly: ignore[bad-argument-type]
       loaded = ocp.load(self.directory)
       if isinstance(value, np.ndarray):
-        np.testing.assert_array_equal(loaded['k'], value)
+        np.testing.assert_array_equal(loaded['k'], value)  # pyrefly: ignore[bad-index]
       else:
-        self.assertEqual(loaded['k'], value)
+        self.assertEqual(loaded['k'], value)  # pyrefly: ignore[bad-index]
 
     def test_jax_array_leaf_types(self):
       mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',))
@@ -287,9 +287,9 @@ class SaveLoadTestSuite:
       }
       for k, v in values.items():
         with self.subTest(k):
-          ocp.save(self.directory / k, [v])
+          ocp.save(self.directory / k, [v])  # pyrefly: ignore[bad-argument-type]
           with self.subTest('with_abstract_pytree'):
-            loaded = ocp.load(self.directory / k, [as_abstract_type(v)])
+            loaded = ocp.load(self.directory / k, [as_abstract_type(v)])  # pyrefly: ignore[bad-argument-type]
             test_utils.assert_tree_equal(self, [v], loaded)
           with self.subTest('without_abstract_pytree'):
             if multihost.is_pathways_backend():
@@ -333,7 +333,7 @@ class SaveLoadTestSuite:
           ),
       )
       with self.subTest('save'):
-        ocp.save(self.directory / 'pytree', value, checkpointable_name='leaf')
+        ocp.save(self.directory / 'pytree', value, checkpointable_name='leaf')  # pyrefly: ignore[bad-argument-type]
         loaded = ocp.load(self.directory / 'pytree', checkpointable_name='leaf')
         test_utils.assert_tree_equal(self, value, loaded)
       with self.subTest('save_checkpointables'):
@@ -353,7 +353,7 @@ class SaveLoadTestSuite:
             f' Supported leaf types are: {tree_types.Leaf}.'
         )
         with self.assertRaisesRegex(ValueError, re.escape(expected_msg)):
-          ocp.save(self.directory, handler_utils.Foo(1, 'hi'))
+          ocp.save(self.directory, handler_utils.Foo(1, 'hi'))  # pyrefly: ignore[bad-argument-type]
       with self.subTest('checkpointables'):
         with self.assertRaises(registration.NoEntryError):
           ocp.save_checkpointables(
@@ -378,11 +378,11 @@ class SaveLoadTestSuite:
 
       with self.subTest('numpy_to_jax'):
         subdir = 'numpy'
-        ocp.save(self.directory / subdir, [numpy_arr])
+        ocp.save(self.directory / subdir, [numpy_arr])  # pyrefly: ignore[bad-argument-type]
         test_utils.assert_tree_equal(
             self,
             [jax_arr],
-            ocp.load(self.directory / subdir, [as_abstract_type(jax_arr)]),
+            ocp.load(self.directory / subdir, [as_abstract_type(jax_arr)]),  # pyrefly: ignore[bad-argument-type]
         )
         if multihost.is_pathways_backend():
           self.skipTest('Must provide abstract_pytree for Pathways.')
@@ -392,11 +392,11 @@ class SaveLoadTestSuite:
 
       with self.subTest('jax_to_numpy'):
         subdir = 'jax'
-        ocp.save(self.directory / subdir, [jax_arr])
+        ocp.save(self.directory / subdir, [jax_arr])  # pyrefly: ignore[bad-argument-type]
         test_utils.assert_tree_equal(
             self,
             [numpy_arr],
-            ocp.load(self.directory / subdir, [as_abstract_type(numpy_arr)]),
+            ocp.load(self.directory / subdir, [as_abstract_type(numpy_arr)]),  # pyrefly: ignore[bad-argument-type]
         )
         if multihost.is_pathways_backend():
           self.skipTest('Must provide abstract_pytree for Pathways.')
@@ -406,17 +406,17 @@ class SaveLoadTestSuite:
 
       with self.subTest('jax_to_numpy_by_value'):
         subdir = 'jax_to_np_by_value'
-        ocp.save(self.directory / subdir, [jax_arr])
+        ocp.save(self.directory / subdir, [jax_arr])  # pyrefly: ignore[bad-argument-type]
         test_utils.assert_tree_equal(
             self,
             [numpy_arr],
-            ocp.load(self.directory / subdir, [np.array([], dtype=np.int64)]),
+            ocp.load(self.directory / subdir, [np.array([], dtype=np.int64)]),  # pyrefly: ignore[bad-argument-type]
         )
 
     def test_empty_array(self):
       value = np.ones(shape=(0,))
       with self.assertRaisesRegex(ValueError, 'zero size'):
-        ocp.save(self.directory, dict(k=value))
+        ocp.save(self.directory, dict(k=value))  # pyrefly: ignore[bad-argument-type]
 
     @parameterized.parameters(
         (complex(1.1, 2.2),),
@@ -427,7 +427,7 @@ class SaveLoadTestSuite:
     def test_invalid_leaf_types(self, value):
       # TODO(cpgaffney): Consider improving the error message raised.
       with self.assertRaises(ValueError):
-        ocp.save(self.directory, dict(k=value))
+        ocp.save(self.directory, dict(k=value))  # pyrefly: ignore[bad-argument-type]
 
     # TODO(b/337105122): Add tests passing invalid abstract PyTrees.
     def test_flax_model(self):
@@ -498,14 +498,14 @@ class SaveLoadTestSuite:
       )
       save_sharding = jax.sharding.NamedSharding(mesh, save_spec)
       tree = {'x': create_sharded_array(np.arange(len_devices), save_sharding)}
-      ocp.save(self.directory, tree)
+      ocp.save(self.directory, tree)  # pyrefly: ignore[bad-argument-type]
 
       load_sharding = jax.sharding.NamedSharding(mesh, load_spec)
       expected_tree = {
           'x': create_sharded_array(np.arange(len_devices), load_sharding)
       }
       abstract_tree = {'x': as_abstract_type(expected_tree['x'])}
-      loaded = ocp.load(self.directory, abstract_state=abstract_tree)
+      loaded = ocp.load(self.directory, abstract_state=abstract_tree)  # pyrefly: ignore[bad-argument-type]
       test_utils.assert_tree_equal(self, expected_tree, loaded)
 
     @parameterized.parameters(
@@ -555,10 +555,10 @@ class SaveLoadTestSuite:
       )
       ctx = ocp.Context()
       ctx.array.saving.scoped_storage_options_creator = (
-          scoped_storage_options_creator
+          scoped_storage_options_creator  # pyrefly: ignore[bad-assignment]
       )
       with ctx:
-        ocp.save(self.directory, tree)
+        ocp.save(self.directory, tree)  # pyrefly: ignore[bad-argument-type]
 
       with self.subTest('with_abstract_tree'):
         abstract_tree = jax.tree.map(as_abstract_type, load_casted_tree)
@@ -579,19 +579,19 @@ class SaveLoadTestSuite:
         abstract_pytree = dict(self.abstract_pytree)
         del abstract_pytree['a'], abstract_pytree['b']
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
-          ocp.load(self.directory, abstract_pytree)
+          ocp.load(self.directory, abstract_pytree)  # pyrefly: ignore[bad-argument-type]
 
       with self.subTest('superset_of_keys'):
         abstract_pytree = dict(self.abstract_pytree)
         abstract_pytree['z'] = as_abstract_type(np.arange(16))
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
-          ocp.load(self.directory, abstract_pytree)
+          ocp.load(self.directory, abstract_pytree)  # pyrefly: ignore[bad-argument-type]
 
       with self.subTest('renamed_key'):
         abstract_pytree = dict(self.abstract_pytree)
         abstract_pytree['z'] = abstract_pytree.pop('a')
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
-          ocp.load(self.directory, abstract_pytree)
+          ocp.load(self.directory, abstract_pytree)  # pyrefly: ignore[bad-argument-type]
 
     def test_overwrites(self):
       ocp.save(self.directory, self.pytree)
@@ -1161,10 +1161,10 @@ class SaveLoadTestSuite:
       ctx = ocp.Context()
       ctx.array.loading.use_load_and_broadcast = True
       with ctx:
-        ocp.save(self.directory, [arr])
+        ocp.save(self.directory, [arr])  # pyrefly: ignore[bad-argument-type]
         with self.subTest('with_abstract_pytree'):
           loaded = ocp.load(
-              self.directory, [array_test_utils.as_abstract_type(arr)]
+              self.directory, [array_test_utils.as_abstract_type(arr)]  # pyrefly: ignore[bad-argument-type]
           )
           test_utils.assert_tree_equal(self, [arr], loaded)
         with self.subTest('without_abstract_pytree'):
@@ -1195,12 +1195,12 @@ class SaveLoadTestSuite:
         ctx = ocp.Context()
         ctx.array.saving.storage_options.chunk_byte_size = 8
         with ctx:
-          ocp.save(self.directory / 'global_setting', pytree)
+          ocp.save(self.directory / 'global_setting', pytree)  # pyrefly: ignore[bad-argument-type]
           metadata = ocp.metadata(self.directory / 'global_setting').metadata
           for k in pytree:
-            self.assertEqual(metadata[k].shape, (32,))
-            self.assertEqual(metadata[k].storage_metadata.write_shape, (4,))
-            self.assertEqual(metadata[k].storage_metadata.chunk_shape, (2,))
+            self.assertEqual(metadata[k].shape, (32,))  # pyrefly: ignore[bad-index]
+            self.assertEqual(metadata[k].storage_metadata.write_shape, (4,))  # pyrefly: ignore[bad-index]
+            self.assertEqual(metadata[k].storage_metadata.chunk_shape, (2,))  # pyrefly: ignore[bad-index]
 
       with self.subTest('per_key_setting'):
         def scoped_storage_options_creator(key, value):
@@ -1218,14 +1218,14 @@ class SaveLoadTestSuite:
             scoped_storage_options_creator
         )
         with ctx:
-          ocp.save(self.directory / 'per_key_setting', pytree)
+          ocp.save(self.directory / 'per_key_setting', pytree)  # pyrefly: ignore[bad-argument-type]
           metadata = ocp.metadata(self.directory / 'per_key_setting').metadata
-          self.assertEqual(metadata['a'].shape, (32,))
-          self.assertEqual(metadata['a'].storage_metadata.write_shape, (4,))
-          self.assertEqual(metadata['a'].storage_metadata.chunk_shape, (1,))
-          self.assertEqual(metadata['b'].shape, (32,))
-          self.assertEqual(metadata['b'].storage_metadata.write_shape, (4,))
-          self.assertEqual(metadata['b'].storage_metadata.chunk_shape, (2,))
+          self.assertEqual(metadata['a'].shape, (32,))  # pyrefly: ignore[bad-index]
+          self.assertEqual(metadata['a'].storage_metadata.write_shape, (4,))  # pyrefly: ignore[bad-index]
+          self.assertEqual(metadata['a'].storage_metadata.chunk_shape, (1,))  # pyrefly: ignore[bad-index]
+          self.assertEqual(metadata['b'].shape, (32,))  # pyrefly: ignore[bad-index]
+          self.assertEqual(metadata['b'].storage_metadata.write_shape, (4,))  # pyrefly: ignore[bad-index]
+          self.assertEqual(metadata['b'].storage_metadata.chunk_shape, (2,))  # pyrefly: ignore[bad-index]
 
   class SynchronizationTest(_TestSetup):
 

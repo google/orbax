@@ -214,7 +214,7 @@ class StandardCheckpointDeleter:
     self._num_threads = num_threads
     if self._num_threads is None:
       if _is_local_path(self._directory):
-        self._num_threads = min(16, os.cpu_count() // 2)
+        self._num_threads = min(16, os.cpu_count() // 2)  # pyrefly: ignore[unsupported-operation]
       else:
         self._num_threads = 1
     self._parallel_deleter = None
@@ -295,7 +295,7 @@ class StandardCheckpointDeleter:
 
     finally:
       jax.monitoring.record_event_duration_secs(
-          self._duration_metric,
+          self._duration_metric,  # pyrefly: ignore[bad-argument-type]
           time.time() - start,
       )
 
@@ -351,7 +351,7 @@ class StandardCheckpointDeleter:
 
   def _rename_step_to_subdir(self, step: int, delete_target: epath.Path):
     """Renames a step directory to its corresponding todelete_subdir."""
-    rename_dir = self._directory / self._todelete_subdir
+    rename_dir = self._directory / self._todelete_subdir  # pyrefly: ignore[unsupported-operation]
     rename_dir.mkdir(parents=True, exist_ok=True)
     dst = step_lib.build_step_path(rename_dir, self._name_format, step)
     delete_target.replace(dst)

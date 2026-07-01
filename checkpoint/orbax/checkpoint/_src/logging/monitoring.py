@@ -87,9 +87,9 @@ def initialize(recorder: MetricRecorder) -> None:
       for r in recorders_snapshot:
         r.record_duration(metric_name, duration, **kwargs)
 
-    jax_monitoring.register_event_listener(_proxy_record_event)
-    jax_monitoring.register_scalar_listener(_proxy_record_scalar)
-    jax_monitoring.register_event_duration_secs_listener(_proxy_record_duration)
+    jax_monitoring.register_event_listener(_proxy_record_event)  # pyrefly: ignore[bad-argument-type]
+    jax_monitoring.register_scalar_listener(_proxy_record_scalar)  # pyrefly: ignore[bad-argument-type]
+    jax_monitoring.register_event_duration_secs_listener(_proxy_record_duration)  # pyrefly: ignore[bad-argument-type]
 
     _initialized = True
     logging.info('Installed JAX monitoring proxy listeners for Orbax.')

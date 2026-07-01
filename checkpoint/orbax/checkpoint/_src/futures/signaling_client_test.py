@@ -363,7 +363,7 @@ class TestGetSignalingClient(absltest.TestCase):
       mock_is_pathways_backend,
       mock_is_init,
   ):
-    multihost._PATHWAYS_COLOCATED_RUNTIME_ACTIVE = True  # pylint: disable=protected-access
+    multihost._PATHWAYS_COLOCATED_RUNTIME_ACTIVE = True  # pylint: disable=protected-access  # pyrefly: ignore[bad-assignment]
 
     client = signaling_client.get_signaling_client()
 
