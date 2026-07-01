@@ -286,19 +286,19 @@ def setup_sharded_pytree(
     devices = jax.devices()
   num_devices = len(devices)
   if reverse_devices:
-    devices = np.asarray(list(reversed(devices)))
+    devices = np.asarray(list(reversed(devices)))  # pyrefly: ignore[bad-assignment]
   else:
-    devices = np.asarray(devices)
+    devices = np.asarray(devices)  # pyrefly: ignore[bad-assignment]
 
   mesh_2d = jax.sharding.Mesh(
       devices.reshape((2, num_devices // 2)), ('x', 'y')
   )
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
-  mesh_1d = jax.sharding.Mesh(devices, ('x',))
+  mesh_1d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_1d = jax.sharding.PartitionSpec(
       'x',
   )
-  mesh_0d = jax.sharding.Mesh(devices, ('x',))
+  mesh_0d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_0d = jax.sharding.PartitionSpec(
       None,
   )
@@ -483,7 +483,7 @@ def set_tensorstore_driver_for_test():
   # Sets TS driver for testing. Within Google, this defaults to `gfile`, which
   # results in issues writing to the OCDBT manifest. When using `gfile` on the
   # local filesystem, write operations are not atomic.
-  ts_utils.DEFAULT_DRIVER = 'file'
+  ts_utils.DEFAULT_DRIVER = 'file'  # pyrefly: ignore[bad-assignment]
 
 
 class PyTreeCheckpointHandler(
@@ -526,7 +526,7 @@ class ErrorCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
         raise SystemError()
       return 42
 
-    return commit_futures + [self._executor.submit(error_commit)]
+    return commit_futures + [self._executor.submit(error_commit)]  # pyrefly: ignore[unsupported-operation]
 
   def finalize(self, directory: epath.Path):
     self._handler.finalize(directory)

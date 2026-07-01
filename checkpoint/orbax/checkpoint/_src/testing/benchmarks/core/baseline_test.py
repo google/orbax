@@ -136,8 +136,8 @@ class BaselineComparerTest(absltest.TestCase):
       })
       ratios = {d.key: d.ratio for d in report.deltas}
       # Baseline 2.0 / current 1.0 → 2.0× speedup
-      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 2.0)
-      self.assertAlmostEqual(ratios["load_0_basics/time_s"], 2.0)
+      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 2.0)  # pyrefly: ignore[no-matching-overload]
+      self.assertAlmostEqual(ratios["load_0_basics/time_s"], 2.0)  # pyrefly: ignore[no-matching-overload]
 
   def test_slowdown_ratio_for_slower_run(self):
     with tempfile.TemporaryDirectory() as d:
@@ -150,7 +150,7 @@ class BaselineComparerTest(absltest.TestCase):
       })
       ratios = {d.key: d.ratio for d in report.deltas}
       # Baseline 2.0 / current 4.0 → 0.5 (we got slower)
-      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 0.5)
+      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 0.5)  # pyrefly: ignore[no-matching-overload]
 
   def test_missing_metrics_reported(self):
     with tempfile.TemporaryDirectory() as d:
@@ -175,7 +175,7 @@ class BaselineComparerTest(absltest.TestCase):
       })
       ratios = {d.key: d.ratio for d in report.deltas}
       self.assertIsNone(ratios["save_0_basics/time_s"])
-      self.assertAlmostEqual(ratios["load_0_basics/time_s"], 4.0)
+      self.assertAlmostEqual(ratios["load_0_basics/time_s"], 4.0)  # pyrefly: ignore[no-matching-overload]
 
   def test_delta_abs_signed_against_baseline(self):
     with tempfile.TemporaryDirectory() as d:
@@ -205,7 +205,7 @@ class BaselineComparerTest(absltest.TestCase):
       )
       ratios = {d.key: d.ratio for d in report.deltas}
       # max column: baseline 3.0 / current 1.0 → 3.0
-      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 3.0)
+      self.assertAlmostEqual(ratios["save_0_basics/time_s"], 3.0)  # pyrefly: ignore[no-matching-overload]
 
 
 if __name__ == "__main__":

@@ -300,7 +300,7 @@ def _wrap_callback_for_conversion(
     mapped_path = callback_path[:t_len] + (orig_k,) + callback_path[t_len + 1 :]
     callback(mapped_path, val)
 
-  return wrapped_callback
+  return wrapped_callback  # pyrefly: ignore[bad-return]
 
 
 def _tree_trim(
@@ -457,7 +457,7 @@ def _tree_trim(
       )
       # Now cast back to the result type.
       children = [
-          children_dict[k] for k in t_flat.child_node_by_clean_key.keys()
+          children_dict[k] for k in t_flat.child_node_by_clean_key.keys()  # pyrefly: ignore[unsupported-operation]
       ]
       return jax.tree_util.tree_unflatten(t_flat.tree_def, children)
     case None:
@@ -545,7 +545,7 @@ def _recursive_merge(
   node_type = type(t1)
 
   if isinstance(t1, abc.Mapping) or utils.isinstance_of_namedtuple(t1):
-    t1_dict = t1._asdict() if utils.isinstance_of_namedtuple(t1) else t1
+    t1_dict = t1._asdict() if utils.isinstance_of_namedtuple(t1) else t1  # pyrefly: ignore[missing-attribute]
     t2_dict = t2._asdict() if utils.isinstance_of_namedtuple(t2) else t2
     merged = dict(t2_dict)
     for k, v1 in t1_dict.items():
@@ -642,7 +642,7 @@ def merge_trees(
       match.
   """
   is_leaf_fn = is_leaf or utils.is_leaf_node_or_none
-  trees = list(trees)
+  trees = list(trees)  # pyrefly: ignore[bad-assignment]
   if not trees:
     return {}
 
@@ -738,7 +738,7 @@ def build_mismatched_tree_structure_error(
   )
 
   if diff is None:
-    return exception_cls(f'{log_message}. But no diff was found.')
+    return exception_cls(f'{log_message}. But no diff was found.')  # pyrefly: ignore[bad-return]
 
   formatted_diff = format_tree_diff(diff)
-  return exception_cls(f'{log_message}.\n\n{formatted_diff}')
+  return exception_cls(f'{log_message}.\n\n{formatted_diff}')  # pyrefly: ignore[bad-return]

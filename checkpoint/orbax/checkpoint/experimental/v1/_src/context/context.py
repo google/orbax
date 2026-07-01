@@ -30,7 +30,7 @@ from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 
 # Each Thread will have its own copy of `Context` object.
 # Task and groups will have their own copy of `Context` object.
-_CONTEXT: contextvars.ContextVar[Context] = contextvars.ContextVar(
+_CONTEXT: contextvars.ContextVar[Context] = contextvars.ContextVar(  # pyrefly: ignore[bad-assignment]
     'orbax_context', default=None
 )
 

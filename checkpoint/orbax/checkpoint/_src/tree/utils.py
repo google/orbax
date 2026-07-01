@@ -403,7 +403,7 @@ def look_up_pytree_key(pytree: PyTreeOf[T], key: PyTreeKey) -> PyTreeOf[T]:
   match key:
     case jtu.SequenceKey(idx=k) | jtu.DictKey(key=k):
       try:
-        return pytree[k]
+        return pytree[k]  # pyrefly: ignore[unsupported-operation]
       except IndexError as e:
         raise KeyError(f'Key {key!r} not found in {pytree!r}') from e
     case jtu.FlattenedIndexKey(key=k):

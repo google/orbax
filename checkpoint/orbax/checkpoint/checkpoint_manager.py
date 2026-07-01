@@ -520,7 +520,7 @@ class CheckpointManagerOptions:
           self.keep_period,
       )
       self.keep_period = None
-    self.save_on_steps = frozenset(self.save_on_steps or ())
+    self.save_on_steps = frozenset(self.save_on_steps or ())  # pyrefly: ignore[bad-argument-type]
 
 
 def _get_args_for_key(
@@ -922,7 +922,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._save_progress_tracker = synchronization.MultihostSynchronizedValue(
         value=False,
         multiprocessing_options=self._multiprocessing_options,
-        async_options=self._options.async_options,
+        async_options=self._options.async_options,  # pyrefly: ignore[bad-argument-type]
     )
 
     self._last_save_time = None
@@ -1081,14 +1081,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # Update all_item_handlers with provided CheckpointHandlers.
       if item_handlers and isinstance(item_handlers, Mapping):
         for item_name, handler in item_handlers.items():
-          all_item_handlers[item_name] = handler
+          all_item_handlers[item_name] = handler  # pyrefly: ignore[unsupported-operation]
 
     for item_name in all_item_handlers:
       if item_name in RESERVED_ITEM_NAMES:
         raise ValueError(
             f'Found {item_name} in `checkpointers`; this is a reserved key.'
         )
-    all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler
+    all_item_handlers[METRIC_ITEM_NAME] = self._metrics_handler  # pyrefly: ignore[unsupported-operation]
     # CompositeCheckpointHandler defers per-item handler creation until
     # save/restore time.
     async_options = options.async_options or AsyncOptions()
@@ -1102,7 +1102,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 file_options=options.file_options,
                 async_options=async_options,
             ),
-            **all_item_handlers,
+            **all_item_handlers,  # pyrefly: ignore[bad-argument-type]
         ),
         options,
         options.enable_async_checkpointing,
@@ -1238,7 +1238,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multiprocessing_options=self._multiprocessing_options,
     )
     return self._save_decision_policy.should_save(
-        current_step_info, previous_steps=self._checkpoints, context=context
+        current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
     )
 
   def _get_save_directory(
@@ -1403,7 +1403,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
-    self._default_item.set_if_none(determine_default_item_mode_from_args(args))
+    self._default_item.set_if_none(determine_default_item_mode_from_args(args))  # pyrefly: ignore[bad-argument-type]
     self._validate_args(items, args)
     if not force and not self.should_save(step):
       return False
@@ -1895,9 +1895,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
     )
     step_metadata.item_metadata = self._maybe_get_default_item(
-        step_metadata.item_metadata
+        step_metadata.item_metadata  # pyrefly: ignore[bad-argument-type]
     )
-    if METRIC_ITEM_NAME in step_metadata.item_handlers:
+    if METRIC_ITEM_NAME in step_metadata.item_handlers:  # pyrefly: ignore[not-iterable]
       metrics = self._get_metrics(step)
       if metrics is not None:
         validated_metrics = step_metadata_serialization.deserialize(
@@ -1932,7 +1932,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     return self._root_metadata.get()
 
   @overload
-  def metadata(self, step: None = None) -> RootMetadata:
+  def metadata(self, step: None = None) -> RootMetadata:  # pyrefly: ignore[bad-override]
     ...
 
   @overload
@@ -1964,7 +1964,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     return without_metrics, sorted(
         with_metrics,
-        key=lambda info: self._options.best_fn(info.metrics),
+        key=lambda info: self._options.best_fn(info.metrics),  # pyrefly: ignore[not-callable]
         reverse=(self._options.best_mode == 'min'),
     )
 

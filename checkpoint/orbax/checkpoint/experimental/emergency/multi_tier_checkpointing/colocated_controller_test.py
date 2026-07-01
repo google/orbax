@@ -245,7 +245,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         controller_lib.ColocatedController
     )
     device = jax.devices()[0]
-    controller._local_directory = 'local'
+    controller._local_directory = 'local'  # pyrefly: ignore[bad-assignment]
     controller._worker_save_call = None
     controller._worker_save_call_in_specs = None
     controller._worker_cpu_devices = (device,)

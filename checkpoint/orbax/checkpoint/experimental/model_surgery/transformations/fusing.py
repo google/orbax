@@ -102,22 +102,22 @@ def fuse_by_pattern(
       raise ValueError(
           "Can only fuse parameters in a single parameter structure."
       )
-    params = params[0]
+    params = params[0]  # pyrefly: ignore[bad-assignment]
     groups = collections.defaultdict(dict)
 
     for key in params:
-      if not compiled_pattern.match(key):
+      if not compiled_pattern.match(key):  # pyrefly: ignore[no-matching-overload]
         continue
-      match_unique = compiled_unique.search(key)
+      match_unique = compiled_unique.search(key)  # pyrefly: ignore[no-matching-overload]
       if not match_unique:
         continue
 
-      fused_key = compiled_unique.sub(lambda _: fused_unique_part, key)
+      fused_key = compiled_unique.sub(lambda _: fused_unique_part, key)  # pyrefly: ignore[no-matching-overload]
       unique_part = match_unique.group(0)
       if unique_part in unique_parts:
         groups[fused_key][unique_part] = key
 
-    result = dict(params)
+    result = dict(params)  # pyrefly: ignore[no-matching-overload]
     del params
     for fused_key, unique_dict in groups.items():
       if len(unique_dict) == len(unique_parts):
@@ -170,8 +170,8 @@ def fuse_by_keys(
       raise ValueError(
           "Can only fuse parameters in a single parameter structure."
       )
-    params = params[0]
-    result = dict(params)
+    params = params[0]  # pyrefly: ignore[bad-assignment]
+    result = dict(params)  # pyrefly: ignore[no-matching-overload]
     del params
     found_keys = [k for k in source_keys if k in result]
     if len(found_keys) == len(source_keys):

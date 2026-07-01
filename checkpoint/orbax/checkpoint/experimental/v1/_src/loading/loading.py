@@ -44,7 +44,7 @@ from typing_extensions import deprecated  # pytype: disable=not-supported-yet
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 AUTO_CHECKPOINTABLE_KEY = checkpoint_layout.AUTO_CHECKPOINTABLE_KEY
-AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeaf]
+AbstractPyTree = tree_types.PyTreeOf[tree_types.AbstractLeaf]  # pyrefly: ignore[bad-specialization]
 CheckpointMetadata = metadata_types.CheckpointMetadata
 PLACEHOLDER = ...
 
@@ -112,7 +112,7 @@ def load(
     ) = None,
     *,
     checkpointable_name: str | None = AUTO_CHECKPOINTABLE_KEY,
-) -> tree_types.PyTreeOf[tree_types.Leaf]:
+) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
   """Loads a PyTree.
 
   Loads from a `PyTree` checkpoint. A `PyTree` checkpoint must be a path
@@ -191,7 +191,7 @@ def load(
   """
   start_time = time.time()
   event_tracking.OperationRecorder(
-      path,
+      path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.LOAD,
       async_origin=False,
   ).record_start(start_time)
@@ -219,7 +219,7 @@ def load(
       start_time=start_time,
   )
 
-  return loaded_pytree
+  return loaded_pytree  # pyrefly: ignore[bad-return]
 
 
 def load_checkpointables(
@@ -327,7 +327,7 @@ def load_checkpointables(
   """
   start_time = time.time()
   event_tracking.OperationRecorder(
-      path,
+      path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.LOAD,
       async_origin=False,
   ).record_start(start_time)
@@ -343,7 +343,7 @@ def load_checkpointables(
       layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
   )
 
-  return _load_impl(
+  return _load_impl(  # pyrefly: ignore[bad-return]
       path,
       functools.partial(
           layout.load_checkpointables,
@@ -358,7 +358,7 @@ def _load_impl(
     path: path_types.Path,
     load_fn: LoadFn,
     start_time: float,
-) -> dict[str, Checkpointable] | tree_types.PyTreeOf[tree_types.Leaf]:
+) -> dict[str, Checkpointable] | tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
   """Implementation of loading logic for both :py:func:`.load_checkpointables` and :py:func:`.load`.
 
   Args:
@@ -416,14 +416,14 @@ def _load_impl(
   return result
 
 
-class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
+class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):  # pyrefly: ignore[bad-specialization]
   """An :py:class:`.AsyncResponse` for :py:func:`.load_async`."""
 
   def __init__(
       self,
       operation_id: str,
       path: path_types.Path,
-      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],
+      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],  # pyrefly: ignore[bad-specialization]
       *,
       start_time: float,
       context: context_lib.Context,
@@ -434,13 +434,13 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
     self._start_time = start_time
     self._context = context
     self._thread_runner = thread_utils.BackgroundThreadRunner[
-        tree_types.PyTreeOf[tree_types.Leaf]
+        tree_types.PyTreeOf[tree_types.Leaf]  # pyrefly: ignore[bad-specialization]
     ](self._finalize_load())
 
   @classmethod
   def create(
       cls,
-      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],
+      background_awaitable: Awaitable[tree_types.PyTreeOf[tree_types.Leaf]],  # pyrefly: ignore[bad-specialization]
       path: path_types.Path,
       start_time: float,
       *,
@@ -464,7 +464,7 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
         context=context,
     )
 
-  async def _finalize_load(self) -> tree_types.PyTreeOf[tree_types.Leaf]:
+  async def _finalize_load(self) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
     logging.info(
         '[process=%s] Waiting for background load operations',
         multihost.process_index(),
@@ -496,7 +496,7 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]):
 
   def result(
       self, timeout: float | None = None
-  ) -> tree_types.PyTreeOf[tree_types.Leaf]:
+  ) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
     return self._thread_runner.result(timeout=timeout)
 
 
@@ -507,11 +507,11 @@ def load_async(
     ) = None,
     *,
     checkpointable_name: str | None = STATE_CHECKPOINTABLE_KEY,
-) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:
+) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:  # pyrefly: ignore[bad-specialization]
   """Loads a PyTree asynchronously. Currently has limited support."""
   start_time = time.time()
   event_tracking.OperationRecorder(
-      path,
+      path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.LOAD,
       async_origin=True,
   ).record_start(start_time)

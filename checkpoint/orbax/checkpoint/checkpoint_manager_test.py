@@ -204,19 +204,19 @@ class CheckpointManagerTest(
         metadata_dict = metadata_store.read(
             file_path=metadata_lib.step_metadata_file_path(path)
         )
-        step_metadata = step_metadata_serialization.deserialize(metadata_dict)
+        step_metadata = step_metadata_serialization.deserialize(metadata_dict)  # pyrefly: ignore[bad-assignment]
         self.assertIsNotNone(step_metadata)
-        self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
+        self.assertGreater(step_metadata.init_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
         self.assertIsNone(step_metadata.commit_timestamp_nsecs)
         if full_metadata:
-          self.assertIsNotNone(step_metadata.metrics)
-          self.assertIsNotNone(step_metadata.performance_metrics)
-          self.assertIsNotNone(step_metadata.custom_metadata)
+          self.assertIsNotNone(step_metadata.metrics)  # pyrefly: ignore[missing-attribute]
+          self.assertIsNotNone(step_metadata.performance_metrics)  # pyrefly: ignore[missing-attribute]
+          self.assertIsNotNone(step_metadata.custom_metadata)  # pyrefly: ignore[missing-attribute]
     if assert_committed:
       step_metadata: step_lib.Metadata = step_name_format.find_step(
           root, step=step
       )
-      self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
+      self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
       metadata_dict = metadata_store.read(
           file_path=metadata_lib.step_metadata_file_path(step_metadata.path)
       )
@@ -224,8 +224,8 @@ class CheckpointManagerTest(
           metadata_dict
       )
       self.assertIsNotNone(checkpoint_step_metadata)
-      self.assertGreater(checkpoint_step_metadata.init_timestamp_nsecs, 0)
-      self.assertGreater(checkpoint_step_metadata.commit_timestamp_nsecs, 0)
+      self.assertGreater(checkpoint_step_metadata.init_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
+      self.assertGreater(checkpoint_step_metadata.commit_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
       if full_metadata:
         self.assertIsNotNone(checkpoint_step_metadata.metrics)
         self.assertIsNotNone(checkpoint_step_metadata.performance_metrics)
@@ -233,7 +233,7 @@ class CheckpointManagerTest(
 
   def assert_directory_mode_equal(self, directory: epath.Path, mode: int):
     directory_mode = (
-        directory.stat().mode - 0o040000
+        directory.stat().mode - 0o040000  # pyrefly: ignore[unsupported-operation]
     )  # 04 is directory file type.
     if directory_mode != mode:
       self.fail(f'Directory mode {directory_mode:o} != {mode:o}')
@@ -1401,7 +1401,7 @@ class CheckpointManagerTest(
           ),
       )
 
-    restored = manager.restore(
+    restored = manager.restore(  # pyrefly: ignore[missing-attribute]
         0,
         args=args.Composite(
             params=args.PyTreeRestore(restore_args=pytree_restore_args)
@@ -2714,8 +2714,8 @@ class CheckpointManagerTest(
         step_metadata.performance_metrics,
         step_stats.SaveStepStatistics(),
     )
-    self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
-    self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)
+    self.assertGreater(step_metadata.init_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
+    self.assertGreater(step_metadata.commit_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
     self.assertEqual(step_metadata.custom_metadata, {'a': 1, 'b': 2})
 
   @parameterized.named_parameters(
@@ -2781,7 +2781,7 @@ class CheckpointManagerTest(
       self.assertEqual(
           step_metadata.performance_metrics, step_stats.SaveStepStatistics()
       )
-      self.assertGreater(step_metadata.init_timestamp_nsecs, 0)
+      self.assertGreater(step_metadata.init_timestamp_nsecs, 0)  # pyrefly: ignore[no-matching-overload]
       self.assertIsNone(step_metadata.commit_timestamp_nsecs)
       self.assertEmpty(step_metadata.custom_metadata)
 
@@ -2893,7 +2893,7 @@ class CheckpointManagerTest(
         save_decision_policy_lib.FixedIntervalPolicy(5),
     ]
     if with_initial_save:
-      policies.append(save_decision_policy_lib.InitialSavePolicy())
+      policies.append(save_decision_policy_lib.InitialSavePolicy())  # pyrefly: ignore[bad-argument-type]
     policy = save_decision_policy_lib.AnySavePolicy(policies)
     with CheckpointManager(
         self.directory,

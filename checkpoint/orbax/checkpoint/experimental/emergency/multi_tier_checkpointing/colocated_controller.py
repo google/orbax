@@ -844,7 +844,7 @@ class ColocatedController:
       ops.append(self._persistent_checkpoint_manager.wait_until_finished)
     if not pending_save_exists:
       ops.append(self._worker_wait_until_finished)
-    _run_lifecycle_ops(*ops)
+    _run_lifecycle_ops(*ops)  # pyrefly: ignore[bad-argument-type]
 
   def check_for_errors(self) -> None:
     """Raises async checkpoint errors from persistent and worker managers."""
@@ -852,7 +852,7 @@ class ColocatedController:
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.check_for_errors)
     ops.append(self._worker_check_for_errors)
-    _run_lifecycle_ops(*ops)
+    _run_lifecycle_ops(*ops)  # pyrefly: ignore[bad-argument-type]
 
   def close(self) -> None:
     """Closes worker-side and persistent managers."""
@@ -860,7 +860,7 @@ class ColocatedController:
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.close)
     ops.append(self._worker_close)
-    _run_lifecycle_ops(*ops)
+    _run_lifecycle_ops(*ops)  # pyrefly: ignore[bad-argument-type]
 
   def _worker_wait_until_finished(self) -> None:
     result = self._worker_manager.wait_until_finished(self._dummy)

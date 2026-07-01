@@ -57,7 +57,7 @@ Index: TypeAlias = types.Index
 NpIndex: TypeAlias = np.ndarray  # shape=[{rank}, 3], dtype=int
 
 
-Module: TypeAlias = type(dataclasses)
+Module: TypeAlias = type(dataclasses)  # pyrefly: ignore[invalid-annotation]
 A = TypeVar('A', bound=(np.ndarray | jax.Array | None))
 Aconcrete = TypeVar('Aconcrete', bound=(np.ndarray | jax.Array))
 
@@ -104,7 +104,7 @@ class _GenericFragment(Generic[A]):
     value: The data for this fragment. If this is `None`, the fragment is
       abstract.
   """
-  ARRAY_T: ClassVar[type[A]]  # The type of fragment values.
+  ARRAY_T: ClassVar[type[A]]  # The type of fragment values.  # pyrefly: ignore[invalid-annotation]
   NP_API: ClassVar[Module | None]  # NumPy-like API, if any, for A instances.
 
   np_index: NpIndex  # shape=[{rank}, 3], dtype=int
@@ -159,14 +159,14 @@ class _GenericFragment(Generic[A]):
 
   @property
   def size(self) -> int:
-    return np.prod(self.shape)
+    return np.prod(self.shape)  # pyrefly: ignore[bad-return]
 
   def is_degenerate(self) -> bool:
     """Whether the index has any slices of length zero."""
     return (self.stop == self.start).any()
 
   def nbytes_astype(self, dtype: np.dtype) -> int:
-    return np.prod([dtype.itemsize, *self.shape])
+    return np.prod([dtype.itemsize, *self.shape])  # pyrefly: ignore[bad-return]
 
   def offset_by(
       self,
@@ -252,7 +252,7 @@ class AbstractFragment(_GenericFragment[type(None)]):
   ):
     super().__init__(index=index, np_index=np_index, value=value)
 
-  def __eq__(self, other: AbstractFragment):  # Use typing.Self once on 3.11+.
+  def __eq__(self, other: AbstractFragment):  # Use typing.Self once on 3.11+.  # pyrefly: ignore[bad-override]
     if not isinstance(other, type(self)):
       return False
     if not np.array_equal(self.np_index, other.np_index):
@@ -280,10 +280,10 @@ class AbstractFragment(_GenericFragment[type(None)]):
 @dataclasses.dataclass(frozen=True, init=False)
 class _ConcreteFragment(_GenericFragment[Aconcrete]):
   """A fragment whose value is an array."""
-  ARRAY_T: ClassVar[type[Aconcrete]]  # The type of fragment values.
+  ARRAY_T: ClassVar[type[Aconcrete]]  # The type of fragment values.  # pyrefly: ignore[invalid-annotation]
   NP_API: ClassVar[Module]  # NumPy-like API, for A instances.
 
-  def __eq__(self, other: ConcreteFragment):  # Use typing.Self once on 3.11+.
+  def __eq__(self, other: ConcreteFragment):  # Use typing.Self once on 3.11+.  # pyrefly: ignore[bad-override]
     if not isinstance(other, type(self)):
       return False
     if not np.array_equal(self.np_index, other.np_index):
@@ -325,7 +325,7 @@ class _ConcreteFragment(_GenericFragment[Aconcrete]):
           f'Attempt to slice fragment value of shape {self.shape} with'
           f' out-of-bounds index {f}'
       )
-    return self.value[f.index or ...]
+    return self.value[f.index or ...]  # pyrefly: ignore[bad-return]
 
 
 @dataclasses.dataclass(frozen=True, init=False, eq=False, repr=False)
@@ -357,7 +357,7 @@ class _GenericFragments(Generic[_F]):
   of a `jax.Array` (fragments are not required to have the same shape, or to map
   to a device mesh).
   """
-  FRAGMENT_T: ClassVar[type[_F]]  # The type of Fragment instances.
+  FRAGMENT_T: ClassVar[type[_F]]  # The type of Fragment instances.  # pyrefly: ignore[invalid-annotation]
 
   shape: Shape
   dtype: np.dtype
@@ -378,7 +378,7 @@ class _GenericFragments(Generic[_F]):
     # Use a generator expression to defer evaluation of x.shape till `_of()`
     # has checked that x is even of a type that has a .shape attribute.
     indices = (tuple(slice(0, dim) for dim in x.shape) for _ in range(1))
-    return cls._of(x, indices=indices)
+    return cls._of(x, indices=indices)  # pyrefly: ignore[bad-argument-type]
 
   @classmethod
   def none_of(cls: type[FS], x: Any) -> FS:
@@ -388,7 +388,7 @@ class _GenericFragments(Generic[_F]):
   @classmethod
   def addressable_shards_of(cls: type[FS], x: Any) -> FS:
     """Returns a Fragments exactly spanning the distinct addressable shards of `x`."""
-    return cls._of(x, indices=_gen_distinct_addressable_indices(x))
+    return cls._of(x, indices=_gen_distinct_addressable_indices(x))  # pyrefly: ignore[bad-argument-type]
 
   @classmethod
   def of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
@@ -402,7 +402,7 @@ class _GenericFragments(Generic[_F]):
   @property
   def nbytes(self) -> int:
     """The total number of bytes for the global shape of this object."""
-    return np.prod((self.dtype.itemsize, *self.shape))
+    return np.prod((self.dtype.itemsize, *self.shape))  # pyrefly: ignore[bad-return]
 
   @property
   def addressable_nbytes(self) -> int:
@@ -452,8 +452,8 @@ class _GenericFragments(Generic[_F]):
   ) -> '_GenericFragments[_GenericFragment[A]]':  # Use typing.Self once >=3.11.
     """Returns a slice of this object."""
     if not isinstance(index, np.ndarray):
-      index = np_utils.resolve_slice(index, self.shape)
-      index = _ndarray_from_index(index)
+      index = np_utils.resolve_slice(index, self.shape)  # pyrefly: ignore[bad-assignment]
+      index = _ndarray_from_index(index)  # pyrefly: ignore[bad-argument-type]
 
     if not (index[:, 2] == 1).all():
       raise NotImplementedError('Coming ... soon?')
@@ -464,7 +464,7 @@ class _GenericFragments(Generic[_F]):
           f'with out-of-bounds index {_index_from_ndarray(index)}'
       )
 
-    return type(self)(
+    return type(self)(  # pyrefly: ignore[bad-return]
         tuple(d.item() for d in sliced_shape),
         self.dtype,
         [
@@ -484,7 +484,7 @@ class AbstractFragments(_GenericFragments[AbstractFragment]):
   def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
     """Returns a Fragments with one fragment for each index."""
     _check_fragment_value_type(x, (np.ndarray, jax.Array, jax.ShapeDtypeStruct))
-    fragments = [cls.FRAGMENT_T(index=index) for index in indices]
+    fragments = [cls.FRAGMENT_T(index=index) for index in indices]  # pyrefly: ignore[missing-argument]
     return cls(x.shape, x.dtype, fragments)
 
   @classmethod
@@ -506,7 +506,7 @@ class AbstractFragments(_GenericFragments[AbstractFragment]):
 @dataclasses.dataclass(frozen=True, init=False)
 class _ConcreteFragments(_GenericFragments[Fconcrete]):
   """A collection of concrete fragments."""
-  FRAGMENT_T: ClassVar[type[Fconcrete]]  # The type of fragment values.
+  FRAGMENT_T: ClassVar[type[Fconcrete]]  # The type of fragment values.  # pyrefly: ignore[invalid-annotation]
 
   @classmethod
   def _of(cls: type[FS], x: Any, *, indices: Sequence[Index]) -> FS:
@@ -584,7 +584,7 @@ def _is_full(fragments: _GenericFragments[Any]) -> bool:
   present = np.zeros(fragments.shape, dtype=bool)
   for f in fragments.fragments:
     present[f.index] = True
-  return np.all(present)
+  return np.all(present)  # pyrefly: ignore[bad-return]
 
 
 def normalize(idx: Index, shape: Shape) -> Index:

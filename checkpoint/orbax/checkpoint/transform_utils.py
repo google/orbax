@@ -308,7 +308,7 @@ def merge_trees(*trees: PyTree, target: Optional[PyTree] = None) -> PyTree:
   Returns:
     A single merged PyTree.
   """
-  trees = [tree_utils.to_flat_dict(t) for t in trees]
+  trees = [tree_utils.to_flat_dict(t) for t in trees]  # pyrefly: ignore[bad-assignment]
   merged = functools.reduce(operator.ior, trees, {})
   return tree_utils.from_flat_dict(merged, target=target)
 
@@ -327,7 +327,7 @@ def intersect_trees(*trees: PyTree, target: Optional[PyTree] = None) -> PyTree:
   Returns:
     A single intersected PyTree.
   """
-  trees = [tree_utils.to_flat_dict(t) for t in trees]
+  trees = [tree_utils.to_flat_dict(t) for t in trees]  # pyrefly: ignore[bad-assignment]
   tree_keys = set.intersection(*[set(t.keys()) for t in trees])
   return tree_utils.from_flat_dict(
       {k: trees[-1][k] for k in tree_keys}, target=target

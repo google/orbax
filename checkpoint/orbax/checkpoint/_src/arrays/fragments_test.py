@@ -121,8 +121,8 @@ class FragmentTest(parameterized.TestCase):
         fragment_t(index=np.s_[1:2:1, 3:4:1], value=value),
     )
     self.assertNotEqual(
-        fragment_t(index=np.s_[1:2:1, 3:4:1], value=value * 2.),
-        fragment_t(index=np.s_[1:2:1, 3:4:1], value=value * 3.),
+        fragment_t(index=np.s_[1:2:1, 3:4:1], value=value * 2.),  # pyrefly: ignore[unsupported-operation]
+        fragment_t(index=np.s_[1:2:1, 3:4:1], value=value * 3.),  # pyrefly: ignore[unsupported-operation]
     )
 
   @parameterized.named_parameters(
@@ -400,7 +400,7 @@ class FragmentsTest(parameterized.TestCase):
     wrong_np_api = wrong_fragment_type.NP_API
     wrong_fragment = wrong_fragment_type(
         index=np.s_[1:2:1, 3:4:1],
-        value=(wrong_np_api.array([1.0]) if wrong_np_api is not None else None),
+        value=(wrong_np_api.array([1.0]) if wrong_np_api is not None else None),  # pyrefly: ignore[bad-argument-type]
     )
     with self.assertRaises(TypeError):
       fragments_t(
@@ -522,11 +522,11 @@ class FragmentsTest(parameterized.TestCase):
         fragments=[
             fragment_t(
                 index=np.s_[1:2:1, 3:4:1],
-                value=full_value[1:2, 3:4] if np_api is not None else None,
+                value=full_value[1:2, 3:4] if np_api is not None else None,  # pyrefly: ignore[bad-index]
             ),
             fragment_t(
                 index=np.s_[3:5:1, 0:2:1],
-                value=full_value[3:5, 0:2] if np_api is not None else None,
+                value=full_value[3:5, 0:2] if np_api is not None else None,  # pyrefly: ignore[bad-index]
             ),
         ],
     )
@@ -540,7 +540,7 @@ class FragmentsTest(parameterized.TestCase):
                 # (The first fragment is entirely sliced away.)
                 fragment_t(
                     index=np.s_[1:2:1, 0:2:1],
-                    value=full_value[3:4, 0:2] if np_api is not None else None,
+                    value=full_value[3:4, 0:2] if np_api is not None else None,  # pyrefly: ignore[bad-index]
                 ),
             ],
         ),
@@ -626,7 +626,7 @@ class FragmentsToArrayTest(parameterized.TestCase):
         self.assertIs(a, fragments.fragments[0].value)
       elif fragments_t is JaxFragments:
         assert (base := a.base) is not None
-        self.assertIs(base.obj, fragments.fragments[0].value)
+        self.assertIs(base.obj, fragments.fragments[0].value)  # pyrefly: ignore[missing-attribute]
       else:
         raise ValueError(f'Unexpected fragments type: {fragments_t}')
 

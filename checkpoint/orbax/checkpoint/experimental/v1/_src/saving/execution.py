@@ -139,7 +139,7 @@ class _SaveResponse(AsyncResponse[None]):
     )
 
     handler_typestrs = {
-        name: handler_types.typestr(type(handler))
+        name: handler_types.typestr(type(handler))  # pyrefly: ignore[bad-argument-type]
         for name, handler in handler_resolution.get_handlers_for_save(
             context.checkpointables_options.registry, checkpointables
         ).items()
@@ -192,7 +192,7 @@ class _SaveResponse(AsyncResponse[None]):
           handler_typestrs=self._handler_typestrs,
           init_timestamp_nsecs=int(self._start_time * 1e9),
           commit_timestamp_nsecs=time.time_ns(),
-          custom_metadata=self._custom_metadata,
+          custom_metadata=self._custom_metadata,  # pyrefly: ignore[bad-argument-type]
       )
       await metadata_serialization.write(
           metadata_serialization.checkpoint_metadata_file_path(
@@ -382,7 +382,7 @@ def save_checkpointables_impl(
   validation.validate_save_checkpointables(checkpointables)
   start_time = time.time()
   event_tracking.OperationRecorder(
-      path,
+      path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.SAVE,
       async_origin=async_origin,
   ).record_start(start_time)

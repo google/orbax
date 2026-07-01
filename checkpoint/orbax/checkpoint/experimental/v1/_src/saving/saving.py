@@ -36,7 +36,7 @@ Checkpointable = handler_types.Checkpointable
 
 def save(
     path: path_types.PathLike,
-    state: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
     *,
     checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,
@@ -151,7 +151,7 @@ def save_checkpointables(
 # save operation is scheduled.
 def save_async(
     path: path_types.PathLike,
-    state: tree_types.PyTreeOf[tree_types.Leaf],
+    state: tree_types.PyTreeOf[tree_types.Leaf],  # pyrefly: ignore[bad-specialization]
     *,
     checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
     overwrite: bool = False,

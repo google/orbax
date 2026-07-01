@@ -370,7 +370,7 @@ class ContextTest(absltest.TestCase):
     # Dynamically assign a non-field attribute to verify deepcopy preserves it
     ctx.array.saving._custom_field = "preserved_value"
     ctx_copy = ocp.Context(ctx)
-    self.assertEqual(ctx_copy.array.saving._custom_field, "preserved_value")
+    self.assertEqual(ctx_copy.array.saving._custom_field, "preserved_value")  # pyrefly: ignore[missing-attribute]
 
   def test_collect_ids_with_collections(self):
     child1 = DummyChild(10)
@@ -379,7 +379,7 @@ class ContextTest(absltest.TestCase):
     parent = DummyParent(children=[child1, child2], mapping={"a": child3})
 
     ctx = ocp.Context()
-    ctx._dummy_parent = parent
+    ctx._dummy_parent = parent  # pyrefly: ignore[missing-attribute]
 
     collected_ids = context_lib._collect_ids(ctx)  # pylint: disable=protected-access
 

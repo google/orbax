@@ -102,7 +102,7 @@ class _P2PSubsystem:
     my_info = protocol.PeerDiscoveryInfo(
         ip=self._p2p_node.ip,
         port=self._p2p_node.port,
-        process_index=stored_idx,
+        process_index=stored_idx,  # pyrefly: ignore[bad-argument-type]
         steps=list(my_steps),
     )
 
@@ -111,7 +111,7 @@ class _P2PSubsystem:
     # PeerSelector handles strict typing and validation
     self._peer_selector = peer_selector.PeerSelector(
         global_mesh=self._global_mesh,
-        replica_axis_index=self._replica_axis_index,
+        replica_axis_index=self._replica_axis_index,  # pyrefly: ignore[bad-argument-type]
         raw_metadata_list=all_infos_dicts,
     )
     self._registry_stale = False

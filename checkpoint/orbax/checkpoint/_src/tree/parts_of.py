@@ -176,7 +176,7 @@ class PartsOf(Generic[T]):
       template: jax_tree_util.PyTreeDef,
       present_values: dict[tuple[Any, ...], Any],
   ):
-    result = cls.empty(())
+    result = cls.empty(())  # pyrefly: ignore[bad-argument-type]
     result._template = template
     result._present = present_values
     return result
@@ -308,7 +308,7 @@ class PartsOf(Generic[T]):
 
   def tree_flatten(self) -> tuple[tuple[T, ...], jax_tree_util.PyTreeDef]:
     """JAX pytree flatten implementation for PartsOf."""
-    return (self._present,), self._template
+    return (self._present,), self._template  # pyrefly: ignore[bad-return]
 
   @classmethod
   def tree_unflatten(
@@ -376,7 +376,7 @@ def map_leaves_with_path(
   Returns:
     A partially known structure.
   """
-  x0, *xs = xs
+  x0, *xs = xs  # pyrefly: ignore[bad-assignment]
   for x in xs:
     _check_templates_match(x0._template, x._template)  # pylint:disable=protected-access
   def f_(path, _):

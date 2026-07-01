@@ -44,7 +44,7 @@ def _repeat_val(val, dimension: int, repeat_count: int) -> jax.Array:
     # device transfers.
     return _cpu_repeat(val, repeats=repeat_count, axis=dimension)
   elif isinstance(val, np.ndarray):
-    return np.repeat(val, repeat_count, axis=dimension)
+    return np.repeat(val, repeat_count, axis=dimension)  # pyrefly: ignore[bad-return]
   else:
     return jnp.repeat(val, repeat_count, axis=dimension)
 
@@ -84,8 +84,8 @@ def repeat_by_pattern(
       raise ValueError(
           "Can only repeat parameters in a single parameter structure."
       )
-    params = params[0]
-    result = dict(params)
+    params = params[0]  # pyrefly: ignore[bad-assignment]
+    result = dict(params)  # pyrefly: ignore[no-matching-overload]
     del params
 
     for key in result:
@@ -131,8 +131,8 @@ def repeat_by_keys(
       raise ValueError(
           "Can only repeat parameters in a single parameter structure."
       )
-    params = params[0]
-    result = dict(params)
+    params = params[0]  # pyrefly: ignore[bad-assignment]
+    result = dict(params)  # pyrefly: ignore[no-matching-overload]
     del params
 
     missing_keys = [k for k in target_keys if k not in result]

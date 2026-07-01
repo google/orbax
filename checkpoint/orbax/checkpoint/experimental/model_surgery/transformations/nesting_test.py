@@ -44,10 +44,10 @@ class NestingTest(absltest.TestCase):
             }
         },
     }
-    self.assertEqual(result.keys(), expected.keys())
-    self.assertEqual(result['linear1'].keys(), expected['linear1'].keys())
+    self.assertEqual(result.keys(), expected.keys())  # pyrefly: ignore[missing-attribute]
+    self.assertEqual(result['linear1'].keys(), expected['linear1'].keys())  # pyrefly: ignore[missing-attribute]
     self.assertEqual(
-        result['linear1']['kernel'].keys(), expected['linear1']['kernel'].keys()
+        result['linear1']['kernel'].keys(), expected['linear1']['kernel'].keys()  # pyrefly: ignore[missing-attribute]
     )
     np.testing.assert_array_equal(
         result['linear1']['kernel']['qvalue'], jnp.array([1])
@@ -61,7 +61,7 @@ class NestingTest(absltest.TestCase):
     transform = nesting.unflatten()
     result = transform(params)
 
-    self.assertEqual(result.keys(), {'a', 'c'})
+    self.assertEqual(result.keys(), {'a', 'c'})  # pyrefly: ignore[missing-attribute]
     np.testing.assert_array_equal(result['a']['b'], np.array([1]))
     np.testing.assert_array_equal(result['c'], np.array([2]))
 
@@ -73,7 +73,7 @@ class NestingTest(absltest.TestCase):
     transform = nesting.unflatten(inplace=True)
     result = transform(params)
 
-    self.assertEqual(result.keys(), {'a', 'c'})
+    self.assertEqual(result.keys(), {'a', 'c'})  # pyrefly: ignore[missing-attribute]
     np.testing.assert_array_equal(result['a']['b'], jnp.array([1]))
     self.assertEqual(params, {})  # Cleared
 

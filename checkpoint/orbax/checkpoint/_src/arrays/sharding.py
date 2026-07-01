@@ -79,7 +79,7 @@ def _construct_maximal_sharding(
     mesh_shape.append(gcd)
 
     current_partition_axis_name = _partition_axis_name(current_partition_axis)
-    partition_axes[i] = current_partition_axis_name
+    partition_axes[i] = current_partition_axis_name  # pyrefly: ignore[unsupported-operation]
     mesh_axes.append(current_partition_axis_name)
     current_partition_axis += 1
 
