@@ -242,6 +242,7 @@ def _record_logical_metrics(
     logical_bytes: int,
     duration: float,
     storage_type: str,
+    custom_prefix: str = '',
 ):
   """Records logical bytes, throughput, and duration to JAX monitoring."""
   logical_throughput = logical_bytes / duration if duration > 0 else 0
@@ -250,25 +251,25 @@ def _record_logical_metrics(
       '[process=%d] %s throughput: %s/s (total gbytes: %s) (time elapsed: %s s)'
       ' (per-host)',
       multihost.process_index(),
-      f'/jax/orbax/{direction.value}/worker/io/requested',
+      f'/jax/orbax/{direction.value}/worker/io/{custom_prefix}requested',
       humanize.naturalsize(logical_throughput, binary=True, format='%.3f'),
       humanize.naturalsize(logical_bytes, binary=True),
       duration,
   )
 
   jax.monitoring.record_event_duration_secs(
-      f'/jax/orbax/{direction.value}/worker/total_duration_secs',
+      f'/jax/orbax/{direction.value}/worker/{custom_prefix}total_duration_secs',
       duration,
       storage_type=storage_type,
   )
 
   jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/requested/gbytes',
+      f'/jax/orbax/{direction.value}/worker/io/requested/{custom_prefix}gbytes',
       logical_bytes / (1024**3),
       storage_type=storage_type,
   )
   jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/requested/throughput/gbytes_per_sec',
+      f'/jax/orbax/{direction.value}/worker/io/requested/throughput/{custom_prefix}gbytes_per_sec',
       logical_throughput / (1024**3),
       storage_type=storage_type,
   )
@@ -280,6 +281,7 @@ def _record_raw_metrics(
     duration: float,
     storage_type: str,
     initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+    custom_prefix: str = '',
 ):
   """Records raw metrics collected from TensorStore."""
   if initial_ts_metrics is None:
@@ -309,18 +311,18 @@ def _record_raw_metrics(
       '[process=%d] Raw %s throughput: %s/s (total gbytes: %s) (time elapsed:'
       ' %s s) (per-host)',
       multihost.process_index(),
-      f'/jax/orbax/{direction.value}/worker/io/raw',
+      f'/jax/orbax/{direction.value}/worker/io/{custom_prefix}raw',
       humanize.naturalsize(raw_throughput, binary=True, format='%.3f'),
       humanize.naturalsize(raw_bytes, binary=True),
       duration,
   )
   jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/raw/gbytes',
+      f'/jax/orbax/{direction.value}/worker/io/raw/{custom_prefix}gbytes',
       raw_bytes / (1024**3),
       storage_type=storage_type,
   )
   jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/raw/throughput/gbytes_per_sec',
+      f'/jax/orbax/{direction.value}/worker/io/raw/throughput/{custom_prefix}gbytes_per_sec',
       raw_throughput / (1024**3),
       storage_type=storage_type,
   )
@@ -336,13 +338,13 @@ def _record_raw_metrics(
         humanize.naturalsize(logical_bytes, binary=True),
     )
     jax.monitoring.record_scalar(
-        f'/jax/orbax/{direction.value}/worker/io/compression_ratio',
+        f'/jax/orbax/{direction.value}/worker/io/{custom_prefix}compression_ratio',
         ratio,
         storage_type=storage_type,
     )
     if direction == types.IoDirection.WRITE:
       jax.monitoring.record_scalar(
-          '/jax/orbax/write/worker/io/compressed_gbytes',
+          f'/jax/orbax/write/worker/io/{custom_prefix}compressed_gbytes',
           raw_bytes / (1024**3),
           storage_type=storage_type,
       )
@@ -354,6 +356,7 @@ def _log_io_metrics(
     start_time: float,
     parent_dir: epath.Path,
     initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+    custom_prefix: str = '',
 ):
   """Logs and records IO telemetry metrics for array serialization/deserialization."""
   duration = time.time() - start_time
@@ -364,6 +367,7 @@ def _log_io_metrics(
       logical_bytes,
       duration,
       storage_type,
+      custom_prefix=custom_prefix,
   )
   _record_raw_metrics(
       direction,
@@ -371,6 +375,7 @@ def _log_io_metrics(
       duration,
       storage_type,
       initial_ts_metrics=initial_ts_metrics,
+      custom_prefix=custom_prefix,
   )
 
 
@@ -664,6 +669,7 @@ def _serialize_arrays(
         batch_infos: Sequence[types.ParamInfo],
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
+        d2h_start_time: float | None = None,
     ):
       ret = dispatcher.dispatch(
           _worker_serialize_arrays,
@@ -688,6 +694,16 @@ def _serialize_arrays(
               'ext_metadata': ext_metadata,
           },
       )
+      if d2h_start_time is not None:
+        jax.block_until_ready(batch_arrays)
+        _log_io_metrics(
+            direction=types.IoDirection.WRITE,
+            logical_bytes=sum(v.nbytes for v in batch_arrays),
+            start_time=d2h_start_time,
+            parent_dir=batch_infos[0].parent_dir,
+            custom_prefix='d2h_',
+        )
+
       _on_batch_callback(batch_infos, callback.on_transfer_end)
 
       jax.block_until_ready(ret)
@@ -695,6 +711,7 @@ def _serialize_arrays(
       _on_batch_callback(batch_infos, callback.on_write_end)
 
     # Enqueue D2H operation for prioritized values.
+    d2h_start_time = None
     if prioritized:
       logging.info(
           'Scheduling D2H of %d prioritized jax.Array.',
@@ -703,6 +720,7 @@ def _serialize_arrays(
       prioritized_arrays, prioritized_infos, prioritized_args = zip(
           *prioritized
       )
+      d2h_start_time = time.time()
       prioritized_arrays = dispatcher.device_to_host(prioritized_arrays)
       prioritized = [
           (v, i, a)
@@ -723,7 +741,7 @@ def _serialize_arrays(
         await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
-        _serialize_batch(infos, args, arrays)
+        _serialize_batch(infos, args, arrays, d2h_start_time)
       if deprioritized:
         assert device_host_max_bytes is not None
         for (
