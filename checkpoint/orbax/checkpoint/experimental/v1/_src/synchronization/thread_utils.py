@@ -37,11 +37,12 @@ class BackgroundThreadRunner(Generic[T]):
     self._future = self._runner.run_coroutine(target)
 
   def result(self, timeout: float | None = None) -> T:
-    r = self._future.result(timeout=timeout)
-    if self._runner:
-      self._runner.shutdown()
-      self._runner = None
-    return r
+    try:
+      return self._future.result(timeout=timeout)
+    finally:
+      if self._runner:
+        self._runner.shutdown()
+        self._runner = None
 
   def on_complete(self, callback: Callable[[T], None]) -> None:
     """Registers a callback to be called when the task is complete."""
