@@ -17,6 +17,7 @@
 import gc
 import tracemalloc
 import unittest
+from unittest import mock
 
 from absl.testing import parameterized
 from etils import epath
@@ -340,6 +341,162 @@ class ShardedSafetensorsLayoutTest(
           st_path, abstract_state=wrong_key_abstract_pytree
       )
       await test_awaitable
+
+
+class BroadcastReplicatedTest(
+    unittest.IsolatedAsyncioTestCase,
+    parameterized.TestCase,
+    multiprocess_test.MultiProcessTest,
+):
+  """`SafetensorsOptions.broadcast_replicated` on the 4-process mesh."""
+
+  def setUp(self):
+    super().setUp()
+    self.test_dir = epath.Path(
+        self.multiprocess_create_tempdir(name="test_dir")
+    )
+    devices = jax.devices()
+    self.mesh = Mesh(np.array(devices).reshape(4, 2), ("data", "model"))
+    test_utils.sync_global_processes("BroadcastReplicatedTest.setUp")
+
+  def tearDown(self):
+    super().tearDown()
+    test_utils.sync_global_processes("BroadcastReplicatedTest.tearDown")
+
+  def _assert_domains_cover_once(self, sharding, shape):
+    """Every element owned by exactly one unique index domain (no replicas)."""
+    domains = {
+        safetensors_layout._normalize_index(index, shape)
+        for index in sharding.devices_indices_map(shape).values()
+    }
+    covered = sum(
+        np.prod([stop - start for start, stop in bounds]) for bounds in domains
+    )
+    self.assertEqual(covered, np.prod(shape))
+
+  def test_dedup_fully_replicated_covers_once(self):
+    sharding = NamedSharding(self.mesh, PartitionSpec())
+    read = safetensors_layout._dedup_read_sharding(sharding, (16, 8))
+    self.assertIsNotNone(read)
+    self._assert_domains_cover_once(read, (16, 8))
+
+  def test_dedup_partially_replicated_covers_once(self):
+    sharding = NamedSharding(self.mesh, PartitionSpec(None, "model"))
+    read = safetensors_layout._dedup_read_sharding(sharding, (16, 8))
+    self.assertIsNotNone(read)
+    self._assert_domains_cover_once(read, (16, 8))
+
+  def test_dedup_places_axis_on_later_divisible_dim(self):
+    # dim 0 (size 3) cannot absorb either mesh axis; dim 1 (size 8) takes
+    # both. JAX requires even partitions, so placement must skip dim 0.
+    sharding = NamedSharding(self.mesh, PartitionSpec())
+    read = safetensors_layout._dedup_read_sharding(sharding, (3, 8))
+    self.assertIsNotNone(read)
+    self._assert_domains_cover_once(read, (3, 8))
+
+  def test_dedup_fully_sharded_returns_none(self):
+    sharding = NamedSharding(self.mesh, PartitionSpec("data", "model"))
+    self.assertIsNone(
+        safetensors_layout._dedup_read_sharding(sharding, (16, 8))
+    )
+
+  def test_dedup_nothing_placeable_returns_none(self):
+    # No dimension of a (3, 3) tensor divides evenly by either mesh axis.
+    sharding = NamedSharding(self.mesh, PartitionSpec())
+    self.assertIsNone(
+        safetensors_layout._dedup_read_sharding(sharding, (3, 3))
+    )
+
+  def test_dedup_partial_placement_still_reduces_replicas(self):
+    # Only "model" (size 2) fits a (2, 2) tensor; "data" stays unplaced, so
+    # 2 unique domains remain across 8 devices instead of 1 -- a partial
+    # de-duplication (4 owners per domain down from 8).
+    sharding = NamedSharding(self.mesh, PartitionSpec())
+    read = safetensors_layout._dedup_read_sharding(sharding, (2, 2))
+    self.assertIsNotNone(read)
+    domains = {
+        safetensors_layout._normalize_index(index, (2, 2))
+        for index in read.devices_indices_map((2, 2)).values()
+    }
+    self.assertLen(domains, 2)
+
+  @parameterized.named_parameters(
+      ("fully_replicated", PartitionSpec(), (16, 512)),
+      ("partially_replicated", PartitionSpec(None, "model"), (16, 512)),
+      ("indivisible_leading_dim", PartitionSpec(), (3, 8)),
+  )
+  async def test_load_with_broadcast_matches_direct_device_put(
+      self, spec, shape
+  ):
+    tensor = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    st_path = self.test_dir / f"{self.id()}.safetensors"
+    if jax.process_index() == 0:
+      np_save_file({"w": tensor}, st_path)
+    test_utils.sync_global_processes(self.id())
+
+    target = NamedSharding(self.mesh, spec)
+    abstract_state = {
+        "w": jax.ShapeDtypeStruct(
+            shape=shape, dtype=np.float32, sharding=target
+        )
+    }
+    layout = SafetensorsLayout()
+    with context_lib.Context(
+        safetensors_options=options_lib.SafetensorsOptions(
+            broadcast_replicated=True,
+        ),
+    ):
+      restore_fn = await layout.load(st_path, abstract_state=abstract_state)
+      restored = (await restore_fn)["w"]
+
+    expected = jax.device_put(tensor, target)
+    self.assertEqual(restored.sharding, expected.sharding)
+    test_utils.assert_array_equal(self, expected, restored)
+
+  async def test_broadcast_reads_each_byte_once_per_cluster(self):
+    # Fully replicated target: without the flag every process reads the
+    # whole tensor (4x cluster egress); with it, the read spreads so each
+    # process pulls ~1/4. Each process asserts its own bytes_read metric.
+    shape = (16, 4096)
+    tensor = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    total_bytes = tensor.nbytes
+    st_path = self.test_dir / f"{self.id()}.safetensors"
+    if jax.process_index() == 0:
+      np_save_file({"w": tensor}, st_path)
+    test_utils.sync_global_processes(self.id())
+
+    target = NamedSharding(self.mesh, PartitionSpec())
+    abstract_state = {
+        "w": jax.ShapeDtypeStruct(
+            shape=shape, dtype=np.float32, sharding=target
+        )
+    }
+    layout = SafetensorsLayout()
+
+    async def bytes_read_for(broadcast_replicated):
+      with mock.patch.object(jax.monitoring, "record_scalar") as rec:
+        with context_lib.Context(
+            safetensors_options=options_lib.SafetensorsOptions(
+                broadcast_replicated=broadcast_replicated,
+            ),
+        ):
+          restore_fn = await layout.load(
+              st_path, abstract_state=abstract_state
+          )
+          restored = (await restore_fn)["w"]
+      test_utils.assert_array_equal(
+          self, jax.device_put(tensor, target), restored
+      )
+      emitted = {c.args[0]: c.args[1] for c in rec.call_args_list}
+      return emitted["/jax/orbax/read/safetensors/bytes_read"]
+
+    replicated_bytes = await bytes_read_for(False)
+    test_utils.sync_global_processes(f"{self.id()}.baseline")
+    deduped_bytes = await bytes_read_for(True)
+
+    self.assertEqual(replicated_bytes, total_bytes)
+    # This process's share is 1/4 of the tensor; allow coalescing slack.
+    self.assertLessEqual(deduped_bytes, 0.3 * total_bytes)
 
 
 if __name__ == "__main__":
