@@ -22,6 +22,7 @@ from absl import logging
 from absl.testing import absltest
 import aiosqlite  # pylint: disable=unused-import
 import greenlet  # pylint: disable=unused-import
+from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
@@ -30,6 +31,7 @@ from orbax.checkpoint.experimental.tiering_service import server_config
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 
 class DummyGcpParallelstoreClient(gcp_storage_client.GCPStorageClient):
@@ -85,10 +87,34 @@ class DummyGcpParallelstoreClient(gcp_storage_client.GCPStorageClient):
         },
     )
 
+  async def delete_path(self, path: str) -> None:
+    """Mock delete_path."""
+    logging.info("Dummy deleted path: %s", path)
+
 
 class TieringServiceWorkerTest(
     absltest.TestCase, unittest.IsolatedAsyncioTestCase
 ):
+
+  async def _wait_for_condition(
+      self, check_fn, max_attempts=50, sleep_time=0.1
+  ) -> None:
+    """Helper to poll a condition with database lock retries."""
+    for i in range(max_attempts):
+      try:
+        if await check_fn():
+          return
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        if "database table is locked" in str(e):
+          logging.info(
+              "Database locked during poll, retrying... (attempt %d)", i
+          )
+        else:
+          raise
+      await asyncio.sleep(sleep_time)
+    # Final check without exception catching
+    if not await check_fn():
+      self.fail("Condition not met after polling timeout")
 
   async def asyncSetUp(self):
     await super().asyncSetUp()
@@ -122,7 +148,7 @@ class TieringServiceWorkerTest(
         f"sqlite+aiosqlite:///file:{db_name}?mode=memory&cache=shared&uri=true"
     )
 
-    self.engine = db_lib.get_async_engine(self.config)
+    self.engine = db_lib.get_async_engine(self.config, poolclass=NullPool)
     # Open and keep a connection alive to prevent SQLite from deleting the
     # in-memory shared database when engines are disposed/recreated.
     self._keep_alive_conn = await self.engine.connect()
@@ -136,6 +162,13 @@ class TieringServiceWorkerTest(
         mock.patch.object(gcp_storage_client, "determine_client", autospec=True)
     )
     self.determine_client_mock.return_value = self.gcp_client
+
+    self.determine_delete_client_mock = self.enter_context(
+        mock.patch.object(
+            gcp_storage_client, "determine_delete_client", autospec=True
+        )
+    )
+    self.determine_delete_client_mock.return_value = self.gcp_client
 
     def mock_get_client(status_dict, project=None, service_account=None):
       del project, service_account  # Unused
@@ -185,6 +218,7 @@ class TieringServiceWorkerTest(
       target_backend_id,
       source_backend_id,
       job_status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+      request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
   ):
     """Helper to create an asset, its tier paths, and a prefetch job."""
     del self
@@ -214,11 +248,16 @@ class TieringServiceWorkerTest(
     session.add(target_tp)
     await session.flush()
 
+    if request_type == db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS:
+      target_tp_id = None
+    else:
+      target_tp_id = target_tp.id
+
     job = db_schema.AssetJob(
         asset_uuid=asset_uuid,
-        request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+        request_type=request_type,
         status=job_status,
-        target_tier_path_id=target_tp.id,
+        target_tier_path_id=target_tp_id,
     )
     session.add(job)
     await session.commit()
@@ -243,14 +282,13 @@ class TieringServiceWorkerTest(
     # Start worker to process the job
     await self.worker.start()
 
-    # Wait for job to complete with timeout
-    for _ in range(10):
-      await asyncio.sleep(1.0)
+    async def _check():
       async with self.session_maker() as session:
         result = await session.execute(select(db_schema.AssetJob))
         job = result.scalars().first()
-        if job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED:
-          break
+        return job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED
+
+    await self._wait_for_condition(_check, max_attempts=10, sleep_time=1.0)
 
     await self.worker.stop()
 
@@ -308,17 +346,16 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
-      # Wait for at least one job to transition to PROCESSING
-      for _ in range(50):
+      async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           jobs_list = result.scalars().all()
-          if any(
+          return any(
               j.status == db_schema.JobStatus.JOB_STATUS_PROCESSING
               for j in jobs_list
-          ):
-            break
-        await asyncio.sleep(0.1)
+          )
+
+      await self._wait_for_condition(_check, max_attempts=50, sleep_time=0.1)
       await self.worker.stop()
 
     async with self.session_maker() as session:
@@ -369,17 +406,16 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
-      # Wait for both jobs to transition to PROCESSING
-      for _ in range(50):
+      async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           jobs_list = result.scalars().all()
-          if all(
+          return all(
               j.status == db_schema.JobStatus.JOB_STATUS_PROCESSING
               for j in jobs_list
-          ):
-            break
-        await asyncio.sleep(0.1)
+          )
+
+      await self._wait_for_condition(_check, max_attempts=50, sleep_time=0.1)
       await self.worker.stop()
 
     async with self.session_maker() as session:
@@ -417,14 +453,13 @@ class TieringServiceWorkerTest(
         side_effect=RuntimeError("Mocked trigger failure"),
     ):
       await self.worker.start()
-      # Wait for job to fail
-      for _ in range(5):
-        await asyncio.sleep(0.5)
+      async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           job = result.scalars().first()
-          if job.status == db_schema.JobStatus.JOB_STATUS_FAILED:
-            break
+          return job.status == db_schema.JobStatus.JOB_STATUS_FAILED
+
+      await self._wait_for_condition(_check, max_attempts=5, sleep_time=0.5)
       await self.worker.stop()
 
     async with self.session_maker() as session:
@@ -473,14 +508,13 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
-      # Wait for job to fail
-      for _ in range(10):
-        await asyncio.sleep(1)
+      async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           job = result.scalars().first()
-          if job.status == db_schema.JobStatus.JOB_STATUS_FAILED:
-            break
+          return job.status == db_schema.JobStatus.JOB_STATUS_FAILED
+
+      await self._wait_for_condition(_check, max_attempts=10, sleep_time=1)
       await self.worker.stop()
 
     async with self.session_maker() as session:
@@ -548,14 +582,13 @@ class TieringServiceWorkerTest(
     # Start worker
     await self.worker.start()
 
-    # Wait for job to complete with timeout
-    for _ in range(10):
-      await asyncio.sleep(1)
+    async def _check():
       async with self.session_maker() as session:
         result = await session.execute(select(db_schema.AssetJob))
         recovered_job = result.scalars().first()
-        if recovered_job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED:
-          break
+        return recovered_job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED
+
+    await self._wait_for_condition(_check, max_attempts=10, sleep_time=1)
 
     await self.worker.stop()
 
@@ -705,6 +738,43 @@ class TieringServiceWorkerTest(
           expected_expiration.replace(tzinfo=None),
       )
 
+  async def test_poll_delete_job_extends_lease(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      lustre_a = next(b for b in backends if b.zone == "us-central1-a")
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      job, _ = await self._create_asset_and_job(
+          session,
+          asset_uuid="asset-delete-lease",
+          path="path/delete/lease",
+          target_backend_id=lustre_a.id,
+          source_backend_id=gcs.id,
+          job_status=db_schema.JobStatus.JOB_STATUS_PROCESSING,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      job.worker_host = self.worker._hostname
+      job.worker_pid = self.worker._pid
+      initial_expiration = datetime.datetime.now(
+          datetime.timezone.utc
+      ) - datetime.timedelta(seconds=10)
+      job.expiration_at = initial_expiration
+      await session.commit()
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # Trigger polling manually
+    await self.worker._poll_single_job(job, now)
+
+    # Verify expiration_at is now updated to now + lease_duration
+    async with self.session_maker() as session:
+      db_job = await session.get(db_schema.AssetJob, job.id)
+      expected_expiration = now + self.worker._lease_duration
+      self.assertEqual(
+          db_job.expiration_at.replace(tzinfo=None),
+          expected_expiration.replace(tzinfo=None),
+      )
+
   async def test_custom_transfer_status_details_preserved(self):
     async with self.session_maker() as session:
       result = await session.execute(select(db_schema.StorageBackend))
@@ -735,19 +805,207 @@ class TieringServiceWorkerTest(
       await self.worker.start()
 
       custom_metric_val = None
-      for _ in range(20):
-        await asyncio.sleep(0.5)
+      async def _check():
+        nonlocal custom_metric_val
         async with self.session_maker() as session:
           db_job = await session.get(db_schema.AssetJob, job.id)
-          if (
-              db_job.transfer_status
-              and db_job.transfer_status.get("custom_metric")
+          if db_job.transfer_status and db_job.transfer_status.get(
+              "custom_metric"
           ):
             custom_metric_val = db_job.transfer_status.get("custom_metric")
-            break
+            return True
+          return False
+
+      await self._wait_for_condition(_check, max_attempts=20, sleep_time=0.5)
 
       await self.worker.stop()
       self.assertEqual(custom_metric_val, "custom_value")
+
+  async def test_delete_from_instance_job_lifecycle(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      gcs = next(b for b in backends if b.region == "us-central1")
+
+      # Create Asset and ready TierPath
+      asset = db_schema.Asset(
+          asset_uuid="asset-del-inst-1",
+          path="path/del/inst/1",
+          user="test-user",
+          state=db_schema.AssetState.ASSET_STATE_STORED,
+      )
+      session.add(asset)
+      tp = db_schema.TierPath(
+          asset_uuid="asset-del-inst-1",
+          storage_backend_id=gcs.id,
+          path="gs://my-bucket/path/del/inst/1",
+          ready_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc),
+          state=db_schema.TierPathState.READY,
+      )
+      session.add(tp)
+      await session.commit()
+
+      # Queue DELETE_FROM_INSTANCE job
+      db_job = db_schema.AssetJob(
+          asset_uuid=asset.asset_uuid,
+          target_tier_path_id=tp.id,
+          request_type=db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_INSTANCE,
+          status=db_schema.JobStatus.JOB_STATUS_QUEUED,
+      )
+      session.add(db_job)
+      await session.commit()
+
+    # Start worker - it should pick up the job, transition state to
+    # DELETE_IN_PROCESS, and complete the deletion.
+    await self.worker.start()
+
+    # Verify that the tier path has transitioned to DELETE_IN_PROCESS
+    # almost immediately (or upon completion).
+    async def _check():
+      async with self.session_maker() as session:
+        stmt = (
+            select(db_schema.TierPath)
+            .where(db_schema.TierPath.id == tp.id)
+            .execution_options(populate_existing=True)
+        )
+        res = await session.execute(stmt)
+        db_tp = res.scalars().first()
+        return db_tp and db_tp.state == db_schema.TierPathState.DELETED
+
+    await self._wait_for_condition(_check, max_attempts=20, sleep_time=0.2)
+
+    await self.worker.stop()
+
+    # Final DB assertion checks
+    async with self.session_maker() as session:
+      async with session.begin():
+        stmt_tp = (
+            select(db_schema.TierPath)
+            .where(db_schema.TierPath.id == tp.id)
+            .execution_options(populate_existing=True)
+        )
+        res_tp = await session.execute(stmt_tp)
+        db_tp = res_tp.scalars().first()
+        self.assertEqual(db_tp.state, db_schema.TierPathState.DELETED)
+        self.assertIsNone(db_tp.ready_at)
+
+        stmt_job = (
+            select(db_schema.AssetJob)
+            .where(db_schema.AssetJob.id == db_job.id)
+            .execution_options(populate_existing=True)
+        )
+        res_job = await session.execute(stmt_job)
+        db_job_res = res_job.scalars().first()
+        self.assertEqual(
+            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+        )
+
+  async def test_delete_from_all_tiers_job_lifecycle(self):
+    async with self.session_maker() as session:
+      result = await session.execute(select(db_schema.StorageBackend))
+      backends = result.scalars().all()
+      gcs = next(b for b in backends if b.region == "us-central1")
+      lustre = next(b for b in backends if b.zone == "us-central1-a")
+
+      # Create Asset and 2 ready TierPaths (Lustre + GCS)
+      asset = db_schema.Asset(
+          asset_uuid="asset-del-all-1",
+          path="path/del/all/1",
+          user="test-user",
+          state=db_schema.AssetState.ASSET_STATE_STORED,
+      )
+      session.add(asset)
+      tp_gcs = db_schema.TierPath(
+          asset_uuid="asset-del-all-1",
+          storage_backend_id=gcs.id,
+          path="gs://my-bucket/path/del/all/1",
+          ready_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc),
+          state=db_schema.TierPathState.READY,
+      )
+      tp_lustre = db_schema.TierPath(
+          asset_uuid="asset-del-all-1",
+          storage_backend_id=lustre.id,
+          path="/mnt/lustre/path/del/all/1",
+          ready_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc),
+          state=db_schema.TierPathState.READY,
+      )
+      session.add(tp_gcs)
+      session.add(tp_lustre)
+      await session.commit()
+
+      # Queue DELETE_FROM_ALL_TIERS job
+      await assets.queue_delete_asset_job(session, asset)
+
+      # Find queued job
+      stmt = select(db_schema.AssetJob).where(
+          db_schema.AssetJob.asset_uuid == asset.asset_uuid,
+          db_schema.AssetJob.request_type
+          == db_schema.RequestType.REQUEST_TYPE_DELETE_FROM_ALL_TIERS,
+      )
+      res_job = await session.execute(stmt)
+      db_job = res_job.scalars().first()
+
+    # Start worker
+    await self.worker.start()
+
+    # Verify both paths deleted
+    async def _check():
+      async with self.session_maker() as session:
+        stmt = (
+            select(db_schema.TierPath)
+            .where(db_schema.TierPath.id == tp_gcs.id)
+            .execution_options(populate_existing=True)
+        )
+        res = await session.execute(stmt)
+        db_tp = res.scalars().first()
+        return db_tp and db_tp.state == db_schema.TierPathState.DELETED
+
+    await self._wait_for_condition(_check, max_attempts=20, sleep_time=0.2)
+
+    await self.worker.stop()
+
+    # Assertions
+    async with self.session_maker() as session:
+      async with session.begin():
+        stmt_tp_g = (
+            select(db_schema.TierPath)
+            .where(db_schema.TierPath.id == tp_gcs.id)
+            .execution_options(populate_existing=True)
+        )
+        res_tp_g = await session.execute(stmt_tp_g)
+        db_tp_g = res_tp_g.scalars().first()
+        self.assertEqual(db_tp_g.state, db_schema.TierPathState.DELETED)
+
+        stmt_tp_l = (
+            select(db_schema.TierPath)
+            .where(db_schema.TierPath.id == tp_lustre.id)
+            .execution_options(populate_existing=True)
+        )
+        res_tp_l = await session.execute(stmt_tp_l)
+        db_tp_l = res_tp_l.scalars().first()
+        self.assertEqual(db_tp_l.state, db_schema.TierPathState.DELETED)
+
+        stmt_asset = (
+            select(db_schema.Asset)
+            .where(db_schema.Asset.asset_uuid == asset.asset_uuid)
+            .execution_options(populate_existing=True)
+        )
+        res_asset = await session.execute(stmt_asset)
+        db_asset = res_asset.scalars().first()
+        self.assertEqual(
+            db_asset.state, db_schema.AssetState.ASSET_STATE_DELETED
+        )
+
+        stmt_job = (
+            select(db_schema.AssetJob)
+            .where(db_schema.AssetJob.id == db_job.id)
+            .execution_options(populate_existing=True)
+        )
+        res_job = await session.execute(stmt_job)
+        db_job_res = res_job.scalars().first()
+        self.assertEqual(
+            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+        )
 
 
 if __name__ == "__main__":

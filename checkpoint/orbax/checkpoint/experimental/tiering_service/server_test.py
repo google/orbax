@@ -29,7 +29,11 @@ from orbax.checkpoint.experimental.tiering_service import server_config
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from sqlalchemy.future import select
 
-from google.protobuf import timestamp_pb2
+try:
+  from google.protobuf import timestamp_pb2  # pylint: disable=g-import-not-at-top
+except ImportError:
+  # pytype: disable=import-error
+  from google.protobuf import timestamp_pb2  # pylint: disable=g-import-not-at-top
 
 
 async def _setup_prefetch_req(
@@ -485,14 +489,29 @@ class TieringServiceTest(
 
     self.assertEqual(prefetch_res.asset.uuid, asset_uuid)
     paths = [tp.path for tp in prefetch_res.asset.tier_paths]
-    self.assertCountEqual(
-        paths,
-        ["/mnt/lustre-a/test/path", "/mnt/lustre-b/test/path"],
+    self.assertLen(paths, 3)
+    lustre_a_paths = [
+        p for p in paths if p.startswith("/mnt/lustre-a/test/path/")
+    ]
+    lustre_b_paths = [
+        p for p in paths if p.startswith("/mnt/lustre-b/test/path/")
+    ]
+    gcs_paths = [
+        p for p in paths if p.startswith("gs://my-bucket/test/path/")
+    ]
+    self.assertLen(lustre_a_paths, 1)
+    self.assertLen(lustre_b_paths, 1)
+    self.assertLen(gcs_paths, 1)
+
+    # In the setup, find the tier path corresponding to zone B's Lustre backend
+    # target.
+    expected_tp = next(
+        tp for tp in prefetch_res.asset.tier_paths
+        if tp.path.startswith("/mnt/lustre-b/test/path/")
     )
-    # In the setup, index 1 corresponds to zone B's Lustre backend target
     self.assertEqual(
         prefetch_res.closest_tier_path_uuid,
-        prefetch_res.asset.tier_paths[1].tier_path_uuid,
+        expected_tp.tier_path_uuid,
     )
     self.assertTrue(prefetch_res.closest_tier_path_uuid)
 
@@ -505,24 +524,32 @@ class TieringServiceTest(
     await servicer.Prefetch(prefetch_req, self.context)
 
     async with servicer._session_scope() as session:
+      res_backend = await session.execute(
+          select(db_schema.StorageBackend).filter_by(zone="us-central1-b")
+      )
+      backend_b = res_backend.scalars().first()
+      self.assertIsNotNone(backend_b)
+
+      stmt_tp = select(db_schema.TierPath).filter_by(
+          asset_uuid=asset_uuid, storage_backend_id=backend_b.id
+      )
+      result_tp = await session.execute(stmt_tp)
+      tp_b = result_tp.scalars().first()
+      self.assertIsNotNone(tp_b)
+      self.assertIsNone(tp_b.ready_at)
+
       stmt = select(db_schema.AssetJob).filter_by(
           asset_uuid=asset_uuid,
           request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
       )
       result = await session.execute(stmt)
       jobs = result.scalars().all()
-      self.assertLen(jobs, 1)
-      self.assertEqual(jobs[0].status, db_schema.JobStatus.JOB_STATUS_QUEUED)
-      target_tp_id = jobs[0].target_tier_path_id
-
-      stmt_tp = select(db_schema.TierPath).filter_by(
-          asset_uuid=asset_uuid, path="/mnt/lustre-b/test/path"
+      self.assertLen(jobs, 2)
+      prefetch_job = next(j for j in jobs if j.target_tier_path_id == tp_b.id)
+      self.assertEqual(
+          prefetch_job.status, db_schema.JobStatus.JOB_STATUS_QUEUED
       )
-      result_tp = await session.execute(stmt_tp)
-      tp_b = result_tp.scalars().first()
-      self.assertIsNotNone(tp_b)
-      self.assertEqual(target_tp_id, tp_b.id)
-      self.assertIsNone(tp_b.ready_at)
+      self.assertEqual(prefetch_job.target_tier_path_id, tp_b.id)
 
   async def test_prefetch_idempotent(self):
     servicer, asset_uuid = await self._setup_servicer_and_asset()
@@ -551,7 +578,64 @@ class TieringServiceTest(
       )
       result = await session.execute(stmt)
       jobs = result.scalars().all()
-      self.assertLen(jobs, 1)
+      self.assertLen(jobs, 2)
+
+  async def test_prefetch_while_delete_in_process(self):
+    servicer, asset_uuid = await self._setup_servicer_and_asset()
+
+    # 1. Prefetch from B (creates first TierPath and COPY job).
+    res1 = await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+    first_tp_uuid = res1.closest_tier_path_uuid
+
+    # Verify first TierPath has the UUID in its path!
+    async with servicer._session_scope() as session:
+      tp1 = await session.execute(
+          select(db_schema.TierPath).filter_by(tier_path_uuid=first_tp_uuid)
+      )
+      tp1_obj = tp1.scalars().first()
+      self.assertIsNotNone(tp1_obj)
+      self.assertTrue(tp1_obj.path.endswith(first_tp_uuid))
+      first_path = tp1_obj.path
+
+      # 2. Transition first TierPath to DELETE_IN_PROCESS to simulate eviction.
+      tp1_obj.state = db_schema.TierPathState.DELETE_IN_PROCESS
+      await session.commit()
+
+    # 3. Call Prefetch again from B.
+    # Since the first one is DELETE_IN_PROCESS, it should be ignored,
+    # and a NEW TierPath (and COPY job) should be created.
+    res2 = await servicer.Prefetch(
+        tiering_service_pb2.PrefetchRequest(
+            uuid=asset_uuid, zone="us-central1-b"
+        ),
+        self.context,
+    )
+    second_tp_uuid = res2.closest_tier_path_uuid
+    self.assertNotEqual(first_tp_uuid, second_tp_uuid)
+
+    # Verify second TierPath has a different UUID and path!
+    async with servicer._session_scope() as session:
+      tp2 = await session.execute(
+          select(db_schema.TierPath).filter_by(tier_path_uuid=second_tp_uuid)
+      )
+      tp2_obj = tp2.scalars().first()
+      self.assertIsNotNone(tp2_obj)
+      self.assertTrue(tp2_obj.path.endswith(second_tp_uuid))
+      self.assertNotEqual(first_path, tp2_obj.path)
+
+      # Verify two COPY jobs now exist
+      result = await session.execute(
+          select(db_schema.AssetJob).filter_by(
+              asset_uuid=asset_uuid,
+              request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
+          )
+      )
+      self.assertLen(result.scalars().all(), 3)
 
   async def test_prefetch_already_ready(self):
     # If we prefetch to the same zone where it was reserved and finalized,
@@ -569,18 +653,30 @@ class TieringServiceTest(
 
     # Verify response
     self.assertEqual(response.asset.uuid, asset_uuid)
-    self.assertLen(response.asset.tier_paths, 1)
-    self.assertIsNotNone(response.asset.tier_paths[0].ready_at.ToDatetime())
+    self.assertLen(response.asset.tier_paths, 2)
+    lustre_a_tp = next(
+        tp for tp in response.asset.tier_paths if "lustre" in tp.path
+    )
+    self.assertIsNotNone(lustre_a_tp.ready_at.ToDatetime())
 
-    # Verify NO job was created
+    # Verify NO prefetch job was created (only GCS copy job exists)
     async with self.servicer._session_scope() as session:
+      stmt_tp = select(db_schema.TierPath).where(
+          db_schema.TierPath.asset_uuid == asset_uuid,
+          db_schema.TierPath.path.like("gs://my-bucket/test/path/%"),
+      )
+      result_tp = await session.execute(stmt_tp)
+      gcs_tp = result_tp.scalars().first()
+      self.assertIsNotNone(gcs_tp)
+
       stmt = select(db_schema.AssetJob).filter_by(
           asset_uuid=asset_uuid,
           request_type=db_schema.RequestType.REQUEST_TYPE_COPY,
       )
       result = await session.execute(stmt)
       jobs = result.scalars().all()
-      self.assertEmpty(jobs)
+      self.assertLen(jobs, 1)
+      self.assertEqual(jobs[0].target_tier_path_id, gcs_tp.id)
 
   async def test_prefetch_permission_denied(self):
     servicer, asset_uuid = await self._setup_servicer_and_asset()
@@ -677,7 +773,7 @@ class TieringServiceTest(
         ),
         self.context,
     )
-    self.assertLen(prefetch_res.asset.tier_paths, 2)
+    self.assertLen(prefetch_res.asset.tier_paths, 3)
     tp_b = next(
         tp for tp in prefetch_res.asset.tier_paths if "lustre-b" in tp.path
     )

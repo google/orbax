@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import concurrent
 import dataclasses
 import datetime
@@ -61,8 +62,8 @@ from orbax.checkpoint._src.path import deleter
 from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path import utils as path_utils
+from orbax.checkpoint.experimental.tiering_service import client as cts_client
 from typing_extensions import Self  # for Python version < 3.11
-
 
 
 PyTree = Any
@@ -95,6 +96,7 @@ deserialize_root_metadata = root_metadata_serialization.deserialize
 AsyncOptions = options_lib.AsyncOptions
 MultiprocessingOptions = options_lib.MultiprocessingOptions
 FileOptions = options_lib.FileOptions
+
 
 DEFAULT_ITEM_NAME = 'default'
 METRIC_ITEM_NAME = 'metrics'
@@ -407,10 +409,11 @@ class CheckpointManagerOptions:
       None
   )
   prevent_write_metrics: bool = False
-  # TODO(b/428061876) Remove this option.
   enable_should_save_is_saving_in_progress_check: bool = True
+  # TODO(b/428061876) Remove this option.
   enable_per_process_directory_creation: bool = False
   lightweight_initialize: bool = False
+  tiering_client: Optional[cts_client.TieringClient] = None
 
   def __post_init__(self):
     step_name_format_single_host_load_and_broadcast = (
@@ -719,6 +722,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
+    self._tiering_client = self._options.tiering_client
+    self._tiering_uuids = {}  # maps step (int) -> uuid (str)
 
     if self._options.enable_per_process_directory_creation:
       future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
@@ -957,6 +962,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       options: CheckpointManagerOptions,
       use_async: bool,
   ) -> Checkpointer:
+    kwargs = {}
     if use_async:
       return async_checkpointer.AsyncCheckpointer(
           handler,
@@ -965,6 +971,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           file_options=options.file_options,
           checkpoint_metadata_store=self._non_blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
+          **kwargs,
       )
     else:
       return Checkpointer(
@@ -973,6 +980,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           file_options=options.file_options,
           checkpoint_metadata_store=self._blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
+          **kwargs,
       )
 
   def _configure_checkpointer_legacy_init(
@@ -1516,6 +1524,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     args = args_lib.Composite(**args_dict)
 
     save_directory = self._get_write_step_directory(step, self.directory)
+    if self._tiering_client is not None:
+      logging.info('[CTS] Reserving path: %s', save_directory)
+      uuid, lustre_path = self._run_async(
+          self._tiering_client.reserve(str(save_directory))
+      )
+      logging.info(
+          '[CTS] Reserved path. UUID: %s, Lustre Path: %s', uuid, lustre_path
+      )
+      self._tiering_uuids[step] = uuid
+      save_directory = epath.Path(lustre_path)
+
     logging.info(
         '[process=%s] Saving checkpoint at step %d', process_index, step
     )
@@ -1737,8 +1756,24 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         args = typing.cast(args_lib.Composite, args)
 
     restore_directory = self._get_read_step_directory(step, directory)
+    if self._tiering_client is not None:
+      logging.info('[CTS] Prefetching path: %s', restore_directory)
+
+      async def _do_prefetch():
+        fut = await self._tiering_client.prefetch(str(restore_directory))
+        return await fut
+
+      lustre_path = self._run_async(_do_prefetch())
+      logging.info('[CTS] Prefetch complete. Lustre Path: %s', lustre_path)
+      restore_directory = epath.Path(lustre_path)
+
     step_stats.checkpointer_start_time = time.time()
     restored = self._checkpointer.restore(restore_directory, args=args)
+    if self._tiering_client is not None:
+      logical_restore_dir = self._get_read_step_directory(step, directory)
+      self._run_async(
+          self._tiering_client.release_path(str(logical_restore_dir))
+      )
     step_stats.checkpointer_duration_secs = (
         time.time() - step_stats.checkpointer_start_time
     )
@@ -2153,6 +2188,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # If an error is encountered while waiting for commit futures to complete,
       # we will not proceed past this point.
       self._finalize_checkpoint(step)
+      if self._tiering_client is not None and step in self._tiering_uuids:
+        uuid = self._tiering_uuids[step]
+        logging.info('[CTS] Finalizing step %d, UUID: %s', step, uuid)
+        self._run_async(self._tiering_client.finalize(uuid))
+        del self._tiering_uuids[step]
+
       remove_steps_start_time = time.time()
       self._checkpoint_deleter.delete_steps(steps_to_remove)
       jax.monitoring.record_event_duration_secs(
@@ -2178,6 +2219,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
       # This time is tracked for metric purposes only.
       self._last_save_time = time.time()
+
+  def _run_async(self, coro):
+
+    try:
+      loop = asyncio.get_event_loop()
+    except RuntimeError:
+      loop = asyncio.new_event_loop()
+      asyncio.set_event_loop(loop)
+    if loop.is_running():
+      with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        fut = executor.submit(asyncio.run, coro)
+        return fut.result()
+    else:
+      return loop.run_until_complete(coro)
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""
