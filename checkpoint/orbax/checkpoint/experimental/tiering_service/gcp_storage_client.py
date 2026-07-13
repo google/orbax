@@ -18,8 +18,13 @@ import abc
 import asyncio
 import dataclasses
 import datetime
+import email.parser
 import enum
+import os
+import shutil
 from typing import Any, Callable
+import urllib.parse
+
 
 import google.auth
 from google.auth import exceptions as auth_exceptions
@@ -116,6 +121,11 @@ class GCPStorageClient(abc.ABC):
     self._async_client = None
 
   @property
+  def zone(self) -> str | None:
+    """Returns the GCP zone/location of the client."""
+    return self.location
+
+  @property
   def async_client(self) -> httpx.AsyncClient:
     if self._async_client is None:
       self._async_client = httpx.AsyncClient()
@@ -177,6 +187,10 @@ class GCPStorageClient(abc.ABC):
   ) -> Result:
     """Polls operation status and returns a Result object."""
     pass
+
+  async def delete_path(self, path: str) -> None:
+    """Deletes a path from the storage backend."""
+    raise NotImplementedError()
 
 
 def _parse_gcs_path(gcs_path: str) -> tuple[str, str]:
@@ -322,6 +336,153 @@ class GcsToGcsClient(GCPStorageClient):
           detail_info={"error": error_msg},
       )
 
+  async def delete_path(self, path: str) -> None:
+    """Deletes a GCS object or prefix (directory) recursively using GCS JSON Batch API."""
+    bucket, prefix = _parse_gcs_path(path)
+    token, _ = await self._get_token_and_project()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    items = await self._list_objects(bucket, prefix, headers)
+    if not items:
+      return
+
+    await self._delete_objects_batch(bucket, items, token)
+
+  async def _list_objects(
+      self, bucket: str, prefix: str, headers: dict[str, str]
+  ) -> list[dict[str, Any]]:
+    """Lists GCS objects under the given prefix."""
+    list_url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o"
+    params = {"prefix": prefix, "projection": "noAcl"}
+    all_items = []
+    page_token = None
+
+    while True:
+      if page_token:
+        params["pageToken"] = page_token
+      response = await self.async_client.get(
+          list_url, params=params, headers=headers
+      )
+      if response.status_code != 200:
+        raise RuntimeError(
+            f"Failed to list GCS objects for deletion: {response.status_code} -"
+            f" {response.text}"
+        )
+      data = response.json()
+      items = data.get("items", [])
+      normalized_prefix = prefix.rstrip("/")
+      filtered_items = [
+          item
+          for item in items
+          if item["name"] == prefix
+          or item["name"].startswith(normalized_prefix + "/")
+      ]
+      all_items.extend(filtered_items)
+      page_token = data.get("nextPageToken")
+      if not page_token:
+        break
+
+    return all_items
+
+  async def _delete_objects_batch(
+      self, bucket: str, items: list[dict[str, Any]], token: str
+  ) -> None:
+    """Chunks and executes GCS batch delete requests."""
+    chunk_size = 100
+    chunks = [
+        items[i : i + chunk_size] for i in range(0, len(items), chunk_size)
+    ]
+    boundary = "===============CTS_BATCH_DELETE_BOUNDARY===="
+
+    for chunk in chunks:
+      body = self._serialize_batch_request(bucket, chunk, boundary)
+      response_content, content_type = await self._send_batch_request(
+          body, token, boundary
+      )
+      self._deserialize_batch_response(response_content, content_type)
+
+  def _serialize_batch_request(
+      self, bucket: str, chunk: list[dict[str, Any]], boundary: str
+  ) -> bytes:
+    """Serializes a chunk of delete requests into multipart/mixed body bytes."""
+    body_parts = []
+    for item in chunk:
+      name = item["name"]
+      encoded_name = urllib.parse.quote(name, safe="")
+      body_parts.append(
+          f"--{boundary}\r\n"
+          "Content-Type: application/http\r\n"
+          "\r\n"
+          f"DELETE /storage/v1/b/{bucket}/o/{encoded_name} HTTP/1.1\r\n"
+          "\r\n"
+      )
+    body_parts.append(f"--{boundary}--\r\n")
+    return "".join(body_parts).encode("utf-8")
+
+  async def _send_batch_request(
+      self, body: bytes, token: str, boundary: str
+  ) -> tuple[bytes, str]:
+    """Sends the serialized batch POST request to GCS."""
+    batch_url = "https://storage.googleapis.com/batch/storage/v1"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"multipart/mixed; boundary={boundary}",
+    }
+    resp = await self.async_client.post(
+        batch_url, headers=headers, content=body
+    )
+    if resp.status_code != 200:
+      raise RuntimeError(
+          f"GCS Batch request failed: {resp.status_code} - {resp.text}"
+      )
+    return resp.content, resp.headers.get("Content-Type", "")
+
+  def _deserialize_batch_response(
+      self, content: bytes, content_type: str
+  ) -> None:
+    """Parses GCS multipart response and validates nested HTTP status codes."""
+    msg_bytes = (
+        f"Content-Type: {content_type}\r\n\r\n".encode("utf-8") + content
+    )
+    msg = email.parser.BytesParser().parsebytes(msg_bytes)
+    if not msg.is_multipart():
+      raise RuntimeError("GCS batch response is not multipart/mixed")
+
+    payload = msg.get_payload()
+    if not isinstance(payload, list):
+      raise RuntimeError(
+          "Expected GCS batch response payload to be a list of parts"
+      )
+
+    for part in payload:
+      if isinstance(part, str):
+        continue
+      part_payload = part.get_payload(decode=True)
+      if not isinstance(part_payload, bytes):
+        continue
+      part_text = part_payload.decode("utf-8")
+      status_line = part_text.split("\r\n")[0]
+      parts = status_line.split(" ")
+      if len(parts) >= 2:
+        try:
+          status_code = int(parts[1])
+          if status_code not in (200, 204, 404):
+            raise RuntimeError(
+                "Batch object deletion failed with nested status:"
+                f" {status_line}"
+            )
+        except ValueError as exc:
+          raise RuntimeError(
+              f"Failed to parse nested status code from line: {status_line}"
+          ) from exc
+      else:
+        raise RuntimeError(
+            f"Invalid status line in nested response: {status_line}"
+        )
+
 
 class GcpLustreBaseClient(GCPStorageClient):
   """Base client interface to interact with GCP Managed Lustre API via REST."""
@@ -338,10 +499,10 @@ class GcpLustreBaseClient(GCPStorageClient):
 
     super().__init__(
         project=project,
+        location=zone,
         instance=instance,
         service_account=service_account,
     )
-    self.zone = zone
 
   async def poll_operation(
       self,
@@ -398,8 +559,9 @@ class GcsToLustreClient(GcpLustreBaseClient):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+    gcs_uri = source_path if source_path.endswith("/") else source_path + "/"
     payload = {
-        "gcsPath": {"uri": source_path},
+        "gcsPath": {"uri": gcs_uri},
         "lustrePath": {"path": destination_path},
         "requestId": request_id,
     }
@@ -430,9 +592,14 @@ class LustreToGcsClient(GcpLustreBaseClient):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+    gcs_uri = (
+        destination_path
+        if destination_path.endswith("/")
+        else destination_path + "/"
+    )
     payload = {
         "lustrePath": {"path": source_path},
-        "gcsPath": {"uri": destination_path},
+        "gcsPath": {"uri": gcs_uri},
         "requestId": request_id,
     }
     response = await self.async_client.post(url, json=payload, headers=headers)
@@ -614,3 +781,49 @@ def get_client_from_status(
     )
   else:
     raise ValueError(f"Unknown or missing client type: {client_type}")
+
+
+class LustreClient(GCPStorageClient):
+  """Client implementation for Lustre filesystem operations."""
+
+  async def trigger_copy(
+      self,
+      request_id: str,
+      source_path: str,
+      destination_path: str,
+  ) -> str:
+    raise NotImplementedError()
+
+  async def poll_operation(
+      self,
+      operation_name: str,
+  ) -> Result:
+    raise NotImplementedError()
+
+  async def delete_path(self, path: str) -> None:
+    """Deletes a Lustre file or directory tree recursively."""
+
+    def _delete():
+      if os.path.islink(path):
+        os.remove(path)
+      elif os.path.isdir(path):
+        shutil.rmtree(path)
+      elif os.path.exists(path):
+        os.remove(path)
+
+    await asyncio.to_thread(_delete)
+
+
+def determine_delete_client(
+    tier_path: db_schema.TierPath,
+    project: str | None = None,
+    service_account: str | None = None,
+) -> GCPStorageClient:
+  """Determines and returns the GCP Storage client for deleting a TierPath."""
+  backend_type = tier_path.storage_backend.backend_type
+  if backend_type == db_schema.BackendType.BACKEND_TYPE_GCS:
+    return GcsToGcsClient(project=project, service_account=service_account)
+  elif backend_type == db_schema.BackendType.BACKEND_TYPE_LUSTRE:
+    return LustreClient(project=project, service_account=service_account)
+  else:
+    raise ValueError(f"Unsupported backend type for delete: {backend_type}")
