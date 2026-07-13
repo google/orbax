@@ -19,9 +19,11 @@ from collections.abc import AsyncIterator, Sequence
 from concurrent import futures
 import contextlib
 import datetime
+import logging as std_logging
 import os
 import pprint
 import sys
+import uuid
 
 from absl import logging
 import fire
@@ -133,7 +135,10 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
       return tiering_service_pb2.ReserveResponse()
 
     # Calculate resolved path and check GCS permission.
-    storage_path = storage_backend.get_storage_path(backend, request.path)
+    tp_uuid = str(uuid.uuid4())
+    storage_path = storage_backend.get_storage_path(
+        backend, request.path, tp_uuid
+    )
     token = await auth.get_oauth_token(context)
     if not await auth.has_write_permission(
         token, backend=backend, path=storage_path
@@ -151,7 +156,12 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     async with self._session_scope() as session:
       try:
         db_asset = await assets.create_or_fetch_asset(
-            session, request, backend, self._config
+            session,
+            request,
+            backend,
+            self._config,
+            tier_path_uuid=tp_uuid,
+            storage_path=storage_path,
         )
       except ValueError as e:
         logging.exception("Failed to reserve asset for path: %s", request.path)
@@ -324,6 +334,12 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         return tiering_service_pb2.PrefetchResponse()
 
       for tp in db_asset.tier_paths:
+        if tp.state not in (
+            db_schema.TierPathState.PENDING,
+            db_schema.TierPathState.IN_PROGRESS,
+            db_schema.TierPathState.READY,
+        ):
+          continue
         if tp.storage_backend_id == closest_backend.id:
           # TODO: b/503445463 - Extend the expiration of the existing TierPath
           # if needed.
@@ -341,8 +357,9 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
           )
 
       # No existing TierPath, we need to prefetch
+      tp_uuid = str(uuid.uuid4())
       storage_path = storage_backend.get_storage_path(
-          closest_backend, db_asset.path
+          closest_backend, db_asset.path, tp_uuid
       )
 
       token = await auth.get_oauth_token(context)
@@ -361,6 +378,7 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
             db_asset,
             backend=closest_backend,
             storage_path=storage_path,
+            tier_path_uuid=tp_uuid,
             client_keep_alive_interval=datetime.timedelta(
                 seconds=self._config.client_keep_alive_interval_seconds
             ),
@@ -395,6 +413,12 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
 
       closest_tier_path_uuid = ""
       for tp in db_asset.tier_paths:
+        if tp.state not in (
+            db_schema.TierPathState.PENDING,
+            db_schema.TierPathState.IN_PROGRESS,
+            db_schema.TierPathState.READY,
+        ):
+          continue
         if tp.storage_backend_id == closest_backend.id:
           closest_tier_path_uuid = tp.tier_path_uuid
           break
@@ -432,6 +456,11 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
         )
         logging.warning(error_msg)
         await context.abort(grpc.StatusCode.FAILED_PRECONDITION, error_msg)
+        return tiering_service_pb2.PrefetchKeepAliveResponse()
+      except assets.PrefetchFailedError as e:
+        error_msg = f"PrefetchKeepAlive: Prefetch failed for TierPath: {e}"
+        logging.warning(error_msg)
+        await context.abort(grpc.StatusCode.ABORTED, error_msg)
         return tiering_service_pb2.PrefetchKeepAliveResponse()
       except Exception:  # pylint: disable=broad-except
         logging.exception(
@@ -605,6 +634,11 @@ def main(argv: Sequence[str] | None = None) -> None:
   """Main entry point for CTS server."""
   if argv is None:
     argv = sys.argv
+  std_logging.basicConfig(
+      format="%(asctime)s %(levelname)s %(message)s",
+      level=std_logging.INFO,
+      force=True,
+  )
   uvloop.install()
   try:
     asyncio.get_event_loop()

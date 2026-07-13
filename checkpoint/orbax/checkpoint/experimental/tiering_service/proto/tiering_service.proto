@@ -18,6 +18,16 @@ enum AssetState {
   ASSET_STATE_INCOMPLETE = 4;
 }
 
+enum TierPathState {
+  TIER_PATH_STATE_UNSPECIFIED = 0;
+  TIER_PATH_STATE_PENDING = 1;
+  TIER_PATH_STATE_IN_PROGRESS = 2;
+  TIER_PATH_STATE_READY = 3;
+  TIER_PATH_STATE_FAILED = 4;
+  TIER_PATH_STATE_DELETED = 5;
+  TIER_PATH_STATE_DELETE_IN_PROCESS = 6;
+}
+
 enum BackendType {
   BACKEND_TYPE_UNSPECIFIED = 0;
   BACKEND_TYPE_LUSTRE = 1;
@@ -59,6 +69,9 @@ message TierPath {
 
   // A unique identifier for this tier path.
   string tier_path_uuid = 6;
+
+  // The state of the tier path.
+  TierPathState state = 7;
 }
 
 message Asset {

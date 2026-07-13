@@ -131,11 +131,12 @@ class TieringClientTest(unittest.IsolatedAsyncioTestCase):
 
     client_inst = client.TieringClient()
     await client_inst.connect()
-    self.assertEqual(client_inst._stub, self.stub_mock)
+    loop = asyncio.get_running_loop()
+    self.assertEqual(client_inst._stubs[loop], self.stub_mock)
 
     await client_inst.close()
-    self.assertIsNone(client_inst._channel)
-    self.assertIsNone(client_inst._stub)
+    self.assertNotIn(loop, client_inst._channels)
+    self.assertNotIn(loop, client_inst._stubs)
     self.channel_close_mock.assert_called_once()
 
   @mock.patch("grpc.aio.secure_channel")
@@ -393,7 +394,9 @@ class TieringClientTest(unittest.IsolatedAsyncioTestCase):
 
       self.assertEqual(uuid, "asset-1")
       self.assertIn(("asset-1", client.JobType.WRITE), client_inst._keep_alives)
-      manager_task = client_inst._keep_alive_manager_task
+      manager_task = client_inst._keep_alive_manager_tasks.get(
+          asyncio.get_running_loop()
+      )
       assert manager_task is not None
       self.assertFalse(manager_task.done())
 
@@ -581,8 +584,7 @@ class TieringClientTest(unittest.IsolatedAsyncioTestCase):
           asyncio.CancelledError(),
       ]
 
-      await asyncio.sleep(0)
-      await asyncio.sleep(0)
+      await original_sleep(0.1)
 
       self.assertTrue(future.done())
       self.assertEqual(await future, "/lustre/path1")
