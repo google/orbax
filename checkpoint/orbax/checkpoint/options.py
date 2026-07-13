@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration options for APIs like CheckpointManager and Checkpointer."""
+"""Orbax Checkpoint Options."""
+
+from __future__ import annotations
 
 import dataclasses
+import typing
 from typing import Callable, Optional, Set
 
 from orbax.checkpoint._src.multihost import multihost
