@@ -56,7 +56,9 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.close()
 
 
-def get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
+def get_async_engine(
+    config: tiering_service_pb2.ServerConfig, **kwargs
+) -> AsyncEngine:
   """Returns an AsyncEngine configured from ServerConfig."""
   input_url = config.db_connection_str
 
@@ -67,7 +69,7 @@ def get_async_engine(config: tiering_service_pb2.ServerConfig) -> AsyncEngine:
     url = input_url.replace("sqlite://", "sqlite+aiosqlite://", 1)
   else:
     url = input_url
-  return create_async_engine(url)
+  return create_async_engine(url, **kwargs)
 
 
 @contextlib.asynccontextmanager
