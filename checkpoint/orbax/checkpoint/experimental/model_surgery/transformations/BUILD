@@ -6,6 +6,7 @@ py_library(
     name = "renaming",
     srcs = ["renaming.py"],
     visibility = [
+        "//third_party/py/qwix/google/offline_quantization_example:__pkg__",
         "//third_party/py/qwix/integration_tests:__pkg__",
         "//third_party/py/tpu_kernel_testbench:__pkg__",
     ],
@@ -36,6 +37,7 @@ py_library(
     name = "nesting",
     srcs = ["nesting.py"],
     visibility = [
+        "//third_party/py/qwix/google/offline_quantization_example:__pkg__",
         "//third_party/py/qwix/integration_tests:__pkg__",
         "//third_party/py/tpu_kernel_testbench:__pkg__",
     ],
