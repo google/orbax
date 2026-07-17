@@ -44,6 +44,25 @@ class JaxDataProcessorTest(parameterized.TestCase):
     ):
       _ = getattr(processor, property_name)
 
+  @parameterized.named_parameters(
+      dict(testcase_name='tpu', platforms=['tpu']),
+      dict(testcase_name='cpu_and_tpu', platforms=['cpu', 'tpu']),
+      dict(testcase_name='tpu_string', platforms='tpu'),
+  )
+  def test_init_raises_error_with_more_than_cpu_platform(self, platforms):
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'JaxDataProcessor only supports "cpu" for'
+        ' `native_serialization_platforms`, but got:'
+        f' {platforms}.',
+    ):
+      _ = jax_data_processor.JaxDataProcessor(
+          lambda x: x,
+          options=obm_configs.Jax2ObmOptions(
+              native_serialization_platforms=platforms
+          ),
+      )
+
   def test_prepare_fails_with_multiple_calls(self):
     processor = jax_data_processor.JaxDataProcessor(
         lambda x: x, name='identity'
