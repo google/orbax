@@ -41,6 +41,7 @@ def record_read_metadata_event(directory: epath.Path):
 
 def record_write_event(directory: epath.Path):
   """Records a write event for the checkpoint."""
+  logging.info('EventTracking: RecordWriteEvent, %s', directory)
   return None
 
 
