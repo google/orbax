@@ -18,7 +18,7 @@ from typing import List
 from etils import epath
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 
-_OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
+OCDBT_MANIFEST_FILE = 'manifest.ocdbt'
 PYTREE_METADATA_FILE = '_METADATA'
 _CHECKPOINT_FILE = 'checkpoint'  # Old msgpack file.
 
@@ -26,7 +26,7 @@ _CHECKPOINT_FILE = 'checkpoint'  # Old msgpack file.
 def is_ocdbt_checkpoint(path: epath.PathLike) -> bool:
   """Determines whether a checkpoint uses OCDBT format."""
   path = epath.Path(path)
-  return (path / _OCDBT_MANIFEST_FILE).exists()
+  return (path / OCDBT_MANIFEST_FILE).exists()
 
 
 def _has_msgpack_metadata_file(path: epath.Path) -> bool:
