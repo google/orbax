@@ -19,12 +19,12 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-from orbax.experimental.model.core.python import value
 from orbax.export import obm_configs
 from orbax.export.data_processors import jax_data_processor
 
 from absl.testing import absltest
 from .testing.pybase import parameterized
+from .third_party.neptune.neptune_model._src.core import value
 from .third_party.neptune.protos import manifest_pb2
 
 
