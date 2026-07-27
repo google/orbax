@@ -27,17 +27,22 @@ from orbax.export.data_processors import data_processor_base
 from .third_party.neptune.protos import manifest_pb2
 
 
+def _convert_shape(x):
+  return tuple(str(s) if s is None else s for s in x)
+
+
 def _jax_spec_from(spec: Any) -> jax.ShapeDtypeStruct:
   """Converts a ShloTensorSpec to a jax.ShapeDtypeStruct."""
   if isinstance(spec, shlo_function.ShloTensorSpec):
     if spec.dtype == shlo_function.ShloDType.bf16:
-      return jax.ShapeDtypeStruct(spec.shape, jax.numpy.bfloat16)
+      return jax.ShapeDtypeStruct(_convert_shape(spec.shape), jax.numpy.bfloat16)
     return jax.ShapeDtypeStruct(
-        spec.shape, shlo_function.shlo_dtype_to_np_dtype(spec.dtype)
+        _convert_shape(spec.shape),
+        shlo_function.shlo_dtype_to_np_dtype(spec.dtype),
     )
   if hasattr(spec, 'shape') and hasattr(spec, 'dtype'):
     return jax.ShapeDtypeStruct(
-        shape=tuple(spec.shape),
+        shape=_convert_shape(spec.shape),
         dtype=spec.dtype,
     )
   raise ValueError(f'Unsupported spec type: {type(spec)}')
