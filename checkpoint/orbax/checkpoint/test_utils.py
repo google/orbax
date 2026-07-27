@@ -591,20 +591,29 @@ def ocdbt_checkpoint_context(use_ocdbt: bool, ts_context: Any):
       )
 
 
+@contextlib.contextmanager
+def _patch_unique_barrier_key(test_instance):
+  with mock.patch.object(
+      multihost,
+      '_unique_barrier_key',
+      new=lambda key: f'{key}.{test_instance.id()}',
+  ):
+    yield
+
+
 def _get_test_wrapper_function(test_func):
   """Creates a function to wrap a test method with custom patches."""
+  if inspect.iscoroutinefunction(test_func):
 
-  def test_wrapper(self, *args, **kwargs):
+    async def test_wrapper(self, *args, **kwargs):
+      with _patch_unique_barrier_key(self):
+        return await test_func(self, *args, **kwargs)
 
-    def _get_unique_barrier_key(key: str) -> str:
-      return f'{key}.{self.id()}'
+  else:
 
-    with mock.patch.object(
-        multihost,
-        '_unique_barrier_key',
-        new=_get_unique_barrier_key,
-    ):
-      return test_func(self, *args, **kwargs)
+    def test_wrapper(self, *args, **kwargs):
+      with _patch_unique_barrier_key(self):
+        return test_func(self, *args, **kwargs)
 
   return test_wrapper
 
