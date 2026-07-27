@@ -54,3 +54,9 @@ class ApplyFnInfo:
   apply_fn: ApplyFn
   input_keys: Set[str]
   output_keys: Set[str]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class OrbaxShapeDtypeStruct:
+  shape: Any
+  dtype: Any
