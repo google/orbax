@@ -19,6 +19,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import orbax.experimental.model.core as obm
 from orbax.experimental.model.core.python import value
 from orbax.export import obm_configs
 from orbax.export.data_processors import jax_data_processor
@@ -204,11 +205,11 @@ class JaxDataProcessorTest(parameterized.TestCase):
 
     processor = jax_data_processor.JaxDataProcessor(add, name='add')
     processor.prepare(
-        jax.ShapeDtypeStruct((None, 3), jnp.float32),
+        obm.TensorSpec((None, 3), jnp.float32),
     )
 
     self.assertEqual(
-        processor.input_signature, jax.ShapeDtypeStruct((None, 3), jnp.float32)
+        processor.input_signature, obm.TensorSpec((None, 3), jnp.float32)
     )
 
     out_spec = processor.output_signature
@@ -249,7 +250,7 @@ class JaxShapeSpecGeneratorTest(parameterized.TestCase):
       ),
   )
   def test_jax_shape_spec_generator(self, expected, shape=None):
-    spec = jax.ShapeDtypeStruct(shape, jnp.float32)
+    spec = obm.TensorSpec(shape, jnp.float32)
     generator = jax_data_processor._JaxShapeSpecGenerator()
     self.assertEqual(generator(spec), expected)
 
@@ -262,8 +263,8 @@ class JaxShapeSpecGeneratorTest(parameterized.TestCase):
       generator(spec)
 
   def test_jax_shape_spec_generator_multiple_calls(self):
-    spec1 = jax.ShapeDtypeStruct((None, None), jnp.float32)
-    spec2 = jax.ShapeDtypeStruct((None, None, 256), jnp.float32)
+    spec1 = obm.TensorSpec((None, None), jnp.float32)
+    spec2 = obm.TensorSpec((None, None, 256), jnp.float32)
     generator = jax_data_processor._JaxShapeSpecGenerator()
     self.assertEqual(generator(spec1), '(b, d_0)')
     self.assertEqual(generator(spec2), '(b, d_1, 256)')
