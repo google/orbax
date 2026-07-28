@@ -841,7 +841,12 @@ async def on_commit_callback(
       verification using
     set_immutable: Whether to mark all files as immutable. This is only
   """
+  atomicity_start_time = time.time()
   await tmp_dir.finalize(
+  )
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/async/atomicity_duration_secs',
+      time.time() - atomicity_start_time,
   )
   record_saved_duration(checkpoint_start_time)
   logging.info(
