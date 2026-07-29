@@ -746,6 +746,14 @@ class BasePyTreeCheckpointHandler(
             ),
         )
     ]
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/tree_mapping_duration_secs',
+        batch_requests_ready_time - start_time,
+    )
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/async/d2h_duration_secs',
+        total_serialization_initiated_time - batch_requests_ready_time,
+    )
     async_save_end_time = time.time()
     logging.info(
         '[process=%s][thread=%s] Initiated Pytree async_save. Time taken:'
@@ -1202,6 +1210,10 @@ class BasePyTreeCheckpointHandler(
           '/jax/checkpoint/write/async/metadata_write_duration_secs',
           time.time() - metadata_write_start_time,
       )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/metadata_write_duration_secs',
+          time.time() - metadata_write_start_time,
+      )
 
   async def _write_metadata_after_commits(
       self,
@@ -1368,6 +1380,10 @@ class BasePyTreeCheckpointHandler(
       )
       jax.monitoring.record_event_duration_secs(
           '/jax/checkpoint/write/async/ocdbt_merge_duration_secs',
+          time.time() - merge_start_time,
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/ocdbt_merge_duration_secs',
           time.time() - merge_start_time,
       )
 
