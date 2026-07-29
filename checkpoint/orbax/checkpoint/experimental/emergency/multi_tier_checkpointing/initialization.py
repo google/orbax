@@ -383,14 +383,27 @@ def initialize_multi_tier_checkpointing(
         'Run name is not set and JOBSET_NAME is not set in the environment.'
     )
 
-  if use_colocated_python:
-    num_slices = num_slices or multislice.slice_count()
-    data_parallelism = data_parallelism or num_slices
-    logging.info(
-        'Initializing multi-tier checkpointing via Colocated Python: '
-        f'run_name={run_name}, num_slices={num_slices}, '
-        f'data_parallelism={data_parallelism}.'
+  def _resolve_parallelism_args():
+    nonlocal num_slices, data_parallelism
+    num_slices = (
+        multislice.slice_count()
+        if num_slices is None or num_slices <= 0
+        else num_slices
     )
+    data_parallelism = (
+        num_slices
+        if data_parallelism is None or data_parallelism <= 0
+        else data_parallelism
+    )
+
+    logging.info(
+        'Initializing multi-tier checkpointing: '
+        f'{run_name=}, {num_slices=}, '
+        f'{data_parallelism=}, {use_colocated_python=}.'
+    )
+
+  if use_colocated_python:
+    _resolve_parallelism_args()
     _initialize_mtc_colocated(
         local_checkpoint_directory=local_checkpoint_directory,
         backup_interval_minutes=backup_interval_minutes,
@@ -418,13 +431,8 @@ def initialize_multi_tier_checkpointing(
         initialization_timeout=jax_initialization_timeout_seconds,
     )
 
-  num_slices = num_slices or multislice.slice_count()
-  data_parallelism = data_parallelism or num_slices
-  logging.info(
-      'Initializing multi-tier checkpointing: '
-      f'run_name={run_name}, num_slices={num_slices}, '
-      f'data_parallelism={data_parallelism}.'
-  )
+  # must be called after jax.distributed.initialize
+  _resolve_parallelism_args()
 
   multihost.initialize_runtime_to_distributed_ids()
   multihost.initialize_distributed_to_device_ids()

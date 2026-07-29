@@ -478,6 +478,115 @@ class MultiTierCheckpointingInitializationTest(
           devices=(mock.Mock(spec=jax.Device),),
       )
 
+  @mock.patch.object(initialization.multislice, "slice_count", autospec=True)
+  @mock.patch.object(initialization, "_initialize_mtc_colocated", autospec=True)
+  def test_initialize_multi_tier_checkpointing_infers_defaults_when_none(
+      self,
+      mock_init_mtc_colocated,
+      mock_slice_count,
+  ):
+    tmp_dir_path = epath.Path(self.create_tempdir().full_path)
+    mock_slice_count.return_value = 8
+
+    initialization.initialize_multi_tier_checkpointing(
+        tmp_dir_path,
+        run_name="test-colocated-run",
+        num_slices=None,
+        data_parallelism=None,
+        use_colocated_python=True,
+    )
+
+    mock_init_mtc_colocated.assert_called_once_with(
+        local_checkpoint_directory=tmp_dir_path,
+        backup_interval_minutes=30,
+        num_slices=8,
+        run_name="test-colocated-run",
+        data_parallelism=8,
+        timeout_seconds=900,
+        devices=None,
+    )
+
+  @mock.patch.object(initialization.multislice, "slice_count", autospec=True)
+  @mock.patch.object(initialization, "_initialize_mtc_colocated", autospec=True)
+  def test_initialize_multi_tier_checkpointing_infers_defaults_when_zero_or_negative(
+      self,
+      mock_init_mtc_colocated,
+      mock_slice_count,
+  ):
+    tmp_dir_path = epath.Path(self.create_tempdir().full_path)
+    mock_slice_count.return_value = 8
+
+    initialization.initialize_multi_tier_checkpointing(
+        tmp_dir_path,
+        run_name="test-colocated-run",
+        num_slices=0,
+        data_parallelism=-1,
+        use_colocated_python=True,
+    )
+
+    mock_init_mtc_colocated.assert_called_once_with(
+        local_checkpoint_directory=tmp_dir_path,
+        backup_interval_minutes=30,
+        num_slices=8,
+        run_name="test-colocated-run",
+        data_parallelism=8,
+        timeout_seconds=900,
+        devices=None,
+    )
+
+  @mock.patch.object(initialization.multislice, "slice_count", autospec=True)
+  @mock.patch.object(initialization, "_initialize_mtc_colocated", autospec=True)
+  def test_initialize_multi_tier_checkpointing_infers_data_parallelism_from_num_slices(
+      self,
+      mock_init_mtc_colocated,
+      mock_slice_count,
+  ):
+    tmp_dir_path = epath.Path(self.create_tempdir().full_path)
+    mock_slice_count.return_value = 8
+
+    initialization.initialize_multi_tier_checkpointing(
+        tmp_dir_path,
+        run_name="test-colocated-run",
+        num_slices=2,
+        data_parallelism=None,
+        use_colocated_python=True,
+    )
+
+    mock_init_mtc_colocated.assert_called_once_with(
+        local_checkpoint_directory=tmp_dir_path,
+        backup_interval_minutes=30,
+        num_slices=2,
+        run_name="test-colocated-run",
+        data_parallelism=2,
+        timeout_seconds=900,
+        devices=None,
+    )
+
+  @mock.patch.object(initialization.multislice, "slice_count", autospec=True)
+  @mock.patch.object(initialization, "_initialize_jax_from_mtc", autospec=True)
+  @mock.patch.object(
+      multihost, "initialize_runtime_to_distributed_ids", autospec=True
+  )
+  def test_initialize_multi_tier_checkpointing_infers_defaults_when_none_in_standard_path(
+      self,
+      mock_initialize_runtime_to_distributed_ids,
+      unused_mock_initialize_jax_from_mtc,
+      mock_slice_count,
+  ):
+    mock_slice_count.return_value = 8
+    mock_initialize_runtime_to_distributed_ids.side_effect = (
+        RuntimeError("stop test early")
+    )
+
+    with self.assertRaisesRegex(RuntimeError, "stop test early"):
+      initialization.initialize_multi_tier_checkpointing(
+          epath.Path(self.create_tempdir().full_path),
+          num_slices=None,
+          use_mtc_process_ids=True,
+          run_name="test-run",
+      )
+    mock_slice_count.assert_called_once()
+
   @mock.patch.object(initialization.jax, "make_array_from_callback")
   @mock.patch.object(initialization.jax, "block_until_ready")
   @mock.patch.object(initialization.time, "time")
