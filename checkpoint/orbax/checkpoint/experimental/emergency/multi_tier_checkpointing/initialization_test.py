@@ -53,6 +53,40 @@ class MultiTierCheckpointingInitializationTest(
           epath.Path(tmp_dir), timeout_seconds=1
       )
 
+  def test_wait_for_replicator_file_to_disappear_fails_on_replicator_failed_file(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    failed_file = root / initialization._REPLICATOR_FAILED_FILE
+    failed_file.write_text("replicator failed before disappearing")
+
+    with self.assertRaisesRegex(
+        RuntimeError,
+        "Replicator fatal errors: replicator failed before disappearing",
+    ):
+      initialization._wait_for_replicator_file_to_disappear(
+          root, timeout_seconds=5
+      )
+    self.assertFalse(failed_file.exists())
+
+  def test_wait_for_replicator_file_to_disappear_ignores_errors_if_check_for_errors_is_false(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    failed_file = root / initialization._REPLICATOR_FAILED_FILE
+    failed_file.write_text("replicator failed before disappearing")
+
+    # Should not raise exception
+    initialization._wait_for_replicator_file_to_disappear(
+        root, timeout_seconds=5, check_for_errors=False
+    )
+    # The file is not processed so it should still exist
+    self.assertTrue(failed_file.exists())
+
   def test_create_replicator_file(self):
     tmp_dir = self.create_tempdir().full_path
     epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
@@ -156,6 +190,52 @@ class MultiTierCheckpointingInitializationTest(
       initialization._block_and_process_restore_dir(
           epath.Path(tmp_dir), timeout_seconds=1
       )
+
+  def test_block_and_process_restore_dir_fails_on_replicator_failed_file(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    failed_file = root / initialization._REPLICATOR_FAILED_FILE
+    failed_file.write_text("replicator daemon failed to start")
+
+    with self.assertRaisesRegex(
+        RuntimeError,
+        "Replicator fatal errors: replicator daemon failed to start",
+    ):
+      initialization._block_and_process_restore_dir(root, timeout_seconds=1)
+    self.assertFalse(failed_file.exists())
+
+  def test_check_for_replicator_errors_processes_non_fatal_errors_file(self):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    errors_file = root / initialization._REPLICATOR_ERRORS_FILE
+    errors_file.write_text("transient replicator error warning")
+
+    initialization._check_for_replicator_errors(root)
+    self.assertFalse(errors_file.exists())
+
+  @mock.patch.object(initialization.epath, "Path")
+  def test_read_replicator_error_file_handles_oserror(self, mock_path_cls):
+    mock_path_obj = mock_path_cls.return_value
+    mock_path_obj.read_text.side_effect = OSError("read error")
+
+    result = initialization._read_replicator_error_file(
+        epath.Path("dummy_path")
+    )
+    self.assertIsNone(result)
+    mock_path_obj.read_text.assert_called_once()
+
+  @mock.patch.object(initialization.epath, "Path")
+  def test_cleanup_replicator_error_file_handles_oserror(self, mock_path_cls):
+    mock_path_obj = mock_path_cls.return_value
+    mock_path_obj.unlink.side_effect = OSError("unlink error")
+
+    # Should not raise exception
+    initialization._cleanup_replicator_error_file(epath.Path("dummy_path"))
+    mock_path_obj.unlink.assert_called_once()
 
   def test_block_and_process_restore_dir_accepts_no_checkpoint_marker(self):
     tmp_dir = self.create_tempdir().full_path

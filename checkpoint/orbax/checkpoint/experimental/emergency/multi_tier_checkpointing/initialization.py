@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Initialization for multi-tier checkpointing."""
+
 # pylint: disable=logging-fstring-interpolation
 import logging as python_logging
 import os
@@ -43,6 +44,8 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.time_block
 
 
 _REPLICATOR_FILE = 'replicator.yaml'
+_REPLICATOR_ERRORS_FILE = 'replicator.errors'
+_REPLICATOR_FAILED_FILE = 'replicator.failed'
 _TEMP_REPLICATOR_FILE_NAME = _REPLICATOR_FILE + '.tmp'
 _JAX_INIT_INFO_FILE = 'jax-init-info.txt'
 _RESTORE_DIR_RE = re.compile(r'^.+-s(?P<step>\d+)-n\d+-w\d+\.restore$')
@@ -52,7 +55,10 @@ _VLOG2_LEVEL = python_logging.DEBUG - 1
 
 
 def _wait_for_replicator_file_to_disappear(
-    local_checkpoint_directory: epath.Path, *, timeout_seconds: int = 300
+    local_checkpoint_directory: epath.Path,
+    *,
+    timeout_seconds: int = 300,
+    check_for_errors: bool = True,
 ):
   """Waits for the MTC daemonset to consume `replicator.yaml`."""
   replicator_file = epath.Path(local_checkpoint_directory) / _REPLICATOR_FILE
@@ -63,12 +69,72 @@ def _wait_for_replicator_file_to_disappear(
   ):
     for _ in range(timeout_seconds):
       if not replicator_file.exists():
+        # only AFTER replicator.yaml disappears we can be sure that
+        # errors are coming from current invocation of Replicator
+        if check_for_errors:
+          _check_for_replicator_errors(local_checkpoint_directory)
         return
       time.sleep(1)
     raise TimeoutError(
         f'Timeout reached ({timeout_seconds} seconds) while waiting for'
         f' {_REPLICATOR_FILE} to disappear.'
     )
+
+
+def _read_replicator_error_file(error_file: epath.Path) -> Optional[str]:
+  """Read replicator errors file."""
+  try:
+    error_data = epath.Path(error_file).read_text()
+    logging.info(f'Contents of replicator error file:\n{error_data}')
+    return error_data
+  except (OSError, ValueError) as e:
+    logging.info(
+        'check_for_replicator_errors: Failed to read contents of failed'
+        f' file: {e}'
+    )
+    return None
+
+
+def _cleanup_replicator_error_file(error_file: epath.Path) -> None:
+  """Clean up replicator errors file."""
+  try:
+    epath.Path(error_file).unlink()
+  except (OSError, ValueError) as e:
+    logging.info(
+        'check_for_replicator_errors: Failed to remove replicator errors'
+        f' file: {e}'
+    )
+
+
+def _process_replicator_error_file(error_file: epath.Path) -> Optional[str]:
+  """Handles replicator errors by reading, logging, cleaning the error file."""
+  error_text = None
+  if epath.Path(error_file).exists():
+    logging.info(f'check_for_replicator_errors: file found: {error_file}.')
+    error_text = _read_replicator_error_file(error_file)
+    _cleanup_replicator_error_file(error_file)
+
+  return error_text
+
+
+def _check_for_replicator_errors(
+    local_checkpoint_directory: epath.Path,
+) -> None:
+  """Check for errors in replicator service."""
+  local_dir = epath.Path(local_checkpoint_directory)
+
+  replicator_errors_file = local_dir / _REPLICATOR_ERRORS_FILE
+  errors = _process_replicator_error_file(replicator_errors_file)
+  if errors:
+    logging.error(f'Replicator errors: {errors}')
+    # continue, regular errors may be recoverable
+
+  replicator_failed_file = local_dir / _REPLICATOR_FAILED_FILE
+  fatal = _process_replicator_error_file(replicator_failed_file)
+  if fatal:
+    msg = f'Replicator fatal errors: {fatal}'
+    logging.log(python_logging.CRITICAL, msg)
+    raise RuntimeError(msg)
 
 
 def _validate_replicator_ranks(
@@ -436,9 +502,14 @@ def initialize_multi_tier_checkpointing(
 
   multihost.initialize_runtime_to_distributed_ids()
   multihost.initialize_distributed_to_device_ids()
+
+  # We haven't initialized Replicator yet, but it's possible that
+  # previous initialization of Replicator (not by us) is still pending,
+  # wait for it to finish and ignore errors
   _wait_for_replicator_file_to_disappear(
       local_checkpoint_directory,
       timeout_seconds=jax_initialization_timeout_seconds,
+      check_for_errors=False,
   )
   num_nodes = jax.process_count()
   if num_nodes % num_slices != 0:
@@ -599,6 +670,9 @@ def _block_and_process_restore_dir(
             'Waiting for MTC restore marker in %s.',
             local_checkpoint_directory,
         )
+
+      _check_for_replicator_errors(local_checkpoint_directory)
+
       restore_markers = []
       no_checkpoint_markers = []
       for marker_path in marker_paths:
