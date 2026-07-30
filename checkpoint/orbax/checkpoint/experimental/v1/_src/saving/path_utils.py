@@ -41,9 +41,7 @@ def get_temporary_path(
   Returns:
     A TemporaryPath for the given path.
   """
-  temporary_path_cls = atomicity_defaults.get_default_temporary_path_class(
-      path
-  )
+  temporary_path_cls = atomicity_defaults.get_default_temporary_path_class(path)
   tmpdir = temporary_path_cls.from_final(
       path,
       # Ensure metadata store is NOT passed, to prevent separate metadata
