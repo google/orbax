@@ -17,13 +17,16 @@
 import asyncio
 import re
 import threading
+import time
 from typing import Optional, Union
 
 from absl import logging
 from etils import epath
+from jax import monitoring as jax_monitoring
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
+
 
 # Optional separator `(?:^|/)` so a bare top-level leaf (empty param name '')
 # parses correctly: its keys are prefix-less (`.zarray`, `0`, …) rather
@@ -161,6 +164,7 @@ async def merge_ocdbt_per_process_files(
     enable_validation: If True, validate params after merging. May have a
       performance impact.
   """
+  start_time = time.time()
   open_ops = []
   for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
     child_kvstore_tspec = ts_utils.build_kvstore_tspec_for_merge(
@@ -199,6 +203,18 @@ async def merge_ocdbt_per_process_files(
   if enable_validation:
     await _validate_params(parent.with_transaction(txn), use_zarr3=use_zarr3)
   await txn.commit_async()
+
+  duration_secs = time.time() - start_time
+  logging.info(
+      'Merged %d TensorStore OCDBT files under directory %s in %.2fs.',
+      len(children),
+      directory,
+      duration_secs,
+  )
+  jax_monitoring.record_event_duration_secs(
+      '/jax/orbax/write/merge_ocdbt_per_process_files_secs',
+      duration_secs,
+  )
 
 
 def get_process_index_for_subdir(
