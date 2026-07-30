@@ -1,0 +1,41 @@
+# Example manifest showcasing how to attach a Parallelstore (Lustre) CSI volume
+# (PersistentVolume and PersistentVolumeClaim) to a GKE cluster.
+#
+# Note: This is an example configuration for demonstration and testing purposes.
+# For full details on configuring Parallelstore / Lustre CSI driver on GKE, see:
+# https://docs.cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/lustre-csi-driver-new-volume
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: lustre-pv
+spec:
+  storageClassName: ""
+  capacity:
+    storage: 9000Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  volumeMode: Filesystem
+  claimRef:
+    namespace: default
+    name: lustre-pvc
+  csi:
+    driver: lustre.csi.storage.gke.io
+    volumeHandle: "orbax-checkpoint/us-east1-b/lustre-us-east1-b"
+    volumeAttributes:
+      ip: 10.93.178.3
+      filesystem: lstrue1b
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: lustre-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: lustre-pv
+  resources:
+    requests:
+      storage: 9000Gi

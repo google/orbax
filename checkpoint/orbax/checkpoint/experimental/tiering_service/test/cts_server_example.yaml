@@ -1,0 +1,13 @@
+db_connection_str: "sqlite+aiosqlite:///app/cts.db"
+gcp_project: "orbax-checkpoint"
+client_keep_alive_interval: "30s"
+max_active_jobs_per_backend: 5
+storage_backends:
+  - level: 0
+    backend_type: "LUSTRE"
+    prefix: "/lustre"
+    zone: "us-east1-b"
+  - level: 1
+    backend_type: "GCS"
+    prefix: "gs://orbax-benchmarks-us-east5/dnlng/tiering_service/e2e_test/"
+    zone: "us-east1-b"

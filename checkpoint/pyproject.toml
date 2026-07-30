@@ -78,7 +78,8 @@ testing = [
 ]
 tiering_service = [
     'aiosqlite',
-    'fire',
+    'fire>=0.7.1',
+    'google-crc32c',
     'greenlet',
     'grpcio-tools>=1.80.0',
     'httpx',

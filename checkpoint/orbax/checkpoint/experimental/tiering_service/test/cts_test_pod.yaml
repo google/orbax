@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cts-test-pod
+  labels:
+    app: cts-test
+spec:
+  containers:
+  - name: python-container
+    image: python:3.13
+    command: ["sleep", "86400"]
+    volumeMounts:
+    - name: lustre-volume
+      mountPath: /lustre
+  volumes:
+  - name: lustre-volume
+    emptyDir: {}
+  restartPolicy: Never
