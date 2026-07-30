@@ -27,8 +27,6 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.metadata import checkpoint as checkpoint_metadata
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
-
-
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
 COMMIT_SUCCESS_FILE = 'commit_success.txt'
 

@@ -63,8 +63,6 @@ from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path import utils as path_utils
 from typing_extensions import Self  # for Python version < 3.11
 
-
-
 PyTree = Any
 CheckpointDirs = Tuple[str, str]
 SaveParams = Mapping[str, Any]

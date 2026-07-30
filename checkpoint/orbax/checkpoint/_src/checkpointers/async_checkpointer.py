@@ -14,7 +14,6 @@
 
 """AsyncCheckpointer."""
 
-import dataclasses
 import datetime
 import sys
 import threading
@@ -38,8 +37,6 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
-
-
 
 BarrierSyncFn = multihost.BarrierSyncFn
 _DIRECTORY_CREATION_SIGNALS = [

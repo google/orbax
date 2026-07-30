@@ -58,8 +58,7 @@ class AtomicRenameTemporaryPathTest(
     tmp_path = AtomicRenameTemporaryPath.from_final(path)
     await tmp_path.create()
     if multihost.process_index() == 0:
-      await tmp_path.finalize(
-      )
+      await tmp_path.finalize()
     test_utils.sync_global_processes('test_finalize')
     self.assertFalse(tmp_path.get().exists())
     self.assertTrue(path.exists())
@@ -97,8 +96,7 @@ class AtomicRenameTemporaryPathTest(
     self.assertEqual((tmp_path.get() / 'foo').read_text(), 'new bar')
 
     if multihost.process_index() == 0:
-      await tmp_path.finalize(
-      )
+      await tmp_path.finalize()
     test_utils.sync_global_processes('test_finalize_with_snapshot')
     self.assertFalse(tmp_path.get().exists())
     self.assertTrue(path.exists())
@@ -131,8 +129,7 @@ class CommitFileTemporaryPathTest(
     tmp_path = CommitFileTemporaryPath.from_final(path)
     await tmp_path.create()
     if multihost.process_index() == 0:
-      await tmp_path.finalize(
-      )
+      await tmp_path.finalize()
     test_utils.sync_global_processes('test_finalize')
     self.assertTrue(tmp_path.get().exists())
     self.assertTrue(path.exists())
@@ -208,8 +205,7 @@ class ReadOnlyTemporaryPathTest(
         final_path=epath.Path('/path/to/ckpt'),
     )
     with self.assertRaises(NotImplementedError):
-      await path.finalize(
-      )
+      await path.finalize()
 
 
 class DeferredPathTest(absltest.TestCase):

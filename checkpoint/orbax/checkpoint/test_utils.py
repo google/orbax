@@ -56,7 +56,6 @@ from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
 
-
 PyTree = Any
 
 
@@ -661,8 +660,7 @@ def ensure_atomic_save(
             temp_ckpt_dir,
             final_ckpt_dir,
             checkpoint_metadata_store=metadata_store,
-        ).finalize(
-        )
+        ).finalize()
     )
   else:
     asyncio_utils.run_sync(
@@ -670,8 +668,7 @@ def ensure_atomic_save(
             temp_ckpt_dir,
             final_ckpt_dir,
             checkpoint_metadata_store=metadata_store,
-        ).finalize(
-        )
+        ).finalize()
     )
 
 

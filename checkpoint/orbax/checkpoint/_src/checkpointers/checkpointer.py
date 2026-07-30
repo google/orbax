@@ -14,7 +14,6 @@
 
 """Synchronous Checkpointer implementation."""
 
-import dataclasses
 import time
 from typing import Any, Iterable, Optional, Type
 
