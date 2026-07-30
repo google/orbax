@@ -81,7 +81,7 @@ jobs:
     # This is needed for copybara integration.
     - name: Create Issue on Continuous Failure
       if: failure()
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
       with:
         script: |
           const runs = await github.rest.actions.listWorkflowRuns({
@@ -193,7 +193,7 @@ jobs:
         python orbax/checkpoint/_src/testing/oss/run_multihost.py --num_processes=1 --tpu_chips_per_process=8 orbax/checkpoint/_src/testing/oss/run_tests.py --filename=orbax/checkpoint/_src/testing/oss/tagged_tests_whole_suite.yaml --processes=1
     - name: Create Issue on Continuous Failure
       if: failure()
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7
       with:
         script: |
           const runs = await github.rest.actions.listWorkflowRuns({
