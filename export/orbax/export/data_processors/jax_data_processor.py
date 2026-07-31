@@ -22,6 +22,7 @@ import jax
 import jaxtyping
 from orbax.export import constants
 from orbax.export import obm_configs
+from orbax.export import utils
 from orbax.export.data_processors import data_processor_base
 
 from .third_party.neptune.protos import manifest_pb2
@@ -114,7 +115,9 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
       input_keys: Set[str] = frozenset(),
       output_keys: Set[str] = frozenset(),
       params: Any = None,
-      options: obm_configs.Jax2ObmOptions | None = None,
+      options: obm_configs.Jax2ObmOptions = obm_configs.Jax2ObmOptions(
+          native_serialization_platforms=['cpu']
+      ),
   ):
     """Initializes the instance.
 
@@ -129,7 +132,16 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
     super().__init__(name=name, input_keys=input_keys, output_keys=output_keys)
     self._processor_callable = processor_callable
     self._params = params
-    self._options = obm_configs.Jax2ObmOptions() if options is None else options
+    platforms = utils.get_lowering_platforms(
+        options.native_serialization_platforms
+    )
+    if platforms and set(platforms) - {'cpu'}:
+      raise ValueError(
+          'JaxDataProcessor only supports "cpu" for'
+          ' `native_serialization_platforms`, but got:'
+          f' {options.native_serialization_platforms}.'
+      )
+    self._options = options
     self._is_prepared = False
 
   def prepare(
