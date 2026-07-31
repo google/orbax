@@ -119,11 +119,16 @@ def log_io_metrics(
   bytes_per_sec = (
       float('nan') if time_elapsed == 0 else float(size) / time_elapsed
   )
+  bytes_per_sec_str = (
+      'NaN'
+      if math.isnan(bytes_per_sec)
+      else humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f')
+  )
   logging.info(
       '[process=%d] %s: %s/s (total size: %s) (time elapsed: %s s) (global)',
       multihost.process_index(),
       gbytes_per_sec_metric,
-      humanize.naturalsize(bytes_per_sec, binary=True, format='%.3f'),
+      bytes_per_sec_str,
       humanize.naturalsize(size, binary=True),
       time_elapsed,
   )

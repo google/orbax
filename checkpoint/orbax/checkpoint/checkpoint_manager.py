@@ -1433,7 +1433,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/checkpoint_manager/time_between_consecutive_saves_secs',
           step_stats.time_between_consecutive_saves_sec,
-          continuous_checkpointing_enabled=self._is_continuous_checkpointing_enabled(),
+          continuous_checkpointing_enabled=int(
+              self._is_continuous_checkpointing_enabled()
+          ),
       )
     self.wait_until_finished()
     step_stats.wait_for_prev_duration_secs = self._wait_for_prev_save_duration
