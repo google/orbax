@@ -141,7 +141,7 @@ class Snapshotter:
     def is_replica_active(arr):
       try:
         data = _unwrap_if_prng_key(arr)
-        jax.block_until_ready(data)
+        data[...].block_until_ready()
         return True
       except jax.errors.JaxRuntimeError as _:
         return False
@@ -211,6 +211,10 @@ class Snapshotter:
         self._latest_snapshot = (host_target_state, step)
 
     return restored_state
+
+  def join(self) -> None:
+    """Blocks until all queued snapshot requests have been processed."""
+    self._queue.join()
 
   @property
   def latest(self) -> training.CheckpointMetadata[None] | None:
