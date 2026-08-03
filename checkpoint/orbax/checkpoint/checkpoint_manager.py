@@ -1390,6 +1390,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     step_stats.step = step
     step_stats.checkpoint_manager_blocking_start_time = time.time()
     step_stats.directory = str(self.directory)
+    validation_start_time = time.time()
 
     if items is None and args is None:
       raise ValueError('Must provide `args` for `save`.')
@@ -1507,6 +1508,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     logging.info(
         '[process=%s] Saving checkpoint at step %d', process_index, step
     )
+    validation_duration = time.time() - validation_start_time
+    if is_async_checkpointer(self._checkpointer):
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/validation_duration_secs',
+          validation_duration,
+      )
+    else:
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/validation_duration_secs',
+          validation_duration,
+      )
     step_stats.checkpointer_blocking_start_time = time.time()
     self._checkpointer.save(
         save_directory, args=args, custom_metadata=custom_metadata, force=True
@@ -2066,6 +2078,16 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             '/jax/checkpoint/write/wait_for_prev_duration_secs',
             duration,
         )
+        if self._finalize_thread.get() is not None:
+          jax.monitoring.record_event_duration_secs(
+              '/jax/orbax/write/async/wait_for_prev_duration_secs',
+              duration,
+          )
+        else:
+          jax.monitoring.record_event_duration_secs(
+              '/jax/orbax/write/wait_for_prev_duration_secs',
+              duration,
+          )
         self._wait_for_prev_save_duration += duration
 
   def is_saving_in_progress(self) -> bool:

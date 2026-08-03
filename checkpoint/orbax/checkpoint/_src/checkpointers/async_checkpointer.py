@@ -102,6 +102,10 @@ def _background_wait_for_commit_futures(
       '/jax/checkpoint/write/async/commit_duration_sec',
       commit_duration_secs,
   )
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/async/tensorstore_duration_secs',
+      commit_duration_secs,
+  )
 
   if process_count > 1:
     # All processes will wait at the barrier. When all processes are at the
@@ -392,6 +396,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
 
     def _callback() -> None:
+      finalize_start_time = time.time()
       if utils.is_primary_host(self._primary_host):
         # Update StepMetadata after the handler save is complete.
         # (blocking write)
@@ -429,6 +434,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       _on_commit_callback(
           tmpdir,
           checkpoint_start_time,
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/finalize_duration_secs',
+          time.time() - finalize_start_time,
       )
       operation_recorder = event_tracking.OperationRecorder(
           tmpdir.get_final(),

@@ -1042,8 +1042,13 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       if tmp_dir is None or handler is None:
         # Not an error, as some items may not have been saved.
         continue
+      item_finalize_start_time = time.time()
       handler.finalize(tmp_dir.get())
       asyncio_utils.run_sync(tmp_dir.finalize())
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/async/item_finalize_duration_secs',
+          time.time() - item_finalize_start_time,
+      )
 
       # Remove the temporary path once it has been finalized.
       self._current_temporary_paths.pop(item_name)

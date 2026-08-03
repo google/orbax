@@ -273,6 +273,7 @@ class Checkpointer(
 
     # Ensure save operation atomicity and record time saved by checkpoint.
     if multihost.is_primary_host(self._primary_host):
+      finalize_start_time = time.time()
       # finalize does a final StepMetadata update.
       self._handler.finalize(tmpdir.get())
       asyncio_utils.run_sync(
@@ -280,6 +281,10 @@ class Checkpointer(
               tmpdir,
               checkpoint_start_time=checkpoint_start_time,
           )
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/finalize_duration_secs',
+          time.time() - finalize_start_time,
       )
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
