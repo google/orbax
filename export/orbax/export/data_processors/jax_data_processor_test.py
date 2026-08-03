@@ -269,7 +269,7 @@ class JaxShapeSpecGeneratorTest(parameterized.TestCase):
       ),
   )
   def test_jax_shape_spec_generator(self, expected, shape=None):
-    spec = obm.TensorSpec(shape, jnp.float32)
+    spec = obm.TensorSpec(shape, jnp.float32)  # pyrefly: ignore[bad-argument-type]
     generator = jax_data_processor._JaxShapeSpecGenerator()
     self.assertEqual(generator(spec), expected)
 

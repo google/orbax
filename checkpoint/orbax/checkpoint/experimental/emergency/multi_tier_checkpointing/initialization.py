@@ -473,9 +473,9 @@ def initialize_multi_tier_checkpointing(
     _initialize_mtc_colocated(
         local_checkpoint_directory=local_checkpoint_directory,
         backup_interval_minutes=backup_interval_minutes,
-        num_slices=num_slices,
+        num_slices=num_slices,  # pyrefly: ignore[bad-argument-type]
         run_name=run_name,
-        data_parallelism=data_parallelism,
+        data_parallelism=data_parallelism,  # pyrefly: ignore[bad-argument-type]
         timeout_seconds=jax_initialization_timeout_seconds,
         devices=devices,
     )
@@ -550,7 +550,7 @@ def initialize_multi_tier_checkpointing(
 
   my_in_pipeline_index = my_process_index % nodes_per_slice
   peer_ranks = []
-  for i in range(num_slices):
+  for i in range(num_slices):  # pyrefly: ignore[bad-argument-type]
     peer_process_index = i * nodes_per_slice + my_in_pipeline_index
     if peer_process_index != my_process_index:
       peer_process_rank = node_rank_by_process_index[peer_process_index]
@@ -561,7 +561,7 @@ def initialize_multi_tier_checkpointing(
       local_checkpoint_directory,
       run_name=run_name,
       num_nodes=num_nodes,
-      data_parallelism=data_parallelism,
+      data_parallelism=data_parallelism,  # pyrefly: ignore[bad-argument-type]
       node_rank=node_rank,
       peer_ranks=peer_ranks,
       backup_interval_minutes=backup_interval_minutes,

@@ -41,7 +41,7 @@ async def get_oauth_token(context: grpc.aio.ServicerContext) -> str | None:
   """
   logging.debug("Extracting OAuth token from metadata")
   raw_metadata = context.invocation_metadata()
-  metadata = dict(raw_metadata)
+  metadata = dict(raw_metadata)  # pyrefly: ignore[no-matching-overload]
   # Standard header for OAuth tokens in gRPC is 'authorization'.
   auth_header = metadata.get("authorization")
 

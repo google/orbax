@@ -554,7 +554,7 @@ async def trigger_l0_to_l1_copy(
         status=db_schema.JobStatus.JOB_STATUS_QUEUED,
         target_tier_path=new_l1_tp,
     )
-    session.add(db_job)
+    session.add(db_job)  # pyrefly: ignore[missing-attribute]
     logging.info(
         "Finalize: Queued copy job to Level 1 for asset %s, target path: %s",
         db_asset.asset_uuid,

@@ -142,7 +142,7 @@ class TieringClient:
         await asyncio.to_thread(loop_started.wait)
 
         fut = asyncio.run_coroutine_threadsafe(
-            self._async_connect(), self._loop
+            self._async_connect(), self._loop  # pyrefly: ignore[bad-argument-type]
         )
         await asyncio.wrap_future(fut)
         self._connected_event.set()
