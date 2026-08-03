@@ -41,7 +41,7 @@ def _is_prng_key(x: Any) -> bool:
   )
 
 
-def _unpack_if_prng_key(x: Any) -> Any:
+def _unwrap_if_prng_key(x: Any) -> Any:
   """Extracts the underlying key data buffer if x is a PRNGKeyArray."""
   return jax.random.key_data(x) if _is_prng_key(x) else x
 
@@ -70,8 +70,8 @@ class Snapshotter:
     while True:
       pinned_state, step = self._queue.get()
       try:
-        unpacked_state = jax.tree.map(_unpack_if_prng_key, pinned_state)
-        jax.block_until_ready(unpacked_state)
+        unwrapped_state = jax.tree.map(_unwrap_if_prng_key, pinned_state)
+        jax.block_until_ready(unwrapped_state)
       except (jax.errors.JaxRuntimeError, RuntimeError) as e:
         logging.exception("Failed to snapshot state at step %d: %s", step, e)
       else:
@@ -101,7 +101,7 @@ class Snapshotter:
     def _pin_leaf(x):
       if not is_shardable_array(x):
         return x
-      data = _unpack_if_prng_key(x)
+      data = _unwrap_if_prng_key(x)
       pinned = jax.device_put(
           data, data.sharding.with_memory_kind("pinned_host")
       )
@@ -140,7 +140,7 @@ class Snapshotter:
 
     def is_replica_active(arr):
       try:
-        data = _unpack_if_prng_key(arr)
+        data = _unwrap_if_prng_key(arr)
         jax.block_until_ready(data)
         return True
       except jax.errors.JaxRuntimeError as _:
@@ -148,7 +148,7 @@ class Snapshotter:
 
     def get_active_pytree(x):
       mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
-      data = _unpack_if_prng_key(x)
+      data = _unwrap_if_prng_key(x)
       all_replicas = split_by_mesh_axis.split_by_mesh_axis(
           data,
           mesh_axis_name,
@@ -176,7 +176,7 @@ class Snapshotter:
 
     def _device_put_pinned(x, abs_x):
       if is_shardable_array(x):
-        data = _unpack_if_prng_key(x)
+        data = _unwrap_if_prng_key(x)
         put_x = jax.device_put(
             data, abs_x.sharding.with_memory_kind("pinned_host")
         )
@@ -192,7 +192,7 @@ class Snapshotter:
 
     def _device_put_to_device(x, abs_x):
       if is_shardable_array(x):
-        data = _unpack_if_prng_key(x)
+        data = _unwrap_if_prng_key(x)
         put_x = jax.device_put(data, abs_x.sharding.with_memory_kind(None))
         return _wrap_if_prng_key(put_x, x)
       return x
@@ -203,8 +203,8 @@ class Snapshotter:
         host_target_state,
         abstract_state,
     )
-    unpacked_restored = jax.tree.map(_unpack_if_prng_key, restored_state)
-    jax.block_until_ready(unpacked_restored)
+    unwrapped_restored = jax.tree.map(_unwrap_if_prng_key, restored_state)
+    jax.block_until_ready(unwrapped_restored)
 
     if reset_snapshot_state:
       with self._lock:
