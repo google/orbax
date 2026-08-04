@@ -35,6 +35,8 @@ DType = array_types.DType
 PLACEHOLDER = ...
 
 IsPrioritizedKeyFn = serialization_types.IsPrioritizedKeyFn
+SerializationStatusCallback = serialization_types.SerializationStatusCallback
+TransferPriority = serialization_types.TransferPriority
 
 ### STANDARD PYTREE LEAF TYPES
 

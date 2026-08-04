@@ -93,6 +93,7 @@ def _create_v0_saving_paraminfo(
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr='np.ndarray',
+      keypath=param.keypath,
   )
 
 
@@ -129,6 +130,7 @@ def _create_v0_restore_paraminfo(
       ts_context=deserialization_context.ts_context,
       raise_array_data_missing_error=loading_options.raise_array_data_missing_error,
       use_zarr3=deserialization_context.zarr3_checkpoint,
+      keypath=param.keypath,
   )
 
 

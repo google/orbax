@@ -106,6 +106,7 @@ def _create_v0_saving_paraminfo(
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
       enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,  # pyrefly: ignore[bad-argument-type]
+      keypath=param.keypath,
   )
 
 
@@ -156,6 +157,7 @@ def _create_v0_restore_paraminfo(
       raise_array_data_missing_error=loading_options.raise_array_data_missing_error,
       use_zarr3=deserialization_context.zarr3_checkpoint,
       write_shape=write_shape,
+      keypath=param.keypath,
   )
 
 

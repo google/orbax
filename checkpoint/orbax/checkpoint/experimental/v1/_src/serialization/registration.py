@@ -76,6 +76,7 @@ def get_array_handler(
       enable_replica_parallel_separate_folder=saving_options.enable_replica_parallel_separate_folder,
       enable_write_sharding_file=saving_options.enable_write_sharding_file,
       array_metadata_store=saving_options.array_metadata_store,
+      callback=context.memory_options.serialization_status_callback,
   )
   if loading_options.use_load_and_broadcast:
     load_and_broadcast_kwargs = dict(

@@ -23,6 +23,8 @@ from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as ocp_options
 from orbax.checkpoint.experimental.v1._src.saving import saving
+from orbax.checkpoint.experimental.v1._src.serialization import registration
+from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 
 
 
@@ -94,6 +96,44 @@ class MemoryOptionsTest(parameterized.TestCase):
             found,
             f'Expected call not found in {mock_handler_class.call_args_list}',
         )
+
+  def test_memory_options_callback_propagation(self):
+    class DummyCallback(serialization_types.SerializationStatusCallback):
+
+      def key_priority(
+          self,
+          keypath: serialization_types.tree_types.PyTreeKeyPath,
+      ) -> serialization_types.TransferPriority:
+        del keypath
+        return serialization_types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+
+      def on_transfer_start(
+          self, keypath: serialization_types.tree_types.PyTreeKeyPath
+      ) -> None:
+        pass
+
+      def on_transfer_end(
+          self, keypath: serialization_types.tree_types.PyTreeKeyPath
+      ) -> None:
+        pass
+
+      def on_write_start(
+          self, keypath: serialization_types.tree_types.PyTreeKeyPath
+      ) -> None:
+        pass
+
+      def on_write_end(
+          self, keypath: serialization_types.tree_types.PyTreeKeyPath
+      ) -> None:
+        pass
+
+    callback = DummyCallback()
+    ctx = context_lib.Context()
+    ctx.memory.serialization_status_callback = callback
+
+    # Assert get_array_handler propagates it.
+    handler = registration.get_array_handler(ctx)
+    self.assertEqual(handler._callback, callback)
 
 
 if __name__ == '__main__':

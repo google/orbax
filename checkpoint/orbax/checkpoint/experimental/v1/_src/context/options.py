@@ -585,12 +585,18 @@ class MemoryOptions(_ActiveContextGuard):
       not prioritized. Note that any "prioritized" keys are assumed to be
       lightweight, and `transfer_concurrent_bytes` will be ignored for
       them.
+    serialization_status_callback: A callback object that is called at various
+      points during the save process per keypath, allowing for monitoring or
+      control over the save process.
   """
 
   write_concurrent_bytes: int | None = None
   read_concurrent_bytes: int | None = None
   transfer_concurrent_bytes: int | None = None
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
+  serialization_status_callback: (
+      serialization_types.SerializationStatusCallback | None
+  ) = None
 
 
 @dataclasses.dataclass(kw_only=True)
