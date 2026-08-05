@@ -247,19 +247,64 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
       grouped_dtypes = [dtypes[idx] for idx in idxs]
       grouped_shardings = [shardings[idx] for idx in idxs]
       locations, names = extract_parent_dir_and_name(grouped_infos)
+
+      grouped_read_dtypes = []
+      grouped_read_shapes = []
+      grouped_read_shardings = []
+
+      # Typed PRNG keys (e.g. key<fry>) are written physically as raw key_data
+      # (uint32). Transform logical shapes, dtypes, and shardings into physical
+      # equivalents for persistence read requests.
+      for shape, dtype, sharding in zip(
+          grouped_global_shapes, grouped_dtypes, grouped_shardings
+      ):
+        if jax.dtypes.issubdtype(dtype, jax.dtypes.prng_key):
+          phys_struct = jax.eval_shape(
+              jax.random.key_data, jax.ShapeDtypeStruct(shape, dtype)
+          )
+          read_dtype = phys_struct.dtype
+          read_shape = phys_struct.shape
+          # Append unpartitioned (None) specs for physical trailing dimensions
+          # added by key_data.
+          trailing_ndim = len(read_shape) - len(shape)
+          if isinstance(sharding, jax.sharding.NamedSharding):
+            read_sharding = jax.sharding.NamedSharding(
+                sharding.mesh,
+                jax.sharding.PartitionSpec(
+                    *sharding.spec, *([None] * trailing_ndim)
+                ),
+            )
+          else:
+            read_sharding = sharding
+        else:
+          read_dtype = dtype
+          read_shape = shape
+          read_sharding = sharding
+
+        grouped_read_dtypes.append(read_dtype)
+        grouped_read_shapes.append(read_shape)
+        grouped_read_shardings.append(read_sharding)
+
       grouped_arrays, read_future = cloud_pathways_helper.read_arrays(
           locations[0],
           names,
-          grouped_dtypes,  # pyrefly: ignore[bad-argument-type]
-          grouped_global_shapes,
-          grouped_shardings,
+          grouped_read_dtypes,
+          grouped_read_shapes,
+          grouped_read_shardings,
           global_mesh.devices,
           timeout=self.timeout,
       )
       # each persistence call is awaited serially.
       read_future.result()
       for idx, info, arr in zip(idxs, grouped_infos, grouped_arrays):
-        if meta := array_metadatas_cache.get(info.name):
+        orig_dtype = dtypes[idx]
+        # Re-wrap physical key_data uint32 arrays into target PRNG key.
+        if jax.dtypes.issubdtype(orig_dtype, jax.dtypes.prng_key):
+          arr = jax.random.wrap_key_data(
+              arr, dtype=orig_dtype  # pyrefly: ignore[bad-argument-type]
+          )
+        elif meta := array_metadatas_cache.get(info.name):
+
           assert isinstance(
               meta, array_metadata_lib.SerializedArrayMetadata
           ), f"Expecting SerializedArrayMetadata but got {type(meta)}."
