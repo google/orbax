@@ -520,6 +520,64 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           kvstore_tspec['target_data_file_size'], target_data_file_size
       )
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='default',
+          store_ocdbt_metadata_and_values_separately=None,
+          expected_value_data_prefix=None,
+          expected_btree_node_data_prefix=None,
+          expected_version_tree_node_data_prefix=None,
+      ),
+      dict(
+          testcase_name='disabled',
+          store_ocdbt_metadata_and_values_separately=False,
+          expected_value_data_prefix=None,
+          expected_btree_node_data_prefix=None,
+          expected_version_tree_node_data_prefix=None,
+      ),
+      dict(
+          testcase_name='enabled',
+          store_ocdbt_metadata_and_values_separately=True,
+          expected_value_data_prefix=ts_utils._OCDBT_SPLIT_VALUE_DATA_PREFIX,
+          expected_btree_node_data_prefix=ts_utils._OCDBT_SPLIT_META_DATA_PREFIX,
+          expected_version_tree_node_data_prefix=ts_utils._OCDBT_SPLIT_META_DATA_PREFIX,
+      ),
+  )
+  def test_ocdbt_kvstore_store_ocdbt_metadata_and_values_separately(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+      expected_value_data_prefix: str | None,
+      expected_btree_node_data_prefix: str | None,
+      expected_version_tree_node_data_prefix: str | None,
+  ):
+    metadata_kwargs = {}
+    if store_ocdbt_metadata_and_values_separately is not None:
+      metadata_kwargs['store_ocdbt_metadata_and_values_separately'] = (
+          store_ocdbt_metadata_and_values_separately
+      )
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=False,
+        use_ocdbt=True,
+        process_id=13,
+        **metadata_kwargs,
+    )
+    self.assertTrue(tspec.metadata.use_ocdbt)
+    kvstore_tspec = tspec.json['kvstore']
+    self.assertEqual(kvstore_tspec['driver'], 'ocdbt')
+    self.assertEqual(
+        kvstore_tspec.get('value_data_prefix', None), expected_value_data_prefix
+    )
+    self.assertEqual(
+        kvstore_tspec.get('btree_node_data_prefix', None),
+        expected_btree_node_data_prefix,
+    )
+    self.assertEqual(
+        kvstore_tspec.get('version_tree_node_data_prefix', None),
+        expected_version_tree_node_data_prefix,
+    )
+
   @parameterized.product(
       use_zarr3=(True, False),
       use_ocdbt=(True, False),
