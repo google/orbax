@@ -60,7 +60,7 @@ class JaxModuleTest(tf.test.TestCase, parameterized.TestCase):
 
     j_module = JaxModule(
         params=params_spec,
-        apply_fn={'linear': linear},
+        apply_fn={'linear': linear},  # pyrefly: ignore[bad-argument-type]
         export_version=constants.ExportModelType.ORBAX_MODEL,
     )
 
