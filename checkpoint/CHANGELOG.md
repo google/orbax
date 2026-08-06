@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce Memory Pressure from long held CPU buffers in Pathways MTC
 - Support explicit devices for Pathways MTC init
 - Avoid stale Pathways MTC worker dummy handles
+- #v1 Add `SafetensorsOptions.broadcast_replicated`: read tensors that are
+replicated across processes from storage exactly once (spread across the
+replicas) and fill every replica with an on-device broadcast, instead of each
+process re-reading the same bytes.
 
 ### Changed
 

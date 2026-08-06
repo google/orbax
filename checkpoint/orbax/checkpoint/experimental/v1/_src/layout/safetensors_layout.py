@@ -39,6 +39,14 @@ whole-file case especially -- is fetched as parallel ranged reads instead of
 one long single-stream read. As each file's reads complete, its tensors are
 assembled into `jax.Array`s and their host buffers released while other files
 are still reading.
+
+`SafetensorsOptions.broadcast_replicated` removes the one case where
+sharding-driven reads pull more from storage than the checkpoint's size:
+tensors replicated across processes, whose bytes every process would
+otherwise re-read. With the flag on, such tensors are read under a
+de-duplicated sharding (each byte owned once, spread across the replicas) and
+an identity computation with the target `out_shardings` then broadcasts the
+shards over the accelerator interconnect.
 """
 
 import asyncio
@@ -49,7 +57,7 @@ import itertools
 import json
 import math
 import time
-from typing import Any, NamedTuple, cast
+from typing import Any, cast, NamedTuple
 
 from absl import logging
 import humanize
@@ -114,6 +122,11 @@ _DEFAULT_READ_CHUNK_BYTES = 128 * 1024 * 1024  # 128 MiB
 # sharding, not the loader, is the thing to change. Over-read from gap-floor
 # merges alone stays well below this.
 _OVER_READ_WARN_RATIO = 1.5
+# Per-device output bytes per compiled broadcast under
+# `SafetensorsOptions.broadcast_replicated`. Tensors read once under a
+# de-duplicated sharding are resharded to their replicated targets in batches
+# no larger than this, bounding the transient device memory of each call.
+_BROADCAST_BATCH_BYTES = 1024 * 1024 * 1024  # 1 GiB
 
 
 def _get_dtypes() -> dict[str, Any]:
@@ -229,7 +242,10 @@ def _normalize_index(
   for s in resolved:  # pyrefly: ignore[not-iterable]
     if s.step not in (None, 1):
       raise ValueError(f"Strided shard index is unsupported: {s}.")
-  return tuple((int(s.start), int(s.stop)) for s in resolved)  # pyrefly: ignore[not-iterable]
+  return tuple(
+      (int(s.start), int(s.stop))
+      for s in resolved  # pyrefly: ignore[not-iterable]
+  )
 
 
 def _byte_strides(global_shape: arrays_types.Shape, itemsize: int) -> list[int]:
@@ -422,6 +438,117 @@ def _replicated_sharding() -> jax.sharding.Sharding:
   """A `NamedSharding` that fully replicates an array across all devices."""
   mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ("_safetensors_replica",))
   return jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+
+def _spec_axes(entry: Any) -> tuple[str, ...]:
+  """Returns one `PartitionSpec` entry's mesh axis names as a tuple."""
+  if entry is None:
+    return ()
+  return entry if isinstance(entry, tuple) else (entry,)
+
+
+def _dedup_read_sharding(
+    sharding: jax.sharding.Sharding, global_shape: tuple[int, ...]
+) -> jax.sharding.NamedSharding | None:
+  """Returns a sharding under which each tensor byte is owned once, if any.
+
+  In a `NamedSharding`, replication is exactly the mesh axes the spec does not
+  use: devices that differ only along those axes own identical index domains,
+  so under `broadcast_replicated` every replica would re-read the same
+  bytes from storage. Assigning each unused axis to a tensor dimension splits
+  those identical domains apart -- the same bytes are then owned (and read)
+  exactly once, spread across all the replicas' hosts. The loader reads under
+  the returned sharding and afterwards broadcasts to the true target
+  (`_broadcast_to_target_shardings`).
+
+  Each unused axis is greedily placed on the first dimension that remains
+  evenly divisible (JAX rejects uneven partitions). Axes that fit nowhere
+  stay unplaced: the result then still de-duplicates partially. Returns
+  `None` when the sharding is not a `NamedSharding`, nothing is replicated,
+  or no axis can be placed -- callers then read under the target sharding
+  as usual.
+
+  Args:
+    sharding: The target sharding for the tensor.
+    global_shape: The global shape of the tensor.
+
+  Returns:
+    The de-duplicated read sharding, or `None` if none is applicable.
+  """
+  if not global_shape or not isinstance(sharding, jax.sharding.NamedSharding):
+    return None
+  mesh = sharding.mesh
+  entries = [
+      _spec_axes(e)
+      for e in tuple(sharding.spec) + (None,) * len(global_shape)
+  ][: len(global_shape)]
+  used = {axis for entry in entries for axis in entry}
+  unused = [
+      axis
+      for axis in mesh.axis_names
+      if axis not in used and mesh.shape[axis] > 1
+  ]
+  if not unused:
+    return None
+  partitions = [
+      math.prod(mesh.shape[axis] for axis in entry) for entry in entries
+  ]
+  placed_any = False
+  for axis in unused:
+    for dim, dim_size in enumerate(global_shape):
+      if dim_size % (partitions[dim] * mesh.shape[axis]) == 0:
+        entries[dim] += (axis,)
+        partitions[dim] *= mesh.shape[axis]
+        placed_any = True
+        break
+  if not placed_any:
+    return None
+  return jax.sharding.NamedSharding(
+      mesh, jax.sharding.PartitionSpec(*(e or None for e in entries))
+  )
+
+
+def _broadcast_to_target_shardings(
+    arrays: dict[str, jax.Array],
+    targets: dict[str, jax.sharding.Sharding],
+) -> None:
+  """Reshards arrays read under a de-duplicated sharding to their targets.
+
+  An array read under `_dedup_read_sharding` holds each byte on exactly one
+  device; an identity computation whose `out_shardings` are the true targets
+  makes XLA broadcast the shards to every replica over the accelerator
+  interconnect. Tensors are batched so each compiled call's per-device output
+  stays under a fixed byte bound, keeping transient device memory
+  predictable regardless of checkpoint size.
+
+  Args:
+    arrays: Loaded arrays by tensor name; entries named in `targets` are
+      replaced in place with their broadcast result.
+    targets: Target sharding by tensor name for every array to broadcast.
+  """
+  batch: list[str] = []
+  batch_bytes = 0
+
+  def flush() -> None:
+    if not batch:
+      return
+    resharded = jax.jit(
+        lambda xs: xs, out_shardings=[targets[n] for n in batch]
+    )([arrays[n] for n in batch])
+    for n, out in zip(batch, resharded):
+      arrays[n] = out
+    batch.clear()
+
+  for name in targets:
+    arr = arrays[name]
+    shard_shape = targets[name].shard_shape(arr.shape)
+    per_device_bytes = math.prod(shard_shape) * arr.dtype.itemsize
+    if batch and batch_bytes + per_device_bytes > _BROADCAST_BATCH_BYTES:
+      flush()
+      batch_bytes = 0
+    batch.append(name)
+    batch_bytes += per_device_bytes
+  flush()
 
 
 class _FileEntry(NamedTuple):
@@ -646,6 +773,7 @@ def _plan_whole_tensor(
 def _plan_sharded_tensor(
     entry: _FileEntry,
     abstract_leaf: Any,
+    sharding: jax.sharding.Sharding,
 ) -> tuple[list[_Read], Callable[[], jax.Array]]:
   """Plans the shard reads this process's devices need for one tensor.
 
@@ -656,7 +784,10 @@ def _plan_sharded_tensor(
 
   Args:
     entry: The file entry describing the tensor's location and header info.
-    abstract_leaf: The abstract array (shape, dtype, sharding) to build.
+    abstract_leaf: The abstract array (shape, dtype) to build.
+    sharding: The sharding to read and assemble under -- the leaf's target
+      sharding, or the de-duplicated read sharding when
+      `broadcast_replicated` is enabled.
 
   Returns:
     The tensor's byte runs, and a builder that assembles the populated shard
@@ -676,7 +807,6 @@ def _plan_sharded_tensor(
         f"Shape mismatch: abstract state has {global_shape}, the checkpoint"
         f" has {file_shape}."
     )
-  sharding = getattr(abstract_leaf, "sharding", None) or _replicated_sharding()
 
   this_process = multihost.process_index()
   index_to_devices: dict[arrays_types.IndexBounds, list[jax.Device]] = (
@@ -799,6 +929,60 @@ def _warn_if_over_read(
       humanize.naturalsize(total_needed, binary=True),
       over_read,
   )
+
+
+def _plan_reads(
+    file_index: dict[str, _FileEntry],
+    abstract_state: dict[str, Any] | None,
+    names: Sequence[str],
+    broadcast_replicated: bool,
+) -> tuple[
+    dict[Path, list[_Read]],
+    dict[Path, list[tuple[str, Callable[[], Any]]]],
+    dict[str, jax.sharding.Sharding],
+]:
+  """Plans every tensor's byte runs and builders, grouped by file.
+
+  With `broadcast_replicated`, replicated bytes are read from storage
+  once -- under a de-duplicated sharding spread across the replicas -- and
+  the replicas are filled afterwards by an on-device broadcast.
+  Cross-process duplication is the only waste it removes, so it is a no-op
+  for single-process loads.
+
+  Args:
+    file_index: Tensor name -> `_FileEntry` for the whole checkpoint.
+    abstract_state: The abstract leaves driving the load, or `None` to
+      materialise every tensor in full (single-process only).
+    names: The tensor names to load, in result order.
+    broadcast_replicated: `SafetensorsOptions.broadcast_replicated`.
+
+  Returns:
+    Reads grouped by file, `(name, build)` pairs grouped by file, and the
+    target shardings for every tensor read under a de-duplicated sharding
+    (the tensors `_broadcast_to_target_shardings` must fix up afterwards).
+  """
+  dedup_replicated = broadcast_replicated and multihost.process_count() > 1
+  reads_by_file: dict[Path, list[_Read]] = collections.defaultdict(list)
+  builds_by_file: dict[Path, list[tuple[str, Callable[[], Any]]]] = (
+      collections.defaultdict(list)
+  )
+  broadcast_targets: dict[str, jax.sharding.Sharding] = {}
+  for name in names:
+    entry = file_index[name]
+    if abstract_state is None:
+      reads, build = _plan_whole_tensor(entry)
+    else:
+      leaf = abstract_state[name]
+      sharding = getattr(leaf, "sharding", None) or _replicated_sharding()
+      if dedup_replicated and (
+          read_sharding := _dedup_read_sharding(sharding, tuple(leaf.shape))
+      ):
+        broadcast_targets[name] = sharding
+        sharding = read_sharding
+      reads, build = _plan_sharded_tensor(entry, leaf, sharding)
+    reads_by_file[entry.path].extend(reads)
+    builds_by_file[entry.path].append((name, build))
+  return reads_by_file, builds_by_file, broadcast_targets
 
 
 class SafetensorsLayout(CheckpointLayout):
@@ -1009,18 +1193,9 @@ class SafetensorsLayout(CheckpointLayout):
     # Phase 1 (sync): compute every byte range this process needs, grouped by
     # file, and pre-allocate the destination buffers. Each tensor's `build()`
     # turns its (yet-unfilled) buffers into an array once its file is read.
-    reads_by_file: dict[Path, list[_Read]] = collections.defaultdict(list)
-    builds_by_file: dict[Path, list[tuple[str, Callable[[], Any]]]] = (
-        collections.defaultdict(list)
+    reads_by_file, builds_by_file, broadcast_targets = _plan_reads(
+        file_index, abstract_state, names, opts.broadcast_replicated
     )
-    for name in names:
-      entry = file_index[name]
-      if abstract_state is None:
-        reads, build = _plan_whole_tensor(entry)
-      else:
-        reads, build = _plan_sharded_tensor(entry, abstract_state[name])
-      reads_by_file[entry.path].extend(reads)
-      builds_by_file[entry.path].append((name, build))
 
     # Phase 2 (async): every file's chunks in parallel, bounded together by
     # the shared limiter. The chunk reads fill the pre-allocated buffers in
@@ -1047,4 +1222,6 @@ class SafetensorsLayout(CheckpointLayout):
     stats = await asyncio.gather(*map(load_file, list(reads_by_file)))
     _record_read_stats(stats)
     _warn_if_over_read(stats, opts.max_over_read_ratio is None)
+    if broadcast_targets:
+      _broadcast_to_target_shardings(arrays, broadcast_targets)
     return {name: arrays[name] for name in names}

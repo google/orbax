@@ -458,7 +458,8 @@ class ByteMathHelpersTest(parameterized.TestCase):
   def test_normalize_index_integer(self):
     self.assertEqual(
         safetensors_layout._normalize_index(
-            (2, slice(None, None)), (8, 16)  # pyrefly: ignore[bad-argument-type]
+            (2, slice(None, None)),  # pyrefly: ignore[bad-argument-type]
+            (8, 16),
         ),  # pytype: disable=wrong-arg-types
         ((2, 3), (0, 16)),
     )
@@ -968,6 +969,61 @@ class SafetensorsLayoutEdgeCaseTest(
       restore_fn = await layout.load(self.file_path)
       with self.assertRaisesRegex(ValueError, 'read_chunk_bytes'):
         await restore_fn
+
+  async def test_broadcast_replicated_is_noop_on_single_process(self):
+    # A single process already reads each byte exactly once, so the flag
+    # must not change behavior (and must not attempt any broadcast).
+    np_save_file({'a': np.arange(8, dtype=np.float32)}, self.file_path)
+    layout = SafetensorsLayout()
+    sharding = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+        jax.sharding.PartitionSpec(),
+    )
+    tree = {
+        'a': jax.ShapeDtypeStruct(
+            shape=(8,), dtype=np.float32, sharding=sharding
+        )
+    }
+    with context_lib.Context(
+        safetensors_options=options_lib.SafetensorsOptions(
+            broadcast_replicated=True,
+        ),
+    ):
+      restore_fn = await layout.load(self.file_path, abstract_state=tree)
+      pytree = await restore_fn
+    np.testing.assert_allclose(pytree['a'], np.arange(8, dtype=np.float32))
+
+
+class DedupReadShardingGateTest(absltest.TestCase):
+  """Cases where `_dedup_read_sharding` must decline (single-device host).
+
+  The placement logic needs a multi-device mesh and is exercised in the
+  multiprocess suite; here we pin the gates that need no replication.
+  """
+
+  def test_scalar_returns_none(self):
+    sharding = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+        jax.sharding.PartitionSpec(),
+    )
+    self.assertIsNone(safetensors_layout._dedup_read_sharding(sharding, ()))
+
+  def test_non_named_sharding_returns_none(self):
+    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    self.assertIsNone(
+        safetensors_layout._dedup_read_sharding(sharding, (8,))
+    )
+
+  def test_no_replicating_axes_returns_none(self):
+    # Every mesh axis is used by the spec, so nothing is replicated and
+    # there is nothing to de-duplicate.
+    sharding = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(np.array(jax.devices()), ('x',)),
+        jax.sharding.PartitionSpec('x'),
+    )
+    self.assertIsNone(
+        safetensors_layout._dedup_read_sharding(sharding, (8,))
+    )
 
 
 class SingleHostOneReadInvariantTest(

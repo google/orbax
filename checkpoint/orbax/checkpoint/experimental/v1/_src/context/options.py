@@ -33,7 +33,6 @@ from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
-
 FROZEN_IDS: contextvars.ContextVar[frozenset[int]] = contextvars.ContextVar(
     'orbax_frozen_option_ids', default=frozenset()
 )
@@ -626,10 +625,20 @@ class SafetensorsOptions(_ActiveContextGuard):
       (`MemoryOptions.read_concurrent_bytes`), which also caps concurrent
       requests at `budget / read_chunk_bytes` per host. `None` selects an
       implementation default (currently 128 MiB).
+    broadcast_replicated: When True (and running multi-process), the bytes
+      of tensors that are replicated across processes are read from storage
+      exactly once -- the read is spread across the replicas -- and every
+      replica is then filled by an on-device broadcast (an XLA resharding)
+      instead of each process re-reading the same bytes. Trades accelerator
+      interconnect traffic for storage egress: enable it when storage
+      bandwidth or egress cost is the bottleneck (e.g. many hosts loading a
+      replicated checkpoint from object storage). Applies to leaves with a
+      `jax.sharding.NamedSharding`; leaves with other shardings load normally.
   """
 
   max_over_read_ratio: float | None = None
   read_chunk_bytes: int | None = None
+  broadcast_replicated: bool = False
 
 
 class CheckpointLayout(enum.Enum):
