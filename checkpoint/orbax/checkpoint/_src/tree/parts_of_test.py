@@ -73,7 +73,7 @@ class PartsOfTest(parameterized.TestCase):
 
     overlay = jax.jit(PartsOf.overlay) if jit else PartsOf.overlay
 
-    t = overlay(t0, t1)
+    t = overlay(t0, t1)  # pyrefly: ignore[bad-argument-type]
 
     leaf = jnp.asarray if jit else lambda x: x
     expected = MyState(a=(leaf(11), leaf(2)), b=[leaf(33), PH])
