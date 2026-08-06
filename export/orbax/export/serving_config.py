@@ -77,6 +77,8 @@ class ServingConfig:
       preprocessor's outputs to be directly passed to the tf_postprocessor,
       bypassing the JAX function. Requires the preprocessor to return a tuple of
       two elements: (jax_inputs, postprocessor_inputs_extra).
+    output_placements: Optional PyTree or Sequence of OutputPlacements to
+      specify per-output placement.
   """
 
   # The key of the serving signature or a sequence of keys mapping to the same
@@ -118,6 +120,8 @@ class ServingConfig:
   method_key: Optional[str] = None
   # Options passed to the Orbax Model export.
   obm_export_options: obm_configs.ObmExportOptions | None = None
+  # Optional placement specifications for model outputs.
+  output_placements: Optional[Any] = None
 
   # When set to true, it allows a portion of the preprocessor's outputs to be
   # directly passed to the tf_postprocessor, bypassing the JAX function.
