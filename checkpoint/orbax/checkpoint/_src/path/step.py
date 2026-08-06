@@ -27,14 +27,16 @@ import functools
 import os
 import re
 import time
-from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, TypeVar
+from typing import Callable, Generic, Iterator, List, Optional, Protocol, Sequence, Type, TypeVar
 from absl import logging
 from etils import epath
 import numpy as np
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import checkpoint
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import temporary_paths
 
@@ -327,11 +329,17 @@ class _StandardNameFormat(NameFormat[Metadata]):
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
+    temporary_path_cls: Optional explicit TemporaryPath class to perform
+      validation.
+    atomicity_options: Optional AtomicityOptions specifying atomicity mode and
+      fallback policies.
   """
 
   step_prefix: Optional[str] = None
   step_format_fixed_length: Optional[int] = None
   single_host_load_and_broadcast: bool = False
+  temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None
+  atomicity_options: options_lib.AtomicityOptions | None = None
 
   def __str__(self):
     return f'StandardNameFormat("{self.build_name(1234)}")'
@@ -350,7 +358,11 @@ class _StandardNameFormat(NameFormat[Metadata]):
       self, step_path: epath.Path, step: Optional[int] = None
   ) -> Optional[Metadata]:
     """Returns metadata for given `step_path` if it is valid or None."""
-    if not is_path_finalized(step_path):
+    if not is_path_finalized(
+        step_path,
+        temporary_path_cls=self.temporary_path_cls,
+        atomicity_options=self.atomicity_options,
+    ):
       return None
 
     if step is not None:
@@ -568,6 +580,8 @@ def standard_name_format(
     step_prefix: Optional[str] = None,
     step_format_fixed_length: Optional[int] = None,
     single_host_load_and_broadcast: bool = False,
+    temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
+    atomicity_options: options_lib.AtomicityOptions | None = None,
 ) -> NameFormat[Metadata]:
   """Returns NameFormat for 'standard' steps for common Orbax use cases.
 
@@ -587,11 +601,17 @@ def standard_name_format(
     single_host_load_and_broadcast: If True, the jax process=0 will list all
       steps and broadcast them to all other processes. NOTE: Ignored if jax
       backend is not multi controller.
+    temporary_path_cls: Optional explicit TemporaryPath class to perform
+      validation.
+    atomicity_options: Optional AtomicityOptions specifying atomicity mode and
+      fallback policies.
   """
   return _StandardNameFormat(
       step_prefix=step_prefix,
       step_format_fixed_length=step_format_fixed_length,
       single_host_load_and_broadcast=single_host_load_and_broadcast,
+      temporary_path_cls=temporary_path_cls,
+      atomicity_options=atomicity_options,
   )
 
 

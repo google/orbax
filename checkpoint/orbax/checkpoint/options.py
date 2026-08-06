@@ -15,6 +15,7 @@
 """Configuration options for APIs like CheckpointManager and Checkpointer."""
 
 import dataclasses
+import enum
 from typing import Callable, Optional, Set
 
 from orbax.checkpoint._src.multihost import multihost
@@ -59,6 +60,34 @@ class MultiprocessingOptions:
   barrier_sync_key_prefix: Optional[str] = None
 
 
+
+
+class AtomicityMode(str, enum.Enum):
+  """Protocol mode for checkpoint save atomicity."""
+
+  AUTO = 'auto'
+  COMMIT_FILE = 'commit_file'
+  ATOMIC_RENAME = 'atomic_rename'
+
+
+@dataclasses.dataclass(frozen=True)
+class AtomicityOptions:
+  """Options used to configure checkpoint save atomicity protocol.
+
+  Attributes:
+    mode: Specifies the atomicity mode for saving checkpoints. - AUTO:
+      Automatically selects based on storage backend (GCSDirect -> COMMIT_FILE,
+      POSIX/GCSFuse -> ATOMIC_RENAME). - COMMIT_FILE: Writes in-place and
+      creates commit_success.txt upon completion (ideal for GCSFuse). -
+      ATOMIC_RENAME: Writes to temporary directory and renames to final
+        directory.
+    allow_legacy_atomic_rename: Optional. If True, permits reading legacy
+      checkpoints saved via AtomicRename that do not contain a
+      commit_success.txt file. Default is False.
+  """
+
+  mode: AtomicityMode = AtomicityMode.AUTO
+  allow_legacy_atomic_rename: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

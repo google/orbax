@@ -42,7 +42,8 @@ def get_temporary_path(
     A TemporaryPath for the given path.
   """
   temporary_path_cls = atomicity_defaults.get_default_temporary_path_class(
-      path
+      path,
+      atomicity_options=context.atomicity.v0(),
   )
   tmpdir = temporary_path_cls.from_final(
       path,

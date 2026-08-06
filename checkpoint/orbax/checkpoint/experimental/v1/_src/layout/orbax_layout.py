@@ -356,7 +356,10 @@ class OrbaxLayout(CheckpointLayout):
     if not await async_path.is_dir(path):
       raise NotADirectoryError(f"Checkpoint path {path} is not a directory.")
 
-    if await temporary_paths.is_path_temporary(path):
+    context = context_lib.get_context()
+    if await temporary_paths.is_path_temporary(
+        path, atomicity_options=context.atomicity.v0()
+    ):
       raise ValueError(f"Found incomplete checkpoint at {path}.")
 
     if not await has_checkpoint_metadata_file(path):

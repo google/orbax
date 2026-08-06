@@ -332,11 +332,16 @@ class CheckpointManagerOptions:
     ignored.
   file_options: Options to configure checkpoint directories and files.
     default=FileOptions().
+  atomicity_options:
+    Optional. The :py:class:`.options.AtomicityOptions` used to configure the
+    atomicity protocol mode (e.g. AtomicityMode.COMMIT_FILE). Warning: Do not
+    use this option unless absolutely sure about the performance implications.
   save_root_metadata: If True, saves root-level metadata about checkpoints.
     This metadata is not step-specific and is written only once.
   temporary_path_class:
-    Optional. The concrete :py:class:`.atomicity_types.TemporaryPath` class to
-    be used by the underlying :py:class:`.Checkpointer`.
+    Optional. Deprecated; prefer using `atomicity_options`. The concrete
+    :py:class:`.atomicity_types.TemporaryPath` class to be used by the
+    underlying :py:class:`.Checkpointer`.
   save_decision_policy: An object used to determine when a checkpoint should be
     saved. If provided, overrides any other options dealing with this subject,
     including `save_interval_steps`, `save_on_steps`, and `should_save_fn`, and
@@ -393,6 +398,7 @@ class CheckpointManagerOptions:
   )
   should_save_fn: Optional[Callable[[int, Optional[int]], bool]] = None
   file_options: FileOptions = dataclasses.field(default_factory=FileOptions)
+  atomicity_options: Optional[options_lib.AtomicityOptions] = None
   save_root_metadata: bool = True
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
   save_decision_policy: Optional[
@@ -857,6 +863,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
               self._directory,
               multiprocessing_options=self._options.multiprocessing_options,
               temporary_path_cls=self._options.temporary_path_class,
+              atomicity_options=self._options.atomicity_options,
           )
       )
 
@@ -868,6 +875,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             single_host_load_and_broadcast=(
                 self._options.single_host_load_and_broadcast
             ),
+            temporary_path_cls=self._options.temporary_path_class,
+            atomicity_options=self._options.atomicity_options,
         )
     )
 
@@ -949,6 +958,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           multiprocessing_options=options.multiprocessing_options,
           async_options=options.async_options or AsyncOptions(),
           file_options=options.file_options,
+          atomicity_options=options.atomicity_options,
           checkpoint_metadata_store=self._non_blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )
@@ -957,6 +967,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler,
           multiprocessing_options=options.multiprocessing_options,
           file_options=options.file_options,
+          atomicity_options=options.atomicity_options,
           checkpoint_metadata_store=self._blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
       )

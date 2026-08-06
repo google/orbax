@@ -61,3 +61,12 @@ CheckpointLayout
 .. autoclass:: CheckpointLayout
   :members:
 
+AtomicityOptions
+------------------------------------------------------------
+.. autoclass:: AtomicityOptions
+  :members:
+
+AtomicityMode
+------------------------------------------------------------
+.. autoclass:: AtomicityMode
+  :members:

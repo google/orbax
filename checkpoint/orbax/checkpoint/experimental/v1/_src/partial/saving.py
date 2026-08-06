@@ -26,6 +26,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import utils as ocp_path_utils
 from orbax.checkpoint._src.path.snapshot import snapshot
@@ -49,6 +50,7 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 ORBAX_CHECKPOINT_INDICATOR_FILE = orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
+COMMIT_SUCCESS_FILE = atomicity_types.COMMIT_SUCCESS_FILE
 CHECKPOINT_METADATA_FILENAME = metadata_serialization._CHECKPOINT_METADATA_FILENAME  # pylint: disable=protected-access
 PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
 
@@ -490,7 +492,7 @@ async def _merge_all(partial_path: epath.Path):
     async def _process_item(item: epath.Path, uuid_str: str):
       if item.name == CHECKPOINT_METADATA_FILENAME:
         await _merge_checkpoint_metadata(item, partial_path / item.name)
-      elif item.name == ORBAX_CHECKPOINT_INDICATOR_FILE:
+      elif item.name in (ORBAX_CHECKPOINT_INDICATOR_FILE, COMMIT_SUCCESS_FILE):
         await _merge_indicator_file(item, partial_path / item.name)
       elif await _is_pytree_dir(item):
         pytree_directories.append(item.name)

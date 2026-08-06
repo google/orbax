@@ -23,7 +23,9 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 

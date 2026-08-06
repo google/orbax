@@ -198,6 +198,7 @@ class CompositeOptions:
   )
   temporary_path_class: Optional[Type[atomicity_types.TemporaryPath]] = None
   file_options: Optional[options_lib.FileOptions] = None
+  atomicity_options: Optional[options_lib.AtomicityOptions] = None
   async_options: Optional[options_lib.AsyncOptions] = None
 
 
@@ -498,6 +499,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
 
     self._temporary_path_class = composite_options.temporary_path_class
     self._file_options = composite_options.file_options
+    self._atomicity_options = composite_options.atomicity_options
     self._async_options = (
         composite_options.async_options or options_lib.AsyncOptions()
     )
@@ -633,7 +635,9 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
   ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
-        or atomicity_defaults.get_item_default_temporary_path_class(directory)
+        or atomicity_defaults.get_item_default_temporary_path_class(
+            directory, atomicity_options=self._atomicity_options
+        )
     )
     tmp_item_dir = temporary_path_class.from_final(
         self._get_item_directory(directory, item_name),

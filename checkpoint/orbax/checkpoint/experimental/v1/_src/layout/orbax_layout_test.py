@@ -12,16 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, cast
 import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
 import numpy as np
 from orbax.checkpoint import args
+from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
-from orbax.checkpoint.checkpoint_manager import CheckpointManager
+from orbax.checkpoint._src.path import atomicity
+from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.context import options as v1_options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
@@ -161,6 +166,74 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
         self, restored_checkpointables['my_custom_name'], self.object_to_save
     )
 
+  async def test_v1_save_and_load_with_custom_atomicity_options(self):
+    path = epath.Path(self.test_dir.full_path) / 'atomicity_test_ckpt'
+    atomicity_opts = v1_options_lib.AtomicityOptions(
+        mode=v0_options_lib.AtomicityMode.COMMIT_FILE
+    )
+
+    with context_lib.Context(atomicity_options=atomicity_opts):
+      saving.save(path, cast(Any, self.object_to_save))
+      layout = OrbaxLayout()
+      restored = await (await layout.load_checkpointables(path))
+
+      test_utils.assert_tree_equal(
+          self, restored[STATE_CHECKPOINTABLE_KEY], self.object_to_save
+      )
+
+  async def test_v1_validate_checkpointables_with_legacy_atomic_rename_fallback_enabled(
+      self,
+  ):
+    path = epath.Path(self.test_dir.full_path) / 'fallback_enabled_test_ckpt'
+    atomicity_opts_save = v1_options_lib.AtomicityOptions(
+        mode=v0_options_lib.AtomicityMode.ATOMIC_RENAME
+    )
+    with context_lib.Context(atomicity_options=atomicity_opts_save):
+      saving.save(path, cast(Any, self.object_to_save))
+
+    for commit_file in (
+        path / atomicity.COMMIT_SUCCESS_FILE,
+        path / STATE_CHECKPOINTABLE_KEY / atomicity.COMMIT_SUCCESS_FILE,
+    ):
+      if commit_file.exists():
+        commit_file.unlink()
+
+    atomicity_opts = v1_options_lib.AtomicityOptions(
+        mode=v0_options_lib.AtomicityMode.COMMIT_FILE,
+        allow_legacy_atomic_rename=True,
+    )
+
+    with context_lib.Context(atomicity_options=atomicity_opts):
+      layout = OrbaxLayout()
+      await layout.validate_checkpointables(path)
+
+  async def test_v1_validate_checkpointables_with_legacy_atomic_rename_fallback_disabled(
+      self,
+  ):
+    path = epath.Path(self.test_dir.full_path) / 'fallback_disabled_test_ckpt'
+    atomicity_opts_save = v1_options_lib.AtomicityOptions(
+        mode=v0_options_lib.AtomicityMode.ATOMIC_RENAME
+    )
+    with context_lib.Context(atomicity_options=atomicity_opts_save):
+      saving.save(path, cast(Any, self.object_to_save))
+
+    for commit_file in (
+        path / atomicity.COMMIT_SUCCESS_FILE,
+        path / STATE_CHECKPOINTABLE_KEY / atomicity.COMMIT_SUCCESS_FILE,
+    ):
+      if commit_file.exists():
+        commit_file.unlink()
+
+    atomicity_opts = v1_options_lib.AtomicityOptions(
+        mode=v0_options_lib.AtomicityMode.COMMIT_FILE,
+        allow_legacy_atomic_rename=False,
+    )
+
+    with context_lib.Context(atomicity_options=atomicity_opts):
+      layout = OrbaxLayout()
+      with self.assertRaises((ValueError, InvalidLayoutError)):
+        await layout.validate_checkpointables(path)
+
   async def test_checkpointables_metadata(self):
     """Tests the metadata() method."""
     layout = OrbaxLayout()
@@ -298,7 +371,7 @@ class IsOrbaxV1CheckpointTest(parameterized.TestCase):
     self.composite_dir = (
         epath.Path(self.test_dir.full_path) / 'composite_checkpoint'
     )
-    mngr = CheckpointManager(self.composite_dir)
+    mngr = checkpoint_manager.CheckpointManager(self.composite_dir)
     mngr.save(
         0,
         args=args.Composite(state=args.StandardSave({'a': 1, 'b': 2})),

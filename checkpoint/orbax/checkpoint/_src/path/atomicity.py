@@ -425,11 +425,6 @@ async def validate_atomic_rename_temporary_path(
         f'Expected {class_name} ({temporary_path}) to end with'
         f' "{TMP_DIR_SUFFIX}".'
     )
-  if await async_path.exists(temporary_path / COMMIT_SUCCESS_FILE):
-    raise ValidationError(
-        f'Expected {class_name} ({temporary_path}) not to'
-        f' contain the "{COMMIT_SUCCESS_FILE}" file.'
-    )
   await _shared_validate(class_name, temporary_path)
 
 
@@ -546,6 +541,11 @@ class AtomicRenameTemporaryPath(TemporaryPathBase):
           self._checkpoint_metadata_store.wait_until_finished
       )
 
+    commit_success_file = self.get() / COMMIT_SUCCESS_FILE
+    await async_path.write_text(
+        commit_success_file,
+        f'Checkpoint commit was successful to {self._final_path}',
+    )
     if self._snapshot is not None:
       await self._snapshot.replace_source()
     else:
@@ -674,7 +674,6 @@ class CommitFileTemporaryPath(TemporaryPathBase):
       await asyncio.to_thread(
           self._checkpoint_metadata_store.wait_until_finished
       )
-
     commit_success_file = self._final_path / COMMIT_SUCCESS_FILE
     await async_path.write_text(
         commit_success_file,

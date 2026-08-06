@@ -1020,7 +1020,7 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
       # Finalize only called for items that are actually present.
       state_handler.finalize.assert_called_once()
       metadata_handler.finalize.assert_not_called()
-      self.assertFalse(
+      self.assertTrue(
           (self.directory / 'state' / atomicity.COMMIT_SUCCESS_FILE).exists()
       )
 

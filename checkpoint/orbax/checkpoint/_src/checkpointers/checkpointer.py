@@ -113,6 +113,7 @@ class Checkpointer(
       *,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
+      atomicity_options: Optional[options_lib.AtomicityOptions] = None,
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
       temporary_path_class: Optional[
           Type[atomicity_types.TemporaryPath]
@@ -136,6 +137,7 @@ class Checkpointer(
         barrier_sync_key_prefix=self._barrier_sync_key_prefix,
     )
     self._file_options = file_options
+    self._atomicity_options = atomicity_options
     self._temporary_path_class = temporary_path_class
 
     # If not provided then use checkpoint_metadata_store with blocking writes.
@@ -153,7 +155,9 @@ class Checkpointer(
   ) -> atomicity_types.TemporaryPath:
     temporary_path_class = (
         self._temporary_path_class
-        or atomicity_defaults.get_default_temporary_path_class(directory)
+        or atomicity_defaults.get_default_temporary_path_class(
+            directory, atomicity_options=self._atomicity_options
+        )
     )
     tmpdir = temporary_path_class.from_final(
         directory,
@@ -309,7 +313,11 @@ class Checkpointer(
     operation_recorder.record_start(restore_start_time)
     if not directory.exists():
       raise FileNotFoundError(f'Checkpoint at {directory} not found.')
-    if not step_lib.is_path_finalized(directory):
+    if not step_lib.is_path_finalized(
+        directory,
+        temporary_path_cls=self._temporary_path_class,
+        atomicity_options=self._atomicity_options,
+    ):
       raise ValueError(f'Found incomplete checkpoint at {directory}.')
     logging.info('Restoring checkpoint from %s.', directory)
     ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)

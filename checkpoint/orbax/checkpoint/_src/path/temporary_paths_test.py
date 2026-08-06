@@ -88,14 +88,14 @@ class TemporaryPathsTest(
         )
     )
     await tmp_path.finalize()
-    # Still looks temporary, because the commit_success file is missing.
-    self.assertTrue(
+
+    self.assertFalse(
         await temporary_paths.is_path_temporary(
             tmp_path.get_final(),
             temporary_path_cls=atomicity.CommitFileTemporaryPath,
         )
     )
-    self.assertFalse(
+    self.assertTrue(
         await temporary_paths.is_path_finalized(
             tmp_path.get_final(),
             temporary_path_cls=atomicity.CommitFileTemporaryPath,
@@ -103,7 +103,7 @@ class TemporaryPathsTest(
     )
 
     tmp_path = atomicity.CommitFileTemporaryPath.from_final(
-        self.directory / 'ckpt'
+        self.directory / 'ckpt2'
     )
     await tmp_path.create()
     self.assertFalse(

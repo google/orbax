@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `AtomicityOptions` and `AtomicityMode` (`AUTO`, `COMMIT_FILE`,
+  `ATOMIC_RENAME`) to configure the checkpoint save atomicity protocol in
+  both v0 and v1.
+- Write `commit_success.txt` on all newly finalized checkpoints across all
+  storage backends, enabling cross-backend reading compatibility.
+- Add `allow_legacy_atomic_rename` option to `AtomicityOptions` to opt into
+  legacy fallback validation when reading legacy `AtomicRename` checkpoints
+  missing `commit_success.txt`.
+
+### Changed
+
+- Deprecate `temporary_path_class` in `CheckpointManagerOptions` in favor of
+  `atomicity_options` with `AtomicityMode`.
+
 ## [0.12.2] - 2026-07-30
 
 ### Added

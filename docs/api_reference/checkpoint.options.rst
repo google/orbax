@@ -20,3 +20,12 @@ FileOptions
 .. autoclass:: FileOptions
   :members:
 
+AtomicityOptions
+------------------------------------------------------------
+.. autoclass:: AtomicityOptions
+  :members:
+
+AtomicityMode
+------------------------------------------------------------
+.. autoclass:: AtomicityMode
+  :members:

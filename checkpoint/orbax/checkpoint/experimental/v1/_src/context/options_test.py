@@ -46,6 +46,19 @@ class FileOptionsTest(parameterized.TestCase):
     self.assertEqual(v0_opts.path_permission_mode, 0o777)
 
 
+class AtomicityOptionsTest(parameterized.TestCase):
+
+  def test_v0_conversion_maps_correctly(self):
+    opts = ocp_options.AtomicityOptions(
+        mode=ocp_options.AtomicityMode.COMMIT_FILE
+    )
+
+    v0_opts = opts.v0()
+
+    self.assertIsInstance(v0_opts, v0_options_lib.AtomicityOptions)
+    self.assertEqual(v0_opts.mode, v0_options_lib.AtomicityMode.COMMIT_FILE)
+
+
 class MemoryOptionsTest(parameterized.TestCase):
 
   def test_memory_options_propagation(self):

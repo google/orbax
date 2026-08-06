@@ -122,6 +122,27 @@ class AsyncOptions(_ActiveContextGuard):
     )
 
 
+AtomicityMode = v0_options_lib.AtomicityMode
+
+
+@dataclasses.dataclass(kw_only=True)
+class AtomicityOptions(_ActiveContextGuard):
+  """Options used to configure checkpoint save atomicity protocol.
+
+  NOTE: Do not use these options unless you fully understand the performance
+  implications of the chosen mode.
+  """
+
+  mode: AtomicityMode = AtomicityMode.AUTO
+  allow_legacy_atomic_rename: bool = False
+
+  def v0(self) -> v0_options_lib.AtomicityOptions:
+    return v0_options_lib.AtomicityOptions(
+        mode=self.mode,
+        allow_legacy_atomic_rename=self.allow_legacy_atomic_rename,
+    )
+
+
 @dataclasses.dataclass(kw_only=True)
 class MultiprocessingOptions(_ActiveContextGuard):
   """Options used to configure multiprocessing behavior.

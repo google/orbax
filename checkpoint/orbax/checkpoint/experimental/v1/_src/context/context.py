@@ -180,6 +180,10 @@ class Context(epy.ContextManager):
       :class:`~orbax.checkpoint.experimental.v1.options.DeletionOptions`.
     memory: Options for controlling memory limits during save / load. See
       :class:`~orbax.checkpoint.experimental.v1.options.MemoryOptions`.
+    safetensors: Options for controlling safetensors behavior. See
+      :class:`~orbax.checkpoint.experimental.v1.options.SafetensorsOptions`.
+    atomicity: Options for controlling atomicity behavior. See
+      :class:`~orbax.checkpoint.experimental.v1.options.AtomicityOptions`.
   """
 
   def __init__(
@@ -197,13 +201,23 @@ class Context(epy.ContextManager):
       deletion_options: options_lib.DeletionOptions | None = None,
       memory_options: options_lib.MemoryOptions | None = None,
       safetensors_options: options_lib.SafetensorsOptions | None = None,
+      atomicity_options: options_lib.AtomicityOptions | None = None,
   ):
     if any(
-        opt is not None for opt in (
-            pytree_options, array_options, async_options,
-            multiprocessing_options, file_options, checkpointables_options,
-            pathways_options, checkpoint_layout, deletion_options,
-            memory_options, safetensors_options
+        opt is not None
+        for opt in (
+            pytree_options,
+            array_options,
+            async_options,
+            multiprocessing_options,
+            file_options,
+            checkpointables_options,
+            pathways_options,
+            checkpoint_layout,
+            deletion_options,
+            memory_options,
+            safetensors_options,
+            atomicity_options,
         )
     ):
       # TODO: b/513156122 - Passing option objects directly to Context.__init__
@@ -273,6 +287,11 @@ class Context(epy.ContextManager):
         context.safetensors_options if context is not None else None,
         options_lib.SafetensorsOptions,
     )
+    self._atomicity_options = _get_option(
+        atomicity_options,
+        context.atomicity if context is not None else None,
+        options_lib.AtomicityOptions,
+    )
 
   def _check_not_frozen(self) -> None:
     if id(self) in options_lib.FROZEN_IDS.get():
@@ -320,6 +339,10 @@ class Context(epy.ContextManager):
   @property
   def safetensors(self) -> options_lib.SafetensorsOptions:
     return self._safetensors_options
+
+  @property
+  def atomicity(self) -> options_lib.AtomicityOptions:
+    return self._atomicity_options
 
   @property
   def checkpoint_layout(self) -> options_lib.CheckpointLayout:

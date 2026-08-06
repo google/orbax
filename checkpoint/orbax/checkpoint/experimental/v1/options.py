@@ -28,4 +28,6 @@ from orbax.checkpoint.experimental.v1._src.context.options import (
     MemoryOptions,
     SafetensorsOptions,
     CheckpointLayout,
+    AtomicityOptions,
+    AtomicityMode,
 )

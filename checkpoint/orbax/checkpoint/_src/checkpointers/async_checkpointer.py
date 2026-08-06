@@ -331,6 +331,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       async_options: options_lib.AsyncOptions = options_lib.AsyncOptions(),
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       file_options: options_lib.FileOptions = options_lib.FileOptions(),
+      atomicity_options: Optional[options_lib.AtomicityOptions] = None,
       checkpoint_metadata_store: Optional[checkpoint.MetadataStore] = None,
       temporary_path_class: Optional[
           Type[atomicity_types.TemporaryPath]
@@ -362,6 +363,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     self._barrier_sync_key_prefix = barrier_sync_key_prefix
     self._file_options = file_options
+    self._atomicity_options = atomicity_options
     self._metadata_store = (
         checkpoint_metadata_store
         or checkpoint.metadata_store(enable_write=True)

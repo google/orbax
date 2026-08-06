@@ -117,6 +117,8 @@ class LocalMultiprocessTest(multiprocess_test.MultiProcessTest):
 
     data_iter_dir = directory / '1' / 'data_iter'
     for grain_ckpt_path in data_iter_dir.iterdir():
+      if grain_ckpt_path.name == 'commit_success.txt':
+        continue
       self.assertEqual(grain_ckpt_path.read_text(), expected_content)
 
     new_data_iter = iter(dl)
