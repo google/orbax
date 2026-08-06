@@ -184,10 +184,19 @@ def main():
     env["JAX_NUM_PROCESSES"] = str(args.num_processes)
     env["JAX_PROCESS_ID"] = str(rank)
 
-    device_ids = range(
-        rank * args.tpu_chips_per_process,
-        (rank + 1) * args.tpu_chips_per_process,
-    )
+    if num_tpu_chips == 8 and args.tpu_chips_per_process == 2:
+      # On 2x4 v6e LitePod, physical PCI device enumeration puts chips 0..3 at
+      # Y=2..3 (Host Y=1) and chips 4..7 at Y=0..1 (Host Y=0).
+      physical_order = [4, 5, 6, 7, 0, 1, 2, 3]
+      start_idx = rank * args.tpu_chips_per_process
+      device_ids = physical_order[
+          start_idx : start_idx + args.tpu_chips_per_process
+      ]
+    else:
+      device_ids = range(
+          rank * args.tpu_chips_per_process,
+          (rank + 1) * args.tpu_chips_per_process,
+      )
 
     # Simulated TPU Setup
     env["CLOUD_TPU_TASK_ID"] = str(rank)

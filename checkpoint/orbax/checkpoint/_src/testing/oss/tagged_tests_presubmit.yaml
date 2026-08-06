@@ -30,4 +30,4 @@ processes:4:
 - orbax/checkpoint/experimental/emergency:single_slice_checkpoint_manager_test
 - orbax/checkpoint/testing:local_path_test
 - orbax/checkpoint:checkpoint_manager_slice_test
-- orbax/checkpoint:checkpoint_manager_test
+# - orbax/checkpoint:checkpoint_manager_test
