@@ -142,7 +142,7 @@ def proto_from_db_asset(db_asset: db_schema.Asset) -> tiering_service_pb2.Asset:
       path=db_asset.path,
       user=db_asset.user,
       tags=db_asset.tags if db_asset.tags else [],
-      state=db_asset.state.value,
+      state=tiering_service_pb2.AssetState.Value(db_asset.state.name),
       tier_paths=(
           _proto_from_db_tier_path(tier_path)
           for tier_path in db_asset.tier_paths
@@ -312,9 +312,7 @@ async def create_or_fetch_asset(
       tags=list(request.tags),
       state=db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE,
       write_expires_at=calculate_expires_at(
-          datetime.timedelta(
-              seconds=config.client_keep_alive_interval_seconds
-          )
+          datetime.timedelta(seconds=config.client_keep_alive_interval_seconds)
       ),
   )
   backend = await session.merge(backend)
@@ -405,7 +403,10 @@ async def finalize_asset(
       .options(sqlalchemy.orm.joinedload(db_schema.Asset.tier_paths))
   )
   res = await session.execute(stmt)
-  db_asset = res.scalars().first()
+  fetched_asset = res.scalars().first()
+  if fetched_asset is None:
+    raise ValueError(f"Asset {db_asset.asset_uuid} not found.")
+  db_asset = fetched_asset
 
   if db_asset.state != db_schema.AssetState.ASSET_STATE_ACTIVE_WRITE:
     raise ValueError(
@@ -647,10 +648,11 @@ async def create_prefetch_job(
       .options(sqlalchemy.orm.joinedload(db_schema.Asset.tier_paths))
   )
   res = await session.execute(stmt)
-  db_asset = res.scalars().first()
+  fetched_asset = res.scalars().first()
 
-  if db_asset is None:
+  if fetched_asset is None:
     return CreatePrefetchJobResult(asset=None, created=False)
+  db_asset = fetched_asset
 
   # Check if there is already a preceding delete job
   if await is_delete_pending(session, asset_uuid=db_asset.asset_uuid):
@@ -849,10 +851,11 @@ async def begin_delete_asset(
       .options(sqlalchemy.orm.joinedload(db_schema.Asset.tier_paths))
   )
   res = await session.execute(stmt)
-  db_asset = res.scalars().first()
+  fetched_asset = res.scalars().first()
 
-  if db_asset is None:
+  if fetched_asset is None:
     return None
+  db_asset = fetched_asset
 
   db_asset.state = db_schema.AssetState.ASSET_STATE_DELETED
   db_asset.deleted_at = datetime.datetime.now(datetime.timezone.utc)
@@ -883,10 +886,11 @@ async def complete_delete_asset(
       .options(sqlalchemy.orm.joinedload(db_schema.Asset.tier_paths))
   )
   res = await session.execute(stmt)
-  db_asset = res.scalars().first()
+  fetched_asset = res.scalars().first()
 
-  if db_asset is None:
+  if fetched_asset is None:
     return None
+  db_asset = fetched_asset
 
   now = datetime.datetime.now(datetime.timezone.utc)
   db_asset.state = db_schema.AssetState.ASSET_STATE_DELETED

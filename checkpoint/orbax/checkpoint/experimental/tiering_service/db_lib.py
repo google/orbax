@@ -25,6 +25,7 @@ from sqlalchemy import event
 from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -112,9 +113,7 @@ async def async_initialize_db(config: tiering_service_pb2.ServerConfig) -> None:
     async with engine.begin() as conn:
       await conn.run_sync(db_schema.Base.metadata.create_all)
 
-    session_maker = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     async with session_maker() as session:
       result = await session.execute(select(db_schema.StorageBackend))
       existing = result.scalars().first()
@@ -153,9 +152,7 @@ async def async_is_db_initialized(
 ) -> bool:
   """Returns whether the database is already initialized with StorageBackend entries."""
   async with _engine_context(config) as engine:
-    session_maker = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
       async with session_maker() as session:
         result = await session.execute(select(db_schema.StorageBackend))
@@ -174,9 +171,7 @@ async def async_verify_db(config: tiering_service_pb2.ServerConfig) -> None:
     ValueError: If there is any mismatch between configuration and database.
   """
   async with _engine_context(config) as engine:
-    session_maker = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    session_maker = async_sessionmaker(engine, expire_on_commit=False)
     async with session_maker() as session:
       result = await session.execute(select(db_schema.StorageBackend))
       db_backends = result.scalars().all()
@@ -239,14 +234,10 @@ async def get_active_jobs(
     session: AsyncSession, hostname: str, pid: int
 ) -> list[db_schema.AssetJob]:
   """Returns all active PROCESSING jobs owned by this worker."""
-  stmt = (
-      select(db_schema.AssetJob)
-      .where(
-          db_schema.AssetJob.status
-          == db_schema.JobStatus.JOB_STATUS_PROCESSING,
-          db_schema.AssetJob.worker_host == hostname,
-          db_schema.AssetJob.worker_pid == pid,
-      )
+  stmt = select(db_schema.AssetJob).where(
+      db_schema.AssetJob.status == db_schema.JobStatus.JOB_STATUS_PROCESSING,
+      db_schema.AssetJob.worker_host == hostname,
+      db_schema.AssetJob.worker_pid == pid,
   )
   result = await session.execute(stmt)
   return list(result.scalars().all())
@@ -329,7 +320,7 @@ async def _try_lock_backend(
       )
   )
   active_count_result = await session.execute(active_count_stmt)
-  active_count = active_count_result.scalar()
+  active_count = active_count_result.scalar() or 0
 
   return active_count < max_active
 
@@ -421,7 +412,7 @@ async def _claim_eligible_job(
 
 
 async def acquire_next_job(
-    session_maker: sessionmaker,
+    session_maker: sessionmaker | async_sessionmaker,
     backend_id: int | None,
     lease_duration: datetime.timedelta,
     hostname: str,

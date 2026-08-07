@@ -243,7 +243,7 @@ class TieringClient:
           self._active_job_type.value if self._active_job_type else "operation"
       )
       raise RuntimeError(
-          f"TieringClient is already managing active asset "
+          "TieringClient is already managing active asset "
           f"'{self._active_asset_uuid}' ({job_name}). Call finalize() or "
           "release() first, or use a separate TieringClient instance."
       )

@@ -31,11 +31,11 @@ from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
 from orbax.checkpoint.experimental.tiering_service import storage_backend
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm import sessionmaker
-
 
 _EXTRA_KEYS = frozenset({"bytes_copied", "total_bytes", "error"})
 
@@ -45,7 +45,7 @@ class TieringServiceWorker:
 
   def __init__(
       self,
-      session_maker: sessionmaker | None,
+      session_maker: sessionmaker | async_sessionmaker | None,
       config: tiering_service_pb2.ServerConfig,
       *,
       lease_duration_seconds: int = 60,
@@ -838,7 +838,7 @@ class TieringServiceWorker:
 
 
 async def run_tiering_service_worker_loop(
-    session_maker: sessionmaker | None,
+    session_maker: sessionmaker | async_sessionmaker | None,
     config: tiering_service_pb2.ServerConfig,
     *,
     lease_duration_seconds: int = 60,

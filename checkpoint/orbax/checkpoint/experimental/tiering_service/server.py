@@ -37,6 +37,7 @@ from orbax.checkpoint.experimental.tiering_service import server_config
 from orbax.checkpoint.experimental.tiering_service import storage_backend
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2_grpc
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 import uvloop
@@ -63,16 +64,15 @@ class TieringServiceServicer(tiering_service_pb2_grpc.TieringServiceServicer):
     super().__init__()
     self._config = config
     self._engine = db_lib.get_async_engine(self._config)
-    self._session_maker = sessionmaker(
+    self._session_maker = async_sessionmaker(
         self._engine,
         # Required for async session usage.
         expire_on_commit=False,
-        class_=AsyncSession,
     )
     self._level0_backends: Sequence[db_schema.StorageBackend] | None = None
 
   @property
-  def session_maker(self) -> sessionmaker:
+  def session_maker(self) -> sessionmaker | async_sessionmaker:
     """The session maker for the database."""
     return self._session_maker
 

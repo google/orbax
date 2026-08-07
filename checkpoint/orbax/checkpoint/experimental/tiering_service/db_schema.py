@@ -17,13 +17,19 @@
 Provides SQLAlchemy models for tracking assets, tier paths, and job queues.
 """
 
+import datetime
 import enum
 import itertools
+from typing import Any
 import uuid
 
 import sqlalchemy.orm
+from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import mapped_column
 
-Base = sqlalchemy.orm.declarative_base()
+
+class Base(sqlalchemy.orm.DeclarativeBase):
+  pass
 
 
 class AssetState(enum.IntEnum):
@@ -99,32 +105,34 @@ class Asset(Base):
 
   __tablename__ = "assets"
 
-  asset_uuid = sqlalchemy.Column(
+  asset_uuid: Mapped[str] = mapped_column(
       sqlalchemy.String,
       primary_key=True,
       default=lambda: str(uuid.uuid4()),
   )
-  path = sqlalchemy.Column(sqlalchemy.String, index=True, nullable=False)
-  user = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-  tags = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
-  state = sqlalchemy.Column(
+  path: Mapped[str] = mapped_column(
+      sqlalchemy.String, index=True, nullable=False
+  )
+  user: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+  tags: Mapped[list[Any] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+  state: Mapped[AssetState] = mapped_column(
       sqlalchemy.Enum(AssetState), default=AssetState.ASSET_STATE_UNSPECIFIED
   )
-  created_at = sqlalchemy.Column(
+  created_at: Mapped[datetime.datetime] = mapped_column(
       sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  finalized_at = sqlalchemy.Column(
+  finalized_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  deleted_at = sqlalchemy.Column(
+  deleted_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  write_expires_at = sqlalchemy.Column(
+  write_expires_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  updated_at = sqlalchemy.Column(
+  updated_at: Mapped[datetime.datetime] = mapped_column(
       sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       onupdate=sqlalchemy.sql.func.now(),
@@ -184,17 +192,19 @@ class StorageBackend(Base):
 
   __tablename__ = "storage_backends"
 
-  id = sqlalchemy.Column(
+  id: Mapped[int] = mapped_column(
       sqlalchemy.Integer, primary_key=True, autoincrement=True
   )
-  level = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
-  zone = sqlalchemy.Column(sqlalchemy.String, nullable=True)
-  region = sqlalchemy.Column(sqlalchemy.String, nullable=True)
-  multi_regions = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
-  backend_type = sqlalchemy.Column(
+  level: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
+  zone: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+  region: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+  multi_regions: Mapped[list[str] | None] = mapped_column(
+      sqlalchemy.JSON, nullable=True
+  )
+  backend_type: Mapped[BackendType] = mapped_column(
       sqlalchemy.Enum(BackendType), default=BackendType.BACKEND_TYPE_UNSPECIFIED
   )
-  prefix = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+  prefix: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
 
   tier_paths = sqlalchemy.orm.relationship(
       "TierPath", back_populates="storage_backend", cascade="all, delete-orphan"
@@ -317,33 +327,33 @@ class TierPath(Base):
 
   __tablename__ = "tier_paths"
 
-  id = sqlalchemy.Column(
+  id: Mapped[int] = mapped_column(
       sqlalchemy.Integer, primary_key=True, autoincrement=True
   )
-  asset_uuid = sqlalchemy.Column(
+  asset_uuid: Mapped[str] = mapped_column(
       sqlalchemy.String,
       sqlalchemy.ForeignKey("assets.asset_uuid", ondelete="CASCADE"),
       nullable=False,
   )
-  storage_backend_id = sqlalchemy.Column(
+  storage_backend_id: Mapped[int] = mapped_column(
       sqlalchemy.Integer,
       sqlalchemy.ForeignKey("storage_backends.id", ondelete="CASCADE"),
       nullable=False,
   )
-  path = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-  ready_at = sqlalchemy.Column(
+  path: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+  ready_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  expires_at = sqlalchemy.Column(
+  expires_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  tier_path_uuid = sqlalchemy.Column(
+  tier_path_uuid: Mapped[str] = mapped_column(
       sqlalchemy.String,
       unique=True,
       nullable=False,
       default=lambda: str(uuid.uuid4()),
   )
-  state = sqlalchemy.Column(
+  state: Mapped[TierPathState] = mapped_column(
       sqlalchemy.Enum(TierPathState),
       default=TierPathState.PENDING,
       nullable=False,
@@ -412,52 +422,58 @@ class AssetJob(Base):
 
   __tablename__ = "asset_jobs"
 
-  id = sqlalchemy.Column(
+  id: Mapped[int] = mapped_column(
       sqlalchemy.Integer, primary_key=True, autoincrement=True
   )
-  asset_uuid = sqlalchemy.Column(
+  asset_uuid: Mapped[str] = mapped_column(
       sqlalchemy.String,
       sqlalchemy.ForeignKey("assets.asset_uuid", ondelete="CASCADE"),
       nullable=False,
   )
-  request_type = sqlalchemy.Column(
+  request_type: Mapped[RequestType] = mapped_column(
       sqlalchemy.Enum(RequestType),
       default=RequestType.REQUEST_TYPE_UNSPECIFIED,
       nullable=False,
   )
-  status = sqlalchemy.Column(
+  status: Mapped[JobStatus] = mapped_column(
       sqlalchemy.Enum(JobStatus),
       default=JobStatus.JOB_STATUS_QUEUED,
       index=True,
   )
   # Target tier path for COPY and DELETE_FROM_INSTANCE requests
-  target_tier_path_id = sqlalchemy.Column(
+  target_tier_path_id: Mapped[int | None] = mapped_column(
       sqlalchemy.Integer,
       sqlalchemy.ForeignKey("tier_paths.id"),
       nullable=True,
   )
-  request_id = sqlalchemy.Column(
+  request_id: Mapped[str] = mapped_column(
       sqlalchemy.String,
       nullable=False,
       unique=True,
       default=lambda: str(uuid.uuid4()),
   )
-  transfer_status = sqlalchemy.Column(sqlalchemy.JSON, nullable=True)
-  expiration_at = sqlalchemy.Column(
+  transfer_status: Mapped[dict[str, Any] | None] = mapped_column(
+      sqlalchemy.JSON, nullable=True
+  )
+  expiration_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  last_updated_at = sqlalchemy.Column(
+  last_updated_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
-  worker_host = sqlalchemy.Column(sqlalchemy.String, nullable=True)
-  worker_pid = sqlalchemy.Column(sqlalchemy.Integer, nullable=True)
+  worker_host: Mapped[str | None] = mapped_column(
+      sqlalchemy.String, nullable=True
+  )
+  worker_pid: Mapped[int | None] = mapped_column(
+      sqlalchemy.Integer, nullable=True
+  )
 
-  created_at = sqlalchemy.Column(
+  created_at: Mapped[datetime.datetime] = mapped_column(
       sqlalchemy.DateTime(timezone=True),
       server_default=sqlalchemy.sql.func.now(),
       nullable=False,
   )
-  completed_at = sqlalchemy.Column(
+  completed_at: Mapped[datetime.datetime | None] = mapped_column(
       sqlalchemy.DateTime(timezone=True), nullable=True
   )
 

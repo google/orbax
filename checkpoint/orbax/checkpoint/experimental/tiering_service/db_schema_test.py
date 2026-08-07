@@ -24,10 +24,9 @@ from orbax.checkpoint.experimental.tiering_service import db_schema
 import sqlalchemy
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.future import select
-from sqlalchemy.orm import sessionmaker
 
 
 @event.listens_for(Engine, "connect")
@@ -54,9 +53,7 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
       await conn.run_sync(db_schema.Base.metadata.create_all)
 
-    self.session_maker = sessionmaker(
-        self.engine, expire_on_commit=False, class_=AsyncSession
-    )
+    self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
 
   async def asyncTearDown(self) -> None:
     async with self.engine.begin() as conn:
@@ -105,6 +102,8 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           select(db_schema.Asset).filter_by(asset_uuid="uuid-456")
       )
       asset_fetch = result.scalars().first()
+      self.assertIsNotNone(asset_fetch)
+      assert asset_fetch is not None
       asset_fetch.state = db_schema.AssetState.ASSET_STATE_STORED
       await session.commit()
 
@@ -112,6 +111,8 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           select(db_schema.Asset).filter_by(asset_uuid="uuid-456")
       )
       fetched = result.scalars().first()
+      self.assertIsNotNone(fetched)
+      assert fetched is not None
       self.assertEqual(fetched.state, db_schema.AssetState.ASSET_STATE_STORED)
 
   async def test_add_tier_path(self) -> None:
@@ -160,6 +161,8 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           .filter_by(asset_uuid="uuid-789")
       )
       fetched = result.scalars().first()
+      self.assertIsNotNone(fetched)
+      assert fetched is not None
       self.assertLen(fetched.tier_paths, 2)
       tp0 = next(
           tp for tp in fetched.tier_paths if tp.storage_backend.level == 0
@@ -448,6 +451,8 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           select(db_schema.AssetJob).filter_by(id=job1.id)
       )
       fetched_job = result.scalars().first()
+      self.assertIsNotNone(fetched_job)
+      assert fetched_job is not None
       self.assertEqual(
           fetched_job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
       )
@@ -531,6 +536,8 @@ class DbSchemaTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           select(db_schema.TierPath).filter_by(asset_uuid="uuid-cond-uniq")
       )
       tp = result.scalars().first()
+      self.assertIsNotNone(tp)
+      assert tp is not None
       tp.state = db_schema.TierPathState.FAILED
       await session.commit()
 
@@ -748,9 +755,7 @@ class DbSchemaMultiprocessTest(
       await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
       await conn.run_sync(db_schema.Base.metadata.create_all)
 
-    self.session_maker = sessionmaker(
-        self.engine, expire_on_commit=False, class_=AsyncSession
-    )
+    self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
     # Dispose the engine to close connection pool before spawning subprocesses.
     # This avoids database lock contention/sharing issues in multiprocess tests.
     await self.engine.dispose()

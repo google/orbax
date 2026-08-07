@@ -23,11 +23,11 @@ from orbax.checkpoint.experimental.tiering_service import assets
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import storage_backend as storage_backend_lib
 from orbax.checkpoint.experimental.tiering_service.proto import tiering_service_pb2
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
-from sqlalchemy.orm import sessionmaker
 
 from google.protobuf import timestamp_pb2
 
@@ -230,9 +230,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     )
     async with self.engine.begin() as conn:
       await conn.run_sync(db_schema.Base.metadata.create_all)
-    self.session_maker = sessionmaker(
-        self.engine, expire_on_commit=False, class_=AsyncSession
-    )
+    self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
 
   async def asyncTearDown(self) -> None:
     await self.engine.dispose()
@@ -348,6 +346,11 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           session, asset.asset_uuid, datetime.timedelta(seconds=1200)
       )
       self.assertIsNotNone(updated)
+      assert (
+          updated is not None
+          and updated.write_expires_at is not None
+          and initial_expires_at is not None
+      )
       self.assertGreater(updated.write_expires_at, initial_expires_at)
 
       # Verify keep alive persistence.
@@ -1291,6 +1294,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           )
       )
       db_backend = res_b2.scalars().first()
+      self.assertIsNotNone(db_backend)
+      assert db_backend is not None
 
       tp_uuid = "test-prefetch-tp-uuid-lazy"
       storage_path = storage_backend_lib.get_storage_path(
@@ -1476,6 +1481,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
       )
       res = await session.execute(stmt)
       db_asset = res.scalars().first()
+      self.assertIsNotNone(db_asset)
+      assert db_asset is not None
       for tp in db_asset.tier_paths:
         if tp.storage_backend_id == b0.id:
           tp.state = db_schema.TierPathState.DELETED
@@ -1493,6 +1500,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           )
       )
       db_b0 = res_b0.scalars().first()
+      self.assertIsNotNone(db_b0)
+      assert db_b0 is not None
 
       # Fetch Asset 2 again to pass to prefetch
       db_assets2 = await assets.fetch_asset_by_uuid(session2, asset2.asset_uuid)
@@ -1578,6 +1587,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         stmt = select(db_schema.TierPath).where(db_schema.TierPath.id == tp.id)
         res = await session2.execute(stmt)
         db_tp = res.scalars().first()
+        self.assertIsNotNone(db_tp)
+        assert db_tp is not None
         self.assertEqual(db_tp.state, db_schema.TierPathState.DELETE_IN_PROCESS)
 
   async def test_complete_delete_tier_path(self):
@@ -1622,6 +1633,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         stmt = select(db_schema.TierPath).where(db_schema.TierPath.id == tp.id)
         res = await session2.execute(stmt)
         db_tp = res.scalars().first()
+        self.assertIsNotNone(db_tp)
+        assert db_tp is not None
         self.assertEqual(db_tp.state, db_schema.TierPathState.DELETED)
 
   async def test_begin_delete_asset_success_with_multiple_assets(self):
@@ -1841,6 +1854,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         )
         res = await session2.execute(stmt)
         db_asset = res.scalars().first()
+        self.assertIsNotNone(db_asset)
+        assert db_asset is not None
 
         # Should have 2 tier paths: L0 (b0) and L1 (b1_a)
         self.assertLen(db_asset.tier_paths, 2)
@@ -1905,6 +1920,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         )
         res = await session2.execute(stmt)
         db_asset = res.scalars().first()
+        self.assertIsNotNone(db_asset)
+        assert db_asset is not None
 
         self.assertLen(db_asset.tier_paths, 2)
         backends = [tp.storage_backend_id for tp in db_asset.tier_paths]
@@ -1968,6 +1985,8 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         )
         res = await session2.execute(stmt)
         db_asset = res.scalars().first()
+        self.assertIsNotNone(db_asset)
+        assert db_asset is not None
 
         self.assertLen(db_asset.tier_paths, 2)
         backends = [tp.storage_backend_id for tp in db_asset.tier_paths]

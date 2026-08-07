@@ -496,9 +496,7 @@ class TieringServiceTest(
     lustre_b_paths = [
         p for p in paths if p.startswith("/mnt/lustre-b/test/path/")
     ]
-    gcs_paths = [
-        p for p in paths if p.startswith("gs://my-bucket/test/path/")
-    ]
+    gcs_paths = [p for p in paths if p.startswith("gs://my-bucket/test/path/")]
     self.assertLen(lustre_a_paths, 1)
     self.assertLen(lustre_b_paths, 1)
     self.assertLen(gcs_paths, 1)
@@ -506,7 +504,8 @@ class TieringServiceTest(
     # In the setup, find the tier path corresponding to zone B's Lustre backend
     # target.
     expected_tp = next(
-        tp for tp in prefetch_res.asset.tier_paths
+        tp
+        for tp in prefetch_res.asset.tier_paths
         if tp.path.startswith("/mnt/lustre-b/test/path/")
     )
     self.assertEqual(
@@ -1025,8 +1024,7 @@ class TieringServiceTest(
 class CtsServerTest(unittest.IsolatedAsyncioTestCase):
 
   @mock.patch(
-      "orbax.checkpoint.experimental.tiering_service."
-      "server_config.load_config"
+      "orbax.checkpoint.experimental.tiering_service.server_config.load_config"
   )
   @mock.patch(
       "orbax.checkpoint.experimental.tiering_service."
@@ -1066,8 +1064,7 @@ class CtsServerTest(unittest.IsolatedAsyncioTestCase):
     mock_run_worker.assert_not_called()
 
   @mock.patch(
-      "orbax.checkpoint.experimental.tiering_service."
-      "server_config.load_config"
+      "orbax.checkpoint.experimental.tiering_service.server_config.load_config"
   )
   @mock.patch(
       "orbax.checkpoint.experimental.tiering_service."

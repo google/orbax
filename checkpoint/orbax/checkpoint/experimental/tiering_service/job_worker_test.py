@@ -28,9 +28,9 @@ from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import gcp_storage_client
 from orbax.checkpoint.experimental.tiering_service import job_worker
 from orbax.checkpoint.experimental.tiering_service import server_config
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 
@@ -154,9 +154,7 @@ class TieringServiceWorkerTest(
     self._keep_alive_conn = await self.engine.connect()
 
     await db_lib.async_initialize_db(self.config)
-    self.session_maker = sessionmaker(
-        self.engine, expire_on_commit=False, class_=AsyncSession
-    )
+    self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
     self.gcp_client = DummyGcpParallelstoreClient()
     self.determine_client_mock = self.enter_context(
         mock.patch.object(gcp_storage_client, "determine_client", autospec=True)
@@ -287,6 +285,8 @@ class TieringServiceWorkerTest(
       async with self.session_maker() as session:
         result = await session.execute(select(db_schema.AssetJob))
         job = result.scalars().first()
+        if job is None:
+          return False
         return job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED
 
     await self._wait_for_condition(_check, max_attempts=10, sleep_time=1.0)
@@ -297,6 +297,7 @@ class TieringServiceWorkerTest(
       # Verify job status transitions to COMPLETED
       result = await session.execute(select(db_schema.AssetJob))
       job = result.scalars().first()
+      assert job is not None
       self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED)
       self.assertIsNotNone(job.completed_at)
       self.assertIsNone(job.worker_host)
@@ -347,6 +348,7 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
+
       async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
@@ -407,6 +409,7 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
+
       async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
@@ -454,10 +457,13 @@ class TieringServiceWorkerTest(
         side_effect=RuntimeError("Mocked trigger failure"),
     ):
       await self.worker.start()
+
       async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           job = result.scalars().first()
+          if job is None:
+            return False
           return job.status == db_schema.JobStatus.JOB_STATUS_FAILED
 
       await self._wait_for_condition(_check, max_attempts=5, sleep_time=0.5)
@@ -466,8 +472,10 @@ class TieringServiceWorkerTest(
     async with self.session_maker() as session:
       result = await session.execute(select(db_schema.AssetJob))
       job = result.scalars().first()
+      assert job is not None
       self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_FAILED)
       self.assertIsNotNone(job.completed_at)
+      assert job.transfer_status is not None
       self.assertIn(
           "Failed to trigger transfer: Mocked trigger failure",
           job.transfer_status.get("error", ""),
@@ -509,10 +517,13 @@ class TieringServiceWorkerTest(
         ),
     ):
       await self.worker.start()
+
       async def _check():
         async with self.session_maker() as session:
           result = await session.execute(select(db_schema.AssetJob))
           job = result.scalars().first()
+          if job is None:
+            return False
           return job.status == db_schema.JobStatus.JOB_STATUS_FAILED
 
       await self._wait_for_condition(_check, max_attempts=10, sleep_time=1)
@@ -523,6 +534,7 @@ class TieringServiceWorkerTest(
       # target_tier_path_id is preserved
       result = await session.execute(select(db_schema.AssetJob))
       job = result.scalars().first()
+      assert job is not None
       self.assertEqual(job.status, db_schema.JobStatus.JOB_STATUS_FAILED)
       self.assertIsNotNone(job.completed_at)
       self.assertIsNotNone(job.target_tier_path_id)
@@ -587,7 +599,7 @@ class TieringServiceWorkerTest(
       async with self.session_maker() as session:
         result = await session.execute(select(db_schema.AssetJob))
         recovered_job = result.scalars().first()
-        return recovered_job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED
+        return recovered_job.status == db_schema.JobStatus.JOB_STATUS_COMPLETED  # pyrefly: ignore[missing-attribute]
 
     await self._wait_for_condition(_check, max_attempts=10, sleep_time=1)
 
@@ -600,9 +612,9 @@ class TieringServiceWorkerTest(
       # The worker should have reclaimed it and eventually completed it
       # (via dummy client)
       self.assertEqual(
-          recovered_job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+          recovered_job.status, db_schema.JobStatus.JOB_STATUS_COMPLETED  # pyrefly: ignore[missing-attribute]
       )
-      self.assertIsNone(recovered_job.worker_host)
+      self.assertIsNone(recovered_job.worker_host)  # pyrefly: ignore[missing-attribute]
 
   async def test_poll_permanent_logic_error_failing_job(self):
     async with self.session_maker() as session:
@@ -639,11 +651,11 @@ class TieringServiceWorkerTest(
       result = await session.execute(select(db_schema.AssetJob))
       recovered_job = result.scalars().first()
       self.assertEqual(
-          recovered_job.status, db_schema.JobStatus.JOB_STATUS_FAILED
+          recovered_job.status, db_schema.JobStatus.JOB_STATUS_FAILED  # pyrefly: ignore[missing-attribute]
       )
       self.assertIn(
           "Unknown or missing client type: InvalidClientType",
-          recovered_job.transfer_status.get("error", ""),
+          recovered_job.transfer_status.get("error", ""),  # pyrefly: ignore[missing-attribute]
       )
 
   async def test_update_job_status_after_poll_acquires_lock(self):
@@ -667,6 +679,7 @@ class TieringServiceWorkerTest(
 
     original_get = AsyncSession.get
     get_calls = []
+
     async def mock_get(self_session, entity, ident, **kwargs):
       get_calls.append((entity, ident, kwargs))
       return await original_get(self_session, entity, ident, **kwargs)
@@ -735,7 +748,7 @@ class TieringServiceWorkerTest(
       db_job = await session.get(db_schema.AssetJob, job.id)
       expected_expiration = now + self.worker._lease_duration
       self.assertEqual(
-          db_job.expiration_at.replace(tzinfo=None),
+          db_job.expiration_at.replace(tzinfo=None),  # pyrefly: ignore[missing-attribute]
           expected_expiration.replace(tzinfo=None),
       )
 
@@ -772,7 +785,7 @@ class TieringServiceWorkerTest(
       db_job = await session.get(db_schema.AssetJob, job.id)
       expected_expiration = now + self.worker._lease_duration
       self.assertEqual(
-          db_job.expiration_at.replace(tzinfo=None),
+          db_job.expiration_at.replace(tzinfo=None),  # pyrefly: ignore[missing-attribute]
           expected_expiration.replace(tzinfo=None),
       )
 
@@ -806,10 +819,12 @@ class TieringServiceWorkerTest(
       await self.worker.start()
 
       custom_metric_val = None
+
       async def _check():
         nonlocal custom_metric_val
         async with self.session_maker() as session:
           db_job = await session.get(db_schema.AssetJob, job.id)
+          assert db_job is not None
           if db_job.transfer_status and db_job.transfer_status.get(
               "custom_metric"
           ):
@@ -887,8 +902,8 @@ class TieringServiceWorkerTest(
         )
         res_tp = await session.execute(stmt_tp)
         db_tp = res_tp.scalars().first()
-        self.assertEqual(db_tp.state, db_schema.TierPathState.DELETED)
-        self.assertIsNone(db_tp.ready_at)
+        self.assertEqual(db_tp.state, db_schema.TierPathState.DELETED)  # pyrefly: ignore[missing-attribute]
+        self.assertIsNone(db_tp.ready_at)  # pyrefly: ignore[missing-attribute]
 
         stmt_job = (
             select(db_schema.AssetJob)
@@ -898,7 +913,7 @@ class TieringServiceWorkerTest(
         res_job = await session.execute(stmt_job)
         db_job_res = res_job.scalars().first()
         self.assertEqual(
-            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED  # pyrefly: ignore[missing-attribute]
         )
 
   async def test_delete_from_all_tiers_job_lifecycle(self):
@@ -975,7 +990,7 @@ class TieringServiceWorkerTest(
         )
         res_tp_g = await session.execute(stmt_tp_g)
         db_tp_g = res_tp_g.scalars().first()
-        self.assertEqual(db_tp_g.state, db_schema.TierPathState.DELETED)
+        self.assertEqual(db_tp_g.state, db_schema.TierPathState.DELETED)  # pyrefly: ignore[missing-attribute]
 
         stmt_tp_l = (
             select(db_schema.TierPath)
@@ -984,7 +999,7 @@ class TieringServiceWorkerTest(
         )
         res_tp_l = await session.execute(stmt_tp_l)
         db_tp_l = res_tp_l.scalars().first()
-        self.assertEqual(db_tp_l.state, db_schema.TierPathState.DELETED)
+        self.assertEqual(db_tp_l.state, db_schema.TierPathState.DELETED)  # pyrefly: ignore[missing-attribute]
 
         stmt_asset = (
             select(db_schema.Asset)
@@ -994,18 +1009,18 @@ class TieringServiceWorkerTest(
         res_asset = await session.execute(stmt_asset)
         db_asset = res_asset.scalars().first()
         self.assertEqual(
-            db_asset.state, db_schema.AssetState.ASSET_STATE_DELETED
+            db_asset.state, db_schema.AssetState.ASSET_STATE_DELETED  # pyrefly: ignore[missing-attribute]
         )
 
         stmt_job = (
             select(db_schema.AssetJob)
-            .where(db_schema.AssetJob.id == db_job.id)
+            .where(db_schema.AssetJob.id == db_job.id)  # pyrefly: ignore[missing-attribute]
             .execution_options(populate_existing=True)
         )
         res_job = await session.execute(stmt_job)
         db_job_res = res_job.scalars().first()
         self.assertEqual(
-            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED
+            db_job_res.status, db_schema.JobStatus.JOB_STATUS_COMPLETED  # pyrefly: ignore[missing-attribute]
         )
 
 

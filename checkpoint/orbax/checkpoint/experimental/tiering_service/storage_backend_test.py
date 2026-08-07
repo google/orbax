@@ -16,9 +16,8 @@ import unittest
 from absl.testing import absltest
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import storage_backend
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.orm import sessionmaker
 
 
 class StorageBackendDbTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
@@ -31,9 +30,7 @@ class StorageBackendDbTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     )
     async with self.engine.begin() as conn:
       await conn.run_sync(db_schema.Base.metadata.create_all)
-    self.session_maker = sessionmaker(
-        self.engine, expire_on_commit=False, class_=AsyncSession
-    )
+    self.session_maker = async_sessionmaker(self.engine, expire_on_commit=False)
 
   async def asyncTearDown(self) -> None:
     await self.engine.dispose()

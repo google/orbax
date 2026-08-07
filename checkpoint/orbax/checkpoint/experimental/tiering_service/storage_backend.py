@@ -77,10 +77,10 @@ def locate_closest_backend(
     # When no region specified, match the zone prefix with the region.
     if region is None:
       for backend in backends:
-        if backend.region is not None and zone.startswith(backend.region):
+        if backend.region is not None and zone.startswith(str(backend.region)):
           return backend
         if backend.multi_regions is not None and zone.startswith(
-            tuple(backend.multi_regions)
+            tuple(str(r) for r in backend.multi_regions)
         ):
           return backend
 

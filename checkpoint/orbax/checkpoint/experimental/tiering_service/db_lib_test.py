@@ -23,9 +23,8 @@ from orbax.checkpoint.experimental.tiering_service import db_lib
 from orbax.checkpoint.experimental.tiering_service import db_schema
 from orbax.checkpoint.experimental.tiering_service import server_config
 from sqlalchemy import exc as sqlalchemy_exc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.future import select
-from sqlalchemy.orm import sessionmaker
 import yaml
 
 
@@ -192,9 +191,7 @@ class DbLibTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
 
     engine = db_lib.get_async_engine(config)
 
-    async_session = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
     # Setup
     async with async_session() as session:
       # Create dependencies for valid AssetJob payload
@@ -274,14 +271,14 @@ class DbLibTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await db_lib.async_initialize_db(config)
 
     engine = db_lib.get_async_engine(config)
-    async_session = sessionmaker(
-        engine, expire_on_commit=False, class_=AsyncSession
-    )
+    async_session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with async_session() as session:
       # Get backend ID
       result = await session.execute(select(db_schema.StorageBackend))
       backend = result.scalars().first()
+      self.assertIsNotNone(backend)
+      assert backend is not None
       backend_id = backend.id
 
       # Create an active job for this backend to consume the capacity
@@ -365,6 +362,8 @@ class DbLibTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
             .with_for_update()
         )
         backend_row = result.scalar()
+        self.assertIsNotNone(backend_row)
+        assert backend_row is not None
         backend_row.prefix = "gs://new-bucket-name"  # Modifying prefix
         session2.add(backend_row)
     await engine.dispose()
