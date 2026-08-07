@@ -244,5 +244,18 @@ class MultihostUtilsTestDistributedId(MultihostUtilsTestBase.Test):
     super().setUp()
 
 
+class ReachedPreemptionTest(parameterized.TestCase):
+
+  @mock.patch.object(multihost, 'is_proxy_pathways_backend', return_value=False)
+  @mock.patch.object(multihost.multihost_utils, 'reached_preemption_sync_point')
+  def test_returns_false_when_service_disabled(
+      self, mock_sync_point, mock_is_proxy
+  ):
+    mock_sync_point.side_effect = RuntimeError(
+        'Preemption sync manager has not been initialized.'
+    )
+    self.assertFalse(multihost.reached_preemption(step=5))
+
+
 if __name__ == '__main__':
   multiprocess_test.main()
