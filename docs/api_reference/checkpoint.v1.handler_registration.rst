@@ -8,8 +8,7 @@ CheckpointableHandler Registration
 
 CheckpointableHandlerRegistry
 ------------------------------------------------------------
-.. autoclass:: registration.CheckpointableHandlerRegistry
-  :members:
+.. autoclass:: CheckpointableHandlerRegistry
 
 Utilities
 ------------------------------------------------------------------
