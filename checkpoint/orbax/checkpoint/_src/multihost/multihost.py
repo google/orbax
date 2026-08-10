@@ -448,9 +448,14 @@ def reached_preemption(step: int) -> bool:
   if is_proxy_pathways_backend():
     return False
 
-  preemption_sync_point_reached = multihost_utils.reached_preemption_sync_point(
-      step
-  )
+  try:
+    preemption_sync_point_reached = (
+        multihost_utils.reached_preemption_sync_point(step)
+    )
+  except RuntimeError:
+    # JAX raises RuntimeError when the preemption service is disabled
+    # via jax_enable_preemption_service config. Treat as no preemption.
+    return False
   _maybe_log_reached_preemption(step, preemption_sync_point_reached)
   return preemption_sync_point_reached
 
