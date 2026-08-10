@@ -52,9 +52,7 @@ STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 class _AsyncSaveResponse(async_types.AsyncResponse[bool]):
   """Response for asynchronous saving."""
 
-  def __init__(
-      self, manager: checkpoint_manager.CheckpointManager
-  ):
+  def __init__(self, manager: checkpoint_manager.CheckpointManager):
 
     async def _wait() -> bool:
       # If a background operation fails wait_until_finished() will re-raise the
@@ -198,6 +196,7 @@ class Checkpointer(epy.ContextManager):
         async_options=self._context.async_options.v0(),
         file_options=self._context.file_options.v0(),
         multiprocessing_options=self._context.multiprocessing_options.v0(),
+        atomicity_options=self._context.atomicity.v0(),
         # Prevent the checkpoint manager from writing metrics on its own. This
         # class will take responsibility for writing metrics.
         prevent_write_metrics=True,
@@ -601,7 +600,7 @@ class Checkpointer(epy.ContextManager):
       step: int | CheckpointMetadata | None = None,
       abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None  # pyrefly: ignore[bad-specialization]
-      ) = None,
+      )=None,
       *,
       checkpointable_name: str = STATE_CHECKPOINTABLE_KEY,
   ) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
@@ -788,7 +787,7 @@ class Checkpointer(epy.ContextManager):
       step: int | CheckpointMetadata | None = None,
       abstract_state: (
           tree_types.PyTreeOf[tree_types.AbstractLeaf] | None  # pyrefly: ignore[bad-specialization]
-      ) = None,
+      )=None,
   ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:  # pyrefly: ignore[bad-specialization]
     """Not yet supported."""
     raise NotImplementedError()

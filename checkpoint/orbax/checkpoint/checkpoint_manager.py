@@ -1042,6 +1042,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
                 async_options=options.async_options,
+                atomicity_options=options.atomicity_options,
+                temporary_path_class=options.temporary_path_class,
             ),
             **item_handlers,
         ),
@@ -1102,6 +1104,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 multiprocessing_options=options.multiprocessing_options,
                 file_options=options.file_options,
                 async_options=async_options,
+                atomicity_options=options.atomicity_options,
+                temporary_path_class=options.temporary_path_class,
             ),
             **all_item_handlers,  # pyrefly: ignore[bad-argument-type]
         ),
@@ -1133,7 +1137,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
+                file_options=options.file_options,
                 async_options=async_options,
+                atomicity_options=options.atomicity_options,
+                temporary_path_class=options.temporary_path_class,
             ),
             handler_registry=handler_registry,
         ),
