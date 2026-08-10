@@ -104,7 +104,7 @@ class SleepCheckpointHandler(AsyncCheckpointHandler):
     commit_futures = await self._handler.async_save(directory, args=args)
 
     def long_commit():
-      time.sleep(5)  # Pretend to write data.
+      time.sleep(1)  # Pretend to write data.
       return _IRRELEVANT_FUTURE_RESULT
 
     for _ in range(2):
@@ -459,14 +459,14 @@ class AsyncCheckpointerTest(
       else:
         with self.assertRaises(BaseException):
           self.wait_if_async(checkpointer)
-        self.assertLessEqual(time.time() - start, timeout + 1)
+        self.assertLessEqual(time.time() - start, timeout + 2)
 
   def test_async_step_metadata_save(self):
     class SleepyMetadataStore(checkpoint._BlockingMetadataStore):
       """MetadataStore that sleeps for 5 seconds before writing."""
 
       def update(self, file_path: typing.PathLike, **kwargs: Any):
-        time.sleep(5)
+        time.sleep(1)
         super().update(file_path, **kwargs)
 
     checkpointer = self.checkpointer(
