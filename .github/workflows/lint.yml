@@ -2,7 +2,12 @@ name: Code Formatting & Lint Validation
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # `labeled` lets a maintainer re-trigger validation on a fork PR whose
+    # workflow-approval window has lapsed: apply the `recheck` label and a
+    # fresh run fires with the maintainer as the triggering actor. The
+    # label is removed again by the Auto Label PR workflow once the result
+    # is processed, so it can be re-applied for another run.
+    types: [opened, synchronize, reopened, labeled]
     branches:
       - main
 
@@ -12,15 +17,18 @@ permissions:
 jobs:
   style-check:
     runs-on: ubuntu-latest
-    if: github.actor != 'copybara-service[bot]'
+    if: >-
+      github.actor != 'copybara-service[bot]' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'recheck')
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           # This reads from .github-python-version (the minimum Python version that Orbax supports).
           python-version-file: '.github-python-version'
