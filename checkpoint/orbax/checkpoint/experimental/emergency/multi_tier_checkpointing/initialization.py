@@ -196,21 +196,37 @@ def _create_replicator_file(
     data_parallelism: int,
     node_rank: int,
     peer_ranks: List[int],
-    backup_interval_minutes: int,
+    backup_interval_minutes: Optional[int],
+    backup_interval_steps: Optional[int],
 ):
   """Creates a replicator file."""
   _validate_replicator_ranks(
       num_nodes=num_nodes, node_rank=node_rank, peer_ranks=peer_ranks
   )
+  if (backup_interval_minutes is None) == (backup_interval_steps is None):
+    raise ValueError(
+        'Exactly one of backup_interval_minutes or backup_interval_steps '
+        'must be specified.'
+    )
+  if backup_interval_minutes is not None and backup_interval_minutes <= 0:
+    raise ValueError('backup_interval_minutes must be > 0.')
+  if backup_interval_steps is not None and backup_interval_steps <= 0:
+    raise ValueError('backup_interval_steps must be > 0.')
+
   temp_file = epath.Path(file_path) / _TEMP_REPLICATOR_FILE_NAME
   replicator_file = epath.Path(file_path) / _REPLICATOR_FILE
+  backup_interval_yaml = (
+      f'backup-interval-minutes: {backup_interval_minutes}'
+      if backup_interval_minutes is not None
+      else f'backup-interval-steps: {backup_interval_steps}'
+  )
   replicator_yaml = f"""job-name: {run_name}
   framework: orbax
   assume-data-parallelism: {data_parallelism}
   node-rank: {node_rank}
   nodes: {num_nodes}
   peer-ranks: {peer_ranks}
-  backup-interval-minutes: {backup_interval_minutes}"""
+  {backup_interval_yaml}"""
   final_yaml = '\n'.join(
       line.strip() for line in replicator_yaml.split('\n')
   )
@@ -226,7 +242,8 @@ def _create_replicator_file(
 
 def _initialize_mtc_colocated(
     local_checkpoint_directory: epath.Path,
-    backup_interval_minutes: int,
+    backup_interval_minutes: Optional[int],
+    backup_interval_steps: Optional[int],
     num_slices: int,
     run_name: str,
     data_parallelism: int,
@@ -236,9 +253,12 @@ def _initialize_mtc_colocated(
   """Initializes multi-tier checkpointing with a colocated Python sidecar on all workers.
 
   Args:
-    local_checkpoint_directory: The local checkpoint directory on the
-      worker's filesystem.
-    backup_interval_minutes: The backup interval in minutes.
+    local_checkpoint_directory: The local checkpoint directory on the worker's
+      filesystem.
+    backup_interval_minutes: The backup interval in minutes. Exactly one of
+      `backup_interval_minutes` or `backup_interval_steps` must be specified.
+    backup_interval_steps: The backup interval in steps. Exactly one of
+      `backup_interval_minutes` or `backup_interval_steps` must be specified.
     num_slices: The number of slices.
     run_name: The run name.
     data_parallelism: The data parallelism.
@@ -351,6 +371,7 @@ def _initialize_mtc_colocated(
         node_rank=node_rank,
         peer_ranks=peer_ranks,
         backup_interval_minutes=backup_interval_minutes,
+        backup_interval_steps=backup_interval_steps,
     )
     _wait_for_replicator_file_to_disappear(
         loc_dir,
@@ -416,7 +437,8 @@ def _initialize_jax_from_mtc(
 def initialize_multi_tier_checkpointing(
     local_checkpoint_directory: epath.Path,
     *,
-    backup_interval_minutes: int = 30,
+    backup_interval_minutes: Optional[int] = None,
+    backup_interval_steps: Optional[int] = None,
     num_slices: Optional[int] = None,
     run_name: Optional[str] = None,
     data_parallelism: Optional[int] = None,
@@ -430,12 +452,16 @@ def initialize_multi_tier_checkpointing(
   Args:
     local_checkpoint_directory: The local checkpoint directory.
     backup_interval_minutes: The backup interval for the replicator service, in
-      minutes.
+      minutes. Exactly one of `backup_interval_minutes` or
+      `backup_interval_steps` must be specified.
+    backup_interval_steps: The backup interval for the replicator service, in
+      steps. Exactly one of `backup_interval_minutes` or `backup_interval_steps`
+      must be specified.
     num_slices: The number of slices.
     run_name: The name of the run.
-    data_parallelism: Number of identical pipelines in job, should be
-      equal to ICI data parallelism * DCN data parallelism. If not provided, it
-      will be inferred from the number of slices.
+    data_parallelism: Number of identical pipelines in job, should be equal to
+      ICI data parallelism * DCN data parallelism. If not provided, it will be
+      inferred from the number of slices.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
     use_mtc_process_ids: Use the MTC rank server to calculate process ids.
     use_colocated_python: Whether to use Colocated Python for initialization.
@@ -443,6 +469,11 @@ def initialize_multi_tier_checkpointing(
       useful when the caller has already filtered controller-visible devices,
       such as after an elastic restart.
   """
+  # Preserve previous default behavior where backup_interval_minutes defaulted
+  # to 30.
+  if backup_interval_minutes is None and backup_interval_steps is None:
+    backup_interval_minutes = 30
+
   run_name = run_name if run_name else os.environ.get('JOBSET_NAME')
   if not run_name:
     raise ValueError(
@@ -473,6 +504,7 @@ def initialize_multi_tier_checkpointing(
     _initialize_mtc_colocated(
         local_checkpoint_directory=local_checkpoint_directory,
         backup_interval_minutes=backup_interval_minutes,
+        backup_interval_steps=backup_interval_steps,
         num_slices=num_slices,  # pyrefly: ignore[bad-argument-type]
         run_name=run_name,
         data_parallelism=data_parallelism,  # pyrefly: ignore[bad-argument-type]
@@ -565,6 +597,7 @@ def initialize_multi_tier_checkpointing(
       node_rank=node_rank,
       peer_ranks=peer_ranks,
       backup_interval_minutes=backup_interval_minutes,
+      backup_interval_steps=backup_interval_steps,
   )
   _wait_for_replicator_file_to_disappear(
       local_checkpoint_directory,

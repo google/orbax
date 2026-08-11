@@ -100,6 +100,7 @@ class MultiTierCheckpointingInitializationTest(
         node_rank=0,
         peer_ranks=[1],
         backup_interval_minutes=10,
+        backup_interval_steps=None,
     )
     expected_replicator_data = {
         "job-name": "test-run",
@@ -115,6 +116,71 @@ class MultiTierCheckpointingInitializationTest(
     replicator_data = dict(yaml.safe_load(replicator_file.read_text()))
     self.assertDictEqual(replicator_data, expected_replicator_data)
 
+  def test_create_replicator_file_steps(self):
+    tmp_dir = self.create_tempdir().full_path
+    epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    replicator_file = epath.Path(tmp_dir) / initialization._REPLICATOR_FILE
+    self.assertFalse(replicator_file.exists())
+    initialization._create_replicator_file(
+        epath.Path(tmp_dir),
+        run_name="test-run",
+        num_nodes=2,
+        data_parallelism=1,
+        node_rank=0,
+        peer_ranks=[1],
+        backup_interval_minutes=None,
+        backup_interval_steps=100,
+    )
+    expected_replicator_data = {
+        "job-name": "test-run",
+        "framework": "orbax",
+        "assume-data-parallelism": 1,
+        "node-rank": 0,
+        "nodes": 2,
+        "peer-ranks": [1],
+        "backup-interval-steps": 100,
+    }
+
+    self.assertTrue(replicator_file.exists())
+    replicator_data = dict(yaml.safe_load(replicator_file.read_text()))
+    self.assertDictEqual(replicator_data, expected_replicator_data)
+
+  def test_create_replicator_file_rejects_both_intervals_set(self):
+    tmp_dir = self.create_tempdir().full_path
+    epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    with self.assertRaisesRegex(
+        ValueError,
+        "Exactly one of backup_interval_minutes or backup_interval_steps",
+    ):
+      initialization._create_replicator_file(
+          epath.Path(tmp_dir),
+          run_name="test-run",
+          num_nodes=2,
+          data_parallelism=1,
+          node_rank=0,
+          peer_ranks=[1],
+          backup_interval_minutes=10,
+          backup_interval_steps=100,
+      )
+
+  def test_create_replicator_file_rejects_neither_interval_set(self):
+    tmp_dir = self.create_tempdir().full_path
+    epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
+    with self.assertRaisesRegex(
+        ValueError,
+        "Exactly one of backup_interval_minutes or backup_interval_steps",
+    ):
+      initialization._create_replicator_file(
+          epath.Path(tmp_dir),
+          run_name="test-run",
+          num_nodes=2,
+          data_parallelism=1,
+          node_rank=0,
+          peer_ranks=[1],
+          backup_interval_minutes=None,
+          backup_interval_steps=None,
+      )
+
   def test_create_replicator_file_rejects_invalid_node_rank(self):
     tmp_dir = self.create_tempdir().full_path
     epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
@@ -127,6 +193,7 @@ class MultiTierCheckpointingInitializationTest(
           node_rank=-1,
           peer_ranks=[1],
           backup_interval_minutes=10,
+          backup_interval_steps=None,
       )
 
   def test_create_replicator_file_rejects_invalid_peer_rank(self):
@@ -141,6 +208,7 @@ class MultiTierCheckpointingInitializationTest(
           node_rank=0,
           peer_ranks=[2],
           backup_interval_minutes=10,
+          backup_interval_steps=None,
       )
 
   def test_block_and_process_restore_dir_success(self):
@@ -494,6 +562,7 @@ class MultiTierCheckpointingInitializationTest(
         data_parallelism=1,
         use_colocated_python=True,
         backup_interval_minutes=15,
+        backup_interval_steps=None,
         devices=None,
     )
 
@@ -501,6 +570,7 @@ class MultiTierCheckpointingInitializationTest(
     mock_init_mtc_colocated.assert_called_once_with(
         local_checkpoint_directory=tmp_dir_path,
         backup_interval_minutes=15,
+        backup_interval_steps=None,
         num_slices=1,
         run_name="test-colocated-run",
         data_parallelism=1,
@@ -536,6 +606,7 @@ class MultiTierCheckpointingInitializationTest(
     mock_init_mtc_colocated.assert_called_once_with(
         local_checkpoint_directory=tmp_dir_path,
         backup_interval_minutes=30,
+        backup_interval_steps=None,
         num_slices=1,
         run_name="test-colocated-run",
         data_parallelism=1,
@@ -579,6 +650,7 @@ class MultiTierCheckpointingInitializationTest(
     mock_init_mtc_colocated.assert_called_once_with(
         local_checkpoint_directory=tmp_dir_path,
         backup_interval_minutes=30,
+        backup_interval_steps=None,
         num_slices=8,
         run_name="test-colocated-run",
         data_parallelism=8,
@@ -607,6 +679,7 @@ class MultiTierCheckpointingInitializationTest(
     mock_init_mtc_colocated.assert_called_once_with(
         local_checkpoint_directory=tmp_dir_path,
         backup_interval_minutes=30,
+        backup_interval_steps=None,
         num_slices=8,
         run_name="test-colocated-run",
         data_parallelism=8,
@@ -635,6 +708,7 @@ class MultiTierCheckpointingInitializationTest(
     mock_init_mtc_colocated.assert_called_once_with(
         local_checkpoint_directory=tmp_dir_path,
         backup_interval_minutes=30,
+        backup_interval_steps=None,
         num_slices=2,
         run_name="test-colocated-run",
         data_parallelism=2,
@@ -767,6 +841,7 @@ class MultiTierCheckpointingInitializationTest(
       initialization._initialize_mtc_colocated(
           local_checkpoint_directory=epath.Path("/tmp/mtc"),
           backup_interval_minutes=15,
+          backup_interval_steps=None,
           num_slices=2,
           run_name="test-run",
           data_parallelism=1,
