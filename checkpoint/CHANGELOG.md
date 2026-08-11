@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-08-11
+
 ### Added
 
 - Add `AtomicityOptions` and `AtomicityMode` (`AUTO`, `COMMIT_FILE`,
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `allow_legacy_atomic_rename` option to `AtomicityOptions` to opt into
   legacy fallback validation when reading legacy `AtomicRename` checkpoints
   missing `commit_success.txt`.
+- Add `multi_tier_checkpointing_backup_interval_steps` parameter
 
 ### Changed
 
