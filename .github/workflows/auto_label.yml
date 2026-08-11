@@ -33,6 +33,21 @@ jobs:
             const issue_number = pr.number;
             const conclusion = context.payload.workflow_run.conclusion;
 
+            // Consume the `recheck` trigger label (if this run came from one)
+            // so it can be re-applied to fire another validation run.
+            if (pr.labels.some(label => label.name === 'recheck')) {
+              try {
+                await github.rest.issues.removeLabel({
+                  issue_number: issue_number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'recheck',
+                });
+              } catch (e) {
+                console.log(`Could not remove recheck label: ${e.message}`);
+              }
+            }
+
             if (conclusion === 'failure') {
               console.log('Lint workflow failed. Posting guidance advice comment.');
               await github.rest.issues.createComment({
