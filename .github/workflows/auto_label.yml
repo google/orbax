@@ -1,7 +1,10 @@
 name: Auto Label PR
 
 on:
-  workflow_run:
+  # Safe use of workflow_run: this workflow never checks out or executes
+  # code from the triggering PR; it only calls the GitHub API to label,
+  # comment, and clean up.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: ["Code Formatting & Lint Validation"]
     types:
       - completed
@@ -16,7 +19,7 @@ jobs:
     if: github.actor != 'copybara-service[bot]'
     steps:
       - name: Process Verification Outcome & Manage Dialogue
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const pulls = await github.rest.pulls.list({
