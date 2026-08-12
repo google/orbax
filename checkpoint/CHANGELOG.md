@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-08-12
+
+### Fixed
+
+- Fix Pathways colocated typed-key transport and post-restore reconstruction for JAX 0.10.2 / PRNGKeyArray.
+
 ## [0.12.3] - 2026-08-11
 
 ### Added
