@@ -14,6 +14,8 @@
 
 # pylint: disable=missing-module-docstring,missing-class-docstring,missing-function-docstring,too-few-public-methods
 
+import pickle
+import threading
 from unittest import mock
 
 from absl.testing import absltest
@@ -25,6 +27,18 @@ import numpy as np
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.multihost import colocated_transport
 from orbax.checkpoint._src.serialization import type_handlers
+
+
+class _LockingCallable:
+
+  def __init__(self):
+    self._lock = threading.Lock()
+
+  def __call__(self, value):
+    return value
+
+  def __reduce__(self):
+    return type(self), ()
 
 
 class ColocatedTransportTest(absltest.TestCase):
@@ -123,6 +137,74 @@ class ColocatedTransportTest(absltest.TestCase):
     self.assertEqual(spec.shape, self.arr.shape)
     self.assertEqual(spec.dtype, self.arr.dtype)
     self.assertIs(spec.sharding, self.arr.sharding)
+
+  def test_shape_dtype_struct_preserves_prng_dtype_when_supported(self):
+    key = jax.random.key(0)
+    with mock.patch.object(
+        colocated_transport,
+        '_original_make_prng_wrapped_fun',
+        mock.sentinel.make_prng_wrapped_fun,
+    ):
+      spec = colocated_transport.shape_dtype_struct_for_array(key)
+
+    self.assertEqual(spec.shape, key.shape)
+    self.assertEqual(spec.dtype, key.dtype)
+    self.assertIs(spec.sharding, key.sharding)
+
+  def test_shape_dtype_struct_uses_legacy_prng_representation(self):
+    key = jax.random.key(0)
+    key_data = jax.random.key_data(key)
+    with mock.patch.object(
+        colocated_transport, '_original_make_prng_wrapped_fun', None
+    ):
+      spec = colocated_transport.shape_dtype_struct_for_array(key)
+
+    self.assertEqual(spec.shape, key_data.shape)
+    self.assertEqual(spec.dtype, key_data.dtype)
+
+  def test_prng_wrapper_drops_only_redundant_lock_copy(self):
+
+    def make_wrapper(fun, unused_in_info, unused_out_info):
+      def wrapped(*args, **kwargs):
+        return fun(*args, **kwargs)
+
+      wrapped.__dict__.update(fun.__dict__)
+      setattr(wrapped, '__wrapped__', fun)
+      return wrapped
+
+    fun = _LockingCallable()
+    with mock.patch.object(
+        colocated_transport,
+        '_original_make_prng_wrapped_fun',
+        make_wrapper,
+    ):
+      make_prng_wrapper = getattr(
+          colocated_transport,
+          '_make_prng_wrapped_fun_without_copied_lock',
+      )
+      wrapped = make_prng_wrapper(fun, {}, {})
+
+    self.assertNotIn('_lock', wrapped.__dict__)
+    self.assertIs(getattr(wrapped, '__wrapped__'), fun)
+    serialize = getattr(cp_serialization, '_serialize')
+    deserialize = getattr(cp_serialization, '_deserialize')
+    restored = deserialize(serialize(wrapped))
+    self.assertEqual(restored(7), 7)
+
+  def test_jax_prng_wrapper_serializes_locking_callable(self):
+    original_wrapper = getattr(
+        colocated_transport, '_original_make_prng_wrapped_fun'
+    )
+    if original_wrapper is None:
+      self.skipTest('Installed JAX has no colocated PRNG wrapper.')
+
+    make_prng_wrapper = getattr(
+        colocated_transport,
+        '_make_prng_wrapped_fun_without_copied_lock',
+    )
+    wrapped = make_prng_wrapper(_LockingCallable(), {}, {})
+
+    getattr(cp_serialization, '_serialize')(wrapped)
 
   def test_zeros_like_spec(self):
     spec = jax.ShapeDtypeStruct(
@@ -312,6 +394,8 @@ class ColocatedTransportTest(absltest.TestCase):
         patched_get_cpu_device_map,
         cp_serialization._get_cpu_device_map,  # pylint: disable=protected-access
     )
+    with self.assertRaises(TypeError):
+      pickle.dumps(threading.Lock())
 
 
 if __name__ == '__main__':

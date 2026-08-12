@@ -14,7 +14,7 @@
 
 """Helpers for transporting values through colocated Python."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import functools
 import re
@@ -24,16 +24,33 @@ from typing import Any, cast
 from absl import logging
 import jax
 import jax.experimental.colocated_python as cp
+from jax.experimental.colocated_python import func as cp_func
 from jax.experimental.colocated_python import serialization as cp_serialization
 import numpy as np
 from orbax.checkpoint._src.arrays import abstract_arrays
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.serialization import jax_array_restore_args
 
-
 PyTree = Any
 _PATHWAYS_SERIALIZATION_PATCH_INSTALLED = False
 _PJRT_IFRT_DEVICE_ID_RE = re.compile(r'PjRtIFRTDeviceId=(\d+)')
+_original_make_prng_wrapped_fun = getattr(
+    cp_func, '_make_prng_wrapped_fun', None
+)
+
+
+def _make_prng_wrapped_fun_without_copied_lock(
+    fun: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> Callable[..., Any]:
+  """Calls JAX's PRNG wrapper without retaining its redundant lock copy."""
+  assert _original_make_prng_wrapped_fun is not None
+  wrapped_fun = _original_make_prng_wrapped_fun(fun, *args, **kwargs)
+  lock = getattr(fun, '_lock', None)
+  if lock is not None and wrapped_fun.__dict__.get('_lock') is lock:
+    del wrapped_fun.__dict__['_lock']
+  return wrapped_fun
 
 
 def _to_serializable_cpu_device(device: jax.Device) -> jax.Device:
@@ -271,6 +288,13 @@ def install_pathways_colocated_serialization_patch() -> None:
   cp_serialization._reduce_device_list = _orbax_reduce_device_list  # pylint: disable=protected-access
   cp_serialization._reduce_single_device_sharding = _orbax_reduce_single_device_sharding  # pylint: disable=protected-access
   cp_serialization._get_cpu_device_map = _get_cpu_device_map  # pylint: disable=protected-access
+  if _original_make_prng_wrapped_fun is not None:
+    # JAX's PRNG wrapper copies MethodCallerAtBackend._lock onto an internal
+    # function even though the callable already defines its own pickle state.
+    cp_func._make_prng_wrapped_fun = (  # pylint: disable=protected-access
+        _make_prng_wrapped_fun_without_copied_lock
+    )
+
   _PATHWAYS_SERIALIZATION_PATCH_INSTALLED = True
 
 
@@ -459,7 +483,17 @@ def to_final_specs(
 
 
 def shape_dtype_struct_for_array(array: jax.Array) -> jax.ShapeDtypeStruct:
-  """Builds a ShapeDtypeStruct from a jax.Array."""
+  """Builds a ShapeDtypeStruct compatible with colocated Python."""
+  # JAX versions with typed-PRNG transport need the logical key dtype so they
+  # can convert it to the physical uint32 representation before IFRT dispatch.
+  if _original_make_prng_wrapped_fun is not None and jax.dtypes.issubdtype(
+      array.dtype, jax.dtypes.prng_key
+  ):
+    return jax.ShapeDtypeStruct(
+        shape=array.shape,
+        dtype=array.dtype,
+        sharding=array.sharding,
+    )
   return cast(
       jax.ShapeDtypeStruct, abstract_arrays.to_shape_dtype_struct(array)  # pyrefly: ignore[bad-argument-type]
   )

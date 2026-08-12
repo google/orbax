@@ -1853,6 +1853,43 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
 
     controller._worker_manager.restore_infer.specialize.assert_not_called()
 
+  def test_restore_rewraps_physical_prng_key_data(self):
+    controller, sharding = self._make_controller_for_restore()
+    key = jax.random.key(7, impl='unsafe_rbg')
+    key_data = jax.random.key_data(key)
+    restored_cpu_state = {
+        'key': jax.device_put(key_data, sharding),
+    }
+    template_state = {
+        'key': jax.ShapeDtypeStruct((), key.dtype, sharding=sharding),
+    }
+    restore_args = {
+        'key': type_handlers.ArrayRestoreArgs(
+            sharding=sharding,
+            global_shape=(),
+            dtype=key.dtype,
+        ),
+    }
+    self._set_worker_restore_result(controller, return_value=restored_cpu_state)
+
+    result = controller.restore(
+        7,
+        args_lib.Composite(
+            state=args_lib.PyTreeRestore(
+                item=template_state,
+                restore_args=restore_args,
+            )
+        ),
+        default_item_mode=True,
+    )
+
+    self.assertEqual(result['key'].shape, key.shape)
+    self.assertEqual(result['key'].dtype, key.dtype)
+    np.testing.assert_array_equal(
+        np.asarray(jax.random.key_data(result['key'])),
+        np.asarray(key_data),
+    )
+
   def test_restore_rejects_shape_mismatch_before_final_remap(self):
     controller, sharding = self._make_controller_for_restore()
     mesh = sharding.mesh

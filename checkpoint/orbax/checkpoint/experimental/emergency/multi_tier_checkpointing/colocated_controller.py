@@ -584,6 +584,40 @@ def _validate_restored_shape_dtype(
       )
 
 
+def _restore_typed_prng_keys(
+    restored_state: PyTree,
+    template_state: PyTree,
+) -> PyTree:
+  """Rewraps physical PRNG key data according to the caller template."""
+  restored_leaves, restored_treedef = jax.tree.flatten(restored_state)
+  template_leaves = jax.tree.leaves(
+      template_state, is_leaf=_is_restore_spec_leaf
+  )
+  if len(restored_leaves) != len(template_leaves):
+    return restored_state
+
+  for index, template_leaf in enumerate(template_leaves):
+    restored_leaf = restored_leaves[index]
+    expected = _expected_leaf_from_template(template_leaf)
+    if (
+        expected is None
+        or expected.dtype is None
+        or not isinstance(restored_leaf, jax.Array)
+        or not jax.dtypes.issubdtype(expected.dtype, jax.dtypes.prng_key)
+        or jax.dtypes.issubdtype(restored_leaf.dtype, jax.dtypes.prng_key)
+    ):
+      continue
+
+    # `wrap_key_data(dtype=...)` is newer than the JAX versions supported by
+    # this experimental path. KeyTy._impl is accepted by both old and new JAX.
+    restored_leaves[index] = jax.random.wrap_key_data(
+        restored_leaf,
+        impl=getattr(expected.dtype, '_impl'),
+    )
+
+  return jax.tree.unflatten(restored_treedef, restored_leaves)
+
+
 def _validate_restore_template_compatibility(
     *,
     item: PyTree,
@@ -1073,6 +1107,7 @@ class ColocatedController:
         else state_restore_args.restore_args
     )
     state = self._rebuild_restored_state(result, rebuild_template)
+    state = _restore_typed_prng_keys(state, rebuild_template)
     _validate_restored_shape_dtype(
         restored_state=state, template_state=rebuild_template
     )
