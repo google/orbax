@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Detect GCSFuse mounts in `AUTO` atomicity mode and use the commit-file
+  protocol for them instead of atomic rename.
+
+### Changed
+
+- Warn whenever `ATOMIC_RENAME` is explicitly requested for a GCS or GCSFuse
+  path.
+- On GCSFuse paths in `AUTO` mode, validation now requires
+  `commit_success.txt` like direct GCS. Checkpoints written by Orbax versions
+  that predate the marker need `allow_legacy_atomic_rename=True` or a
+  one-time `commit_success.txt` stamp; otherwise they are treated as
+  in-progress saves and may be cleaned up.
+
 ## [0.12.4] - 2026-08-12
 
 ### Fixed

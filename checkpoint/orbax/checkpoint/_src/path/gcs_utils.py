@@ -18,14 +18,76 @@ import functools
 import os
 import pathlib
 from urllib import parse
+
 from absl import logging
 from etils import epath
 
 _GCS_PATH_PREFIX = ('gs://',)
 
+_MOUNTS_FILE = '/proc/mounts'
+_GCSFUSE_FSTYPES = ('fuse.gcsfuse', 'gcsfuse')
+# Octal escapes used by the kernel for whitespace in mount table fields.
+_MOUNT_POINT_ESCAPES = (
+    ('\\040', ' '),
+    ('\\011', '\t'),
+    ('\\012', '\n'),
+    ('\\134', '\\'),
+)
+
 
 def is_gcs_path(path: pathlib.PurePosixPath) -> bool:
   return path.as_posix().startswith(_GCS_PATH_PREFIX)
+
+
+def _unescape_mount_point(mount_point: str) -> str:
+  for escape, char in _MOUNT_POINT_ESCAPES:
+    mount_point = mount_point.replace(escape, char)
+  return mount_point
+
+
+@functools.lru_cache(maxsize=1)
+def _mount_table() -> tuple[tuple[str, str], ...]:
+  """Returns (mount_point, fstype) pairs, or () if the table is unreadable."""
+  try:
+    with open(_MOUNTS_FILE, 'rt') as f:
+      lines = f.read().splitlines()
+  except OSError:
+    return ()
+  table = []
+  for line in lines:
+    fields = line.split()
+    if len(fields) >= 3:
+      table.append((_unescape_mount_point(fields[1]), fields[2]))
+  return tuple(table)
+
+
+def is_gcsfuse_path(path: epath.PathLike) -> bool:
+  """Returns whether `path` resides on a GCSFuse mount.
+
+  The system mount table is read once per process and cached, so mounts
+  established after the first call are not detected.
+
+  Args:
+    path: A local filesystem path. URI-style paths (e.g. `gs://...`) are never
+      considered GCSFuse paths.
+
+  Returns:
+    True if the deepest mount containing `path` is a GCSFuse filesystem.
+  """
+  path_str = os.fspath(path)
+  if '://' in path_str:
+    return False
+  resolved = os.path.realpath(path_str)
+  best_mount_point = ''
+  best_fstype = ''
+  for mount_point, fstype in _mount_table():
+    if resolved == mount_point or resolved.startswith(
+        mount_point.rstrip('/') + '/'
+    ):
+      if len(mount_point) > len(best_mount_point):
+        best_mount_point = mount_point
+        best_fstype = fstype
+  return best_fstype in _GCSFUSE_FSTYPES
 
 
 def parse_gcs_path(path: epath.PathLike) -> tuple[str, str]:
