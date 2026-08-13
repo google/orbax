@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'google/orbax'
     steps:
-    - uses: etils-actions/pypi-auto-publish@v1
+    - uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
       with:
         pypi-token: skip  # Skips PyPI upload
         # Omitting gh-token skips GitHub release creation
