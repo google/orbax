@@ -20,7 +20,7 @@ jobs:
     - uses: etils-actions/pypi-auto-publish@v1
       with:
         pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
-        gh-token: ${{ secrets.GH_PUBLISH_TOKEN }}
+        gh-token: ${{ secrets.GITHUB_TOKEN }}
         path: "./checkpoint/"
         pkg-name: orbax-checkpoint
         parse-changelog: true
