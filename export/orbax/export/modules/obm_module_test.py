@@ -38,7 +38,7 @@ def _linear(params, inputs):
 
 class ObmModuleTest(parameterized.TestCase):
 
-  def assertHasAttr(self, obj, attr_name):
+  def assertHasAttr(self, obj, attr_name):  # pyrefly: ignore[bad-override]
     self.assertTrue(
         hasattr(obj, attr_name),
         msg=f'Object (of type {type(obj)}) does not have attribute {attr_name}',
