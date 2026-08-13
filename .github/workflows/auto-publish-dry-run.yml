@@ -7,6 +7,8 @@ jobs:
   dry-run-checkpoint-job:
     runs-on: ubuntu-latest
     if: github.repository == 'google/orbax'
+    permissions:
+      contents: read
     steps:
     - uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
       with:
