@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
 from absl import flags
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.checkpointers import checkpointer_test_utils
@@ -28,6 +29,30 @@ class CheckpointerTest(
 
   def checkpointer(self, handler, **kwargs):
     return checkpointer_lib.Checkpointer(handler, **kwargs)
+
+  def test_save_metrics(self):
+    handler = checkpointer_test_utils.PyTreeCheckpointHandler()
+    checkpointer = self.checkpointer(handler)
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record_duration:
+      checkpointer.save(
+          self.directory,
+          args=checkpointer_test_utils.args.PyTreeSave(self.pytree),
+      )
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      self.assertIn(
+          '/jax/orbax/write/blocking_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/blocking_tree_map_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/blocking_d2h_duration_secs', recorded_metrics
+      )
+    checkpointer.close()
 
 
 if __name__ == '__main__':

@@ -270,8 +270,13 @@ class Checkpointer(
         processes=self._active_processes,
     )
     blocking_end_time = time.time()
+    blocking_duration_secs = blocking_end_time - checkpoint_start_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/blocking_duration_secs',
+        blocking_duration_secs,
+    )
     operation_recorder.record_blocking_completion(
-        blocking_end_time - checkpoint_start_time,
+        blocking_duration_secs,
         blocking_end_time,
     )
 

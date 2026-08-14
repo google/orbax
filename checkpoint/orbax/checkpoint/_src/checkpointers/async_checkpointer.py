@@ -105,7 +105,7 @@ def _background_wait_for_commit_futures(
       commit_duration_secs,
   )
   jax.monitoring.record_event_duration_secs(
-      '/jax/orbax/write/async/tensorstore_duration_secs',
+      '/jax/orbax/write/background_ts_duration_secs',
       commit_duration_secs,
   )
 
@@ -159,6 +159,10 @@ def _background_wait_for_commit_futures(
   thread_duration_secs = time.time() - thread_start_time
   jax.monitoring.record_event_duration_secs(
       '/jax/checkpoint/write/async/thread_duration_sec',
+      thread_duration_secs,
+  )
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/background_duration_secs',
       thread_duration_secs,
   )
   logging.info(
@@ -484,7 +488,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
           checkpoint_start_time,
       )
       jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/async/finalize_duration_secs',
+          '/jax/orbax/write/background_finalize_secs',
           time.time() - finalize_start_time,
       )
       operation_recorder = event_tracking.OperationRecorder(
@@ -605,7 +609,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     )
     operation_recorder.record_start(start_time=checkpoint_start_time)
     tmpdir = self.get_temporary_path(directory)
+    wait_prev_start_time = time.perf_counter()
     self.wait_until_finished()
+    wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/blocking_wait_prev_duration_secs',
+        wait_prev_duration_secs,
+    )
     self.synchronize_next_awaitable_signal_operation_id()
     on_commit_callback = self._make_on_commit_callback(
         tmpdir, custom_metadata, checkpoint_start_time
@@ -619,8 +629,13 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         )
     )
     blocking_end_time = time.time()
+    blocking_duration_secs = blocking_end_time - checkpoint_start_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/blocking_duration_secs',
+        blocking_duration_secs,
+    )
     operation_recorder.record_blocking_completion(
-        blocking_end_time - checkpoint_start_time,
+        blocking_duration_secs,
         end_time=blocking_end_time,
     )
     self._async_manager.start_async_commit(
