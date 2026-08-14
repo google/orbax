@@ -134,12 +134,12 @@ class OperationRecorder:
                 duration_secs,
             )
             jax.monitoring.record_event_duration_secs(
-                '/jax/orbax/write/async/blocking_duration_secs',
+                '/jax/orbax/write/blocking_duration_secs',
                 duration_secs,
                 storage_type=self._storage_type,
             )
             jax.monitoring.record_scalar(
-                '/jax/orbax/write/async/blocking_end_time',
+                '/jax/orbax/write/blocking_end_time',
                 _seconds_to_milliseconds(end_time),
                 storage_type=self._storage_type,
             )

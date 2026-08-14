@@ -64,7 +64,7 @@ async def _create_paths(
         directory_creation_secs,
     )
     jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/async_directory_creation_secs',
+        '/jax/orbax/write/background_dir_init_secs',
         directory_creation_secs,
     )
     logging.vlog(
