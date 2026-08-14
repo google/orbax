@@ -19,6 +19,7 @@ from typing import Any
 import unittest
 from unittest import mock
 
+from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
