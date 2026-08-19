@@ -343,6 +343,7 @@ class _TemporaryPathAwaitingCreation:
       subdirectories: Iterable[str],
       *,
       snapshot_type: snapshot_lib.SnapshotType | None,
+      blocking_creation: bool,
   ):
     self._temporary_path = saving_path_utils.get_temporary_path(
         path,
@@ -353,6 +354,7 @@ class _TemporaryPathAwaitingCreation:
         path_async_utils.PathAwaitingCreation.build(
             self._temporary_path,
             subdirectories,
+            blocking_creation=blocking_creation,
         )
     )
     assert (
@@ -408,6 +410,9 @@ def save_checkpointables_impl(
       path,
       subdirectories=checkpointables.keys(),
       snapshot_type=snapshot_type,
+      blocking_creation=_should_create_directories_synchronously(
+          context, partial_save
+      ),
   )
   background_awaitable = asyncio_utils.run_sync(
       _run_blocking_save(

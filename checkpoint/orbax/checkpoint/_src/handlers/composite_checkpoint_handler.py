@@ -1050,7 +1050,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
       handler.finalize(tmp_dir.get())
       asyncio_utils.run_sync(tmp_dir.finalize())
       jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/async/item_finalize_duration_secs',
+          '/jax/orbax/write/background_item_finalize_secs',
           time.time() - item_finalize_start_time,
       )
 

@@ -1172,6 +1172,26 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
     self.assertIn('datasets', step_metadata.item_metadata)
     self.assertIsNone(step_metadata.item_metadata['datasets'])
 
+  def test_finalize_metric(self):
+    handler = CompositeCheckpointHandler(state=StandardCheckpointHandler())
+    state = {'a': 1, 'b': 2}
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record_duration:
+      self.save(
+          handler,
+          self.directory,
+          CompositeArgs(
+              state=args_lib.StandardSave(state),
+          ),
+      )
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      self.assertIn(
+          '/jax/orbax/write/background_item_finalize_secs', recorded_metrics
+      )
+
 
 if __name__ == '__main__':
   absltest.main()

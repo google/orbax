@@ -512,6 +512,44 @@ class AsyncCheckpointerTest(
 
   # TODO(nikhilbansall): Open source this test.
 
+  def test_save_metrics(self):
+    handler = PyTreeCheckpointHandler()
+    checkpointer = AsyncCheckpointer(handler)
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record_duration:
+      checkpointer.save(
+          self.directory, args=PyTreeSaveArgs(item=self.pytree)
+      )
+      checkpointer.wait_until_finished()
+
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      if multihost.is_primary_host(checkpointer._primary_host):
+        self.assertIn(
+            '/jax/orbax/write/async/blocking_duration_secs', recorded_metrics
+        )
+        self.assertIn(
+            '/jax/orbax/write/background_finalize_secs', recorded_metrics
+        )
+      self.assertIn(
+          '/jax/orbax/write/blocking_wait_prev_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/blocking_tree_map_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/blocking_d2h_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/background_ts_duration_secs', recorded_metrics
+      )
+      self.assertIn(
+          '/jax/orbax/write/background_duration_secs', recorded_metrics
+      )
+    checkpointer.close()
+
 
 if __name__ == '__main__':
   multiprocess_test.main()

@@ -42,6 +42,7 @@ async def _create_paths(
     context: context_lib.Context,
     operation_id: str,
     completion_signals: Sequence[synchronization.HandlerAwaitableSignal],
+    blocking_creation: bool = False,
 ):
   """Creates :py:class:`.`TemporaryPath` and subdirectories."""
   active_processes = context.multiprocessing_options.active_processes
@@ -59,6 +60,13 @@ async def _create_paths(
     ]
     await asyncio.gather(*subdir_ops)
     directory_creation_secs = time.time() - start
+    operation_type = (
+        'blocking' if blocking_creation else 'background'
+    )
+    jax.monitoring.record_event_duration_secs(
+        f'/jax/orbax/write/{operation_type}_directory_creation_secs',
+        directory_creation_secs,
+    )
     jax.monitoring.record_event_duration_secs(
         '/jax/orbax/write/directory_creation_secs',
         directory_creation_secs,
@@ -220,6 +228,7 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
       cls,
       path: TemporaryPath,
       subdirectories: Iterable[str],
+      blocking_creation: bool = False,
   ) -> PathAwaitingCreation:
     # TODO(b/407609827): V0 TypeHandler implementations, which are still used on
     # the saving path, do not have knowledge of the `PathAwaitingCreation`, and
@@ -238,5 +247,6 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
         context=context_lib.get_context(),
         operation_id=synchronization.get_operation_id(),
         completion_signals=completion_signals,
+        blocking_creation=blocking_creation,
     )
     return cls(path.get(), awaitable)

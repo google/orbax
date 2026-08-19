@@ -270,8 +270,9 @@ class Checkpointer(
         processes=self._active_processes,
     )
     blocking_end_time = time.time()
+    blocking_duration_secs = blocking_end_time - checkpoint_start_time
     operation_recorder.record_blocking_completion(
-        blocking_end_time - checkpoint_start_time,
+        blocking_duration_secs,
         blocking_end_time,
     )
 

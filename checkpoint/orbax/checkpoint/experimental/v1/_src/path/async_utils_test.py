@@ -230,6 +230,63 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await p.await_creation()
     await self.assertExists(self.directory / 'tmp')
 
+  async def test_directory_creation_metrics(self):
+    await synchronization.synchronize_next_operation_id()
+    tmpdir_blocking = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_blocking', self.directory / 'final_blocking'
+    )
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record:
+      p_blocking = async_utils.PathAwaitingCreation.build(
+          tmpdir_blocking,
+          [],
+          blocking_creation=True,
+      )
+      await p_blocking.create()
+      await p_blocking.await_creation()
+
+      mock_record.assert_any_call(
+          '/jax/orbax/write/blocking_directory_creation_secs',
+          mock.ANY,
+      )
+      mock_record.assert_any_call(
+          '/jax/orbax/write/directory_creation_secs',
+          mock.ANY,
+      )
+      mock_record.assert_any_call(
+          '/jax/orbax/write/async_directory_creation_secs',
+          mock.ANY,
+      )
+
+    tmpdir_bg = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_bg', self.directory / 'final_bg'
+    )
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record:
+      p_bg = async_utils.PathAwaitingCreation.build(
+          tmpdir_bg,
+          [],
+          blocking_creation=False,
+      )
+      await p_bg.create()
+      await p_bg.await_creation()
+
+      mock_record.assert_any_call(
+          '/jax/orbax/write/background_directory_creation_secs',
+          mock.ANY,
+      )
+      mock_record.assert_any_call(
+          '/jax/orbax/write/directory_creation_secs',
+          mock.ANY,
+      )
+      mock_record.assert_any_call(
+          '/jax/orbax/write/async_directory_creation_secs',
+          mock.ANY,
+      )
+
 
 if __name__ == '__main__':
   absltest.main()
+

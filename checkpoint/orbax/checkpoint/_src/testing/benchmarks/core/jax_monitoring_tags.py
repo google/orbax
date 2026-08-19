@@ -51,6 +51,18 @@ TAG_MAP: dict[str, tuple[str, str]] = {
         "2_save_breakdown/async_directory_creation_s",
         "s",
     ),
+    "/jax/orbax/write/blocking_directory_creation_secs": (
+        "2_save_breakdown/blocking_directory_creation_s",
+        "s",
+    ),
+    "/jax/orbax/write/background_directory_creation_secs": (
+        "2_save_breakdown/background_directory_creation_s",
+        "s",
+    ),
+    "/jax/orbax/write/background_item_finalize_secs": (
+        "2_save_breakdown/background_item_finalize_s",
+        "s",
+    ),
     "/jax/checkpoint/write/async/metadata_write_duration_secs": (
         "2_save_breakdown/metadata_write_s",
         "s",
