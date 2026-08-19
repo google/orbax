@@ -420,8 +420,6 @@ class _SignalingThread(threading.Thread):
       )
     start_time = time.time()
     while self.is_alive():
-      if self._cancelled:
-        raise concurrent.futures.CancelledError()
       if timeout is not None:
         elapsed = time.time() - start_time
         if elapsed >= timeout:
