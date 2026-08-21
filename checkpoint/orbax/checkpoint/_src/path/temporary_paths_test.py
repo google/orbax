@@ -13,14 +13,17 @@
 # limitations under the License.
 
 import asyncio
-from typing import Type
 import unittest
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path import temporary_paths
 
 
@@ -37,7 +40,7 @@ class TemporaryPathsTest(
       (atomicity.CommitFileTemporaryPath,),
   )
   async def test_temporary_path(
-      self, tmp_path_cls: Type[atomicity_types.TemporaryPath]
+      self, tmp_path_cls: type[atomicity_types.TemporaryPath]
   ):
     tmp_path = tmp_path_cls.from_final(self.directory / 'ckpt')
     await tmp_path.create()
@@ -57,7 +60,7 @@ class TemporaryPathsTest(
       (atomicity.CommitFileTemporaryPath,),
   )
   async def test_finalized_path(
-      self, tmp_path_cls: Type[atomicity_types.TemporaryPath]
+      self, tmp_path_cls: type[atomicity_types.TemporaryPath]
   ):
     tmp_path = tmp_path_cls.from_final(self.directory / 'ckpt')
     await tmp_path.create()
@@ -138,7 +141,7 @@ class TemporaryPathsTest(
       (atomicity.CommitFileTemporaryPath,),
   )
   async def test_all_temporary_paths(
-      self, tmp_path_cls: Type[atomicity_types.TemporaryPath]
+      self, tmp_path_cls: type[atomicity_types.TemporaryPath]
   ):
     num_paths = 3
     tmp_paths = [
@@ -172,7 +175,7 @@ class TemporaryPathsTest(
       (atomicity.CommitFileTemporaryPath,),
   )
   async def test_cleanup_temporary_paths(
-      self, tmp_path_cls: Type[atomicity_types.TemporaryPath]
+      self, tmp_path_cls: type[atomicity_types.TemporaryPath]
   ):
     num_paths = 3
     tmp_paths = [
@@ -196,6 +199,83 @@ class TemporaryPathsTest(
         self.assertTrue(await async_path.exists(path.get_final()))
       else:
         self.assertFalse(await async_path.exists(path.get_final()))
+
+
+class LegacyAtomicRenameFallbackTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir('ckpt').full_path)
+
+  async def _create_legacy_finalized(self, name: str) -> epath.Path:
+    """Creates a finalized rename-style checkpoint without a commit marker."""
+    tmp_path = atomicity.AtomicRenameTemporaryPath.from_final(
+        self.directory / name
+    )
+    await tmp_path.create()
+    await tmp_path.finalize()
+    final_path = tmp_path.get_final()
+    (final_path / atomicity_types.COMMIT_SUCCESS_FILE).unlink()
+    return final_path
+
+  @parameterized.parameters(
+      (None,),
+      (options_lib.AtomicityOptions(),),
+      (
+          options_lib.AtomicityOptions(
+              mode=options_lib.AtomicityMode.COMMIT_FILE
+          ),
+      ),
+  )
+  async def test_gcsfuse_does_not_read_legacy_checkpoint_without_flag(
+      self, atomicity_options
+  ):
+    final_path = await self._create_legacy_finalized('step_1')
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=True):
+      self.assertFalse(
+          await temporary_paths.is_path_finalized(
+              final_path, atomicity_options=atomicity_options
+          )
+      )
+      # Without the marker the directory reads as an in-progress commit-file
+      # save, so cleanup passes will remove it.
+      self.assertTrue(
+          await temporary_paths.is_path_temporary(
+              final_path, atomicity_options=atomicity_options
+          )
+      )
+
+  async def test_gcsfuse_treats_rename_tmp_dir_as_temporary(self):
+    tmp_path = atomicity.AtomicRenameTemporaryPath.from_final(
+        self.directory / 'step_1'
+    )
+    await tmp_path.create()
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=True):
+      self.assertTrue(await temporary_paths.is_path_temporary(tmp_path.get()))
+      self.assertFalse(await temporary_paths.is_path_finalized(tmp_path.get()))
+
+  @parameterized.parameters((True,), (False,))
+  async def test_explicit_flag_enables_fallback(self, gcsfuse_detected):
+    final_path = await self._create_legacy_finalized('step_1')
+    atomicity_options = options_lib.AtomicityOptions(
+        mode=options_lib.AtomicityMode.COMMIT_FILE,
+        allow_legacy_atomic_rename=True,
+    )
+    with mock.patch.object(
+        gcs_utils, 'is_gcsfuse_path', return_value=gcsfuse_detected
+    ):
+      self.assertTrue(
+          await temporary_paths.is_path_finalized(
+              final_path, atomicity_options=atomicity_options
+          )
+      )
+      self.assertFalse(
+          await temporary_paths.is_path_temporary(
+              final_path, atomicity_options=atomicity_options
+          )
+      )
 
 
 if __name__ == '__main__':

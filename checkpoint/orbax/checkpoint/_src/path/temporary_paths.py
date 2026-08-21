@@ -19,7 +19,7 @@ or finalized paths.
 """
 
 import asyncio
-from typing import Iterable, Type
+from collections.abc import Iterable
 
 from absl import logging
 from etils import epath
@@ -30,7 +30,6 @@ from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 
-
 ValidationError = atomicity_types.ValidationError
 
 TMP_DIR_SUFFIX = atomicity_types.TMP_DIR_SUFFIX
@@ -39,7 +38,7 @@ TMP_DIR_SUFFIX = atomicity_types.TMP_DIR_SUFFIX
 async def is_path_temporary(
     path: epath.PathLike,
     *,
-    temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
+    temporary_path_cls: type[atomicity_types.TemporaryPath] | None = None,
     atomicity_options: options_lib.AtomicityOptions | None = None,
 ) -> bool:
   """Determines if the given path represents a temporary checkpoint.
@@ -94,7 +93,7 @@ async def is_path_temporary(
 async def is_path_finalized(
     path: epath.PathLike,
     *,
-    temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
+    temporary_path_cls: type[atomicity_types.TemporaryPath] | None = None,
     atomicity_options: options_lib.AtomicityOptions | None = None,
 ) -> bool:
   """Determines if the given path represents a finalized checkpoint.
@@ -149,7 +148,7 @@ async def is_path_finalized(
 async def all_temporary_paths(
     root_directory: epath.PathLike,
     *,
-    temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
+    temporary_path_cls: type[atomicity_types.TemporaryPath] | None = None,
     atomicity_options: options_lib.AtomicityOptions | None = None,
 ) -> Iterable[atomicity_types.TemporaryPath]:
   """Returns a list of tmp checkpoint dir names in `root_directory`."""
@@ -181,7 +180,7 @@ async def cleanup_temporary_paths(
     directory: epath.PathLike,
     *,
     multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
-    temporary_path_cls: Type[atomicity_types.TemporaryPath] | None = None,
+    temporary_path_cls: type[atomicity_types.TemporaryPath] | None = None,
     atomicity_options: options_lib.AtomicityOptions | None = None,
 ):
   """Cleanup steps in `directory` with tmp files, as these are not finalized.
