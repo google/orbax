@@ -51,6 +51,7 @@ def _on_commit_callback(
     checkpoint_start_time: float,
 ):
   """Finalize atomic save and record checkpoint save metrics."""
+  time.sleep(0.05)
   asyncio_utils.run_sync(
       atomicity.on_commit_callback(
           tmpdir,
