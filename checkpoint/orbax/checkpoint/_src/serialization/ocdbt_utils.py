@@ -167,9 +167,8 @@ async def merge_ocdbt_per_process_files(
   start_time = time.time()
   open_ops = []
   for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
-    child_kvstore_tspec = ts_utils.build_kvstore_tspec_for_merge(
-        directory.as_posix(),
-        process_dir.name,
+    child_kvstore_tspec = ts_utils.build_kvstore_tspec(
+        process_dir.as_posix(), use_ocdbt=True
     )
     logging.vlog(1, 'child_kvstore_tspec: %s', child_kvstore_tspec)
     open_ops.append(ts_utils.open_kv_store(child_kvstore_tspec, ts_context))
