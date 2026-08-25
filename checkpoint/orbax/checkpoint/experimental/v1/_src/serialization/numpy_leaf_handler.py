@@ -68,9 +68,11 @@ class NumpyMetadata(AbstractArray):
   storage_metadata: value_metadata.StorageMetadata | None
 
 
-def _create_v0_numpy_handler() -> type_handlers_v0.NumpyHandler:
+def _create_v0_numpy_handler(
+    context: context_lib.Context | None = None,
+) -> type_handlers_v0.NumpyHandler:
   """Creates a V0 `NumpyHandler`."""
-  return registration.get_numpy_handler()
+  return registration.get_numpy_handler(context)
 
 
 def _create_v0_saving_paraminfo(
@@ -168,7 +170,7 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     self._context = (
         context if context is not None else context_lib.get_context()
     )
-    self._handler_impl = _create_v0_numpy_handler()
+    self._handler_impl = _create_v0_numpy_handler(self._context)
 
     logging.vlog(1, 'NumpyLeafHandler created.')
 

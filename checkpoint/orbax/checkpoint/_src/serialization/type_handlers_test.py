@@ -15,6 +15,7 @@
 import asyncio
 import dataclasses
 import threading
+import tracemalloc
 from typing import Any, Optional
 import unittest
 
@@ -641,6 +642,12 @@ class NumpyHandlerTest(
 ):
   """Test class."""
 
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(
+        self.multiprocess_create_tempdir(name='numpy_handler_test')
+    )
+
   async def test_metadata(self):
     if multihost.process_index() != 0:
       self.skipTest('Only run on host 0')
@@ -650,7 +657,7 @@ class NumpyHandlerTest(
         np.arange(8, dtype=np.int32),
         np.arange(12, dtype=np.float32).reshape((3, 4)),
     ]
-    path = epath.Path(self.create_tempdir().full_path)
+    path = self.directory / 'metadata'
     ts_context = ts_utils.get_ts_context()
     param_infos = [
         get_param_info(
@@ -682,9 +689,46 @@ class NumpyHandlerTest(
       chunk_shapes.append(m.storage.chunk_shape)
     self.assertListEqual(chunk_shapes, [v.shape for v in values])
 
+  async def test_deepcopy_host_arrays_memory_consumption(self):
+    if multihost.process_index() != 0:
+      self.skipTest('Only run on host 0')
+
+    # 20MB array: 5,000,000 float32 elements * 4 bytes = 20 MB.
+    value = np.ones((5000, 1000), dtype=np.float32)
+
+    async def _measure_memory(deepcopy_host_arrays: bool) -> int:
+      path = self.directory / f'test_deepcopy_{deepcopy_host_arrays}'
+      ts_context = ts_utils.get_ts_context()
+      param_info = get_param_info(
+          'arr',
+          path,
+          is_ocdbt=True,
+          ts_context=ts_context,
+      )
+      handler = type_handlers.NumpyHandler(
+          deepcopy_host_arrays=deepcopy_host_arrays
+      )
+      tracemalloc.start()
+      commit_futures = await handler.serialize([value], [param_info])
+      _, peak = tracemalloc.get_traced_memory()
+      for f in commit_futures:
+        f.result()
+      tracemalloc.stop()
+      return peak
+
+    peak_true = await _measure_memory(deepcopy_host_arrays=True)
+    peak_false = await _measure_memory(deepcopy_host_arrays=False)
+
+    self.assertGreater(peak_true, peak_false)
+    self.assertGreaterEqual(peak_true - peak_false, int(value.nbytes * 0.9))
+
 
 class ScalarHandlerTest(parameterized.TestCase):
   """Test class."""
+
+  def test_deepcopy_host_arrays_always_false(self):
+    handler = type_handlers.ScalarHandler()
+    self.assertFalse(handler._deepcopy_host_arrays)
 
 
 class StringHandlerTest(parameterized.TestCase):

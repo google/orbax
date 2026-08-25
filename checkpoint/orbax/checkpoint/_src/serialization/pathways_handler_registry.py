@@ -74,9 +74,14 @@ def _get_array_hander_with_dispatcher(
     return jax_array_handlers.ArrayHandler(dispatcher=dispatcher, **kwargs)
 
 
-def get_pathways_numpy_handler() -> type_handlers.NumpyHandler:
+def get_pathways_numpy_handler(
+    deepcopy_host_arrays: bool = True,
+) -> type_handlers.NumpyHandler:
   """Returns the Pathways NumpyHandler."""
-  return type_handlers.NumpyHandler(ocdbt_process_id='pwcontroller')
+  return type_handlers.NumpyHandler(
+      ocdbt_process_id='pwcontroller',
+      deepcopy_host_arrays=deepcopy_host_arrays,
+  )
 
 
 def get_pathways_scalar_handler() -> type_handlers.ScalarHandler:

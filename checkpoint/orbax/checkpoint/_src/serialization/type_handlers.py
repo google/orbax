@@ -64,6 +64,7 @@ class NumpyHandler(types.TypeHandler):
       self,
       metadata_key: Optional[str] = None,
       ocdbt_process_id: str | None = None,
+      deepcopy_host_arrays: bool = True,
   ):
     """Constructor.
 
@@ -73,9 +74,14 @@ class NumpyHandler(types.TypeHandler):
         systems to write in OCDBT format. The checkpoints are written in a
         subdir with this name to avoid collisions with the subdir names used by
         other host processes managed by this controller.
+      deepcopy_host_arrays: Whether to deepcopy host arrays before
+        serialization. Defaults to True as a safety measure to guard against
+        concurrent modification, but can be disabled to avoid excess memory
+        consumption.
     """
     self._metadata_key = metadata_key
     self._override_ocdbt_process_id = ocdbt_process_id
+    self._deepcopy_host_arrays = deepcopy_host_arrays
 
   def typestr(self) -> str:
     return 'np.ndarray'
@@ -164,10 +170,11 @@ class NumpyHandler(types.TypeHandler):
     check_array_values(values, infos)
     if logging.vlog_is_on(1):
       ts_utils.print_ts_debug_data(self._metadata_key, infos)
-    copied_values = [copy.deepcopy(v) for v in values]
+    if self._deepcopy_host_arrays:
+      values = [copy.deepcopy(v) for v in values]
     return [
         future.CommitFutureAwaitingContractedSignals(
-            self._background_serialize(copied_values, infos, args),
+            self._background_serialize(values, infos, args),
             name='np_type_handler',
         )
     ]
@@ -221,6 +228,17 @@ class NumpyHandler(types.TypeHandler):
 
 class ScalarHandler(NumpyHandler):
   """A wrapper around NumpyHandler to deal with scalar types (int, float, etc.)."""
+
+  def __init__(
+      self,
+      metadata_key: Optional[str] = None,
+      ocdbt_process_id: str | None = None,
+  ):
+    super().__init__(
+        metadata_key=metadata_key,
+        ocdbt_process_id=ocdbt_process_id,
+        deepcopy_host_arrays=False,
+    )
 
   def typestr(self) -> str:
     return 'scalar'

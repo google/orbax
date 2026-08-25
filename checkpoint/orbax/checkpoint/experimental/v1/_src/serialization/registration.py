@@ -106,11 +106,22 @@ def get_array_handler(
     return jax_array_handlers.ArrayHandler(dispatcher=None, **common_kwargs)
 
 
-def get_numpy_handler() -> type_handlers.NumpyHandler:
+def get_numpy_handler(
+    context: context_lib.Context | None = None,
+) -> type_handlers.NumpyHandler:
   """Returns the TypeHandler for Numpy arrays."""
+  deepcopy_host_arrays = (
+      context.memory_options.deepcopy_host_arrays
+      if context is not None
+      else True
+  )
   if multihost.is_pathways_backend():
-    return pathways_handler_registry.get_pathways_numpy_handler()
-  return type_handlers.NumpyHandler()
+    return pathways_handler_registry.get_pathways_numpy_handler(
+        deepcopy_host_arrays=deepcopy_host_arrays
+    )
+  return type_handlers.NumpyHandler(
+      deepcopy_host_arrays=deepcopy_host_arrays
+  )
 
 
 def get_scalar_handler() -> type_handlers.ScalarHandler:
