@@ -118,15 +118,17 @@ class ExportManager:
   def save(
       self,
       model_path: str,
-      save_options: Optional[tf.saved_model.SaveOptions] = None,
+      save_options: Optional[
+          tf.saved_model.SaveOptions
+      ]=None,
       signature_overrides: Optional[Mapping[str, Callable[..., Any]]] = None,
   ):
     """Saves the JAX model to a Savemodel.
 
     Args:
       model_path: a directory in which to write the SavedModel.
-      save_options: an optional tf.saved_model.SaveOptions for configuring save
-        options.
+      save_options: an optional tf.saved_model.SaveOptions or obm.SaveOptions
+        for configuring save options.
       signature_overrides: signatures to override the self-maintained ones, or
         additional signatures to export.
     """

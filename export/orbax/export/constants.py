@@ -95,6 +95,9 @@ SAVE_SHLO_TO_FILE = 'save_shlo_to_file'
 # Jax2obm_kwargs key for the loader type.
 LOADER_TYPE = 'loader_type'
 
+# SaveOptions extra_options key for TensorFlow SavedModel save options.
+TF_SAVE_OPTIONS = 'tf_save_options'
+
 ################################################################################
 # Proto field names
 ################################################################################
