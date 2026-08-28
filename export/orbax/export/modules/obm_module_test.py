@@ -15,11 +15,10 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
-import jax.numpy as jnp
-import numpy as np
 from orbax.export import constants
 from orbax.export import obm_configs
 from orbax.export.modules import obm_module
+
 
 @jax.jit
 def simple_add(params, inputs):
@@ -333,7 +332,9 @@ class ObmModuleTest(parameterized.TestCase):
           params=params,
           apply_fn=apply_fn_map,
           input_polymorphic_shape=input_polymorphic_shape,
-          input_polymorphic_shape_symbol_values=input_polymorphic_shape_symbol_values,
+          input_polymorphic_shape_symbol_values=(
+              input_polymorphic_shape_symbol_values
+          ),
           jax2obm_kwargs=jax2obm_kwargs,
       )
       expected_weights_name = constants.DEFAULT_WEIGHTS_NAME
@@ -354,7 +355,9 @@ class ObmModuleTest(parameterized.TestCase):
             params=params,
             apply_fn=apply_fn_map,
             input_polymorphic_shape=input_polymorphic_shape,
-            input_polymorphic_shape_symbol_values=input_polymorphic_shape_symbol_values,
+            input_polymorphic_shape_symbol_values=(
+                input_polymorphic_shape_symbol_values
+            ),
             jax2obm_kwargs=jax2obm_kwargs,
         )
 
@@ -462,6 +465,60 @@ class GetSharedValueTest(parameterized.TestCase):
   def test_get_shared_value_empty_mapping(self):
     with self.assertRaisesRegex(ValueError, r'Input mapping is empty.'):
       obm_module._get_shared_value({}, ['a'], 'enable_bf16_optimization')
+
+  def test_unrecognized_jax2obm_kwargs_logs_warning(self):
+    with self.assertLogs(level='WARNING') as cm:
+      obm_module.ObmModule(
+          apply_fn=lambda params, inputs: inputs,
+          params={},
+          jax2obm_kwargs={'invalid_custom_key': 123},
+      )
+    self.assertTrue(
+        any('Unrecognized keys in jax2obm_kwargs' in msg for msg in cm.output)
+    )
+
+  def test_unrecognized_jax2obm_kwargs_pspecs_whitelisted(self):
+    mod = obm_module.ObmModule(
+        apply_fn=lambda params, inputs: inputs,
+        params={},
+        jax2obm_kwargs={'pspecs': {}},
+    )
+    self.assertIsNotNone(mod)
+
+  def test_polymorphic_constraints_string_raises_type_error(self):
+    with self.assertRaisesRegex(
+        TypeError, r'polymorphic_constraints needs to be a Sequence'
+    ):
+      obm_module.ObmModule(
+          apply_fn=lambda params, inputs: inputs,
+          params={},
+          jax2obm_kwargs={'polymorphic_constraints': 'invalid_string'},
+      )
+
+  def test_normalize_polymorphic_constraints_helper(self):
+    keys = ['f1', 'f2']
+    self.assertEqual(
+        obm_module._normalize_polymorphic_constraints(None, keys),
+        {'f1': (), 'f2': ()},
+    )
+    self.assertEqual(
+        obm_module._normalize_polymorphic_constraints(('a', 'b'), keys),
+        {'f1': ('a', 'b'), 'f2': ('a', 'b')},
+    )
+    self.assertEqual(
+        obm_module._normalize_polymorphic_constraints(
+            {'f1': ('a',), 'f2': ('b',)}, keys
+        ),
+        {'f1': ('a',), 'f2': ('b',)},
+    )
+    with self.assertRaisesRegex(ValueError, r'size of polymorphic_constraints'):
+      obm_module._normalize_polymorphic_constraints({'f1': ('a',)}, keys)
+    with self.assertRaisesRegex(ValueError, r'key f2 is not found'):
+      obm_module._normalize_polymorphic_constraints(
+          {'f1': ('a',), 'f3': ('b',)}, keys
+      )
+    with self.assertRaisesRegex(TypeError, r'needs to be a Sequence'):
+      obm_module._normalize_polymorphic_constraints('invalid_str', keys)
 
 
 if __name__ == '__main__':

@@ -16,6 +16,7 @@
 
 from collections.abc import Callable, Mapping, Sequence
 import copy
+import dataclasses
 import logging
 from typing import Any, Optional, Union
 import warnings
@@ -31,13 +32,17 @@ import tensorflow as tf
 
 ApplyFn = orbax_export_typing.ApplyFn
 
+_KNOWN_JAX2OBM_KEYS: frozenset[str] = frozenset(
+    f.name for f in dataclasses.fields(obm_configs.Jax2ObmOptions)
+) | frozenset([getattr(constants, 'PSPECS', 'pspecs')])
+
 
 def _get_shared_value(
     m: Mapping[str, obm_configs.Jax2ObmOptions] | obm_configs.Jax2ObmOptions,
     keys: Sequence[str] | None,
     field_name: str,
 ) -> Any:
-  """Returns attribute `field_name` from `m` or checks if it is same for all values in mapping `m`.
+  """Returns attribute `field_name` from `m` or checks if it is shared in `m`.
 
   If `m` is a Jax2ObmOptions object, returns `getattr(m, field_name)`. If `m`
   is a mapping, it checks if all keys in `keys` are present in `m`, and if
@@ -75,8 +80,59 @@ def _get_shared_value(
   return value
 
 
+def _normalize_polymorphic_constraints(
+    constraints: Mapping[str, Sequence[str]] | Sequence[str] | None,
+    apply_fn_keys: Sequence[str],
+) -> Mapping[str, Sequence[str]]:
+  """Normalizes polymorphic constraints into a function-to-constraints mapping.
+
+  Args:
+    constraints: A mapping from function name to constraints, a single sequence
+      of constraints to broadcast across all functions, or None.
+    apply_fn_keys: Sequence of function names in the model.
+
+  Returns:
+    A mapping from each function name to its polymorphic constraints sequence.
+
+  Raises:
+    TypeError: If constraints is not a Mapping, Sequence, or None (e.g. str).
+    ValueError: If constraints mapping size does not match apply_fn_keys or if
+      a function key is missing from the constraints mapping.
+  """
+  if isinstance(constraints, Mapping):
+    if len(constraints) != len(apply_fn_keys):
+      raise ValueError(
+          f'The size of polymorphic_constraints:{len(constraints)} should'
+          f' be equal to the size of the apply_fn_map:{len(apply_fn_keys)}.'
+      )
+    for key in apply_fn_keys:
+      if key not in constraints:
+        raise ValueError(
+            f'The key {key} is not found in polymorphic_constraints:'
+            f' {constraints}'
+        )
+    return constraints
+
+  if constraints is None:
+    return {key: () for key in apply_fn_keys}
+
+  if isinstance(constraints, Sequence) and not isinstance(
+      constraints, (str, bytes)
+  ):
+    # If the polymorphic_constraints is a non-Mapping (in which case it
+    # needs to be a Sequence), which means it is the same for all
+    # functions, we need to map it to a mapping of function name to
+    # constraint.
+    return {key: constraints for key in apply_fn_keys}
+
+  raise TypeError(
+      'If not a Mapping, polymorphic_constraints needs to be a Sequence.'
+      f' Got type: {type(constraints)} .'
+  )
+
+
 class ObmModule(orbax_module_base.OrbaxModuleBase):
-  """A data module for encapsulating the data for a Jax model to be serialized through the Orbax Model export flow."""
+  """Container for serializing a Jax model via the Orbax Model export flow."""
 
   def __init__(
       self,
@@ -159,7 +215,6 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       self._apply_fn_keys = list(apply_fn.keys())
     else:
       self._apply_fn_keys = None
-    # self._process_jax2obm_options(self._apply_fn_keys)
 
     self._enable_bf16_optimization = _get_shared_value(
         self._jax2obm_options,
@@ -210,7 +265,7 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.SAVE_SHLO_TO_FILE,
     )
 
-    self._checkpoint_path: str = None  # pyrefly: ignore[bad-assignment]
+    self._checkpoint_path: str | None = None
     # Set the Orbax checkpoint path if provided in the jax2obm_kwargs.
     self._maybe_set_orbax_checkpoint_path()
 
@@ -218,6 +273,13 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       self, jax2obm_kwargs: Mapping[str, Any]
   ) -> obm_configs.Jax2ObmOptions:
     """Converts jax2obm_kwargs to Jax2ObmOptions."""
+    unrecognized = set(jax2obm_kwargs.keys()) - _KNOWN_JAX2OBM_KEYS
+    if unrecognized:
+      logging.warning(
+          'Unrecognized keys in jax2obm_kwargs: %s. '
+          'Please migrate to `Jax2ObmOptions` or remove unmapped options.',
+          unrecognized,
+      )
     return obm_configs.Jax2ObmOptions(
         native_serialization_platforms=jax2obm_kwargs.get(
             constants.NATIVE_SERIALIZATION_PLATFORMS
@@ -359,55 +421,15 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     self._weights_name = weights_name or constants.DEFAULT_WEIGHTS_NAME
 
   def _maybe_set_polymorphic_constraints(self) -> Mapping[str, Sequence[str]]:
-    """Sets the polymorphic constraints for the model.
-
-    Returns:
-      A mapping of function name to polymorphic constraints.
-
-    Raises:
-      TypeError: If the polymorphic_constraints is not a Sequence or a Mapping.
-      ValueError: If the size of the polymorphic_constraints is not equal to the
-        size of the apply_fn_map or if a key in apply_fn_map is not found in
-        polymorphic_constraints.
-    """
-    polymorphic_constraints = _get_shared_value(
+    """Sets the polymorphic constraints for the model."""
+    constraints = _get_shared_value(
         self._jax2obm_options,
         self._apply_fn_keys,
         constants.POLYMORPHIC_CONSTRAINTS,
     )
-    if isinstance(polymorphic_constraints, Mapping):
-      polymorphic_constraints_mapping = polymorphic_constraints
-      if len(polymorphic_constraints_mapping) != len(self._apply_fn_map):
-        raise ValueError(
-            'The size of'
-            f' polymorphic_constraints:{len(polymorphic_constraints_mapping)} should'
-            ' be equal to the size of the'
-            f' apply_fn_map:{len(self._apply_fn_map)}.'
-        )
-      for key in self._apply_fn_map:
-        if key not in polymorphic_constraints:
-          raise ValueError(
-              f'The key {key} is not found in polymorphic_constraints:'
-              f' {polymorphic_constraints}'
-          )
-    else:
-      polymorphic_constraints_mapping = {}
-      if polymorphic_constraints is None:
-        polymorphic_constraints = ()
-      else:
-        polymorphic_constraints = polymorphic_constraints
-        if not isinstance(polymorphic_constraints, Sequence):
-          raise TypeError(
-              'If not a Mapping, polymorphic_constraints needs to be a'
-              f' Sequence. Got type: {type(polymorphic_constraints)} .'
-          )
-      for key in self._apply_fn_map:
-        # If the polymorphic_constraints is a non-Mapping (in which case it
-        # needs to be a Sequence), which means it is the same for all
-        # functions, we need to map it to a mapping of function name to
-        # constraint.
-        polymorphic_constraints_mapping[key] = polymorphic_constraints
-    return polymorphic_constraints_mapping  # pytype: disable=bad-return-type
+    return _normalize_polymorphic_constraints(
+        constraints, list(self._apply_fn_map.keys())
+    )
 
   def export_module(  # pyrefly: ignore[bad-override]
       self,
@@ -424,7 +446,9 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return self._apply_fn_map
 
   @property
-  def export_version(self) -> constants.ExportModelType:  # pyrefly: ignore[bad-override]
+  def export_version(  # pyrefly: ignore[bad-override]
+      self,
+  ) -> constants.ExportModelType:
     """Returns the export version."""
     return constants.ExportModelType.ORBAX_MODEL
 
