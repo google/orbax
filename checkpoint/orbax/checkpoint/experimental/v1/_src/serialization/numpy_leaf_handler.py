@@ -26,19 +26,16 @@ from typing import Awaitable, Sequence
 from absl import logging
 import numpy as np
 from orbax.checkpoint._src.arrays import types as arrays_types
-from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import options_resolution
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
-
+from orbax.checkpoint.experimental.v1._src.synchronization import compatibility
 
 NumpySerializationParam = types.SerializationParam[np.ndarray]
-NumpyDeserializationParam = types.DeserializationParam[
-    types.AbstractArray
-]
+NumpyDeserializationParam = types.DeserializationParam[types.AbstractArray]
 Shape = arrays_types.Shape
 AbstractArray = types.AbstractArray
 
@@ -155,10 +152,6 @@ def _create_v0_restorearg(
     )
 
 
-async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
-
-
 class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
   """:py:class:`.NumpyLeafHandler` that implements the :py:class:`~.v1.serialization.LeafHandler` Protocol."""
 
@@ -201,7 +194,12 @@ class NumpyLeafHandler(types.LeafHandler[np.ndarray, AbstractArray]):
     )
     assert commit_futures
 
-    return _async_futures(commit_futures)
+    return compatibility.FuturesAwaitable(
+        commit_futures,
+        lambda: compatibility.async_futures(
+            commit_futures, operation_name='NumpyLeafHandler._async_futures'
+        ),
+    )
 
   async def deserialize(
       self,

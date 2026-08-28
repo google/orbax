@@ -16,11 +16,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import time
 import typing
-from typing import Any, Awaitable, Sequence, get_args
+from typing import Any, Awaitable, get_args, Sequence
 
 from absl import logging
 import jax
@@ -44,6 +43,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registry
 from orbax.checkpoint.experimental.v1._src.serialization import scalar_leaf_handler
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
+from orbax.checkpoint.experimental.v1._src.synchronization import compatibility as sync_compatibility
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
@@ -218,31 +218,6 @@ def create_v0_restore_args(
   )
 
 
-async def _async_futures(
-    commit_futures: Sequence[future.Future],
-    timeout_secs: float | None = None,
-    start_time: float | None = None,
-):
-  """Waits for commit futures to complete with a timeout."""
-  deadline = (
-      start_time + timeout_secs
-      if timeout_secs is not None and start_time is not None
-      else None
-  )
-
-  def _wait_with_timeout(f: future.Future):
-    if deadline is None:
-      return f.result()
-    timeout = deadline - time.time()
-    if timeout <= 0:
-      raise TimeoutError('Overall save timeout exceeded.')
-    return f.result(timeout=timeout)
-
-  await asyncio.gather(
-      *[asyncio.to_thread(_wait_with_timeout, f) for f in commit_futures]
-  )
-
-
 @typing.final
 class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   """An implementation of :py:class:`.CheckpointableHandler` for PyTrees.
@@ -341,8 +316,12 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     active_processes = self._multiprocessing_options.active_processes or set(
         range(multihost.process_count())
     )
-    await _async_futures(
-        commit_futures, timeout_secs=timeout_secs, start_time=start_time
+    await sync_compatibility.async_futures(
+        commit_futures,
+        timeout_secs=timeout_secs,
+        start_time=start_time,
+        operation_name='PyTreeHandler._async_futures',
+        re_raise_cancelled=True,
     )
 
     # Global sync to ensure all participating processes have completed their
@@ -416,11 +395,14 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
     # Needed to differentiate between different handlers when we have multiple
     # PyTreeHandlers performing a save.
     operation_id = f'{operation_id}.{directory.path.name}'
-    return self._background_save(
-        directory,
-        commit_futures=commit_futures,
-        operation_id=operation_id,
-        start_time=start_time,
+    return sync_compatibility.FuturesAwaitable(
+        commit_futures,
+        lambda: self._background_save(
+            directory,
+            commit_futures=commit_futures,
+            operation_id=operation_id,
+            start_time=start_time,
+        ),
     )
 
   async def _background_load(

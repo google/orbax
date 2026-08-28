@@ -24,19 +24,18 @@ from typing import Awaitable, Sequence, Type
 from absl import logging
 import jax.numpy as jnp
 import numpy as np
-from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.serialization import options_resolution
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.synchronization import compatibility
+
 
 Scalar = types.Scalar
 AbstractScalar = types.AbstractScalar
 ScalarSerializationParam = types.SerializationParam[Scalar]
-ScalarDeserializationParam = types.DeserializationParam[
-    AbstractScalar
-]
+ScalarDeserializationParam = types.DeserializationParam[AbstractScalar]
 
 
 def _create_v0_scalar_handler() -> type_handlers_v0.ScalarHandler:
@@ -133,10 +132,6 @@ def _np_dtype_to_python_type(dtype):
     raise TypeError(f"Unsupported dtype: {dtype}.")
 
 
-async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
-
-
 class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
   """:py:class:`.ScalarLeafHandler` that implements the :py:class:`~.v1.serialization.LeafHandler` Protocol."""
 
@@ -179,7 +174,12 @@ class ScalarLeafHandler(types.LeafHandler[Scalar, AbstractScalar]):
     )
     assert commit_futures
 
-    return _async_futures(commit_futures)
+    return compatibility.FuturesAwaitable(
+        commit_futures,
+        lambda: compatibility.async_futures(
+            commit_futures, operation_name="ScalarLeafHandler._async_futures"
+        ),
+    )
 
   async def deserialize(
       self,

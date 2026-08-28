@@ -27,7 +27,6 @@ from absl import logging
 import jax
 import jax.numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types_v0
-from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
@@ -36,6 +35,7 @@ from orbax.checkpoint.experimental.v1._src.serialization import options_resoluti
 from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
+from orbax.checkpoint.experimental.v1._src.synchronization import compatibility
 
 
 Shape = arrays_types_v0.Shape
@@ -187,10 +187,6 @@ def _create_v0_restorearg(
     raise TypeError(f'Unrecognized abstract value type: {type(value)}')
 
 
-async def _async_futures(commit_futures: Sequence[future.Future]):
-  await asyncio.gather(*[asyncio.to_thread(f.result) for f in commit_futures])
-
-
 class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
   """:py:class:`.ArrayLeafHandler` that implements the :py:class:`~.v1.serialization.LeafHandler` Protocol."""
 
@@ -229,12 +225,19 @@ class ArrayLeafHandler(types.LeafHandler[jax.Array, AbstractShardedArray]):
     ]
     saveargs = [_create_v0_savearg(p, self._context) for p in params]
 
+    logging.info('ArrayLeafHandler.serialize: %r', self._handler_impl)
+
     commit_futures = await self._handler_impl.serialize(
         values, paraminfos, saveargs
     )
     assert commit_futures
 
-    return _async_futures(commit_futures)
+    return compatibility.FuturesAwaitable(
+        commit_futures,
+        lambda: compatibility.async_futures(
+            commit_futures, operation_name='ArrayLeafHandler._async_futures'
+        ),
+    )
 
   async def deserialize(
       self,

@@ -20,10 +20,12 @@ import abc
 import dataclasses
 from typing import Any
 
+from absl import logging
 from orbax.checkpoint import checkpoint_args
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
@@ -52,6 +54,43 @@ class _PathAwaitingCreation(path_types.PathAwaitingCreation):
     return self._path
 
 
+class _CompatibilityCompositeFuture(future.Future):
+  """A future that waits on _background_save during result(), but cancels commit_futures during cancel()."""
+
+  def __init__(
+      self,
+      commit_futures: list[future.Future],
+      background_future: future.Future,
+  ):
+    super().__init__()
+    self._commit_futures = commit_futures
+    self._background_future = background_future
+    self.name = 'CompatibilityCompositeFuture'
+
+  def result(self, timeout: float | None = None) -> Any:
+    # During normal execution, rely on _background_save (which uses
+    # asyncio.gather/to_thread)
+    # to wait for commit_futures, preserving exact depot timing behavior.
+    return self._background_future.result(timeout=timeout)
+
+  def cancel(self) -> None:
+    logging.info(
+        '[process=%s] _CompatibilityCompositeFuture.cancel() called.',
+        multihost.process_index(),
+    )
+    for f in self._commit_futures:
+      if hasattr(f, 'cancel'):
+        try:
+          f.cancel()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          logging.warning('Error cancelling commit future: %s', e)
+    if hasattr(self._background_future, 'cancel'):
+      try:
+        self._background_future.cancel()
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('Error cancelling background future: %s', e)
+
+
 class CompatibilityCheckpointHandler(
     async_checkpoint_handler.AsyncCheckpointHandler
 ):
@@ -70,14 +109,22 @@ class CompatibilityCheckpointHandler(
     )
     save_awaitable = await self._handler.save(async_path, args.checkpointable)
 
+    commit_futures = []
+    if hasattr(save_awaitable, 'commit_futures'):
+      commit_futures = save_awaitable.commit_futures
+
     async def _background_save():
       await save_awaitable
 
-    return [future.CommitFuture(_background_save())]
+    return [
+        _CompatibilityCompositeFuture(
+            commit_futures, future.CommitFuture(_background_save())
+        )
+    ]
 
   def save(self, directory: path_types.Path, *args, **kwargs):
     async def async_save(*args, **kwargs):
-      commit_futures = await self.async_save(*args, **kwargs)  # pytype: disable=bad-return-type
+      commit_futures = await self.async_save(*args, **kwargs)  # pyrefly: ignore[bad-return-type]
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       if commit_futures:  # May be None.

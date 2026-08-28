@@ -1,0 +1,39 @@
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import asyncio
+from absl.testing import absltest
+from orbax.checkpoint.experimental.v1._src.synchronization import cancellation
+
+
+class CancellationTest(absltest.TestCase):
+
+  def test_ignore_cancellation_async(self):
+    async def _test():
+      async with cancellation.ignore_cancellation('test_op'):
+        raise asyncio.CancelledError()
+
+    asyncio.run(_test())
+
+  def test_other_exceptions_propagate(self):
+    async def _test():
+      with self.assertRaises(ValueError):
+        async with cancellation.ignore_cancellation('test_op'):
+          raise ValueError('boom')
+
+    asyncio.run(_test())
+
+
+if __name__ == '__main__':
+  absltest.main()
