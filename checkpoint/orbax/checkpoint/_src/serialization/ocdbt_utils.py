@@ -24,7 +24,6 @@ from absl import logging
 from etils import epath
 from jax import monitoring as jax_monitoring
 from orbax.checkpoint._src.multihost import multihost
-from orbax.checkpoint._src.serialization import ocdbt_process_spec
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 import tensorstore as ts
 
@@ -167,7 +166,7 @@ async def merge_ocdbt_per_process_files(
   """
   start_time = time.time()
   open_ops = []
-  for process_dir in directory.glob(f'{ocdbt_process_spec.PROCESS_PREFIX}*'):
+  for process_dir in directory.glob(f'{ts_utils.PROCESS_SUBDIR_PREFIX}*'):
     child_kvstore_tspec = ts_utils.build_kvstore_tspec(
         process_dir.as_posix(), use_ocdbt=True
     )

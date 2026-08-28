@@ -35,7 +35,6 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import gcs_utils
-from orbax.checkpoint._src.serialization import ocdbt_process_spec
 from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
@@ -45,16 +44,14 @@ DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 
-OcdbtProcessSpec: TypeAlias = ocdbt_process_spec.OcdbtProcessSpec
-
 FILE_DRIVER = 'file'
 DEFAULT_DRIVER = FILE_DRIVER
 
-PROCESS_SUBDIR_PREFIX = ocdbt_process_spec.PROCESS_PREFIX
-REPLICA_SUBDIR_SUFFIX = ocdbt_process_spec.REPLICA_SUFFIX
+PROCESS_SUBDIR_PREFIX = 'ocdbt.process_'
+REPLICA_SUBDIR_SUFFIX = 'replica_'
 
 # OCDBT-specific options.
-
+_OCDBT_PROCESS_ID_RE = r'[A-Za-z0-9]+'
 _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE = 2**31  # 2 GiB
 _GCS_OCDBT_TARGET_DATA_FILE_SIZE = 400 * 2**20  # 400 MiB
 # By default, OCDBT stores both values (i.e. kvstore values, which are
@@ -200,8 +197,20 @@ def _build_ocdbt_kvstore_tspec(
 
   if process_id is not None:
     process_id = str(process_id)
-    spec = OcdbtProcessSpec(process_id, replica_separate_folder)
-    directory = os.path.join(directory, str(spec))
+    if re.fullmatch(_OCDBT_PROCESS_ID_RE, process_id) is None:
+      raise ValueError(
+          f'process_id must conform to {_OCDBT_PROCESS_ID_RE} pattern'
+          f', got {process_id}'
+      )
+
+    join_paths = [directory, f'{PROCESS_SUBDIR_PREFIX}{process_id}']
+    if replica_separate_folder:
+      # make sure the the sub dictory is ended with '_process_id'
+      join_paths = [
+          directory,
+          f'{PROCESS_SUBDIR_PREFIX}{REPLICA_SUBDIR_SUFFIX}{process_id}',
+      ]
+    directory = os.path.join(*join_paths)
 
   # Base KVStore spec (nested within OCDBT KVStore spec).
   if is_gcs_path:
