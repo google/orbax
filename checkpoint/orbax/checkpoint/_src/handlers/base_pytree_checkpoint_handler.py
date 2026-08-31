@@ -151,13 +151,13 @@ def batched_serialization_requests(
     if handler not in grouped:
       grouped[handler] = BatchRequest(handler, [], [], [], [])
     request = grouped[handler]
-    grouped[handler] = dataclasses.replace(
-        request,
-        keys=request.keys + [tuple_key],
-        values=request.values + [value],
-        infos=request.infos + [info],
-        args=request.args + [arg],
-    )
+    # `BatchRequest` is mutable, so the entry is appended in place: rebuilding
+    # it per leaf copies all four lists and makes this loop quadratic in the
+    # number of tensors, which dominates for a tree with many small leaves.
+    request.keys.append(tuple_key)
+    request.values.append(value)
+    request.infos.append(info)
+    request.args.append(arg)
 
   jax.tree_util.tree_map_with_path(
       _group_value,
