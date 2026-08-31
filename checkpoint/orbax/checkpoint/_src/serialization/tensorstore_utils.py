@@ -17,6 +17,9 @@
 import base64
 from collections.abc import Sequence
 import copy
+import dataclasses
+import enum
+
 import json
 import math
 import os
@@ -35,7 +38,7 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import gcs_utils
-from orbax.checkpoint._src.serialization import ocdbt_process_spec
+from orbax.checkpoint._src.serialization import ocdbt_process_spec as ocdbt_process_spec_lib
 from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
@@ -45,13 +48,13 @@ DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 
-OcdbtProcessSpec: TypeAlias = ocdbt_process_spec.OcdbtProcessSpec
+OcdbtProcessSpec: TypeAlias = ocdbt_process_spec_lib.OcdbtProcessSpec
 
 FILE_DRIVER = 'file'
 DEFAULT_DRIVER = FILE_DRIVER
 
-PROCESS_SUBDIR_PREFIX = ocdbt_process_spec.PROCESS_PREFIX
-REPLICA_SUBDIR_SUFFIX = ocdbt_process_spec.REPLICA_SUFFIX
+PROCESS_SUBDIR_PREFIX = ocdbt_process_spec_lib.PROCESS_PREFIX
+REPLICA_SUBDIR_SUFFIX = ocdbt_process_spec_lib.REPLICA_SUFFIX
 
 # OCDBT-specific options.
 
@@ -141,6 +144,40 @@ def get_ts_context(
 ### Building KvStore specs.
 
 
+@enum.unique
+class OcdbtWriteMode(enum.Enum):
+  """OCDBT write mode.
+
+  Allows to express whether the target OCDBT KvStore will be written to, so it
+  could be configured with appropriate write options.
+
+  Attributes:
+    WRITE: Used when writing checkpoint data.
+    MERGE: Used for target (parent) KvStore when merging OCDBT metadata from
+      all per-process subdirectories.
+  """
+
+  WRITE = 'write'
+  MERGE = 'merge'
+
+
+@dataclasses.dataclass(frozen=True)
+class OcdbtKvStoreWriteOptions:
+  """Options specific to OCDBT KvStore in writing modes.
+
+  Attributes:
+    mode: The OCDBT write mode. Required.
+    target_data_file_size: The target data file size for OCDBT KvStore. If not
+      set, a default value will be used, based on the underlying storage type.
+    store_ocdbt_metadata_and_values_separately: Whether to store OCDBT metadata
+      and values separately.
+  """
+
+  mode: OcdbtWriteMode
+  target_data_file_size: int | None = None
+  store_ocdbt_metadata_and_values_separately: bool = False
+
+
 def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
   """Constructs a TensorStore kvstore spec for a GCS path."""
   m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
@@ -175,8 +212,8 @@ def _build_ocdbt_kvstore_tspec(
     directory: str,
     name: str | None = None,
     *,
-    process_id: int | str | None = None,
-    replica_separate_folder: bool = False,
+    process_spec: OcdbtProcessSpec | None = None,
+    write_options: OcdbtKvStoreWriteOptions | None = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore OCDBT KvStore.
 
@@ -184,10 +221,10 @@ def _build_ocdbt_kvstore_tspec(
     directory: Base path (key prefix) of the KvStore, used by the underlying
       file driver.
     name: Name (filename) of the parameter.
-    process_id: [only used with OCDBT driver] If provided,
-      `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
-      a string, must conform to [A-Za-z0-9]+ pattern.
-    replica_separate_folder: Whether a replica separated folder is used.
+    process_spec: OCDBT process spec (defines per-process subdirectory
+      name).
+    write_options: Options specific to OCDBT KvStore write modes. Should be
+      provided when the kvstore will be used for writing or merging.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -198,10 +235,8 @@ def _build_ocdbt_kvstore_tspec(
   if not is_gcs_path and not os.path.isabs(directory):
     raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
 
-  if process_id is not None:
-    process_id = str(process_id)
-    spec = OcdbtProcessSpec(process_id, replica_separate_folder)
-    directory = os.path.join(directory, str(spec))
+  if process_spec is not None:
+    directory = os.path.join(directory, str(process_spec))
 
   # Base KVStore spec (nested within OCDBT KVStore spec).
   if is_gcs_path:
@@ -241,6 +276,15 @@ def _build_ocdbt_kvstore_tspec(
         'driver': 'ocdbt',
         'base': base_driver_spec,
     }
+
+  if write_options is not None:
+    _add_ocdbt_write_options(
+        kv_spec,
+        target_data_file_size=write_options.target_data_file_size,
+        store_ocdbt_metadata_and_values_separately=(
+            write_options.store_ocdbt_metadata_and_values_separately
+        ),
+    )
 
   if name is not None:
     kv_spec['path'] = name
@@ -288,8 +332,8 @@ def build_kvstore_tspec(
     name: str | None = None,
     *,
     use_ocdbt: bool = True,
-    process_id: int | str | None = None,
-    replica_separate_folder: bool = False,
+    ocdbt_process_spec: OcdbtProcessSpec | None = None,
+    ocdbt_write_options: OcdbtKvStoreWriteOptions | None = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -298,10 +342,10 @@ def build_kvstore_tspec(
       file driver.
     name: Name (filename) of the parameter.
     use_ocdbt: Whether to use OCDBT driver.
-    process_id: [only used with OCDBT driver] If provided,
-      `{directory}/ocdbt.process_{process_id}` path is used as the base path. If
-      a string, must conform to [A-Za-z0-9]+ pattern.
-    replica_separate_folder: Whether a replica separated folder is used.
+    ocdbt_process_spec: OCDBT process spec (defines per-process subdirectory
+      name).
+    ocdbt_write_options: Options specific to OCDBT KvStore write modes. Should
+      be provided when the kvstore will be used for writing or merging.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -310,8 +354,8 @@ def build_kvstore_tspec(
     return _build_ocdbt_kvstore_tspec(
         directory=directory,
         name=name,
-        process_id=process_id,
-        replica_separate_folder=replica_separate_folder,
+        process_spec=ocdbt_process_spec,
+        write_options=ocdbt_write_options,
     )
 
   return _build_non_ocdbt_kvstore_tspec(directory=directory, name=name)
@@ -340,7 +384,7 @@ def _get_backend_ocdbt_target_data_file_size(
   return _DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE
 
 
-def add_ocdbt_write_options(
+def _add_ocdbt_write_options(
     kvstore_tspec: JsonSpec,
     target_data_file_size: int | None = None,
     *,
@@ -543,7 +587,6 @@ class ArrayReadSpec:
         directory,
         name=relative_array_filename,
         use_ocdbt=use_ocdbt,
-        process_id=None,
     )
 
     tspec = {
@@ -595,12 +638,24 @@ class ArrayWriteSpec:
   ):
     """Builds a TensorStore spec for writing an array."""
     # Construct the underlying KvStore spec.
+    ocdbt_process_spec = None
+    if process_id is not None:
+      ocdbt_process_spec = OcdbtProcessSpec(
+          process_id=str(process_id),
+          use_replica_suffix=replica_separate_folder,
+      )
     kvstore_tspec = build_kvstore_tspec(
         directory,
         name=relative_array_filename,
         use_ocdbt=use_ocdbt,
-        process_id=process_id,
-        replica_separate_folder=replica_separate_folder,
+        ocdbt_process_spec=ocdbt_process_spec,
+        ocdbt_write_options=OcdbtKvStoreWriteOptions(
+            mode=OcdbtWriteMode.WRITE,
+            target_data_file_size=ocdbt_target_data_file_size,
+            store_ocdbt_metadata_and_values_separately=(
+                store_ocdbt_metadata_and_values_separately
+            ),
+        ),
     )
     # Construct the top-level array spec.
     tspec = {
@@ -617,13 +672,6 @@ class ArrayWriteSpec:
 
     # Choose target file and chunk byte sizes.
     if use_ocdbt:
-      add_ocdbt_write_options(
-          tspec['kvstore'],
-          ocdbt_target_data_file_size,
-          store_ocdbt_metadata_and_values_separately=(
-              store_ocdbt_metadata_and_values_separately
-          ),
-      )
       chunk_byte_size = calculate_chunk_byte_size(
           write_shape,
           target_storage_dtype,

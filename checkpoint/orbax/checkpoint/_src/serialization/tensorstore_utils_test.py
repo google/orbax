@@ -35,7 +35,7 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
 
   def test_ocdbt_target_data_file_size_none(self):
     kvstore_tspec = {}
-    ts_utils.add_ocdbt_write_options(kvstore_tspec, target_data_file_size=None)
+    ts_utils._add_ocdbt_write_options(kvstore_tspec, target_data_file_size=None)
     self.assertIn('target_data_file_size', kvstore_tspec)
     self.assertEqual(
         kvstore_tspec['target_data_file_size'],
@@ -44,7 +44,7 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
 
   def test_ocdbt_target_data_file_size_none_is_default(self):
     kvstore_tspec = {}
-    ts_utils.add_ocdbt_write_options(kvstore_tspec)
+    ts_utils._add_ocdbt_write_options(kvstore_tspec)
     self.assertIn('target_data_file_size', kvstore_tspec)
     self.assertEqual(
         kvstore_tspec['target_data_file_size'],
@@ -53,7 +53,7 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
 
   def test_ocdbt_target_data_file_size_rejects_negative_value(self):
     with self.assertRaises(ValueError):
-      ts_utils.add_ocdbt_write_options({}, target_data_file_size=-13)
+      ts_utils._add_ocdbt_write_options({}, target_data_file_size=-13)
 
   @parameterized.product(target_data_file_size=[0, 1024**3])
   def test_ocdbt_target_data_file_size_sets_value(
@@ -61,7 +61,7 @@ class AddOcdbtWriteOptionsTest(parameterized.TestCase):
       target_data_file_size: int,
   ):
     kvstore_tspec = {}
-    ts_utils.add_ocdbt_write_options(
+    ts_utils._add_ocdbt_write_options(
         kvstore_tspec, target_data_file_size=target_data_file_size
     )
     self.assertEqual(

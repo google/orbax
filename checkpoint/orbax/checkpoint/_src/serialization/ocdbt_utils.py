@@ -184,9 +184,12 @@ async def merge_ocdbt_per_process_files(
     return
 
   parent_kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory.as_posix(), use_ocdbt=True
+      directory.as_posix(),
+      use_ocdbt=True,
+      ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+          mode=ts_utils.OcdbtWriteMode.MERGE
+      ),
   )
-  ts_utils.add_ocdbt_write_options(parent_kvstore_tspec)
   open_ops.append(ts_utils.open_kv_store(parent_kvstore_tspec, ts_context))
 
   opened = await asyncio.gather(*open_ops)
