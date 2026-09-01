@@ -15,6 +15,7 @@
 import functools
 import math
 import os
+import tempfile
 import unittest
 
 from absl.testing import absltest
@@ -1217,6 +1218,178 @@ class GetTotalBytesFromTensorstoreTest(parameterized.TestCase):
       # Verify that compression actually reduced the bytes written/read.
       self.assertLess(bytes_written, 300000)
       self.assertLess(bytes_read, 300000)
+
+
+class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
+    parameterized.TestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = self.create_tempdir().full_path
+    self.temporary_metadata_path = self.enter_context(
+        tempfile.TemporaryDirectory()
+    )
+    self.temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+    )
+
+  def _verify_kvstack_spec(
+      self,
+      actual_spec: ts_utils.JsonSpec,
+      expected_base_path: str,
+  ) -> None:
+    self.assertDictEqual(
+        actual_spec,
+        {
+            'driver': 'kvstack',
+            'layers': [
+                {
+                    'base': {
+                        'driver': ts_utils.DEFAULT_DRIVER,
+                        'path': expected_base_path,
+                    }
+                },
+                {
+                    'prefix': 'ocdbt_tmp_meta/',
+                    'base': f'file://{self.temporary_metadata_path}/',
+                },
+            ],
+        },
+    )
+
+  @parameterized.product(use_process_spec=(True, False))
+  def test_read_mode(self, use_process_spec: bool):
+    process_spec = None
+    if use_process_spec:
+      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+
+    kvstore_tspec = ts_utils.build_kvstore_tspec(
+        directory=self.directory,
+        use_ocdbt=True,
+        ocdbt_process_spec=process_spec,
+        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+    )
+
+    # Manifest spec is set to the temporary metadata path, but prefixes are no
+    # longer overridden.
+    self.assertEqual(
+        kvstore_tspec['manifest'],
+        f'file://{self.temporary_metadata_path}/ocdbt_tmp_meta/',
+    )
+    self.assertNotIn('btree_node_data_prefix', kvstore_tspec)
+    self.assertNotIn('version_tree_node_data_prefix', kvstore_tspec)
+    self.assertNotIn('value_data_prefix', kvstore_tspec)
+
+    expected_base_path = (
+        f'{self.directory}/'
+        if not use_process_spec
+        else f'{self.directory}/{str(process_spec)}/'
+    )
+    # kvstack spec is independent of the mode.
+    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+
+  @parameterized.product(
+      use_process_spec=(True, False),
+      store_ocdbt_metadata_and_values_separately=(True, False),
+  )
+  def test_write_mode(
+      self,
+      use_process_spec: bool,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    process_spec = None
+    if use_process_spec:
+      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+
+    kvstore_tspec = ts_utils.build_kvstore_tspec(
+        directory=self.directory,
+        use_ocdbt=True,
+        ocdbt_process_spec=process_spec,
+        ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+            mode=ts_utils.OcdbtWriteMode.WRITE,
+            store_ocdbt_metadata_and_values_separately=(
+                store_ocdbt_metadata_and_values_separately
+            ),
+        ),
+        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+    )
+
+    # Manifest spec is set to the temporary metadata path, and prefixes are
+    # overridden to match the routing prefix of kvstack layer configured with
+    # temporary metadata path.
+    self.assertEqual(
+        kvstore_tspec['manifest'],
+        f'file://{self.temporary_metadata_path}/ocdbt_tmp_meta/',
+    )
+    self.assertEqual(
+        kvstore_tspec['btree_node_data_prefix'], 'ocdbt_tmp_meta/'
+    )
+    self.assertEqual(
+        kvstore_tspec['version_tree_node_data_prefix'], 'ocdbt_tmp_meta/'
+    )
+
+    if store_ocdbt_metadata_and_values_separately:
+      self.assertEqual(kvstore_tspec['value_data_prefix'], 'ocdbt_data/')
+    else:
+      self.assertNotIn('value_data_prefix', kvstore_tspec)
+
+    expected_base_path = (
+        f'{self.directory}/'
+        if not use_process_spec
+        else f'{self.directory}/{str(process_spec)}/'
+    )
+    # kvstack spec is independent of the mode and write options.
+    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+
+  @parameterized.product(
+      use_process_spec=(True, False),
+      store_ocdbt_metadata_and_values_separately=(True, False),
+  )
+  def test_commit_temporary_metadata_mode(
+      self,
+      use_process_spec: bool,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    process_spec = None
+    if use_process_spec:
+      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+
+    kvstore_tspec = ts_utils.build_kvstore_tspec(
+        directory=self.directory,
+        use_ocdbt=True,
+        ocdbt_process_spec=process_spec,
+        ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+            mode=ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+            store_ocdbt_metadata_and_values_separately=(
+                store_ocdbt_metadata_and_values_separately
+            ),
+        ),
+        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+    )
+
+    # Manifest spec is not overridden.
+    self.assertNotIn('manifest', kvstore_tspec)
+
+    # Prefixes are set according to store_ocdbt_metadata_and_values_separately.
+    if store_ocdbt_metadata_and_values_separately:
+      self.assertEqual(kvstore_tspec['value_data_prefix'], 'ocdbt_data/')
+      self.assertEqual(kvstore_tspec['btree_node_data_prefix'], 'ocdbt_meta/')
+      self.assertEqual(
+          kvstore_tspec['version_tree_node_data_prefix'], 'ocdbt_meta/'
+      )
+    else:
+      self.assertNotIn('value_data_prefix', kvstore_tspec)
+      self.assertNotIn('btree_node_data_prefix', kvstore_tspec)
+      self.assertNotIn('version_tree_node_data_prefix', kvstore_tspec)
+
+    expected_base_path = (
+        f'{self.directory}/'
+        if not use_process_spec
+        else f'{self.directory}/{str(process_spec)}/'
+    )
+    # kvstack spec is independent of the mode and write options.
+    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
 
 
 if __name__ == '__main__':

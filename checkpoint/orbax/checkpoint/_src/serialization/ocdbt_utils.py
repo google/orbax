@@ -220,6 +220,37 @@ async def merge_ocdbt_per_process_files(
   )
 
 
+async def commit_temporary_ocdbt_metadata(
+    persistent_path: epath.Path,
+    temporary_metadata_context: ts_utils.OcdbtTemporaryMetadataContext,
+    ts_context: ts.Context,
+    *,
+    store_ocdbt_metadata_and_values_separately: bool = False,
+) -> None:
+  """Commits temporary OCDBT metadata to the persistent metadata directory."""
+  target_kvstore_tspec = ts_utils.build_kvstore_tspec(
+      persistent_path.as_posix(),
+      use_ocdbt=True,
+      ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+          mode=ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+          store_ocdbt_metadata_and_values_separately=(
+              store_ocdbt_metadata_and_values_separately
+          ),
+      ),
+      ocdbt_temporary_metadata_context=temporary_metadata_context,
+  )
+  source_kvstore_tspec = ts_utils.build_kvstore_tspec(
+      persistent_path.as_posix(),
+      use_ocdbt=True,
+      ocdbt_temporary_metadata_context=temporary_metadata_context,
+  )
+  target_kvstore, source_kvstore = await asyncio.gather(
+      ts_utils.open_kv_store(target_kvstore_tspec, ts_context),
+      ts_utils.open_kv_store(source_kvstore_tspec, ts_context),
+  )
+  await source_kvstore.experimental_copy_range_to(target_kvstore)
+
+
 def get_process_index_for_subdir(
     use_ocdbt: bool,
     override_ocdbt_process_id: Optional[str] = None,
