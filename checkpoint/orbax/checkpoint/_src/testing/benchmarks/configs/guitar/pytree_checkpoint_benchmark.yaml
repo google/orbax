@@ -1,0 +1,36 @@
+# The name for the entire test suite run.
+suite_name: "PyTreeCheckpointer Performance Matrix"
+
+mesh_config:
+  mesh_axes: ["data", "stage", "fsdp", "fsdp_transpose", "sequence", "tensor", "expert", "autoregressive"]
+  # DCN: Across processes assuming 4 processes.
+  dcn_parallelism: {"tensor": 2, "data": 2}
+  process_is_granule: True
+
+# The checkpoint configuration, shared across all generated benchmarks.
+checkpoint_config:
+  spec:
+    a_1d: {dtype: "float32", shape: [32], sharding: [null]}
+    b_1d: {dtype: "float32", shape: [32], sharding: ["tensor"]}
+    c_2d: {dtype: "float32", shape: [32, 32], sharding: [null, "tensor"]}
+    d_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", null]}
+    e_2d: {dtype: "float32", shape: [32, 32], sharding: ["tensor", "fsdp"]}
+    f_2d: {dtype: "float32", shape: [32, 32], sharding: ["fsdp", "tensor"]}
+    g_2d: {dtype: "float32", shape: [32, 32], sharding: [null, null]}
+    h_3d: {dtype: "float32", shape: [32, 32, 32], sharding: ["tensor", null, "fsdp"]}
+    i_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "tensor"]}
+    j_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, "fsdp"]}
+    k_3d: {dtype: "float32", shape: [32, 32, 32], sharding: [null, null, null]}
+    custom_array: {dtype: "float32", shape: [8192, 64], sharding: ["tensor", null]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.pytree_checkpoint_benchmark.PyTreeCheckpointBenchmark"
+    options:
+      # --- Generator Options ---
+      # These keys must match the attributes of the `PyTreeCheckpointOptions` class
+      # associated with the `PyTreeCheckpointBenchmark` generator.
+      # The options are:
+      #   - use_ocdbt
+      #   - use_zarr3
+      use_ocdbt: [True]
+      use_zarr3: [True, False]
