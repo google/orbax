@@ -155,6 +155,19 @@ class UtilsTest(parameterized.TestCase):
     self.assertDictEqual(expected, tree_utils.to_flat_dict(tree))
 
   @parameterized.parameters(
+      ({'a': 1, 'b': {'c': {}, 'd': 2}}, {('a',): 1, ('b', 'd'): 2}),
+      ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
+  )
+  def test_to_flat_dict_inplace(self, tree, expected):
+    self.assertDictEqual(expected, tree_utils.to_flat_dict(tree, inplace=True))
+
+  def test_to_flat_dict_inplace_clears_input(self):
+    item = {'a': 1, 'b': {'d': 2}}
+    expected = {('a',): 1, ('b', 'd'): 2}
+    self.assertDictEqual(expected, tree_utils.to_flat_dict(item, inplace=True))
+    self.assertEqual(item, {})
+
+  @parameterized.parameters(
       ({'a': 1, 'b': {'d': 2}}, {('a',): 1, ('b', 'd'): 2}),
       ({'x': ['foo', 'bar']}, {('x', '0'): 'foo', ('x', '1'): 'bar'}),
       ({'a': 1, 'b': 2}, {('b',): 2, ('a',): 1}),
