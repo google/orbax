@@ -58,7 +58,7 @@ def _init_torch_distributed() -> None:
     if 'TEST_TMPDIR' not in os.environ and 'MASTER_ADDR' not in os.environ:
       # Single-process fallback (e.g., local testing)
       logging.info('Setting local fallback env vars...')
-      os.environ.setdefault('MASTER_ADDR', 'localhost')
+      os.environ.setdefault('MASTER_ADDR', '127.0.0.1')
       os.environ.setdefault('MASTER_PORT', '12355')
       dist.init_process_group(backend='nccl', rank=0, world_size=1)
     else:
