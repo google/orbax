@@ -16,6 +16,7 @@ import functools
 import math
 import os
 import tempfile
+from typing import Any
 import unittest
 
 from absl.testing import absltest
@@ -1185,138 +1186,6 @@ class GetTsContextTest(parameterized.TestCase):
     self.assertDictEqual(expected_spec, context.spec.to_json())
 
 
-class GetTotalBytesFromTensorstoreTest(parameterized.TestCase):
-
-  def test_get_total_bytes_written(self):
-    metrics = [
-        {
-            'name': '/tensorstore/kvstore/gcs/bytes_written',
-            'values': [{'value': 100}, {'value': 200}],
-        },
-        {
-            'name': '/tensorstore/kvstore/gfile/bytes_written',
-            'values': [{'value': 50}],
-        },
-        {
-            'name': '/tensorstore/kvstore/gcs/bytes_read',
-            'values': [{'value': 500}],
-        },
-        {
-            'name': '/other/metric/bytes_written',
-            'values': [{'value': 1000}],
-        },
-    ]
-    self.assertEqual(
-        ts_utils.get_total_bytes_from_tensorstore(
-            metrics, serialization_types.IoDirection.WRITE
-        ),
-        350,
-    )
-
-  def test_get_total_bytes_read(self):
-    metrics = [
-        {
-            'name': '/tensorstore/kvstore/gcs/bytes_written',
-            'values': [{'value': 100}],
-        },
-        {
-            'name': '/tensorstore/kvstore/gcs/bytes_read',
-            'values': [{'value': 500}, {'value': 250}],
-        },
-        {
-            'name': '/tensorstore/kvstore/gfile/bytes_read',
-            'values': [{'value': 50}],
-        },
-    ]
-    self.assertEqual(
-        ts_utils.get_total_bytes_from_tensorstore(
-            metrics, serialization_types.IoDirection.READ
-        ),
-        800,
-    )
-
-  @parameterized.named_parameters(
-      ('with_compression', True),
-      ('without_compression', False),
-  )
-  def test_get_total_bytes_with_real_ops(self, use_compression):
-    initial_metrics_write = ts.experimental_collect_matching_metrics(
-        '/tensorstore/'
-    )
-
-    tempdir = self.create_tempdir().full_path
-    info = serialization_types.ParamInfo(
-        name='arr',
-        parent_dir=epath.Path(tempdir),
-        use_compression=use_compression,
-    )
-    write_spec = ts_utils.build_array_write_spec(
-        info,
-        global_shape=(100000,),
-        local_shape=(100000,),
-        dtype=np.dtype(np.int32),
-        use_ocdbt=True,
-    )
-    write_context = ts_utils.get_ts_context(use_ocdbt=True)
-    store = ts.open(
-        write_spec.json,
-        context=write_context,
-        create=True,
-        delete_existing=True,
-        dtype=np.int32,
-        shape=(100000,),
-    ).result()
-    store.write(np.arange(100000, dtype=np.int32)).result()
-
-    final_metrics_write = ts.experimental_collect_matching_metrics(
-        '/tensorstore/'
-    )
-
-    bytes_written = ts_utils.get_total_bytes_from_tensorstore(
-        final_metrics_write, serialization_types.IoDirection.WRITE
-    ) - ts_utils.get_total_bytes_from_tensorstore(
-        initial_metrics_write, serialization_types.IoDirection.WRITE
-    )
-
-    self.assertGreater(bytes_written, 0)
-
-    initial_metrics_read = ts.experimental_collect_matching_metrics(
-        '/tensorstore/'
-    )
-
-    read_spec = ts_utils.build_array_read_spec(info, use_ocdbt=True)
-    read_context = ts_utils.get_ts_context(use_ocdbt=True)
-    read_store = ts.open(
-        read_spec.json,
-        open=True,
-        context=read_context,
-        dtype=np.int32,
-        shape=(100000,),
-    ).result()
-    read_store.read().result()
-
-    final_metrics_read = ts.experimental_collect_matching_metrics(
-        '/tensorstore/'
-    )
-
-    bytes_read = ts_utils.get_total_bytes_from_tensorstore(
-        final_metrics_read, serialization_types.IoDirection.READ
-    ) - ts_utils.get_total_bytes_from_tensorstore(
-        initial_metrics_read, serialization_types.IoDirection.READ
-    )
-
-    self.assertGreater(bytes_read, 0)
-
-    if not use_compression:
-      # Logical size is 100000 * 4 bytes = 400000 bytes.
-      self.assertLess(abs(bytes_written - 400000) / 400000, 0.01)
-      self.assertLess(abs(bytes_read - 400000) / 400000, 0.01)
-    else:
-      # Verify that compression actually reduced the bytes written/read.
-      self.assertLess(bytes_written, 300000)
-      self.assertLess(bytes_read, 300000)
-
-
 def _is_using_file_driver() -> bool:
   return ts_utils.DEFAULT_DRIVER == 'file'
 
@@ -1512,47 +1381,92 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
 
 
-class GetTensorStoreRawBytesDeltaTest(parameterized.TestCase):
+class GetTensorStoreRawBytesTest(parameterized.TestCase):
 
-  def test_none_metrics(self):
-    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta(None, None), 0)
-    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta([], None), 0)
-    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta(None, []), 0)
-
-  def test_delta_calculation(self):
-    initial = [{
-        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
-        'values': [{'value': 100}],
-    }]
-    final = [{
-        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
-        'values': [{'value': 350}],
-    }]
-    delta = ts_utils.get_tensorstore_raw_bytes_delta(
-        initial, final, serialization_types.IoDirection.WRITE
+  def test_get_tensorstore_raw_bytes(self):
+    bytes_written = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.WRITE
     )
-    self.assertEqual(delta, 250)
+    self.assertIsInstance(bytes_written, int)
+    self.assertGreaterEqual(bytes_written, 0)
 
-  def test_negative_delta_returns_zero(self):
-    initial = [{
-        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
-        'values': [{'value': 500}],
-    }]
-    final = [{
-        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
-        'values': [{'value': 300}],
-    }]
-    delta = ts_utils.get_tensorstore_raw_bytes_delta(
-        initial, final, serialization_types.IoDirection.WRITE
+    bytes_read = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.READ
     )
-    self.assertEqual(delta, 0)
+    self.assertIsInstance(bytes_read, int)
+    self.assertGreaterEqual(bytes_read, 0)
 
+  def test_mock_metrics(self):
+    fake_metrics = [{
+        'name': '/tensorstore/kvstore/file/bytes_written',
+        'values': [{'value': 1234}],
+    }]
+    with unittest.mock.patch.object(
+        ts, 'experimental_collect_matching_metrics', return_value=fake_metrics
+    ):
+      self.assertEqual(
+          ts_utils.get_tensorstore_raw_bytes(
+              serialization_types.IoDirection.WRITE
+          ),
+          1234,
+      )
 
-class CollectTensorStoreMetricsTest(parameterized.TestCase):
+  @parameterized.product(
+      use_ocdbt=(False, True),
+      use_zarr3=(False, True),
+  )
+  def test_live_tensorstore_configurations(self, use_ocdbt, use_zarr3):
+    tmpdir = tempfile.mkdtemp()
+    driver = 'zarr3' if use_zarr3 else 'zarr'
+    kvstore_spec = {'driver': 'file', 'path': tmpdir}
+    if use_ocdbt:
+      kvstore_spec = {'driver': 'ocdbt', 'base': kvstore_spec}
 
-  def test_collect_returns_list_or_none(self):
-    metrics = ts_utils.collect_tensorstore_metrics()
-    self.assertTrue(metrics is None or isinstance(metrics, list))
+    metadata: dict[str, Any] = {'shape': [100, 100]}
+    if use_zarr3:
+      metadata['data_type'] = 'float32'
+      metadata['chunk_grid'] = {
+          'name': 'regular',
+          'configuration': {'chunk_shape': [50, 50]},
+      }
+    else:
+      metadata['dtype'] = '<f4'
+      metadata['chunks'] = [50, 50]
+      metadata['compressor'] = None
+
+    spec = {
+        'driver': driver,
+        'kvstore': kvstore_spec,
+        'metadata': metadata,
+    }
+
+    init_write = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.WRITE
+    )
+    init_read = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.READ
+    )
+
+    t = ts.open(spec, create=True, open=True).result()
+    arr = np.ones((100, 100), dtype=np.float32)
+    t.write(arr).result()
+
+    post_write = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.WRITE
+    )
+    diff_write = post_write - init_write
+
+    _ = t.read().result()
+    post_read = ts_utils.get_tensorstore_raw_bytes(
+        serialization_types.IoDirection.READ
+    )
+    diff_read = post_read - init_read
+
+    # Since no compression is used, raw bytes transferred must be at least
+    # equal to the uncompressed array size (100 * 100 * 4 = 40,000 bytes) plus
+    # any metadata/manifest overhead.
+    self.assertGreaterEqual(diff_write, arr.nbytes)
+    self.assertGreaterEqual(diff_read, arr.nbytes)
 
 
 class ResolveCompressionSettingsTest(parameterized.TestCase):

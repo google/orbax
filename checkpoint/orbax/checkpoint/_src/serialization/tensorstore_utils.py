@@ -1155,52 +1155,33 @@ def array_metadata_from_tensorstore(
   )
 
 
-def get_total_bytes_from_tensorstore(
-    metrics: Sequence[dict[str, Any]], direction: types.IoDirection
+def get_tensorstore_raw_bytes(
+    direction: types.IoDirection = types.IoDirection.WRITE,
 ) -> int:
-  """Sums bytes_read or bytes_written from all kvstore drivers in metrics."""
-  total = 0
-  if direction == types.IoDirection.WRITE:
-    suffix = '/bytes_written'
-  elif direction == types.IoDirection.READ:
-    suffix = '/bytes_read'
-  else:
-    raise ValueError(f'Invalid direction: {direction}')
+  """Collects and returns total raw bytes read or written by TensorStore."""
+  suffix = (
+      '/bytes_written'
+      if direction == types.IoDirection.WRITE
+      else '/bytes_read'
+  )
+  # Querying `/tensorstore/kvstore/` returns only a few kvstore driver
+  # metrics (e.g. file, gcs, s3), making metric collection and
+  # extraction fast without scanning all TensorStore metrics.
+  metrics: Sequence[dict[str, Any]] = ts.experimental_collect_matching_metrics(
+      '/tensorstore/kvstore/'
+  )
 
+  # Sum the metric values for the given suffix.
+  total = 0
   for m in metrics:
     if not isinstance(m, dict):
       continue
     name = m.get('name', '')
-    if name.startswith('/tensorstore/kvstore/') and name.endswith(suffix):
+    if name.endswith(suffix):
       for val in m.get('values', []):
         if isinstance(val, dict):
           total += val.get('value', 0)
   return total
-
-
-def get_tensorstore_raw_bytes_delta(
-    initial_metrics: Sequence[dict[str, Any]] | None,
-    final_metrics: Sequence[dict[str, Any]] | None,
-    direction: types.IoDirection = types.IoDirection.WRITE,
-) -> int:
-  """Computes transferred raw bytes delta between two metric snapshots."""
-  if initial_metrics is None or final_metrics is None:
-    return 0
-  try:
-    initial_bytes = get_total_bytes_from_tensorstore(initial_metrics, direction)
-    final_bytes = get_total_bytes_from_tensorstore(final_metrics, direction)
-    return max(0, final_bytes - initial_bytes)
-  except Exception:  # pylint: disable=broad-except
-    logging.exception('Failed to compute TensorStore raw bytes delta.')
-    return 0
-
-
-def collect_tensorstore_metrics() -> Sequence[dict[str, Any]] | None:
-  """Safely collects TensorStore driver metrics."""
-  try:
-    return ts.experimental_collect_matching_metrics('/tensorstore')
-  except Exception:  # pylint: disable=broad-except
-    return None
 
 
 def resolve_compression_settings(

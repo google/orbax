@@ -330,21 +330,16 @@ def _record_raw_metrics(
     logical_bytes: int,
     duration: float,
     storage_type: str,
-    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+    initial_raw_bytes: int | None = None,
     custom_prefix: str = '',
     metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
 ):
   """Records raw metrics collected from TensorStore."""
-  if initial_ts_metrics is None:
+  if initial_raw_bytes is None:
     return
 
-  final_ts_metrics = ts_utils.collect_tensorstore_metrics()
-  if final_ts_metrics is None:
-    return
-
-  raw_bytes = ts_utils.get_tensorstore_raw_bytes_delta(
-      initial_ts_metrics, final_ts_metrics, direction
-  )
+  final_raw_bytes = ts_utils.get_tensorstore_raw_bytes(direction)
+  raw_bytes = max(0, final_raw_bytes - initial_raw_bytes)
   if raw_bytes <= 0:
     return
 
@@ -387,7 +382,7 @@ def _log_io_metrics(
     logical_bytes: int,
     start_time: float,
     parent_dir: epath.Path,
-    initial_ts_metrics: Sequence[dict[str, Any]] | None = None,
+    initial_raw_bytes: int | None = None,
     custom_prefix: str = '',
     metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
 ):
@@ -407,7 +402,7 @@ def _log_io_metrics(
       logical_bytes,
       duration,
       storage_type,
-      initial_ts_metrics=initial_ts_metrics,
+      initial_raw_bytes=initial_raw_bytes,
       custom_prefix=custom_prefix,
       metadatas=metadatas,
   )
@@ -428,7 +423,9 @@ def _worker_serialize_arrays(
     ext_metadata: Dict[str, Any],
 ):
   """Worker function to serialize arrays."""
-  initial_ts_metrics = ts_utils.collect_tensorstore_metrics()
+  initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
+      types.IoDirection.WRITE
+  )
   total_start_time = time.time()
   rslices_per_array = _get_replica_slices(
       arrays,
@@ -458,7 +455,7 @@ def _worker_serialize_arrays(
         logical_bytes=total_io_bytes,
         start_time=total_start_time,
         parent_dir=infos[0].parent_dir,
-        initial_ts_metrics=initial_ts_metrics,
+        initial_raw_bytes=initial_raw_bytes,
         metadatas=array_metadatas,
     )
 
@@ -571,7 +568,9 @@ def _serialize_arrays_batches_without_dispatcher(
   async def _serialize_without_dispatcher():
     if not prioritized and not deprioritized:
       return
-    initial_ts_metrics = ts_utils.collect_tensorstore_metrics()
+    initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
+        types.IoDirection.WRITE
+    )
     total_start_time = time.time()
     logical_bytes = 0
     all_array_metadatas: list[ts_utils.ArrayMetadata] = []
@@ -619,7 +618,7 @@ def _serialize_arrays_batches_without_dispatcher(
         logical_bytes=logical_bytes,
         start_time=total_start_time,
         parent_dir=info_sample.parent_dir,
-        initial_ts_metrics=initial_ts_metrics,
+        initial_raw_bytes=initial_raw_bytes,
         metadatas=all_array_metadatas,
     )
 
@@ -1037,7 +1036,9 @@ async def _deserialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
-  initial_ts_metrics = ts_utils.collect_tensorstore_metrics()
+  initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
+      types.IoDirection.READ
+  )
   total_start_time = time.time()
 
   async def _async_deserialize(
@@ -1141,7 +1142,7 @@ async def _deserialize_arrays(
         logical_bytes=logical_bytes,
         start_time=total_start_time,
         parent_dir=infos[0].parent_dir,
-        initial_ts_metrics=initial_ts_metrics,
+        initial_raw_bytes=initial_raw_bytes,
     )
   return ret
 
