@@ -14,12 +14,11 @@
 
 """Configuration options for APIs like CheckpointManager and Checkpointer."""
 
+from collections.abc import Callable
 import dataclasses
 import enum
-from typing import Callable, Optional, Set
 
 from orbax.checkpoint._src.multihost import multihost
-
 
 
 @dataclasses.dataclass
@@ -32,8 +31,8 @@ class AsyncOptions:
   timeout_secs: int = (
       1200  # 20 minutes. Same as default in `AsyncCheckpointer`.
   )
-  barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None
-  post_finalization_callback: Optional[Callable[[], None]] = None
+  barrier_sync_fn: multihost.BarrierSyncFn | None = None
+  post_finalization_callback: Callable[[], None] | None = None
   create_directories_asynchronously: bool = True
 
 
@@ -55,9 +54,9 @@ class MultiprocessingOptions:
     other barrier syncs if another CheckpointManager is being used concurrently.
   """
 
-  primary_host: Optional[int] = 0
-  active_processes: Optional[Set[int]] = None
-  barrier_sync_key_prefix: Optional[str] = None
+  primary_host: int | None = 0
+  active_processes: set[int] | None = None
+  barrier_sync_key_prefix: str | None = None
 
 
 
@@ -76,11 +75,11 @@ class AtomicityOptions:
 
   Attributes:
     mode: Specifies the atomicity mode for saving checkpoints. - AUTO:
-      Automatically selects based on storage backend (GCSDirect -> COMMIT_FILE,
-      POSIX/GCSFuse -> ATOMIC_RENAME). - COMMIT_FILE: Writes in-place and
-      creates commit_success.txt upon completion (ideal for GCSFuse). -
-      ATOMIC_RENAME: Writes to temporary directory and renames to final
-        directory.
+      Automatically selects based on storage backend (GCSDirect and detected
+      GCSFuse mounts -> COMMIT_FILE, other POSIX -> ATOMIC_RENAME). -
+      COMMIT_FILE: Writes in-place and creates commit_success.txt upon
+      completion (ideal for GCSFuse). - ATOMIC_RENAME: Writes to temporary
+      directory and renames to final directory.
     allow_legacy_atomic_rename: Optional. If True, permits reading legacy
       checkpoints saved via AtomicRename that do not contain a
       commit_success.txt file. Default is False.
