@@ -69,6 +69,7 @@ _GCS_OCDBT_TARGET_DATA_FILE_SIZE = 400 * 2**20  # 400 MiB
 # 'ocdbt_data/' subdirectory.
 _OCDBT_SPLIT_VALUE_DATA_PREFIX = 'ocdbt_data/'
 _OCDBT_SPLIT_META_DATA_PREFIX = 'ocdbt_meta/'
+_OCDBT_TMP_METADATA_PREFIX = 'ocdbt_tmp_meta/'
 
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
@@ -155,10 +156,13 @@ class OcdbtWriteMode(enum.Enum):
     WRITE: Used when writing checkpoint data.
     MERGE: Used for target (parent) KvStore when merging OCDBT metadata from
       all per-process subdirectories.
+    COMMIT_TEMPORARY: Used when committing metadata accumulated in a temporary
+      metadata directory to its target persistent location.
   """
 
   WRITE = 'write'
   MERGE = 'merge'
+  COMMIT_TEMPORARY = 'commit_temporary'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -176,6 +180,34 @@ class OcdbtKvStoreWriteOptions:
   mode: OcdbtWriteMode
   target_data_file_size: int | None = None
   store_ocdbt_metadata_and_values_separately: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class OcdbtTemporaryMetadataContext:
+  """Context for handling OCDBT temporary metadata.
+
+  OCDBT kvstore configuration supports storing per-process OCDBT metadata
+  (manifest file and B-tree and version tree nodes) in a separate, local
+  temporary directory (backed by in-memory file system), which should later be
+  committed to the persistent metadata directory. This allows to achieve atomic
+  OCDBT metadata writes - especially for manifest files - without having to rely
+  on TensorStore transactions.
+
+  Usage (within a single writer process):
+    1) create a temporary directory and provide a OcdbtTemporaryMetadataContext
+       pointing to it to the TensorStore spec construction APIs (ArrayWriteSpec,
+       build_kvstore_tspec with WRITE mode) alongside the main persistent
+       directory
+    2) write all process-local data to TensorStore
+    3) after writing, call `ocdbt_utils.commit_temporary_ocdbt_metadata` to
+       atomically commit the metadata from the temporary directory to the
+       persistent directory
+
+  Attributes:
+    path: The path to the temporary metadata directory. In-memory or local
+      filesystem are recommended for performance.
+  """
+  path: epath.Path
 
 
 def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
@@ -208,12 +240,105 @@ def _normalize_path(path: str) -> str:
   return os.path.normpath(path).replace('gs:/', 'gs://')
 
 
+@dataclasses.dataclass(frozen=True)
+class _OcdbtKvSpecParameters:
+  """OCDBT KvStore spec key parameters.
+
+  Attributes:
+    base_driver_spec: The spec of the underlying (base) kvstore driver, pointing
+      to the target storage path (or using kvstack driver to support separate
+      storage of metadata in temporary path and values in the target path)
+    manifest_spec_override: [Optional] The manifest spec override of the
+      KvStore.
+    metadata_prefix_override: [Optional] The metadata prefix override of the
+      KvStore. If set, `btree_node_data_prefix` and
+      `version_tree_node_data_prefix` will be set to this value.
+    value_prefix_override: [Optional] The value prefix override of the KvStore.
+      If set, `value_data_prefix` will be set to this value.
+  """
+  base_driver_spec: JsonSpec
+  manifest_spec_override: JsonSpec | str | None = None
+  metadata_prefix_override: str | None = None
+  value_prefix_override: str | None = None
+
+
+def _override_ocdbt_kvspec_parameters_for_temporary_metadata(
+    temporary_metadata_context: OcdbtTemporaryMetadataContext | None,
+    write_mode: OcdbtWriteMode | None,
+    current_parameters: _OcdbtKvSpecParameters,
+) -> _OcdbtKvSpecParameters:
+  """Returns KvStore spec parameters with overrides for temporary metadata."""
+  if temporary_metadata_context is None:
+    if write_mode == OcdbtWriteMode.COMMIT_TEMPORARY:
+      raise ValueError(
+          'OCDBT commit mode requires temporary metadata context.'
+      )
+    return current_parameters
+
+  if write_mode == OcdbtWriteMode.MERGE:
+    raise ValueError(
+        'OCDBT merge mode does not support temporary metadata context.'
+    )
+
+  manifest_spec = current_parameters.manifest_spec_override
+  metadata_prefix = current_parameters.metadata_prefix_override
+
+  base_tmp_dir_spec = f'{DEFAULT_DRIVER}://{temporary_metadata_context.path}/'
+
+  # Ensure routing of metadata-related files' writes and reads to the temporary
+  # directory. We achieve this by:
+  #  1) using the kvstack driver
+  #  2) when in writing mode, overriding the metadata prefix to match the prefix
+  #     of the layer backed by the temporary directory
+  #  3) overriding the manifest spec to point to the temporary metadata
+  #     directory (unless in COMMIT_TEMPORARY mode)
+  # Notes on COMMIT_TEMPORARY mode (used for copying metadata from temporary
+  # to persistent location):
+  #   1) we don't set manifest or metadata prefix overrides: this ensures that
+  #      the target kvstore is correctly opened as empty initially, and any
+  #      writes of metadata are now routed to the layer backed by the persistent
+  #      directory
+  #   2) kvstack driver's implementation of `experimental_copy_range_to` (used
+  #      by `commit_temporary_ocdbt_metadata` to copy metadata to persistent
+  #      location) is very strict about the base_driver_spec of the source
+  #      and destination kvstores, requiring them to be identical. This defines
+  #      how the base_driver_spec is constructed below, to look the same
+  #      regardless of the mode used (read or commit).
+  if write_mode != OcdbtWriteMode.COMMIT_TEMPORARY:
+    manifest_spec = f'{base_tmp_dir_spec}{_OCDBT_TMP_METADATA_PREFIX}'
+  if write_mode == OcdbtWriteMode.WRITE:
+    metadata_prefix = _OCDBT_TMP_METADATA_PREFIX
+
+  base_driver_spec = {
+      'driver': 'kvstack',
+      'layers': [
+          # Write to the real persistent checkpoint directory by default.
+          {'base': current_parameters.base_driver_spec},
+          # Per-process metadata is stored in the separate local temporary
+          # directory. `prefix` ensures that writes and reads of
+          # metadata-related files are routed to the temporary directory.
+          {
+              'prefix': _OCDBT_TMP_METADATA_PREFIX,
+              'base': base_tmp_dir_spec,
+          },
+      ],
+  }
+
+  return dataclasses.replace(
+      current_parameters,
+      base_driver_spec=base_driver_spec,
+      manifest_spec_override=manifest_spec,
+      metadata_prefix_override=metadata_prefix,
+  )
+
+
 def _build_ocdbt_kvstore_tspec(
     directory: str,
     name: str | None = None,
     *,
     process_spec: OcdbtProcessSpec | None = None,
     write_options: OcdbtKvStoreWriteOptions | None = None,
+    temporary_metadata_context: OcdbtTemporaryMetadataContext | None = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore OCDBT KvStore.
 
@@ -225,6 +350,8 @@ def _build_ocdbt_kvstore_tspec(
       name).
     write_options: Options specific to OCDBT KvStore write modes. Should be
       provided when the kvstore will be used for writing or merging.
+    temporary_metadata_context: Context for local temporary metadata directory.
+      See `OcdbtTemporaryMetadataContext` for more details.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -242,7 +369,10 @@ def _build_ocdbt_kvstore_tspec(
   if is_gcs_path:
     base_driver_spec = _get_kvstore_for_gcs(directory)
   else:
-    base_driver_spec = {'driver': DEFAULT_DRIVER, 'path': str(directory)}
+    base_driver_spec = {
+        'driver': DEFAULT_DRIVER,
+        'path': str(directory) + '/',  # explicit slash required for kvstack
+    }
 
   # For OCDBT on local filesystems (including GCSFuse), we can safely use
   # non-atomic writes for data files to avoid expensive renames. However,
@@ -259,31 +389,54 @@ def _build_ocdbt_kvstore_tspec(
     )
     resolved_base_spec = base_driver_spec
 
+  kvspec_params = _OcdbtKvSpecParameters(base_driver_spec=base_driver_spec)
+
+  if (
+      write_options is not None
+      and write_options.store_ocdbt_metadata_and_values_separately
+  ):
+    kvspec_params = dataclasses.replace(
+        kvspec_params,
+        metadata_prefix_override=_OCDBT_SPLIT_META_DATA_PREFIX,
+        value_prefix_override=_OCDBT_SPLIT_VALUE_DATA_PREFIX,
+    )
+
   if (
       isinstance(resolved_base_spec, dict)
       and resolved_base_spec.get('driver') == 'file'
   ):
-    kv_spec = {
-        'driver': 'ocdbt',
-        'base': {
+    kvspec_params = dataclasses.replace(
+        kvspec_params,
+        base_driver_spec={
             **resolved_base_spec,
             'file_io_locking': {'mode': 'non_atomic'},
         },
-        'manifest': base_driver_spec,
-    }
-  else:
-    kv_spec = {
-        'driver': 'ocdbt',
-        'base': base_driver_spec,
-    }
+        manifest_spec_override=resolved_base_spec,
+    )
+
+  write_mode = None if write_options is None else write_options.mode
+  kvspec_params = _override_ocdbt_kvspec_parameters_for_temporary_metadata(
+      temporary_metadata_context=temporary_metadata_context,
+      write_mode=write_mode,
+      current_parameters=kvspec_params,
+  )
+
+  kv_spec = {'driver': 'ocdbt', 'base': kvspec_params.base_driver_spec}
+
+  if kvspec_params.manifest_spec_override is not None:
+    kv_spec['manifest'] = kvspec_params.manifest_spec_override
+  if kvspec_params.metadata_prefix_override is not None:
+    kv_spec['btree_node_data_prefix'] = kvspec_params.metadata_prefix_override
+    kv_spec['version_tree_node_data_prefix'] = (
+        kvspec_params.metadata_prefix_override
+    )
+  if kvspec_params.value_prefix_override is not None:
+    kv_spec['value_data_prefix'] = kvspec_params.value_prefix_override
 
   if write_options is not None:
     _add_ocdbt_write_options(
         kv_spec,
         target_data_file_size=write_options.target_data_file_size,
-        store_ocdbt_metadata_and_values_separately=(
-            write_options.store_ocdbt_metadata_and_values_separately
-        ),
     )
 
   if name is not None:
@@ -334,6 +487,9 @@ def build_kvstore_tspec(
     use_ocdbt: bool = True,
     ocdbt_process_spec: OcdbtProcessSpec | None = None,
     ocdbt_write_options: OcdbtKvStoreWriteOptions | None = None,
+    ocdbt_temporary_metadata_context: (
+        OcdbtTemporaryMetadataContext | None
+    ) = None,
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore.
 
@@ -346,6 +502,8 @@ def build_kvstore_tspec(
       name).
     ocdbt_write_options: Options specific to OCDBT KvStore write modes. Should
       be provided when the kvstore will be used for writing or merging.
+    ocdbt_temporary_metadata_context: Context for local temporary metadata
+      directory. See `OcdbtTemporaryMetadataContext` for more details.
 
   Returns:
     A Tensorstore KvStore spec in dictionary form.
@@ -356,6 +514,7 @@ def build_kvstore_tspec(
         name=name,
         process_spec=ocdbt_process_spec,
         write_options=ocdbt_write_options,
+        temporary_metadata_context=ocdbt_temporary_metadata_context,
     )
 
   return _build_non_ocdbt_kvstore_tspec(directory=directory, name=name)
@@ -387,8 +546,6 @@ def _get_backend_ocdbt_target_data_file_size(
 def _add_ocdbt_write_options(
     kvstore_tspec: JsonSpec,
     target_data_file_size: int | None = None,
-    *,
-    store_ocdbt_metadata_and_values_separately: bool = False,
 ) -> None:
   """Adds write-specific options to a TensorStore OCDBT KVStore spec."""
   if target_data_file_size is None:
@@ -402,13 +559,6 @@ def _add_ocdbt_write_options(
         f'; got {target_data_file_size}'
     )
   kvstore_tspec['target_data_file_size'] = target_data_file_size
-
-  if store_ocdbt_metadata_and_values_separately:
-    kvstore_tspec['value_data_prefix'] = _OCDBT_SPLIT_VALUE_DATA_PREFIX
-    kvstore_tspec['btree_node_data_prefix'] = _OCDBT_SPLIT_META_DATA_PREFIX
-    kvstore_tspec['version_tree_node_data_prefix'] = (
-        _OCDBT_SPLIT_META_DATA_PREFIX
-    )
 
   kvstore_tspec['config'] = {
       # Store .zarray metadata inline but not large chunks.
@@ -635,6 +785,9 @@ class ArrayWriteSpec:
       replica_separate_folder: bool = False,
       ext_metadata: ExtMetadata | None = None,
       store_ocdbt_metadata_and_values_separately: bool = False,
+      ocdbt_temporary_metadata_context: (
+          OcdbtTemporaryMetadataContext | None
+      ) = None,
   ):
     """Builds a TensorStore spec for writing an array."""
     # Construct the underlying KvStore spec.
@@ -656,6 +809,7 @@ class ArrayWriteSpec:
                 store_ocdbt_metadata_and_values_separately
             ),
         ),
+        ocdbt_temporary_metadata_context=ocdbt_temporary_metadata_context,
     )
     # Construct the top-level array spec.
     tspec = {

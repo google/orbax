@@ -526,7 +526,7 @@ class CheckpointTest(parameterized.TestCase):
     else:
       expected = {
           'driver': ts_utils.DEFAULT_DRIVER,
-          'path': os.path.dirname(path),
+          'path': os.path.dirname(path) + '/',
       }
       if spec['kvstore']['base'].get('driver') == 'file':
         expected['file_io_locking'] = {'mode': 'non_atomic'}

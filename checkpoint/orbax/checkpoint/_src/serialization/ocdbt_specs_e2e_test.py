@@ -15,7 +15,9 @@
 """End-to-end tests for distributed arrays serialization with OCDBT."""
 
 import asyncio
+import contextlib
 import dataclasses
+import tempfile
 from typing import TypeAlias
 import unittest
 
@@ -158,6 +160,9 @@ async def _write_array(
     ts_context: ts.Context,
     *,
     store_ocdbt_metadata_and_values_separately: bool = False,
+    temporary_metadata_context: (
+        tensorstore_utils.OcdbtTemporaryMetadataContext | None
+    ) = None,
 ) -> None:
   """Writes array fragments to the given path with the given process id."""
   array_write_tspec = tensorstore_utils.ArrayWriteSpec(
@@ -171,6 +176,7 @@ async def _write_array(
       store_ocdbt_metadata_and_values_separately=(
           store_ocdbt_metadata_and_values_separately
       ),
+      ocdbt_temporary_metadata_context=temporary_metadata_context,
   ).json
 
   if _should_create_ts(array_fragments):
@@ -287,6 +293,126 @@ class OcdbtSpecsE2eTest(
               )
           )
       await asyncio.gather(*write_futures)
+
+    await _write()
+    self._verify_per_process_ocdbt_files(
+        test_data,
+        test_dir,
+        store_ocdbt_metadata_and_values_separately,
+    )
+
+    await ocdbt_utils.merge_ocdbt_per_process_files(
+        test_dir, ts_context, use_zarr3=False, enable_validation=False
+    )
+    await _verify_array_data(test_data, test_dir)
+
+  @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(False, True),
+  )
+  async def test_write_with_temporary_metadata_context(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    test_dir = epath.Path(self.create_tempdir()) / "test_data"
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    test_data = build_test_data()
+
+    # Create process-specific persistent subdirectories.
+    for process_id in all_process_ids(test_data):
+      spec = ocdbt_process_spec.OcdbtProcessSpec(process_id=process_id)
+      (test_dir / str(spec)).mkdir(parents=False, exist_ok=False)
+
+    ts_context = tensorstore_utils.get_ts_context(use_ocdbt=True)
+
+    async def _write():
+      exit_stack = contextlib.ExitStack()
+      with exit_stack:
+        # Allocate temporary directories for each process's temporary metadata.
+        tmp_metadata_context_by_process_id: dict[
+            str, tensorstore_utils.OcdbtTemporaryMetadataContext
+        ] = {}
+
+        def _get_tmp_metadata_context_by_process_id(
+            process_id: str,
+        ) -> tensorstore_utils.OcdbtTemporaryMetadataContext:
+          if process_id not in tmp_metadata_context_by_process_id:
+            tmp_context = exit_stack.enter_context(
+                tempfile.TemporaryDirectory()
+            )
+            tmp_metadata_context_by_process_id[process_id] = (
+                tensorstore_utils.OcdbtTemporaryMetadataContext(
+                    path=epath.Path(tmp_context)
+                )
+            )
+          return tmp_metadata_context_by_process_id[process_id]
+
+        write_futures = []
+        for array in test_data:
+          for process_id, fragments in array.fragments_by_process_id.items():
+            write_futures.append(
+                _write_array(
+                    array.name,
+                    test_dir,
+                    fragments,
+                    process_id,
+                    ts_context,
+                    store_ocdbt_metadata_and_values_separately=(
+                        store_ocdbt_metadata_and_values_separately
+                    ),
+                    temporary_metadata_context=(
+                        _get_tmp_metadata_context_by_process_id(process_id)
+                    ),
+                )
+            )
+        await asyncio.gather(*write_futures)
+
+        # Verify that temporary metadata has been written as expected.
+        for process_id in all_process_ids(test_data):
+          process_spec = ocdbt_process_spec.OcdbtProcessSpec(
+              process_id=process_id
+          )
+          process_dir = test_dir / str(process_spec)
+          tmp_metadata_dir = _get_tmp_metadata_context_by_process_id(
+              process_id
+          ).path
+          # Manifest should not have been written to the final destination, but
+          # should exist in the temporary metadata context.
+          self.assertFalse((process_dir / "manifest.ocdbt").exists())
+          tmp_manifest_path = (
+              tmp_metadata_dir / "ocdbt_tmp_meta/manifest.ocdbt"
+          )
+          self.assertTrue(tmp_manifest_path.exists())
+          # Check that metadata is not written to the final destination. We can
+          # only check this easily if we're writing metadata and values
+          # separately.
+          if store_ocdbt_metadata_and_values_separately:
+            self.assertFalse((process_dir / "ocdbt_meta").is_dir())
+            self.assertTrue(
+                (tmp_metadata_dir / "ocdbt_tmp_meta").is_dir()
+            )
+            # b_large should have generated files written to ocdbt_data/ subdir
+            # directly, bypassing the temporary metadata context.
+            if process_id in ("h0", "h1"):
+              self.assertTrue((process_dir / "ocdbt_data").is_dir())
+
+        # Commit temporary metadata to persistent storage.
+        commit_metadata_futures = []
+        for process_id in all_process_ids(test_data):
+          process_spec = ocdbt_process_spec.OcdbtProcessSpec(
+              process_id=process_id
+          )
+          commit_metadata_futures.append(
+              ocdbt_utils.commit_temporary_ocdbt_metadata(
+                  test_dir / str(process_spec),
+                  _get_tmp_metadata_context_by_process_id(process_id),
+                  ts_context,
+                  store_ocdbt_metadata_and_values_separately=(
+                      store_ocdbt_metadata_and_values_separately
+                  ),
+              )
+          )
+        await asyncio.gather(*commit_metadata_futures)
 
     await _write()
     self._verify_per_process_ocdbt_files(
