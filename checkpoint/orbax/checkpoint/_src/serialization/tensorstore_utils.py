@@ -593,56 +593,77 @@ async def open_kv_store(
 ### Building Zarr array metadata.
 
 
-def build_zarr_shard_and_chunk_metadata(
+def _build_zarr2_metadata(
+    global_shape: Shape,
+    chunk_shape: Shape,
+    use_compression: bool,
+) -> JsonSpec:
+  """Constructs Zarr v2 metadata."""
+  # Use default level 1 straight from TensorStore.
+  compressor = {'id': 'zstd', 'level': 1} if use_compression else None
+  return {
+      'shape': global_shape,
+      'chunks': chunk_shape,
+      'compressor': compressor,  # pyrefly: ignore[bad-assignment]
+  }
+
+
+def _build_zarr3_metadata(
+    global_shape: Shape,
+    chunk_shape: Shape,
+    use_compression: bool,
+) -> JsonSpec:
+  """Constructs Zarr v3 metadata."""
+  codecs: list[JsonSpec] = [{
+      'name': 'sharding_indexed',
+      'configuration': {
+          'chunk_shape': chunk_shape,
+          'codecs': [
+              {'name': 'bytes', 'configuration': {'endian': 'little'}},
+          ],
+          'index_codecs': [
+              {'name': 'bytes', 'configuration': {'endian': 'little'}},
+              {'name': 'crc32c'},
+          ],
+          'index_location': 'end',
+      },
+  }]
+  if use_compression:
+    # Use default level 3 straight from TensorStore.
+    codecs[0]['configuration']['codecs'].append(
+        {'name': 'zstd', 'configuration': {'level': 3}}
+    )  # pyrefly: ignore[bad-index]
+
+  return {
+      'shape': global_shape,
+      'chunk_grid': {  # pyrefly: ignore[bad-assignment]
+          'name': 'regular',
+          'configuration': {'chunk_shape': chunk_shape},
+      },
+      'codecs': codecs,  # pyrefly: ignore[bad-assignment]
+  }
+
+
+def _build_zarr_shard_and_chunk_metadata(
     *,
     global_shape: Shape,
     shard_shape: Shape,
     use_compression: bool = True,
     use_zarr3: bool,
     chunk_shape: Shape,
-) -> JsonSpec:
+) -> tuple[JsonSpec, str, int | None]:
   """Constructs Zarr metadata for TensorStore array write spec."""
-  metadata = {'shape': global_shape}
-
-  if not use_zarr3:
-    # Zarr v2.
-    metadata['chunks'] = chunk_shape
-    if use_compression:
-      metadata['compressor'] = {'id': 'zstd'}  # pyrefly: ignore[bad-assignment]
-    else:
-      metadata['compressor'] = None  # pyrefly: ignore[bad-assignment]
+  # TODO: b/354139177 - Consider if using write shape equal to shard shape and
+  # read shape equal to chosen chunk shape would be a better setting.
+  del shard_shape  # Currently unused.
+  if use_zarr3:
+    metadata = _build_zarr3_metadata(global_shape, chunk_shape, use_compression)
+    level = 3 if use_compression else None
   else:
-    # Zarr v3.
-    metadata['chunk_grid'] = {  # pyrefly: ignore[bad-assignment]
-        'name': 'regular',
-        'configuration': {
-            'chunk_shape': chunk_shape,
-        },
-    }
-    # TODO: b/354139177 - Consider if using write shape equal to shard shape and
-    # read shape equal to chosen chunk shape would be a better setting.
-    del shard_shape  # Currently unused.
-    metadata['codecs'] = [  # pyrefly: ignore[bad-assignment]
-        {
-            'name': 'sharding_indexed',
-            'configuration': {
-                'chunk_shape': chunk_shape,
-                'codecs': [
-                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
-                ],
-                'index_codecs': [
-                    {'name': 'bytes', 'configuration': {'endian': 'little'}},
-                    {'name': 'crc32c'},
-                ],
-                'index_location': 'end',
-            },
-        },
-    ]
-    if use_compression:
-      # Remove zstd codec if not using compression.
-      metadata['codecs'][0]['configuration']['codecs'].append({'name': 'zstd'})  # pyrefly: ignore[bad-index]
-
-  return metadata
+    metadata = _build_zarr2_metadata(global_shape, chunk_shape, use_compression)
+    level = 1 if use_compression else None
+  algo = 'zstd' if use_compression else 'none'
+  return metadata, algo, level
 
 
 def calculate_chunk_byte_size(
@@ -851,7 +872,7 @@ class ArrayWriteSpec:
           chunk_shape,
       )
     # Construct Zarr chunk metadata.
-    tspec['metadata'] = build_zarr_shard_and_chunk_metadata(
+    tspec['metadata'], algo, level = _build_zarr_shard_and_chunk_metadata(
         global_shape=global_shape,
         shard_shape=write_shape,
         use_compression=use_compression,
@@ -869,6 +890,8 @@ class ArrayWriteSpec:
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         ext_metadata=ext_metadata,
+        compression_algorithm=algo,
+        compression_level=level,
     )
     # Wrap spec into `cast` driver if needed, and keep it in a separate field.
     self._json_spec = _maybe_add_cast_to_write_spec(
@@ -1153,6 +1176,47 @@ def get_total_bytes_from_tensorstore(
         if isinstance(val, dict):
           total += val.get('value', 0)
   return total
+
+
+def get_tensorstore_raw_bytes_delta(
+    initial_metrics: Sequence[dict[str, Any]] | None,
+    final_metrics: Sequence[dict[str, Any]] | None,
+    direction: types.IoDirection = types.IoDirection.WRITE,
+) -> int:
+  """Computes transferred raw bytes delta between two metric snapshots."""
+  if initial_metrics is None or final_metrics is None:
+    return 0
+  try:
+    initial_bytes = get_total_bytes_from_tensorstore(initial_metrics, direction)
+    final_bytes = get_total_bytes_from_tensorstore(final_metrics, direction)
+    return max(0, final_bytes - initial_bytes)
+  except Exception:  # pylint: disable=broad-except
+    logging.exception('Failed to compute TensorStore raw bytes delta.')
+    return 0
+
+
+def collect_tensorstore_metrics() -> Sequence[dict[str, Any]] | None:
+  """Safely collects TensorStore driver metrics."""
+  try:
+    return ts.experimental_collect_matching_metrics('/tensorstore')
+  except Exception:  # pylint: disable=broad-except
+    return None
+
+
+def resolve_compression_settings(
+    metadatas: Sequence[ArrayMetadata],
+) -> tuple[str, str]:
+  """Extracts (algo, level) across array metadata."""
+  if not metadatas:
+    return ('none', 'None')
+  compression_settings = {
+      (m.compression_algorithm, m.compression_level) for m in metadatas
+  }
+  if len(compression_settings) == 1:
+    # this should be rare.
+    algo, level = next(iter(compression_settings))
+    return (str(algo), str(level))
+  return ('mixed', 'mixed')
 
 
 def print_ts_debug_data(key: str | None, infos: Sequence[types.ParamInfo]):
