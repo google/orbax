@@ -159,6 +159,24 @@ class PriorityBatchingPolicy(enum.Enum):
 
 
 @dataclasses.dataclass(kw_only=True)
+class PriorityAwareBatchingOptions:
+  """Priority aware batch options for the Orbax model.
+
+  This is used to configure the batching behavior when
+  `priority_batching_policy` is set to `PRIORITY_AWARE`.
+
+  Attributes:
+    max_queue_depth: The maximum sum of task sizes to enqueue. Must be
+      non-negative.
+    enable_task_resplit: If true, the priority aware batch queue will resplit
+      tasks into smaller subtasks if needed. Default is False.
+  """
+
+  max_queue_depth: int = 0
+  enable_task_resplit: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
 class BatchOptions:
   """Batch options for the Orbax model.
 
@@ -188,6 +206,9 @@ class BatchOptions:
       scope is LOCAL_TO_PIPELINE and queue selection policy is ROUND_ROBIN.
     priority_batching_policy: The priority batching policy for the batch
       scheduler. Default is STRICT_FIFO.
+    priority_aware_batching_options: The priority aware batch options for the
+      batch scheduler when `priority_batching_policy` is set to
+      `PRIORITY_AWARE`.
   """
 
   batch_component: BatchComponent
@@ -208,6 +229,7 @@ class BatchOptions:
   priority_batching_policy: PriorityBatchingPolicy = (
       PriorityBatchingPolicy.STRICT_FIFO
   )
+  priority_aware_batching_options: PriorityAwareBatchingOptions | None = None
 
   def _validate_batch_options(
       self,
@@ -347,6 +369,17 @@ class BatchOptions:
           self.low_priority_batch_options.max_enqueued_batches,
           is_low_priority_batch_options=True,
       )
+
+    if (
+        self.priority_batching_policy == PriorityBatchingPolicy.PRIORITY_AWARE
+        and self.priority_aware_batching_options is not None
+    ):
+      if self.priority_aware_batching_options.max_queue_depth < 0:
+        raise ValueError(
+            "`priority_aware_batching_options.max_queue_depth` must be"
+            " non-negative. Got:"
+            f" {self.priority_aware_batching_options.max_queue_depth}"
+        )
 
 
 @dataclasses.dataclass(kw_only=True)

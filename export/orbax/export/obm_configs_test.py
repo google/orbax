@@ -350,6 +350,68 @@ class ObmConfigsTest(absltest.TestCase):
           ),
       )
 
+  def test_priority_aware_batching_options_default(self):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        priority_aware_batching_options=obm_configs.PriorityAwareBatchingOptions(),
+    )
+    assert batch_options.priority_aware_batching_options is not None
+    self.assertEqual(
+        batch_options.priority_aware_batching_options.max_queue_depth, 0
+    )
+    self.assertFalse(
+        batch_options.priority_aware_batching_options.enable_task_resplit
+    )
+
+  def test_priority_aware_batching_options_custom(self):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        priority_aware_batching_options=obm_configs.PriorityAwareBatchingOptions(
+            max_queue_depth=100,
+            enable_task_resplit=True,
+        ),
+    )
+    assert batch_options.priority_aware_batching_options is not None
+    self.assertEqual(
+        batch_options.priority_aware_batching_options.max_queue_depth, 100
+    )
+    self.assertTrue(
+        batch_options.priority_aware_batching_options.enable_task_resplit
+    )
+
+  def test_priority_aware_batching_options_raise_error_with_negative_max_queue_depth(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`priority_aware_batching_options.max_queue_depth` must be"
+        r" non-negative. Got: -1",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=16,
+          priority_batching_policy=obm_configs.PriorityBatchingPolicy.PRIORITY_AWARE,
+          priority_aware_batching_options=obm_configs.PriorityAwareBatchingOptions(
+              max_queue_depth=-1,
+          ),
+      )
+
+  def test_priority_aware_batching_options_not_validated_when_strict_fifo(self):
+    batch_options = obm_configs.BatchOptions(
+        batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+        max_batch_size=16,
+        priority_batching_policy=obm_configs.PriorityBatchingPolicy.STRICT_FIFO,
+        priority_aware_batching_options=obm_configs.PriorityAwareBatchingOptions(
+            max_queue_depth=-1,
+        ),
+    )
+    assert batch_options.priority_aware_batching_options is not None
+    self.assertEqual(
+        batch_options.priority_aware_batching_options.max_queue_depth, -1
+    )
+
 
 if __name__ == "__main__":
   absltest.main()
