@@ -100,6 +100,7 @@ class StorageBackend(abc.ABC):
   def delete_checkpoint(
       self,
       checkpoint_path: str | epath.PathLike,
+      move_to_ttl_dir: bool = False,
   ) -> None:
     """Deletes a checkpoint from the storage backend."""
     raise NotImplementedError('Subclasses must provide implementation')
@@ -128,6 +129,7 @@ class GCSStorageBackend(StorageBackend):
   def delete_checkpoint(
       self,
       checkpoint_path: str | epath.PathLike,
+      move_to_ttl_dir: bool = False,
   ) -> None:
     """Deletes the checkpoint at the given path."""
     raise NotImplementedError(
@@ -160,6 +162,7 @@ class LocalStorageBackend(StorageBackend):
   def delete_checkpoint(
       self,
       checkpoint_path: str | epath.PathLike,
+      move_to_ttl_dir: bool = False,
   ) -> None:
     """Deletes the checkpoint at the given path."""
     try:
