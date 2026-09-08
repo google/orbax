@@ -125,6 +125,52 @@ class GetBackendOcdbtTargetDataFileSizeTest(parameterized.TestCase):
     )
 
 
+class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_compression=(True, False),
+  )
+  def test_build_zarr_shard_and_chunk_metadata(
+      self, use_zarr3: bool, use_compression: bool
+  ):
+    shape = (10, 6, 32)
+    chunk_shape = (5, 6, 8)
+    metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
+        global_shape=shape,
+        shard_shape=chunk_shape,
+        use_compression=use_compression,
+        use_zarr3=use_zarr3,
+        chunk_shape=chunk_shape,
+    )
+    expected_algo = 'zstd' if use_compression else 'none'
+    self.assertEqual(algo, expected_algo)
+    if use_compression:
+      expected_level = 3 if use_zarr3 else 1
+      self.assertEqual(level, expected_level)
+    else:
+      self.assertIsNone(level)
+    self.assertEqual(metadata['shape'], shape)
+    if not use_zarr3:
+      self.assertEqual(metadata['chunks'], chunk_shape)
+      if use_compression:
+        self.assertEqual(metadata['compressor'], {'id': 'zstd', 'level': 1})
+      else:
+        self.assertIsNone(metadata['compressor'])
+    else:
+      self.assertEqual(
+          metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
+      )
+      codecs = metadata['codecs'][0]['configuration']['codecs']
+      codec_names = [c['name'] for c in codecs]
+      if use_compression:
+        self.assertIn('zstd', codec_names)
+        zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
+        self.assertEqual(zstd_codec['configuration']['level'], 3)
+      else:
+        self.assertNotIn('zstd', codec_names)
+
+
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
   def setUp(self):
@@ -397,7 +443,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           },
           'metadata': {
               'chunks': self.write_shape,
-              'compressor': {'id': 'zstd'},
+              'compressor': {'id': 'zstd', 'level': 1},
               'shape': self.shape,
           },
           'recheck_cached_data': False,
@@ -653,6 +699,57 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(tspec.json['driver'], 'cast')
     self.assertEqual(tspec.json['dtype'], 'int32')
     self.assertEqual(tspec.json['base']['dtype'], 'float32')
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_compression_uncompressed(self, use_zarr3: bool, use_ocdbt: bool):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        use_compression=False,
+    )
+    self.assertEqual(tspec.metadata.compression_algorithm, 'none')
+    self.assertIsNone(tspec.metadata.compression_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_compression_default_compressed(
+      self, use_zarr3: bool, use_ocdbt: bool
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        use_compression=True,
+    )
+    self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+    expected_level = 3 if use_zarr3 else 1
+    self.assertEqual(tspec.metadata.compression_level, expected_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_compression_with_casting(self, use_zarr3: bool, use_ocdbt: bool):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        target_dtype=np.dtype(np.float32),
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        use_compression=True,
+    )
+    self.assertEqual(tspec.json['driver'], 'cast')
+    self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+    expected_level = 3 if use_zarr3 else 1
+    self.assertEqual(tspec.metadata.compression_level, expected_level)
 
   def _get_chunk_shape_from_tspec(
       self,
@@ -1413,6 +1510,128 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
 
     # kvstack spec is independent of the mode and write options.
     self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+
+
+class GetTensorStoreRawBytesDeltaTest(parameterized.TestCase):
+
+  def test_none_metrics(self):
+    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta(None, None), 0)
+    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta([], None), 0)
+    self.assertEqual(ts_utils.get_tensorstore_raw_bytes_delta(None, []), 0)
+
+  def test_delta_calculation(self):
+    initial = [{
+        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
+        'values': [{'value': 100}],
+    }]
+    final = [{
+        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
+        'values': [{'value': 350}],
+    }]
+    delta = ts_utils.get_tensorstore_raw_bytes_delta(
+        initial, final, serialization_types.IoDirection.WRITE
+    )
+    self.assertEqual(delta, 250)
+
+  def test_negative_delta_returns_zero(self):
+    initial = [{
+        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
+        'values': [{'value': 500}],
+    }]
+    final = [{
+        'name': '/tensorstore/kvstore/ocdbt/bytes_written',
+        'values': [{'value': 300}],
+    }]
+    delta = ts_utils.get_tensorstore_raw_bytes_delta(
+        initial, final, serialization_types.IoDirection.WRITE
+    )
+    self.assertEqual(delta, 0)
+
+
+class CollectTensorStoreMetricsTest(parameterized.TestCase):
+
+  def test_collect_returns_list_or_none(self):
+    metrics = ts_utils.collect_tensorstore_metrics()
+    self.assertTrue(metrics is None or isinstance(metrics, list))
+
+
+class ResolveCompressionSettingsTest(parameterized.TestCase):
+
+  def test_empty(self):
+    self.assertEqual(
+        ts_utils.resolve_compression_settings([]), ('none', 'None')
+    )
+
+  def test_single(self):
+    meta = ts_utils.ArrayMetadata(
+        param_name='a',
+        shape=(1,),
+        dtype=np.dtype('float32'),
+        write_shape=(1,),
+        chunk_shape=(1,),
+        use_ocdbt=True,
+        use_zarr3=False,
+        compression_algorithm='zstd',
+        compression_level=3,
+    )
+    self.assertEqual(
+        ts_utils.resolve_compression_settings([meta]), ('zstd', '3')
+    )
+
+  def test_multiple_identical(self):
+    meta1 = ts_utils.ArrayMetadata(
+        param_name='a',
+        shape=(1,),
+        dtype=np.dtype('float32'),
+        write_shape=(1,),
+        chunk_shape=(1,),
+        use_ocdbt=True,
+        use_zarr3=False,
+        compression_algorithm='zstd',
+        compression_level=1,
+    )
+    meta2 = ts_utils.ArrayMetadata(
+        param_name='b',
+        shape=(2,),
+        dtype=np.dtype('float32'),
+        write_shape=(2,),
+        chunk_shape=(2,),
+        use_ocdbt=True,
+        use_zarr3=False,
+        compression_algorithm='zstd',
+        compression_level=1,
+    )
+    self.assertEqual(
+        ts_utils.resolve_compression_settings([meta1, meta2]), ('zstd', '1')
+    )
+
+  def test_mixed(self):
+    meta1 = ts_utils.ArrayMetadata(
+        param_name='a',
+        shape=(1,),
+        dtype=np.dtype('float32'),
+        write_shape=(1,),
+        chunk_shape=(1,),
+        use_ocdbt=True,
+        use_zarr3=False,
+        compression_algorithm='zstd',
+        compression_level=3,
+    )
+    meta2 = ts_utils.ArrayMetadata(
+        param_name='b',
+        shape=(2,),
+        dtype=np.dtype('float32'),
+        write_shape=(2,),
+        chunk_shape=(2,),
+        use_ocdbt=True,
+        use_zarr3=False,
+        compression_algorithm='none',
+        compression_level=None,
+    )
+    self.assertEqual(
+        ts_utils.resolve_compression_settings([meta1, meta2]),
+        ('mixed', 'mixed'),
+    )
 
 
 if __name__ == '__main__':

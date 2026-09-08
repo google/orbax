@@ -40,6 +40,8 @@ class ArrayMetadata:
   ext_metadata: ExtMetadata | None = (
       None  # to contain any extension metadata for an array.
   )
+  compression_algorithm: str = 'none'
+  compression_level: int | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
