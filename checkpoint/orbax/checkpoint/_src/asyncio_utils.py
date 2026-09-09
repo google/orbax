@@ -82,6 +82,32 @@ def _run_event_loop(loop: asyncio.AbstractEventLoop) -> None:
       pass
 
 
+def _run_sync_via_new_loop(coro: Coroutine[Any, Any, _T]) -> _T:
+  """Runs a coroutine in a fresh event loop without asyncio.run().
+
+  Args:
+    coro: The coroutine object to run.
+
+  Returns:
+    The result of the coroutine.
+
+  asyncio.run() tears down the event loop via _cancel_all_tasks(), which
+  iterates asyncio's global WeakSet of tasks. This WeakSet is not thread-safe:
+  concurrent asyncio.run() calls from multiple threads can race on iteration
+  vs. mutation, raising "RuntimeError: Set changed size during iteration".
+
+  Using run_until_complete() + close() achieves the same functional result
+  without the dangerous teardown.
+  """
+  loop = asyncio.new_event_loop()
+  try:
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+  finally:
+    asyncio.set_event_loop(None)
+    loop.close()
+
+
 def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
   """Runs a coroutine and returns the result."""
   try:
@@ -107,8 +133,9 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
         pass
 
   if loop is None:
-    # No event loop is running, so we can safely use asyncio.run.
-    return asyncio.run(_coro_with_registration())
+    # No event loop is running. Use a fresh loop without asyncio.run() to
+    # avoid thread-unsafe teardown in _cancel_all_tasks().
+    return _run_sync_via_new_loop(_coro_with_registration())
   else:
     # An event loop is already running.
     if uvloop is None:
@@ -118,7 +145,7 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
             ' with an existing event loop.'
         )
       nest_asyncio.apply()
-      return asyncio.run(_coro_with_registration())
+      return _run_sync_via_new_loop(_coro_with_registration())
     else:
       event_loop = uvloop.new_event_loop()
       thread = threading.Thread(
