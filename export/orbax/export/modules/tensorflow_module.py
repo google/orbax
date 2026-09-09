@@ -528,7 +528,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
             f'Method key {method_key} not found in lowering_platforms_map.'
         )
       jax_exported = jax_export.export(
-          apply_fn, platforms=lowering_platforms_map[method_key]
+          apply_fn, platforms=lowering_platforms_map[method_key]  # pyrefly: ignore[bad-argument-type]
       )(model_params, symbolic_model_inputs_map[method_key])
       jax_exported_map[method_key] = jax_exported
     return jax_exported_map
