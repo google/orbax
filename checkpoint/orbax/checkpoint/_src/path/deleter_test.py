@@ -201,12 +201,12 @@ class GcsRenameTest(unittest.TestCase):
 
     # When the code does (parent / child), return a specific final mock
     mock_final_dest = mock.MagicMock()
-    mock_final_dest.__str__.return_value = 'gs://mocked/final/destination'
+    mock_final_dest.__str__.return_value = 'gs://mocked/final/destination'  # pyrefly: ignore[missing-attribute]
     mock_dest_parent.__truediv__.return_value = mock_final_dest
 
     # Setup the "Source" Mock (The step being deleted)
     mock_step_path = mock.MagicMock()
-    mock_step_path.__str__.return_value = 'gs://my-bucket/checkpoints/step_10'
+    mock_step_path.__str__.return_value = 'gs://my-bucket/checkpoints/step_10'  # pyrefly: ignore[missing-attribute]
     mock_step_path.name = 'step_10'
 
     deleter._gcs_rename_step(step=10, delete_target=mock_step_path)

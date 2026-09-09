@@ -34,7 +34,7 @@ class GcsUtilsTest(absltest.TestCase):
   ):
     mock_is_hns_enabled.return_value = False
     gcs_path = mock.MagicMock()
-    gcs_path.__str__.return_value = 'gs://bucket/dir'
+    gcs_path.__str__.return_value = 'gs://bucket/dir'  # pyrefly: ignore[missing-attribute]
 
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)
@@ -49,7 +49,7 @@ class GcsUtilsTest(absltest.TestCase):
   ):
     mock_is_hns_enabled.return_value = True
     gcs_path = mock.MagicMock(spec=epath.Path)
-    gcs_path.__str__.return_value = 'gs://bucket/dir'
+    gcs_path.__str__.return_value = 'gs://bucket/dir'  # pyrefly: ignore[missing-attribute]
 
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)

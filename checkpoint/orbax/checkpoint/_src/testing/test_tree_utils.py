@@ -598,7 +598,7 @@ TEST_PYTREES = [
                 my_chex=MyChex(
                     my_jax_array=jnp.arange(8), my_np_array=np.arange(8)
                 ),
-                my_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type]
+                my_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type, bad-assignment]
                 my_list=[jnp.arange(8), np.arange(8)],  # pyrefly: ignore[bad-argument-type]
                 my_empty_chex=MyEmptyChex(),
             )
@@ -842,7 +842,7 @@ TEST_PYTREES = [
         provide_tree=lambda: {
             'named_tuple_with_nested_attrs': NamedTupleWithNestedAttributes(
                 nested_mu_nu=MuNu(mu=jnp.arange(8), nu=np.arange(8)),
-                nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type]
+                nested_dict={'a': jnp.arange(8), 'b': np.arange(8)},  # pyrefly: ignore[bad-argument-type, bad-assignment]
                 nested_tuple=(jnp.arange(8), jnp.arange(8)),
                 nested_empty_named_tuple=EmptyNamedTuple(),
                 my_empty_chex=MyEmptyChex(),

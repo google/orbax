@@ -386,7 +386,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         metadata=metadata,
         item_handlers=dict(  # pyrefly: ignore[bad-argument-type]
             state=_local_checkpoint_handler(multiprocessing_options),
-            process_metadata=ProcessMetadataCheckpointHandler,
+            process_metadata=ProcessMetadataCheckpointHandler,  # pyrefly: ignore[bad-assignment]
         ),
         logger=logger,
     )
