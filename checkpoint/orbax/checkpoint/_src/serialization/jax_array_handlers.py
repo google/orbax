@@ -246,14 +246,16 @@ def _record_logical_metrics(
     custom_prefix: str = '',
 ):
   """Records logical bytes, throughput, and duration to JAX monitoring."""
-  logical_throughput = logical_bytes / duration if duration > 0 else 0
+  logical_throughput = logical_bytes / duration if duration > 0 else None
 
   logging.info(
       '[process=%d] %s throughput: %s/s (total gbytes: %s) (time elapsed: %s s)'
       ' (per-host)%s',
       multihost.process_index(),
       f'/jax/orbax/{direction.value}/worker/io/requested',
-      humanize.naturalsize(logical_throughput, binary=True, format='%.3f'),
+      humanize.naturalsize(logical_throughput, binary=True, format='%.3f')
+      if logical_throughput is not None
+      else 'N/A',
       humanize.naturalsize(logical_bytes, binary=True),
       duration,
       f' (prefix: {custom_prefix})' if custom_prefix else '',
@@ -272,12 +274,14 @@ def _record_logical_metrics(
       storage_type=storage_type,
       custom_prefix=custom_prefix,
   )
-  jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/requested/throughput/gbytes_per_sec',
-      logical_throughput / (1024**3),
-      storage_type=storage_type,
-      custom_prefix=custom_prefix,
-  )
+
+  if logical_throughput is not None:
+    jax.monitoring.record_scalar(
+        f'/jax/orbax/{direction.value}/worker/io/requested/throughput/gbytes_per_sec',
+        logical_throughput / (1024**3),
+        storage_type=storage_type,
+        custom_prefix=custom_prefix,
+    )
 
 
 def _record_compression_metrics(
@@ -289,20 +293,20 @@ def _record_compression_metrics(
     metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
 ) -> None:
   """Logs and records compression ratio and metrics."""
-  if logical_bytes <= 0:
+  if logical_bytes <= 0 or raw_bytes <= 0:
     return
-  ratio = float(raw_bytes) / logical_bytes
+  ratio = float(logical_bytes) / raw_bytes
   algo_str = 'none'
   level_str = 'None'
   if metadatas is not None:
     algo_str, level_str = ts_utils.resolve_compression_settings(metadatas)
   logging.info(
-      '[process=%d] %s ratio (raw/logical): %.3f (%s / %s), algo=%s, level=%s',
+      '[process=%d] %s ratio (logical/raw): %.3f (%s / %s), algo=%s, level=%s',
       multihost.process_index(),
       direction.value.capitalize(),
       ratio,
-      humanize.naturalsize(raw_bytes, binary=True),
       humanize.naturalsize(logical_bytes, binary=True),
+      humanize.naturalsize(raw_bytes, binary=True),
       algo_str,
       level_str,
   )
@@ -314,15 +318,6 @@ def _record_compression_metrics(
       compression_algorithm=algo_str,
       compression_level=level_str,
   )
-  if direction == types.IoDirection.WRITE:
-    jax.monitoring.record_scalar(
-        '/jax/orbax/write/worker/io/compressed_gbytes',
-        raw_bytes / (1024**3),
-        storage_type=storage_type,
-        custom_prefix=custom_prefix,
-        compression_algorithm=algo_str,
-        compression_level=level_str,
-    )
 
 
 def _record_raw_metrics(
@@ -343,29 +338,41 @@ def _record_raw_metrics(
   if raw_bytes <= 0:
     return
 
-  raw_throughput = raw_bytes / duration if duration > 0 else 0
+  raw_throughput = raw_bytes / duration if duration > 0 else None
   logging.info(
       '[process=%d] Raw %s throughput: %s/s (total gbytes: %s) (time elapsed:'
       ' %s s) (per-host)%s',
       multihost.process_index(),
       f'/jax/orbax/{direction.value}/worker/io/raw',
-      humanize.naturalsize(raw_throughput, binary=True, format='%.3f'),
+      humanize.naturalsize(raw_throughput, binary=True, format='%.3f')
+      if raw_throughput is not None
+      else 'N/A',
       humanize.naturalsize(raw_bytes, binary=True),
       duration,
       f' (prefix: {custom_prefix})' if custom_prefix else '',
   )
+  algo_str = 'none'
+  level_str = 'None'
+  if metadatas is not None:
+    algo_str, level_str = ts_utils.resolve_compression_settings(metadatas)
+  # raw/gbytes records the actual physical raw bytes transferred to/from the
+  # storage backend, including compression (e.g. zstd) when enabled or
+  # uncompressed chunk bytes when disabled.
   jax.monitoring.record_scalar(
       f'/jax/orbax/{direction.value}/worker/io/raw/gbytes',
       raw_bytes / (1024**3),
       storage_type=storage_type,
       custom_prefix=custom_prefix,
+      compression_algorithm=algo_str,
+      compression_level=level_str,
   )
-  jax.monitoring.record_scalar(
-      f'/jax/orbax/{direction.value}/worker/io/raw/throughput/gbytes_per_sec',
-      raw_throughput / (1024**3),
-      storage_type=storage_type,
-      custom_prefix=custom_prefix,
-  )
+  if raw_throughput is not None:
+    jax.monitoring.record_scalar(
+        f'/jax/orbax/{direction.value}/worker/io/raw/throughput/gbytes_per_sec',
+        raw_throughput / (1024**3),
+        storage_type=storage_type,
+        custom_prefix=custom_prefix,
+    )
 
   _record_compression_metrics(
       direction,
