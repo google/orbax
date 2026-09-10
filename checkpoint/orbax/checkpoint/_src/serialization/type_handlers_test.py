@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import collections
 import dataclasses
 import threading
 import tracemalloc
@@ -1416,6 +1417,130 @@ class ParamInfoTest(parameterized.TestCase):
     self.assertEqual(new_info.parent_dir, new_path)
     self.assertTrue(new_info.use_zarr3)
     self.assertEqual(info.parent_dir, path)
+
+
+class RecordCompressionMetricsTest(parameterized.TestCase):
+
+  def test_record_compression_metrics_calculation(self):
+    recorded_scalars = {}
+
+    def _mock_record_scalar(name: str, value: Any, *_args, **_kwargs):
+      recorded_scalars[name] = value
+
+    with mock.patch(
+        'jax.monitoring.record_scalar', side_effect=_mock_record_scalar
+    ):
+      # Canonical ratio: logical / raw = 200 / 100 = 2.0
+      jax_array_handlers._record_compression_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=200,
+          raw_bytes=100,
+          storage_type='gcs',
+      )
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/write/worker/io/compression_ratio'], 2.0
+      )
+
+      # Read direction canonical ratio: 300 / 150 = 2.0
+      recorded_scalars.clear()
+      jax_array_handlers._record_compression_metrics(
+          direction=types.IoDirection.READ,
+          logical_bytes=300,
+          raw_bytes=150,
+          storage_type='gcs',
+      )
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/read/worker/io/compression_ratio'], 2.0
+      )
+
+      # Zero or negative inputs should not record
+      recorded_scalars.clear()
+      jax_array_handlers._record_compression_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=0,
+          raw_bytes=100,
+          storage_type='gcs',
+      )
+      self.assertNotIn(
+          '/jax/orbax/write/worker/io/compression_ratio', recorded_scalars
+      )
+
+      recorded_scalars.clear()
+      jax_array_handlers._record_compression_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=100,
+          raw_bytes=0,
+          storage_type='gcs',
+      )
+      self.assertNotIn(
+          '/jax/orbax/write/worker/io/compression_ratio', recorded_scalars
+      )
+
+      # Ensure write/worker/io/compressed_gbytes is never recorded
+      recorded_scalars.clear()
+      jax_array_handlers._record_compression_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=200,
+          raw_bytes=100,
+          storage_type='gcs',
+      )
+      self.assertNotIn(
+          '/jax/orbax/write/worker/io/compressed_gbytes', recorded_scalars
+      )
+
+  def test_record_raw_metrics_records_compression_tags(self):
+    recorded_scalars = {}
+    recorded_kwargs = collections.defaultdict(list)
+
+    def _mock_record_scalar(name: str, value: Any, *_args, **kwargs):
+      recorded_scalars[name] = value
+      recorded_kwargs[name].append(kwargs)
+
+    with mock.patch(
+        'jax.monitoring.record_scalar', side_effect=_mock_record_scalar
+    ), mock.patch.object(
+        jax_array_handlers.ts_utils,
+        'get_tensorstore_raw_bytes',
+        return_value=1024**3,
+    ):
+      # Write direction
+      jax_array_handlers._record_raw_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=2 * (1024**3),
+          duration=1.0,
+          storage_type='gcs',
+          initial_raw_bytes=0,
+      )
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/write/worker/io/raw/gbytes'], 1.0
+      )
+      write_raw_kwargs = recorded_kwargs[
+          '/jax/orbax/write/worker/io/raw/gbytes'
+      ][0]
+      self.assertEqual(write_raw_kwargs.get('compression_algorithm'), 'none')
+      self.assertEqual(write_raw_kwargs.get('compression_level'), 'None')
+      self.assertNotIn(
+          '/jax/orbax/write/worker/io/compressed_gbytes', recorded_scalars
+      )
+
+      # Read direction
+      recorded_scalars.clear()
+      recorded_kwargs.clear()
+      jax_array_handlers._record_raw_metrics(
+          direction=types.IoDirection.READ,
+          logical_bytes=2 * (1024**3),
+          duration=1.0,
+          storage_type='gcs',
+          initial_raw_bytes=0,
+      )
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/read/worker/io/raw/gbytes'], 1.0
+      )
+      read_raw_kwargs = recorded_kwargs[
+          '/jax/orbax/read/worker/io/raw/gbytes'
+      ][0]
+      self.assertEqual(read_raw_kwargs.get('compression_algorithm'), 'none')
+      self.assertEqual(read_raw_kwargs.get('compression_level'), 'None')
 
 
 if __name__ == '__main__':
