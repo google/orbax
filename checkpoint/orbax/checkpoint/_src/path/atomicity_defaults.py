@@ -25,8 +25,6 @@ from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path import gcs_utils
-from orbax.checkpoint._src.path import utils
-
 
 _ATOMICITY_MODE_TO_PATH_CLASS: dict[
     options_lib.AtomicityMode, type[atomicity_types.TemporaryPath]
@@ -63,6 +61,26 @@ def _resolve_temporary_path_class_from_options(
   raise ValueError(f'Unsupported atomicity_mode: {atomicity_options.mode}.')
 
 
+def _maybe_warn_atomic_rename_on_object_store(path: epath.Path) -> None:
+  """Warns when ATOMIC_RENAME was explicitly requested for a GCS-backed path."""
+  if gcs_utils.is_gcs_path(path):
+    logging.warning(
+        'ATOMIC_RENAME atomicity was requested for the GCS path %s. GCS has'
+        ' no atomic directory rename, so finalization copies and deletes'
+        ' every object in the checkpoint. Prefer COMMIT_FILE (or AUTO) for'
+        ' GCS paths.',
+        path,
+    )
+  elif gcs_utils.is_gcsfuse_path(path):
+    logging.warning(
+        'ATOMIC_RENAME atomicity was requested for %s, which is on a GCSFuse'
+        ' mount. Directory renames through GCSFuse are slow copy-and-delete'
+        ' operations and may fail entirely depending on mount options.'
+        ' Prefer COMMIT_FILE (or AUTO) for GCSFuse paths.',
+        path,
+    )
+
+
 def get_item_default_temporary_path_class(
     path: epath.Path,
     *,
@@ -79,17 +97,10 @@ def get_item_default_temporary_path_class(
   """
   path_cls = _resolve_temporary_path_class_from_options(atomicity_options)
   if path_cls is not None:
-    if (
-        gcs_utils.is_gcs_path(path)
-        and path_cls == atomicity.AtomicRenameTemporaryPath
-    ):
-      logging.warning(
-          'AtomicRenameTemporaryPath can cause major performance issues for GCS'
-          ' paths. '
-      )
-
+    if path_cls == atomicity.AtomicRenameTemporaryPath:
+      _maybe_warn_atomic_rename_on_object_store(path)
     return path_cls
-  if gcs_utils.is_gcs_path(path):
+  if gcs_utils.is_gcs_path(path) or gcs_utils.is_gcsfuse_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath
@@ -111,17 +122,10 @@ def get_default_temporary_path_class(
   """
   path_cls = _resolve_temporary_path_class_from_options(atomicity_options)
   if path_cls is not None:
-    if (
-        gcs_utils.is_gcs_path(path)
-        and path_cls == atomicity.AtomicRenameTemporaryPath
-    ):
-      logging.warning(
-          'AtomicRenameTemporaryPath can cause major performance issues for GCS'
-          ' paths. '
-      )
-
+    if path_cls == atomicity.AtomicRenameTemporaryPath:
+      _maybe_warn_atomic_rename_on_object_store(path)
     return path_cls
-  if gcs_utils.is_gcs_path(path):
+  if gcs_utils.is_gcs_path(path) or gcs_utils.is_gcsfuse_path(path):
     return atomicity.CommitFileTemporaryPath
   else:
     return atomicity.AtomicRenameTemporaryPath

@@ -14,8 +14,9 @@
 
 import asyncio
 import concurrent.futures
-import stat
 import unittest
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -24,10 +25,8 @@ from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.path import atomicity_defaults
-from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import temporary_paths
+from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
-
 
 AtomicRenameTemporaryPath = atomicity.AtomicRenameTemporaryPath
 CommitFileTemporaryPath = atomicity.CommitFileTemporaryPath
@@ -236,6 +235,91 @@ class DeferredPathTest(absltest.TestCase):
     with self.assertRaises(concurrent.futures.InvalidStateError):
       dp.set_path(epath.Path('/second'))
 
+
+class GetDefaultTemporaryPathClassTest(parameterized.TestCase):
+
+  @parameterized.parameters(
+      (atomicity_defaults.get_default_temporary_path_class,),
+      (atomicity_defaults.get_item_default_temporary_path_class,),
+  )
+  def test_gcs_path_uses_commit_file(self, get_path_cls):
+    self.assertIs(
+        get_path_cls(epath.Path('gs://bucket/ckpt')),
+        CommitFileTemporaryPath,
+    )
+
+  @parameterized.parameters(
+      (atomicity_defaults.get_default_temporary_path_class,),
+      (atomicity_defaults.get_item_default_temporary_path_class,),
+  )
+  def test_local_path_uses_atomic_rename(self, get_path_cls):
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=False):
+      self.assertIs(
+          get_path_cls(epath.Path('/local/ckpt')),
+          AtomicRenameTemporaryPath,
+      )
+
+  @parameterized.product(
+      get_path_cls=(
+          atomicity_defaults.get_default_temporary_path_class,
+          atomicity_defaults.get_item_default_temporary_path_class,
+      ),
+      atomicity_options=(None, options_lib.AtomicityOptions()),
+  )
+  def test_gcsfuse_path_uses_commit_file(self, get_path_cls, atomicity_options):
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=True):
+      self.assertIs(
+          get_path_cls(
+              epath.Path('/mnt/gcs/ckpt'), atomicity_options=atomicity_options
+          ),
+          CommitFileTemporaryPath,
+      )
+
+  def test_explicit_mode_overrides_gcsfuse_detection(self):
+    atomicity_options = options_lib.AtomicityOptions(
+        mode=options_lib.AtomicityMode.ATOMIC_RENAME
+    )
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=True):
+      self.assertIs(
+          atomicity_defaults.get_default_temporary_path_class(
+              epath.Path('/mnt/gcs/ckpt'), atomicity_options=atomicity_options
+          ),
+          AtomicRenameTemporaryPath,
+      )
+
+  @parameterized.parameters(
+      ('gs://bucket/ckpt', False),
+      ('/mnt/gcs/ckpt', True),
+  )
+  def test_explicit_atomic_rename_on_gcs_backed_path_warns(
+      self, path, gcsfuse_detected
+  ):
+    atomicity_options = options_lib.AtomicityOptions(
+        mode=options_lib.AtomicityMode.ATOMIC_RENAME
+    )
+    with mock.patch.object(
+        gcs_utils, 'is_gcsfuse_path', return_value=gcsfuse_detected
+    ):
+      with mock.patch.object(
+          atomicity_defaults.logging, 'warning'
+      ) as mock_log:
+        atomicity_defaults.get_default_temporary_path_class(
+            epath.Path(path), atomicity_options=atomicity_options
+        )
+    mock_log.assert_called_once()
+
+  def test_explicit_atomic_rename_on_local_path_does_not_warn(self):
+    atomicity_options = options_lib.AtomicityOptions(
+        mode=options_lib.AtomicityMode.ATOMIC_RENAME
+    )
+    with mock.patch.object(gcs_utils, 'is_gcsfuse_path', return_value=False):
+      with mock.patch.object(
+          atomicity_defaults.logging, 'warning'
+      ) as mock_log:
+        atomicity_defaults.get_default_temporary_path_class(
+            epath.Path('/local/ckpt'), atomicity_options=atomicity_options
+        )
+    mock_log.assert_not_called()
 
 
 if __name__ == '__main__':
