@@ -28,6 +28,7 @@
 
 """Test suite for model bundle execution."""
 
+from collections.abc import Sequence
 import os
 
 from absl.testing import absltest
