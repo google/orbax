@@ -56,7 +56,7 @@ def issubclass_of_namedtuple(t: Any) -> bool:
 
 def is_empty_node(x: Any) -> bool:
   try:
-    children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access
+    children, _ = jax.tree_util.flatten_one_level(x)
   except ValueError:
     return False  # non-empty leaf, otherwise flatten would return self.
   return not children
@@ -82,7 +82,7 @@ def _internal_node_as_dict(x: Any) -> Mapping[str, Any]:
 
 def is_empty_or_leaf(x: Any) -> bool:
   try:
-    children, _ = jax._src.tree_util.flatten_one_level(x)  # pylint: disable=protected-access
+    children, _ = jax.tree_util.flatten_one_level(x)
   except ValueError:
     return True  # Cannot flatten x; means it must be a leaf
   return not children
