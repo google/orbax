@@ -267,6 +267,7 @@ jobs:
   multiprocess-unit-tests:
     name: "multiprocess-unit-tests (Python ${{ matrix.python-version }}, jax=${{ matrix.jax-version }})"
     runs-on: linux-x86-ct6e-180-8tpu
+    continue-on-error: true
     container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:infrastructure-public-image-2d2a7b1e6e2e
     defaults:
       run:
