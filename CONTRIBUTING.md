@@ -44,7 +44,7 @@ enforce it, wired together through the
 |---|---|---|
 | [`pylint`](https://pylint.readthedocs.io/) | Linter | `.pylintrc` |
 | [`isort`](https://pycqa.github.io/isort/) | Import order | `[tool.isort]` in `pyproject.toml` |
-| [`pytype`](https://github.com/google/pytype) | Static Type Inferece & Verification | `.pre-commit-config.yaml` |
+| [`pytype`](https://github.com/google/pytype) | Static Type Inference & Verification | `.pre-commit-config.yaml` |
 
 Install the hooks once, then they run on every `git commit`:
 
