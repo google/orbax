@@ -57,7 +57,7 @@ class Snapshotter:
   """Manages asynchronous backups of JAX array states to pinned host memory."""
 
   def __init__(self, *, replica_axis_index: int = 0):
-    self._latest_snapshot: tuple[tree_types.PyTree, int] | None = None
+    self._latest_snapshot: tuple[list[tree_types.PyTree], int] | None = None
     self._lock = threading.Lock()
     self._queue = queue.Queue(maxsize=1)
     self.replica_axis_index = replica_axis_index
@@ -80,6 +80,47 @@ class Snapshotter:
       finally:
         self._queue.task_done()
 
+  def _to_snapshot_state(
+      self, state: tree_types.PyTree
+  ) -> list[tree_types.PyTree]:
+    """Converts a PyTree into a list of replica PyTrees in pinned host memory.
+
+    Args:
+      state: The PyTree to be converted and split.
+
+    Returns:
+      A list of PyTrees where each PyTree represents a single replica of
+      `state`. Non-array leaves (e.g., scalars, strings, metadata, Python
+      objects) are preserved across all replica PyTrees.
+    """
+    leaves, tree_def = jax.tree_util.tree_flatten(state)
+    split_leaves = []
+    max_replicas = 1
+
+    for x in leaves:
+      if not is_shardable_array(x):
+        split_leaves.append([x])
+      else:
+        mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
+        data = _unwrap_if_prng_key(x)
+        pinned = jax.device_put(
+            data, data.sharding.with_memory_kind("pinned_host")
+        )
+        replicas = split_by_mesh_axis.split_by_mesh_axis(
+            pinned,
+            mesh_axis_name,
+        )
+        reps = [_wrap_if_prng_key(rep, x) for rep in replicas]
+        split_leaves.append(reps)
+        max_replicas = max(max_replicas, len(reps))
+
+    replica_trees = []
+    for r in range(max_replicas):
+      r_leaves = [reps[r % len(reps)] for reps in split_leaves]
+      replica_trees.append(jax.tree_util.tree_unflatten(tree_def, r_leaves))
+
+    return replica_trees
+
   def save(self, step: int, state: tree_types.PyTree) -> None:
     """Backs up JAX array states to pinned host memory, asynchronously.
 
@@ -98,16 +139,7 @@ class Snapshotter:
       logging.warning("Snapshotter busy. Skipping snapshot for step %d", step)
       return
 
-    def _pin_leaf(x):
-      if not is_shardable_array(x):
-        return x
-      data = _unwrap_if_prng_key(x)
-      pinned = jax.device_put(
-          data, data.sharding.with_memory_kind("pinned_host")
-      )
-      return _wrap_if_prng_key(pinned, x)
-
-    pinned_state = jax.tree.map(_pin_leaf, state)
+    pinned_state = self._to_snapshot_state(state)
 
     self._queue.put((pinned_state, step))
 
@@ -136,70 +168,53 @@ class Snapshotter:
     with self._lock:
       if self._latest_snapshot is None:
         raise RuntimeError("No snapshots available to restore from.")
-      pinned_state, step = self._latest_snapshot
+      replica_trees, step = self._latest_snapshot
 
     def is_replica_active(arr):
       try:
         data = _unwrap_if_prng_key(arr)
         data[...].block_until_ready()
         return True
-      except jax.errors.JaxRuntimeError as _:
+      except (jax.errors.JaxRuntimeError, RuntimeError):
         return False
 
-    def get_active_pytree(x):
-      mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
-      data = _unwrap_if_prng_key(x)
-      all_replicas = split_by_mesh_axis.split_by_mesh_axis(
-          data,
-          mesh_axis_name,
-      )
-
+    def get_active_leaf(*args):
+      abs_x = args[-1]
+      if not is_shardable_array(abs_x):
+        return args[0]
+      replicas = list({id(x): x for x in args[:-1]}.values())
       active_replicas = [
-          replica for replica in all_replicas if is_replica_active(replica)
+          _unwrap_if_prng_key(rep)
+          for rep in replicas
+          if is_replica_active(rep)
       ]
-
       if not active_replicas:
-        raise RuntimeError(
-            "No active replicas found."
-        )
-
-      reconstructed_state = concatenate_by_mesh_axis.concatenate_by_mesh_axis(
+        raise RuntimeError("No active replicas found.")
+      mesh_axis_name = abs_x.sharding.mesh.axis_names[self.replica_axis_index]
+      reconstructed = concatenate_by_mesh_axis.concatenate_by_mesh_axis(
           active_replicas,
           mesh_axis_name,
       )
-      return _wrap_if_prng_key(reconstructed_state, x)
+      return _wrap_if_prng_key(reconstructed, abs_x)
 
-    pinned_state = jax.tree.map(
-        lambda x: get_active_pytree(x) if is_shardable_array(x) else x,
-        pinned_state,
-    )
+    pinned_state = jax.tree.map(get_active_leaf, *replica_trees, abstract_state)
 
-    def _device_put_pinned(x, abs_x):
+    def _put_to_sharding(x, abs_x, memory_kind):
       if is_shardable_array(x):
         data = _unwrap_if_prng_key(x)
         put_x = jax.device_put(
-            data, abs_x.sharding.with_memory_kind("pinned_host")
+            data, abs_x.sharding.with_memory_kind(memory_kind)
         )
         return _wrap_if_prng_key(put_x, x)
       return x
 
-    # Re-shard on host to the target device mesh
     host_target_state = jax.tree.map(
-        _device_put_pinned,
+        lambda x, abs_x: _put_to_sharding(x, abs_x, "pinned_host"),
         pinned_state,
         abstract_state,
     )
-
-    def _device_put_to_device(x, abs_x):
-      if is_shardable_array(x):
-        data = _unwrap_if_prng_key(x)
-        put_x = jax.device_put(data, abs_x.sharding.with_memory_kind(None))
-        return _wrap_if_prng_key(put_x, x)
-      return x
-
-    # Move from host back to device (TPU) memory.
     restored_state = jax.tree.map(
-        _device_put_to_device,
+        lambda x, abs_x: _put_to_sharding(x, abs_x, None),
         host_target_state,
         abstract_state,
     )
@@ -207,8 +222,9 @@ class Snapshotter:
     jax.block_until_ready(unwrapped_restored)
 
     if reset_snapshot_state:
+      new_snapshot_state = self._to_snapshot_state(host_target_state)
       with self._lock:
-        self._latest_snapshot = (host_target_state, step)
+        self._latest_snapshot = (new_snapshot_state, step)
 
     return restored_state
 
