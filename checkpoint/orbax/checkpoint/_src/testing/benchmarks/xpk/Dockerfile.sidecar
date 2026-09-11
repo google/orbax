@@ -55,11 +55,10 @@ RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirement
 # 4. Install Orbax from Source
 WORKDIR /app/orbax_repo/checkpoint
 RUN pip install --no-cache-dir .
-RUN pip install pathwaysutils tensorboard cloudpickle gcsfs
+RUN pip install "pathwaysutils>=0.1.10" tensorboard cloudpickle gcsfs
 
 # Ensure Orbax are in PYTHONPATH
 ENV PYTHONPATH=/app/orbax/checkpoint
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"
-
