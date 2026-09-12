@@ -196,6 +196,9 @@ class BatchOptions:
       all batch sizes no larger than `max_batch_size` are allowed. Otherwise,
       supplies a list of batch sizes. The entries must increase monotonically.
     disable_large_batch_splitting: Whether to disable large batch splitting.
+    pad_variable_length_inputs: Whether to dynamically pad variable-length
+      non-batch dimensions to the maximum size across requests within each
+      batch. Requires disable_large_batch_splitting = true.
     batch_padding_policy: The batch padding policy for the batch scheduler.
       Default is PAD_UP.
     low_priority_batch_options: The batch options for low priority inputs.
@@ -218,6 +221,7 @@ class BatchOptions:
   num_batch_threads: int = 1
   max_enqueued_batches: int = 250
   disable_large_batch_splitting: bool = False
+  pad_variable_length_inputs: bool = False
   batch_padding_policy: BatchPaddingPolicy = BatchPaddingPolicy.PAD_UP
   low_priority_batch_options: LowPriorityBatchOptions | None = None
   mixed_priority_batching_policy: MixedPriorityBatchingPolicy = (
@@ -316,6 +320,15 @@ class BatchOptions:
     """Validates the batch options."""
     if self.batch_component == BatchComponent.NO_BATCHING:
       return
+
+    if (
+        self.pad_variable_length_inputs
+        and not self.disable_large_batch_splitting
+    ):
+      raise ValueError(
+          "disable_large_batch_splitting must be True when"
+          " pad_variable_length_inputs is True."
+      )
 
     if self.max_batch_size is None:
       if self.allowed_batch_sizes:

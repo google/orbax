@@ -26,6 +26,19 @@ class ObmConfigsTest(absltest.TestCase):
     )
     self.assertIsNone(batch_options.max_batch_size)
 
+  def test_pad_variable_length_inputs_with_large_batch_splitting_fails(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        "disable_large_batch_splitting must be True when"
+        " pad_variable_length_inputs is True.",
+    ):
+      obm_configs.BatchOptions(
+          batch_component=obm_configs.BatchComponent.MODEL_FUNCTION,
+          max_batch_size=8,
+          pad_variable_length_inputs=True,
+          disable_large_batch_splitting=False,
+      )
+
   def test_batch_options_raise_error_without_max_batch_size_and_allowed_batch_sizes(
       self,
   ):
