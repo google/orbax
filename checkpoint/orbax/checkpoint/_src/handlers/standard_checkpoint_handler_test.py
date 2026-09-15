@@ -272,7 +272,7 @@ class StandardCheckpointHandlerTestBase(
         functools.partial(
             utils.to_shape_dtype_struct,
             dtype=jnp.bfloat16,
-            scalar_dtype=int,
+            scalar_dtype=int,  # pyrefly: ignore[bad-argument-type]
         ),
         self.pytree,
     )
