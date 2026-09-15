@@ -33,6 +33,9 @@ except ImportError:
 
 _T = TypeVar('_T')
 
+# Marks "this attribute did not exist", which `None` cannot express.
+_UNSET = object()
+
 
 async def cancellable(
     coro: Any,
@@ -118,19 +121,28 @@ def run_sync(coro: Coroutine[Any, Any, _T]) -> _T:
 
   async def _coro_with_registration():
     current_thread = threading.current_thread()
+    # `loop` and `main_task` are plain attributes on a shared thread object,
+    # not names Orbax owns. anyio's worker threads keep their own `loop` there
+    # and read it back after the callable returns, so deleting ours would
+    # destroy theirs: the worker then dies before resolving its future and the
+    # awaiting coroutine hangs forever. Put back whatever was there before.
+    previous = {
+        name: getattr(current_thread, name, _UNSET)
+        for name in ('loop', 'main_task')
+    }
     current_thread.loop = asyncio.get_running_loop()  # pyrefly: ignore[missing-attribute]
     current_thread.main_task = asyncio.current_task()  # pyrefly: ignore[missing-attribute]
     try:
       return await coro
     finally:
-      try:
-        delattr(current_thread, 'loop')
-      except AttributeError:
-        pass
-      try:
-        delattr(current_thread, 'main_task')
-      except AttributeError:
-        pass
+      for name, value in previous.items():
+        if value is _UNSET:
+          try:
+            delattr(current_thread, name)
+          except AttributeError:
+            pass
+        else:
+          setattr(current_thread, name, value)
 
   if loop is None:
     # No event loop is running. Use a fresh loop without asyncio.run() to

@@ -23,6 +23,8 @@ import timeit
 from absl import logging
 from absl.testing import absltest
 from absl.testing import parameterized
+import anyio
+import anyio.to_thread
 from orbax.checkpoint._src import asyncio_utils
 
 
@@ -337,6 +339,55 @@ class AsyncioUtilsTest(parameterized.TestCase):
         number=number,
     )  # ~1.5503s
     logging.info("time: run_sync_time=%s", run_sync_time)
+
+
+class ThreadAnnotationTest(absltest.TestCase):
+  """`run_sync` must leave the calling thread as it found it.
+
+  `run_sync` annotates `threading.current_thread()` with `loop` and
+  `main_task`. Those attribute names are not private to Orbax: anyio's worker
+  threads keep their own `loop` there and read it back after the callable
+  returns. Clearing ours used to clear theirs, killing the worker before it
+  resolved its future and hanging the awaiting coroutine forever.
+  """
+
+  def test_absent_attributes_stay_absent(self):
+    thread = threading.current_thread()
+    for name in ("loop", "main_task"):
+      if hasattr(thread, name):
+        delattr(thread, name)
+
+    asyncio_utils.run_sync(one())
+
+    self.assertFalse(hasattr(thread, "loop"))
+    self.assertFalse(hasattr(thread, "main_task"))
+
+  def test_pre_existing_attributes_are_restored(self):
+    thread = threading.current_thread()
+    sentinel_loop = object()
+    sentinel_task = object()
+    setattr(thread, "loop", sentinel_loop)
+    setattr(thread, "main_task", sentinel_task)
+    self.addCleanup(lambda: delattr(thread, "loop"))
+    self.addCleanup(lambda: delattr(thread, "main_task"))
+
+    asyncio_utils.run_sync(one())
+
+    self.assertIs(getattr(thread, "loop"), sentinel_loop)
+    self.assertIs(getattr(thread, "main_task"), sentinel_task)
+
+  def test_runs_inside_an_anyio_worker_thread(self):
+    """End-to-end guard: this used to hang forever rather than fail."""
+
+    def _blocking() -> int:
+      return asyncio_utils.run_sync(one())
+
+    async def _main() -> int:
+      with anyio.move_on_after(30):
+        return await anyio.to_thread.run_sync(_blocking)
+      raise AssertionError("anyio.to_thread.run_sync did not return")
+
+    self.assertEqual(asyncio.run(_main()), 1)
 
 
 class AsyncRunnerTest(absltest.TestCase):
