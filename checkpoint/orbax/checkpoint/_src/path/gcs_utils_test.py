@@ -113,6 +113,22 @@ class GcsUtilsTest(absltest.TestCase):
     self.assertIn('projects/_/buckets/my-bucket/folders/dir/a/', deleted_names)
     self.assertIn('projects/_/buckets/my-bucket/folders/dir/', deleted_names)
 
+  def test_rmtree_missing_ok(self):
+    gcs_path = mock.MagicMock(spec=epath.Path)
+    gcs_path.rmtree.side_effect = FileNotFoundError()
+    with (
+        mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True),
+        mock.patch.object(
+            gcs_utils, 'is_hierarchical_namespace_enabled', return_value=True
+        ),
+        mock.patch.object(gcs_utils, 'cleanup_hns_folders') as mock_cleanup,
+    ):
+      # Should not raise when missing_ok=True and should not clean up HNS.
+      gcs_utils.rmtree(gcs_path, missing_ok=True)
+      mock_cleanup.assert_not_called()
+      with self.assertRaises(FileNotFoundError):
+        gcs_utils.rmtree(gcs_path, missing_ok=False)
+
 
 if __name__ == '__main__':
   absltest.main()

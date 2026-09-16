@@ -170,6 +170,27 @@ class AsyncPathTest(parameterized.TestCase):
     asyncio.run(_test())
     mock_open.assert_called_once_with(mode='r')
 
+  def test_rmtree(self):
+    target_dir = self.test_dir / 'sub_dir'
+    target_dir.mkdir()
+    (target_dir / 'file.txt').write_text('content')
+
+    async def _test():
+      await async_path.rmtree(target_dir)
+      self.assertFalse(target_dir.exists())
+
+    asyncio.run(_test())
+
+  def test_rmtree_missing(self):
+    missing_dir = self.test_dir / 'non_existent'
+
+    async def _test():
+      await async_path.rmtree(missing_dir, missing_ok=True)
+      with self.assertRaises(FileNotFoundError):
+        await async_path.rmtree(missing_dir, missing_ok=False)
+
+    asyncio.run(_test())
+
 
 if __name__ == '__main__':
   absltest.main()
