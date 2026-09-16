@@ -271,7 +271,7 @@ class StandardCheckpointHandlerTestBase(
     pytree = jax.tree.map(
         functools.partial(
             utils.to_shape_dtype_struct,
-            dtype=jnp.bfloat16,
+            dtype=jnp.bfloat16,  # pyrefly: ignore[bad-argument-type]
             scalar_dtype=int,  # pyrefly: ignore[bad-argument-type]
         ),
         self.pytree,
@@ -465,59 +465,59 @@ class StandardCheckpointHandlerTestBase(
     def get_metadata_tree():
       metadata_tree = tree_metadata.build_default_tree_metadata({
           'a': value_metadata.ScalarMetadata(
-              name='', directory=epath.Path(''), dtype=jnp.int32
+              name='', directory=epath.Path(''), dtype=jnp.int32  # pyrefly: ignore[bad-argument-type]
           ),
           'b': value_metadata.ArrayMetadata(
               name='',
               directory=epath.Path(''),
               shape=(2, 4),
               sharding=None,
-              dtype=jnp.float64,
+              dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
           ),
           'c': value_metadata.ArrayMetadata(
               name='',
               directory=epath.Path(''),
               shape=(2, 4),
               sharding=invalid_sharding_metadata,
-              dtype=jnp.float64,
+              dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
           ),
           'd': value_metadata.ArrayMetadata(
               name='',
               directory=epath.Path(''),
               shape=(2, 4),
               sharding=None,
-              dtype=jnp.float64,
+              dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
           ),
           'e': value_metadata.ArrayMetadata(
               name='',
               directory=epath.Path(''),
               shape=(2, 4),
               sharding=valid_sharding_metadata,
-              dtype=jnp.float64,
+              dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
           ),
       })
       return metadata_tree
 
     expected_restore_args_using_target_tree = TestTree(
-        a=RestoreArgs(restore_type=np.ndarray, dtype=jnp.int32),
-        b=RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),
+        a=RestoreArgs(restore_type=np.ndarray, dtype=jnp.int32),  # pyrefly: ignore[bad-argument-type]
+        b=RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),  # pyrefly: ignore[bad-argument-type]
         c=ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=fallback_sharding,
             global_shape=(2, 4),
-            dtype=jnp.float64,
+            dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
         ),
         d=ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=simple_sharding,
             global_shape=(2, 4),
-            dtype=jnp.float64,
+            dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
         ),
         e=ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=metadata_sourced_sharding,
             global_shape=(2, 4),
-            dtype=jnp.float64,
+            dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
         ),
     )
 
@@ -556,20 +556,20 @@ class StandardCheckpointHandlerTestBase(
 
     # Test constucting restore args WITHOUT a target tree.
     expected_restore_args_without_target_tree = {
-        'a': RestoreArgs(restore_type=int, dtype=jnp.int32),
-        'b': RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),
+        'a': RestoreArgs(restore_type=int, dtype=jnp.int32),  # pyrefly: ignore[bad-argument-type]
+        'b': RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),  # pyrefly: ignore[bad-argument-type]
         'c': ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=fallback_sharding,
             global_shape=(2, 4),
-            dtype=jnp.float64,
+            dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
         ),
-        'd': RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),
+        'd': RestoreArgs(restore_type=np.ndarray, dtype=jnp.float64),  # pyrefly: ignore[bad-argument-type]
         'e': ArrayRestoreArgs(
             restore_type=jax.Array,
             sharding=metadata_sourced_sharding,
             global_shape=(2, 4),
-            dtype=jnp.float64,
+            dtype=jnp.float64,  # pyrefly: ignore[bad-argument-type]
         ),
     }
 

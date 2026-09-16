@@ -1229,7 +1229,7 @@ class ColocatedController:
       )
 
     self._worker_manager.latest_step = _specialize(
-        self._worker_manager.latest_step, jnp.int32
+        self._worker_manager.latest_step, jnp.int32  # pyrefly: ignore[bad-argument-type]
     )
     self._worker_manager.all_steps = self._worker_manager.all_steps.specialize(
         out_specs_fn=lambda arg_spec: jax.ShapeDtypeStruct(
@@ -1242,19 +1242,19 @@ class ColocatedController:
         devices=self._worker_cpu_devices,
     )
     self._worker_manager.should_save = _specialize(
-        self._worker_manager.should_save, jnp.bool_
+        self._worker_manager.should_save, jnp.bool_  # pyrefly: ignore[bad-argument-type]
     )
     self._worker_manager.wait_until_finished = _specialize(
-        self._worker_manager.wait_until_finished, jnp.bool_
+        self._worker_manager.wait_until_finished, jnp.bool_  # pyrefly: ignore[bad-argument-type]
     )
     self._worker_manager.check_for_errors = _specialize(
-        self._worker_manager.check_for_errors, jnp.bool_
+        self._worker_manager.check_for_errors, jnp.bool_  # pyrefly: ignore[bad-argument-type]
     )
     self._worker_manager.is_saving_in_progress = _specialize(
-        self._worker_manager.is_saving_in_progress, jnp.bool_
+        self._worker_manager.is_saving_in_progress, jnp.bool_  # pyrefly: ignore[bad-argument-type]
     )
     self._worker_manager.close = _specialize(
-        self._worker_manager.close, jnp.bool_
+        self._worker_manager.close, jnp.bool_  # pyrefly: ignore[bad-argument-type]
     )
 
   def _get_worker_save_call(

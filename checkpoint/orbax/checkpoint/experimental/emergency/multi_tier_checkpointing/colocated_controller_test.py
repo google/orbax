@@ -1967,7 +1967,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         'weights': type_handlers.ArrayRestoreArgs(
             sharding=sharding,
             global_shape=(3,),
-            dtype=jnp.float32,
+            dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
         )
     }
 
@@ -1996,7 +1996,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         'weights': type_handlers.ArrayRestoreArgs(
             sharding=sharding,
             global_shape=(2,),
-            dtype=jnp.float32,
+            dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
         )
     }
 
@@ -2062,7 +2062,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
             directory=None,
             shape=(2,),
             sharding=sharding_metadata.from_jax_sharding(sharding),
-            dtype=jnp.float32,
+            dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
         )
     }
     self._set_worker_restore_result(controller, return_value=restored_cpu_state)
@@ -2165,7 +2165,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         'weights': type_handlers.ArrayRestoreArgs(
             sharding=sharding,
             global_shape=(2,),
-            dtype=jnp.float32,
+            dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
         ),
     }
     self._set_worker_restore_result(

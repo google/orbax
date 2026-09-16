@@ -1535,7 +1535,7 @@ class CheckpointManagerTest(
                 'step': value_metadata.ScalarMetadata(
                     name='step',
                     directory=epath.Path(self.directory / _DEFAULT_ITEM_NAME),
-                    dtype=jnp.int64,
+                    dtype=jnp.int64,  # pyrefly: ignore[bad-argument-type]
                 )
             },
         )
