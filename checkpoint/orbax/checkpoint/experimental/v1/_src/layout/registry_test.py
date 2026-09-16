@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import unittest
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import numpy as np
 from orbax.checkpoint import args
 from orbax.checkpoint._src.checkpointers import checkpointer
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -27,7 +29,9 @@ from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
 from orbax.checkpoint.experimental.v1._src.layout import registry
+from orbax.checkpoint.experimental.v1._src.layout import safetensors_layout
 from orbax.checkpoint.experimental.v1._src.saving import saving
+import safetensors.numpy
 
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
@@ -190,6 +194,102 @@ class PyTreeCheckpointableResolutionAsyncTest(
             CheckpointLayoutEnum.ORBAX,
             checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
         )
+
+
+
+class DetectLayoutTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+
+  def setUp(self):
+    super().setUp()
+    self.root_directory = epath.Path(self.create_tempdir())
+    self.v1_directory = self.root_directory / 'v1'
+    saving.save(
+        self.v1_directory,
+        {'a': 1, 'b': 2},  # pyrefly: ignore[bad-argument-type]
+    )
+    self.v0_directory = self.root_directory / 'v0'
+    ckptr = checkpointer.Checkpointer(
+        composite_checkpoint_handler.CompositeCheckpointHandler()
+    )
+    ckptr.save(
+        self.v0_directory,
+        composite_checkpoint_handler.CompositeArgs(
+            state=standard_checkpoint_handler.StandardSaveArgs({'a': 1, 'b': 2})
+        ),
+    )
+    self.v0_flat_directory = self.root_directory / 'v0_flat'
+    ckptr_flat = checkpointer.Checkpointer(
+        standard_checkpoint_handler.StandardCheckpointHandler()
+    )
+    ckptr_flat.save(
+        self.v0_flat_directory,
+        standard_checkpoint_handler.StandardSaveArgs({'a': 1, 'b': 2}),
+    )
+    self.safetensors_dir = self.root_directory / 'safetensors_dir'
+    self.safetensors_dir.mkdir()
+    self.safetensors_file = self.safetensors_dir / 'model.safetensors'
+    safetensors.numpy.save_file(
+        {'weight': np.ones((2, 2))}, str(self.safetensors_file)
+    )
+
+  async def test_detect_safetensors_file(self):
+    detected = await registry.detect_layout(self.safetensors_file)
+    self.assertEqual(detected, CheckpointLayoutEnum.SAFETENSORS)
+
+  async def test_detect_safetensors_directory(self):
+    detected = await registry.detect_layout(self.safetensors_dir)
+    self.assertEqual(detected, CheckpointLayoutEnum.SAFETENSORS)
+
+  async def test_detect_orbax_v1(self):
+    detected = await registry.detect_layout(self.v1_directory)
+    self.assertEqual(detected, CheckpointLayoutEnum.ORBAX)
+
+  async def test_detect_orbax_v0(self):
+    detected = await registry.detect_layout(self.v0_directory)
+    self.assertEqual(detected, CheckpointLayoutEnum.ORBAX)
+
+  async def test_detect_orbax_v0_flat(self):
+    detected = await registry.detect_layout(self.v0_flat_directory)
+    self.assertEqual(detected, CheckpointLayoutEnum.ORBAX)
+
+  async def test_detect_unrecognized_directory_raises(self):
+    empty_dir = self.root_directory / 'empty'
+    empty_dir.mkdir()
+    with self.assertRaises(registry.InvalidLayoutError):
+      await registry.detect_layout(empty_dir)
+
+  async def test_auto_detect_save_path_resolves_to_orbax(self):
+    cls = await registry.get_layout_class(
+        CheckpointLayoutEnum.AUTO_DETECT, path=None
+    )
+    self.assertEqual(cls, orbax_layout.OrbaxLayout)
+
+  async def test_auto_detect_with_path(self):
+    cls_v1 = await registry.get_layout_class(
+        CheckpointLayoutEnum.AUTO_DETECT, path=self.v1_directory
+    )
+    self.assertEqual(cls_v1, orbax_layout.OrbaxLayout)
+
+    cls_v0 = await registry.get_layout_class(
+        CheckpointLayoutEnum.AUTO_DETECT, path=self.v0_directory
+    )
+    self.assertEqual(cls_v0, orbax_v0_layout.OrbaxV0Layout)
+
+    cls_st = await registry.get_layout_class(
+        CheckpointLayoutEnum.AUTO_DETECT, path=self.safetensors_dir
+    )
+    self.assertEqual(cls_st, safetensors_layout.SafetensorsLayout)
+
+  async def test_resolver_with_auto_detect(self):
+    resolver = await registry.CheckpointLayoutResolver.resolve(
+        self.v1_directory,
+        CheckpointLayoutEnum.AUTO_DETECT,
+        pytree_name=checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+    )
+    self.assertEqual(resolver.pytree_name, STATE_CHECKPOINTABLE_KEY)
+    self.assertIsInstance(resolver.layout, orbax_layout.OrbaxLayout)
 
 
 

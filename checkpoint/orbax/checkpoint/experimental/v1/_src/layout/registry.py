@@ -19,6 +19,7 @@ import asyncio
 
 from absl import logging
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -55,11 +56,66 @@ def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
   return asyncio_utils.run_sync(_is_orbax_checkpoint_async(path))
 
 
+async def detect_layout(
+    path: path_types.PathLike,
+    *,
+    root_index: fs_probe.DirectoryIndex | None = None,
+) -> CheckpointLayoutEnum:
+  """Detects the checkpoint layout from filesystem markers.
+
+
+  Layouts are evaluated in order of marker specificity (from strictest markers
+  to broadest fallback) to avoid false positives:
+  1. Safetensors: suffix-based check on file or child entries (.safetensors).
+  3. Orbax: matches standard Orbax indicator or metadata markers.
+
+  Args:
+    path: The path to the checkpoint directory or file.
+    root_index: Optional pre-computed directory index of `path`.
+
+  Returns:
+    The detected CheckpointLayout enum.
+
+  Raises:
+    InvalidLayoutError: If the path does not match any registered layout.
+  """
+  ctx = context_lib.get_context()
+  resolved_path = ctx.file_options.path_class(path)
+
+  if root_index is None:
+    root_index = await asyncio.to_thread(
+        fs_probe.index_directory, resolved_path
+    )
+
+  if safetensors_layout.matches_markers(root_index):
+    return CheckpointLayoutEnum.SAFETENSORS
+
+
+  if orbax_layout.matches_markers(root_index):
+    return CheckpointLayoutEnum.ORBAX
+
+  tried = [
+      CheckpointLayoutEnum.SAFETENSORS.value,
+      CheckpointLayoutEnum.ORBAX.value,
+  ]
+  raise InvalidLayoutError(
+      f"Could not auto-detect checkpoint layout at {path}. "
+      f"Tried layouts: {tried}."
+  )
+
+
 async def get_layout_class(
     layout_enum: CheckpointLayoutEnum, path: path_types.PathLike | None = None
 ) -> type[CheckpointLayout]:
   """Returns the layout class for the given layout enum."""
   match layout_enum:
+    case CheckpointLayoutEnum.AUTO_DETECT:
+      if path is None:
+        # When saving, there is no existing checkpoint to detect; default to
+        # ORBAX ("detect on read, always write Orbax").
+        return orbax_layout.OrbaxLayout
+      detected_enum = await detect_layout(path)
+      return await get_layout_class(detected_enum, path)
     case CheckpointLayoutEnum.ORBAX:
       if path is None or (
           await orbax_layout.checkpoint_version(path)
@@ -70,21 +126,6 @@ async def get_layout_class(
         return orbax_v0_layout.OrbaxV0Layout
     case CheckpointLayoutEnum.SAFETENSORS:
       return safetensors_layout.SafetensorsLayout
-    case CheckpointLayoutEnum.ROC:
-      try:
-        # pylint: disable=g-import-not-at-top
-        # pytype: disable=import-error
-        from orbax.checkpoint.experimental.v1._src.layout import roc_layout
-        # pytype: enable=import-error
-        # pylint: enable=g-import-not-at-top
-      except ImportError as e:
-        raise ImportError(
-            "Failed to import `roc_layout`; Roc support may not be linked. "
-            "Please depend on "
-            "//orbax/checkpoint/experimental/v1:roc_support "
-            "in your build rule."
-        ) from e
-      return roc_layout.RocLayout
     case _:
       raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 
