@@ -15,9 +15,60 @@
 """Tests for gcs_utils functions."""
 
 from unittest import mock
+
 from absl.testing import absltest
 from etils import epath
 from orbax.checkpoint._src.path import gcs_utils
+
+
+class IsGcsFusePathTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    gcs_utils._mount_table.cache_clear()
+    self.addCleanup(gcs_utils._mount_table.cache_clear)
+
+  def _patch_mounts(self, content: str) -> mock._patch:
+    mounts_file = self.create_tempfile('mounts', content=content)
+    return mock.patch.object(gcs_utils, '_MOUNTS_FILE', mounts_file.full_path)
+
+  def test_path_on_gcsfuse_mount(self):
+    mounts = (
+        '/dev/sda1 / ext4 rw 0 0\n'
+        'my-bucket /mnt/gcs fuse.gcsfuse rw,nosuid 0 0\n'
+    )
+    with self._patch_mounts(mounts):
+      self.assertTrue(gcs_utils.is_gcsfuse_path('/mnt/gcs/ckpts/step_1'))
+      self.assertTrue(gcs_utils.is_gcsfuse_path(epath.Path('/mnt/gcs')))
+      self.assertFalse(gcs_utils.is_gcsfuse_path('/mnt/gcs2/ckpts'))
+      self.assertFalse(gcs_utils.is_gcsfuse_path('/home/user/ckpts'))
+
+  def test_nested_non_gcsfuse_mount_wins(self):
+    mounts = (
+        '/dev/sda1 / ext4 rw 0 0\n'
+        'my-bucket /mnt/gcs fuse.gcsfuse rw 0 0\n'
+        'tmpfs /mnt/gcs/scratch tmpfs rw 0 0\n'
+    )
+    with self._patch_mounts(mounts):
+      self.assertTrue(gcs_utils.is_gcsfuse_path('/mnt/gcs/ckpts'))
+      self.assertFalse(gcs_utils.is_gcsfuse_path('/mnt/gcs/scratch/ckpts'))
+
+  def test_escaped_mount_point(self):
+    mounts = 'my-bucket /mnt/gcs\\040dir fuse.gcsfuse rw 0 0\n'
+    with self._patch_mounts(mounts):
+      self.assertTrue(gcs_utils.is_gcsfuse_path('/mnt/gcs dir/ckpts'))
+
+  def test_gcs_uri_is_not_gcsfuse(self):
+    mounts = 'my-bucket /mnt/gcs fuse.gcsfuse rw 0 0\n'
+    with self._patch_mounts(mounts):
+      self.assertFalse(gcs_utils.is_gcsfuse_path('gs://my-bucket/ckpts'))
+      self.assertFalse(gcs_utils.is_gcsfuse_path(epath.Path('gs://b/k')))
+
+  def test_missing_mount_table(self):
+    with mock.patch.object(
+        gcs_utils, '_MOUNTS_FILE', '/nonexistent/mounts-file'
+    ):
+      self.assertFalse(gcs_utils.is_gcsfuse_path('/mnt/gcs/ckpts'))
 
 
 class GcsUtilsTest(absltest.TestCase):
