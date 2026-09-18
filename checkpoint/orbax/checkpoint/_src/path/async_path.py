@@ -91,15 +91,22 @@ async def async_stat(path: epath.Path):
   return await asyncio.to_thread(path.stat)
 
 
-async def rmtree(path: epath.Path):
+async def rmtree(path: epath.Path, *, missing_ok: bool = False) -> None:
+  """Removes a directory tree asynchronously.
+
+  Args:
+    path: The directory path to remove.
+    missing_ok: Whether to ignore if the path does not exist.
+  """
   def _rmtree():
     # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
     # StorageBackend.
     if gcs_utils.is_gcs_path(path):
-      gcs_utils.rmtree(path)
+      gcs_utils.rmtree(path, missing_ok=missing_ok)
     else:
-      path.rmtree()
-  return await asyncio.to_thread(_rmtree)
+      path.rmtree(missing_ok=missing_ok)
+
+  await asyncio.to_thread(_rmtree)
 
 
 async def touch(path: epath.Path, *, exist_ok: bool = False):

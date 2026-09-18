@@ -35,15 +35,18 @@ class FileOptionsTest(parameterized.TestCase):
     v0_opts = opts.v0()
     self.assertIsInstance(v0_opts, v0_options_lib.FileOptions)
     self.assertIsNone(v0_opts.path_permission_mode)
+    self.assertFalse(v0_opts.skip_sync_file_validations)
 
   def test_v0_conversion_with_all_options(self):
 
     opts = ocp_options.FileOptions(
         path_permission_mode=0o777,
+        skip_sync_file_validations=True,
     )
     v0_opts = opts.v0()
     self.assertIsInstance(v0_opts, v0_options_lib.FileOptions)
     self.assertEqual(v0_opts.path_permission_mode, 0o777)
+    self.assertTrue(v0_opts.skip_sync_file_validations)
 
 
 class AtomicityOptionsTest(parameterized.TestCase):
