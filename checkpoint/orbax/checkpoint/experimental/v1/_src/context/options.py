@@ -681,9 +681,12 @@ class CheckpointLayout(enum.Enum):
 
 
   Currently supported layouts are:
+    AUTO_DETECT: Automatically detects layout from filesystem markers when
+      loading. Resolves to ORBAX on save. Opt-in; default remains ORBAX.
     ORBAX: Orbax's own layout.
     SAFETENSORS: https://huggingface.co/docs/safetensors/en/index
   """
 
   ORBAX = 'orbax'
   SAFETENSORS = 'safetensors'
+  AUTO_DETECT = 'auto_detect'
