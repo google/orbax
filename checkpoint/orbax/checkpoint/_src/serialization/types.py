@@ -275,6 +275,13 @@ class ParamInfo:
     self.use_compression = use_compression
     self.use_zarr3 = use_zarr3
     self.ocdbt_target_data_file_size = ocdbt_target_data_file_size
+    if ts_context is None:
+      logging.warning(
+          'ParamInfo(name=%r) created with ts_context=None. Passing unshared or'
+          ' default TensorStore contexts across multiple parameters can'
+          ' duplicate OCDBT driver and B-tree node caches in memory.',
+          name,
+      )
     self.ts_context = ts_context
     self.value_typestr = value_typestr
     self.enable_pinned_host_transfer = enable_pinned_host_transfer
