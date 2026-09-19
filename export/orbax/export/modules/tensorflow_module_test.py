@@ -23,10 +23,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from orbax.export import constants
+from orbax.export import dtensor_utils
 from orbax.export import utils as orbax_export_utils
 from orbax.export.modules import tensorflow_module
 import tensorflow as tf
-
+from tensorflow.compat.v2.experimental import dtensor
 
 TensorFlowModule = tensorflow_module.TensorFlowModule
 DEFAULT_METHOD_KEY = constants.DEFAULT_METHOD_KEY
@@ -54,6 +55,12 @@ class YetAnotherDict(dict):
 
 
 class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    super().setUpClass()
+    if not dtensor_utils.dtensor_initialized():
+      dtensor_utils.initialize_dtensor()
 
   @parameterized.parameters(dict, YetAnotherDict)
   def test_variable_names(self, top_level_dict_cls=dict):
@@ -547,6 +554,144 @@ class TensorFlowModuleTest(tf.test.TestCase, parameterized.TestCase):
             model_params, model_inputs
         ),
     )
+
+  def test_host_pinned_variable_non_dtensor(self):
+    """Tests that variables with pinned_host sharding are placed on CPU when DTensor is not used.
+
+    When exporting without DTensor, variables whose JAX array sharding has
+    memory_kind='pinned_host' should be created on the host CPU device
+    (/device:CPU:0).
+    """
+    mesh = jax.sharding.Mesh(np.array(jax.local_devices(backend='cpu')), ('x',))
+    # Create an array with explicit memory_kind='pinned_host' sharding.
+    arr_host = jax.device_put(
+        jnp.array([1.0, 2.0, 3.0]),
+        jax.sharding.NamedSharding(
+            mesh, jax.sharding.PartitionSpec('x'), memory_kind='pinned_host'
+        ),
+    )
+    # Create a standard array placed on default device memory.
+    arr_device = jax.device_put(
+        jnp.array([4.0, 5.0, 6.0]),
+        jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x')),
+    )
+    params = {
+        'w_host': arr_host,
+        'w_device': arr_device,
+    }
+    tf_module = TensorFlowModule(
+        params=params,
+        apply_fn=DEFAULT_APPLY_FN,
+    )
+    variables = {v.name: v for v in tf_module.variables}
+    self.assertIn('w_host:0', variables)
+    self.assertIn('w_device:0', variables)
+    # The host-pinned variable should be placed on CPU:0.
+    self.assertIn('CPU:0', variables['w_host:0'].device)
+
+  def test_host_pinned_variable_dtensor(self):
+    """Tests that variables with pinned_host in pspecs are placed on DTensor host_mesh().
+
+    When exporting with DTensor, if a parameter's PartitionSpec/NamedSharding
+    specifies memory_kind='pinned_host', the resulting dtensor.DVariable
+    should have its layout mesh set to the DTensor host mesh (CPU mesh),
+    while standard parameters use the main DTensor device mesh.
+    """
+    global_mesh = jax.sharding.Mesh(
+        np.array(jax.local_devices(backend='cpu')), ('x',)
+    )
+    arr_host = jax.device_put(
+        jnp.array([1.0, 2.0, 3.0]),
+        jax.sharding.NamedSharding(
+            global_mesh, jax.sharding.PartitionSpec('x')
+        ),
+    )
+    arr_device = jax.device_put(
+        jnp.array([4.0, 5.0, 6.0]),
+        jax.sharding.NamedSharding(
+            global_mesh, jax.sharding.PartitionSpec('x')
+        ),
+    )
+    params = {
+        'w_host': arr_host,
+        'w_device': arr_device,
+    }
+    # Specify memory_kind='pinned_host' via NamedSharding in the pspecs dict.
+    pspecs = {
+        'w_host': jax.sharding.NamedSharding(
+            global_mesh,
+            jax.sharding.PartitionSpec('x'),
+            memory_kind='pinned_host',
+        ),
+        'w_device': jax.sharding.PartitionSpec('x'),
+    }
+    with dtensor_utils.maybe_enable_dtensor_export_on(global_mesh):
+      tf_module = TensorFlowModule(
+          params=params,
+          apply_fn=DEFAULT_APPLY_FN,
+          pspecs=pspecs,
+      )
+      variables = {v.name: v for v in tf_module.variables}
+      self.assertIsInstance(variables['w_host:0'], dtensor.DVariable)
+      self.assertIsInstance(variables['w_device:0'], dtensor.DVariable)
+      host_layout = variables['w_host:0'].layout
+      device_layout = variables['w_device:0'].layout
+      current_mesh = dtensor_utils.get_current_mesh()
+      assert current_mesh is not None
+      current_dmesh = current_mesh.dtensor_mesh
+      # Verify w_host layout uses the host mesh (CPU) and w_device uses device
+      # mesh.
+      self.assertEqual(host_layout.mesh, current_dmesh.host_mesh())
+      self.assertEqual(device_layout.mesh, current_dmesh)
+
+  def test_host_pinned_array_sharding_dtensor(self):
+    """Tests that pinned_host on JAX array sharding is detected in DTensor export.
+
+    When exporting with DTensor, if the input JAX array itself has
+    NamedSharding with memory_kind='pinned_host' (even if pspecs is just a
+    plain PartitionSpec), TensorFlowModule should detect the array's host
+    memory kind and place the dtensor.DVariable on host_mesh().
+    """
+    global_mesh = jax.sharding.Mesh(
+        np.array(jax.local_devices(backend='cpu')), ('x',)
+    )
+    host_sharding = jax.sharding.NamedSharding(
+        global_mesh,
+        jax.sharding.PartitionSpec('x'),
+        memory_kind='pinned_host',
+    )
+    # The array itself carries memory_kind='pinned_host' in its sharding.
+    arr_host = jax.device_put(jnp.array([1.0, 2.0]), host_sharding)
+    arr_device = jax.device_put(
+        jnp.array([3.0, 4.0]),
+        jax.sharding.NamedSharding(
+            global_mesh, jax.sharding.PartitionSpec('x')
+        ),
+    )
+    params = {'w_host': arr_host, 'w_device': arr_device}
+    # pspecs provides standard PartitionSpecs without explicit memory_kind.
+    pspecs = {
+        'w_host': jax.sharding.PartitionSpec('x'),
+        'w_device': jax.sharding.PartitionSpec('x'),
+    }
+    with dtensor_utils.maybe_enable_dtensor_export_on(global_mesh):
+      tf_module = TensorFlowModule(
+          params=params,
+          apply_fn=DEFAULT_APPLY_FN,
+          pspecs=pspecs,
+      )
+      variables = {v.name: v for v in tf_module.variables}
+      self.assertIsInstance(variables['w_host:0'], dtensor.DVariable)
+      self.assertIsInstance(variables['w_device:0'], dtensor.DVariable)
+      host_layout = variables['w_host:0'].layout
+      device_layout = variables['w_device:0'].layout
+      current_mesh = dtensor_utils.get_current_mesh()
+      assert current_mesh is not None
+      current_dmesh = current_mesh.dtensor_mesh
+      # Verify w_host layout uses the host mesh (CPU) and w_device uses device
+      # mesh.
+      self.assertEqual(host_layout.mesh, current_dmesh.host_mesh())
+      self.assertEqual(device_layout.mesh, current_dmesh)
 
 
 if __name__ == '__main__':
