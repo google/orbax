@@ -158,6 +158,93 @@ class CloudPathwaysArrayHandlerTest(parameterized.TestCase):
     self.assertEqual(read_shardings[0].spec, jax.sharding.PartitionSpec("x"))
     np.testing.assert_array_equal(restored, arr)
 
+  @mock.patch.object(cloud_pathways_helper, "write_arrays")
+  def test_serialize_groups_by_location_and_device_assignment(
+      self, mock_write_arrays
+  ):
+    fut = mock.MagicMock()
+    fut.result.return_value = None
+    mock_write_arrays.return_value = fut
+
+    sharding1 = jax.sharding.NamedSharding(
+        self.mesh, jax.sharding.PartitionSpec("x")
+    )
+    arr1 = jax.device_put(np.arange(16, dtype=np.int32), sharding1)
+    arr2 = jax.device_put(np.arange(16, 32, dtype=np.int32), sharding1)
+    subdir = self.directory / "subdir"
+    subdir.mkdir(parents=True, exist_ok=True)
+    arr3 = jax.device_put(np.arange(32, 48, dtype=np.int32), sharding1)
+
+    infos = [
+        types.ParamInfo(
+            name="a1", path=self.directory / "a1", parent_dir=self.directory
+        ),
+        types.ParamInfo(
+            name="a2", path=self.directory / "a2", parent_dir=self.directory
+        ),
+        types.ParamInfo(name="a3", path=subdir / "a3", parent_dir=subdir),
+    ]
+    args = [types.SaveArgs() for _ in infos]
+    handler = cloud_pathways_array_handler.CloudPathwaysArrayHandler()
+
+    async def run_serialize():
+      futures = await handler.serialize([arr1, arr2, arr3], infos, args)
+      for f in futures:
+        f.result()
+
+    asyncio.run(run_serialize())
+
+    self.assertEqual(mock_write_arrays.call_count, 2)
+
+    call1_args = mock_write_arrays.call_args_list[0][0]
+    self.assertEqual(call1_args[0], str(self.directory))
+    self.assertEqual(call1_args[1], ["a1", "a2"])
+
+    call2_args = mock_write_arrays.call_args_list[1][0]
+    self.assertEqual(call2_args[0], str(subdir))
+    self.assertEqual(call2_args[1], ["a3"])
+
+  @mock.patch.object(cloud_pathways_helper, "read_arrays")
+  def test_deserialize_groups_by_location_and_mesh(self, mock_read_arrays):
+    sharding = jax.sharding.NamedSharding(
+        self.mesh, jax.sharding.PartitionSpec("x")
+    )
+    arr1 = jax.device_put(np.arange(16, dtype=np.float32), sharding)
+    arr2 = jax.device_put(np.arange(16, 32, dtype=np.float32), sharding)
+
+    fut = mock.MagicMock()
+    fut.result.return_value = None
+    mock_read_arrays.side_effect = [([arr1], fut), ([arr2], fut)]
+
+    subdir = self.directory / "subdir"
+    infos = [
+        types.ParamInfo(
+            name="a1", path=self.directory / "a1", parent_dir=self.directory
+        ),
+        types.ParamInfo(name="a2", path=subdir / "a2", parent_dir=subdir),
+    ]
+    restore_args = [
+        jax_array_restore_args.ArrayRestoreArgs(
+            dtype=arr1.dtype, global_shape=arr1.shape, sharding=sharding
+        ),
+        jax_array_restore_args.ArrayRestoreArgs(
+            dtype=arr2.dtype, global_shape=arr2.shape, sharding=sharding
+        ),
+    ]
+    handler = cloud_pathways_array_handler.CloudPathwaysArrayHandler()
+
+    async def run_deserialize():
+      return await handler.deserialize(infos, restore_args)
+
+    restored = asyncio.run(run_deserialize())
+    self.assertEqual(mock_read_arrays.call_count, 2)
+    self.assertEqual(
+        mock_read_arrays.call_args_list[0][0][0], str(self.directory)
+    )
+    self.assertEqual(mock_read_arrays.call_args_list[1][0][0], str(subdir))
+    np.testing.assert_array_equal(restored[0], arr1)
+    np.testing.assert_array_equal(restored[1], arr2)
+
 
 if __name__ == "__main__":
   absltest.main()

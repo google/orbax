@@ -20,7 +20,6 @@ import collections
 from collections.abc import Coroutine, Sequence
 import concurrent.futures
 import datetime
-import functools
 from typing import Any, cast
 
 from absl import logging
@@ -146,10 +145,24 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
 
     self._wait_for_directory_creation_signals()
     locations, names = extract_parent_dir_and_name(infos)
-    f = functools.partial(
-        cloud_pathways_helper.write_one_array, timeout=self.timeout
-    )
-    futures_results = list(map(f, locations, names, arrays))
+    # Group arrays by parent directory and device assignment so each batch
+    # satisfies SideChannelLoadedExecutable bulk persistence constraints.
+    grouped_writes: dict[
+        tuple[str, tuple[Any, ...]], tuple[list[str], list[jax.Array]]
+    ] = collections.defaultdict(lambda: ([], []))
+    for loc, name, arr in zip(locations, names, arrays):
+      # pylint:disable=protected-access
+      key = (loc, tuple(arr.sharding._device_assignment))
+      # pylint:enable=protected-access
+      grouped_writes[key][0].append(name)
+      grouped_writes[key][1].append(arr)
+
+    futures_results = [
+        cloud_pathways_helper.write_arrays(
+            loc, group_names, group_arrays, timeout=self.timeout
+        )
+        for (loc, _), (group_names, group_arrays) in grouped_writes.items()
+    ]
 
     return [
         future.CommitFutureAwaitingContractedSignals(
@@ -233,20 +246,20 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
             for array_metadata in array_metadatas
         }
 
-    # Group inputs by global_mesh so that we can perform batched Array
-    # construction for each global_mesh.
-    inputs_by_global_mesh = collections.defaultdict(list)
-    for i, global_mesh in enumerate(global_meshes):
-      inputs_by_global_mesh[global_mesh].append(i)
+    # Group inputs by parent_dir and global_mesh so that we can perform batched
+    # Array construction for each group.
+    inputs_by_location_and_mesh = collections.defaultdict(list)
+    for i, (info, global_mesh) in enumerate(zip(infos, global_meshes)):
+      inputs_by_location_and_mesh[(str(info.parent_dir), global_mesh)].append(i)
 
     results = cast(list[jax.Array], [None] * len(infos))
 
-    for global_mesh, idxs in inputs_by_global_mesh.items():
+    for (location, global_mesh), idxs in inputs_by_location_and_mesh.items():
       grouped_infos = [infos[idx] for idx in idxs]
       grouped_global_shapes = [global_shapes[idx] for idx in idxs]
       grouped_dtypes = [dtypes[idx] for idx in idxs]
       grouped_shardings = [shardings[idx] for idx in idxs]
-      locations, names = extract_parent_dir_and_name(grouped_infos)
+      _, names = extract_parent_dir_and_name(grouped_infos)
 
       grouped_read_dtypes = []
       grouped_read_shapes = []
@@ -286,7 +299,7 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
         grouped_read_shardings.append(read_sharding)
 
       grouped_arrays, read_future = cloud_pathways_helper.read_arrays(
-          locations[0],
+          location,
           names,
           grouped_read_dtypes,
           grouped_read_shapes,
