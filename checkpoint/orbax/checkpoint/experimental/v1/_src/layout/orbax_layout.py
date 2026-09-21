@@ -23,6 +23,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import step_metadata_serialization
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.handlers import registration
@@ -58,6 +59,15 @@ CHECKPOINT_METADATA = "_CHECKPOINT_METADATA"
 
 _OCDBT_MANIFEST_FILE = "manifest.ocdbt"
 _ZARRAY_FILE = ".zarray"
+
+
+async def matches_markers(index: fs_probe.DirectoryIndex) -> bool:
+  """Returns whether `index` shows the discriminating markers of this layout."""
+  return index.has_any(
+      ORBAX_CHECKPOINT_INDICATOR_FILE,
+      CHECKPOINT_METADATA,
+      PYTREE_METADATA_FILE,
+  )
 
 
 async def checkpoint_version(path: path_types.PathLike) -> CheckpointVersion:

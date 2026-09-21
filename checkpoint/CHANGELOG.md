@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add `CheckpointLayout.AUTO` to detect the checkpoint layout from
+  filesystem markers when loading.
+
 ## [0.12.5] - 2026-09-17
 
 ### Added

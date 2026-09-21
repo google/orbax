@@ -16,9 +16,11 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from absl import logging
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -39,6 +41,14 @@ ORBAX_LAYOUT_CLASSES = [
 
 
 async def _is_orbax_checkpoint_async(path: path_types.PathLike) -> bool:
+  """Checks asynchronously whether the path is an Orbax checkpoint.
+
+  Args:
+    path: Path to the checkpoint to check.
+
+  Returns:
+    True if the checkpoint matches any registered Orbax layout class.
+  """
   ctx = context_lib.get_context()
   path = ctx.file_options.path_class(path)
 
@@ -51,15 +61,87 @@ async def _is_orbax_checkpoint_async(path: path_types.PathLike) -> bool:
 
 
 def is_orbax_checkpoint(path: path_types.PathLike) -> bool:
-  """Returns True if the path is an Orbax checkpoint."""
+  """Returns True if the path is an Orbax checkpoint.
+
+  Args:
+    path: Path to the checkpoint to check.
+
+  Returns:
+    True if the path is recognized as an Orbax checkpoint.
+  """
   return asyncio_utils.run_sync(_is_orbax_checkpoint_async(path))
+
+
+async def detect_layout(
+    path: path_types.PathLike,
+    *,
+    root_index: fs_probe.DirectoryIndex | None = None,
+) -> CheckpointLayoutEnum:
+  """Detects the checkpoint layout from filesystem markers.
+
+  Layouts are evaluated concurrently for primary markers. Orbax is checked first
+  or prioritized according to specific layout markers, falling back to
+  Safetensors if primary layouts do not match.
+
+  Args:
+    path: The path to the checkpoint directory or file.
+    root_index: Optional pre-computed directory index of `path`.
+
+  Returns:
+    The detected CheckpointLayout enum.
+
+  Raises:
+    InvalidLayoutError: If the path does not match any registered layout.
+  """
+  ctx = context_lib.get_context()
+  resolved_path = ctx.file_options.path_class(path)
+
+  if root_index is None:
+    root_index = await fs_probe.index_directory(resolved_path)
+
+  if await orbax_layout.matches_markers(root_index):
+    return CheckpointLayoutEnum.ORBAX
+
+
+  if await safetensors_layout.matches_markers(root_index):
+    return CheckpointLayoutEnum.SAFETENSORS
+
+  tried = [
+      CheckpointLayoutEnum.ORBAX.value,
+      CheckpointLayoutEnum.SAFETENSORS.value,
+  ]
+  raise InvalidLayoutError(
+      f"Could not auto-detect checkpoint layout at {path}. "
+      f"Tried layouts: {tried}."
+  )
+
+
 
 
 async def get_layout_class(
     layout_enum: CheckpointLayoutEnum, path: path_types.PathLike | None = None
 ) -> type[CheckpointLayout]:
-  """Returns the layout class for the given layout enum."""
+  """Returns the layout class for the given layout enum.
+
+  Args:
+    layout_enum: Layout enum identifying the checkpoint format.
+    path: Optional checkpoint path used for version or format detection.
+
+  Returns:
+    The concrete CheckpointLayout class.
+
+  Raises:
+    ValueError: If layout_enum is not recognized.
+    ImportError: If the requested layout engine (e.g. Roc) is not linked.
+  """
   match layout_enum:
+    case CheckpointLayoutEnum.AUTO:
+      if path is None:
+        # When saving, there is no existing checkpoint to detect; default to
+        # ORBAX ("detect on read, always write Orbax").
+        return orbax_layout.OrbaxLayout
+      detected_enum = await detect_layout(path)
+      return await get_layout_class(detected_enum, path)
     case CheckpointLayoutEnum.ORBAX:
       if path is None or (
           await orbax_layout.checkpoint_version(path)
@@ -70,21 +152,6 @@ async def get_layout_class(
         return orbax_v0_layout.OrbaxV0Layout
     case CheckpointLayoutEnum.SAFETENSORS:
       return safetensors_layout.SafetensorsLayout
-    case CheckpointLayoutEnum.ROC:
-      try:
-        # pylint: disable=g-import-not-at-top
-        # pytype: disable=import-error
-        from orbax.checkpoint.experimental.v1._src.layout import roc_layout
-        # pytype: enable=import-error
-        # pylint: enable=g-import-not-at-top
-      except ImportError as e:
-        raise ImportError(
-            "Failed to import `roc_layout`; Roc support may not be linked. "
-            "Please depend on "
-            "//orbax/checkpoint/experimental/v1:roc_support "
-            "in your build rule."
-        ) from e
-      return roc_layout.RocLayout
     case _:
       raise ValueError(f"Unsupported checkpoint layout: {layout_enum}")
 
@@ -123,6 +190,56 @@ async def get_checkpoint_layout(
         " format, use `ctx.checkpoint_layout = ...` to specify the expected"
         " checkpoint layout."
     ) from e
+
+
+async def _resolve_auto_pytree_name(
+    layout: CheckpointLayout, path: path_types.Path
+) -> str | None:
+  """Discovers and validates a pytree checkpointable name at path.
+
+  Args:
+    layout: Validated CheckpointLayout instance.
+    path: Path to the checkpoint directory.
+
+  Returns:
+    The resolved checkpointable name (str or None).
+
+  Raises:
+    InvalidLayoutError: If no valid PyTree checkpointable can be found.
+  """
+  names = await layout.get_checkpointable_names(path)
+  for name in names:
+    try:
+      await layout.validate(path, name)
+      logging.info(
+          "AUTO resolution mode successfully identified a pytree with"
+          " checkpointable name '%s' at path '%s'. Attempting to load with"
+          " this name. If this is not the desired checkpointable, please"
+          " specify the name explicitly.",
+          name,
+          path,
+      )
+      return name
+    except InvalidLayoutError:
+      continue
+
+  if not isinstance(layout, orbax_layout.OrbaxLayout):
+    try:
+      await layout.validate(path, None)
+      logging.info(
+          "AUTO resolution mode successfully identified a pytree at path"
+          " '%s'. Attempting to load as a flat layout checkpoint with"
+          " checkpointable_name=None.",
+          path,
+      )
+      return None
+    except InvalidLayoutError:
+      pass
+
+  raise InvalidLayoutError(
+      "Failed to load checkpoint using AUTO resolution mode on"
+      f" path='{path}'. No valid PyTree checkpointable found."
+  )
 
 
 class CheckpointLayoutResolver:
@@ -169,39 +286,8 @@ class CheckpointLayoutResolver:
 
     layout = await get_checkpoint_layout(path, layout_enum)
     if pytree_name == checkpoint_layout.AUTO_CHECKPOINTABLE_KEY:
-      names = await layout.get_checkpointable_names(path)
-      for name in names:
-        try:
-          await layout.validate(path, name)
-          logging.info(
-              "AUTO resolution mode successfully identified a pytree with"
-              " checkpointable name '%s' at path '%s'. Attempting to load with"
-              " this name. If this is not the desired checkpointable, please"
-              " specify the name explicitly.",
-              name,
-              path,
-          )
-          return cls(path, layout_enum, layout, name)
-        except InvalidLayoutError:
-          continue
-
-      if not isinstance(layout, orbax_layout.OrbaxLayout):
-        try:
-          await layout.validate(path, None)
-          logging.info(
-              "AUTO resolution mode successfully identified a pytree at path"
-              " '%s'. Attempting to load as a flat layout checkpoint with"
-              " checkpointable_name=None.",
-              path,
-          )
-          return cls(path, layout_enum, layout, None)
-        except InvalidLayoutError:
-          pass
-
-      raise InvalidLayoutError(
-          "Failed to load checkpoint using AUTO resolution mode on"
-          f" path='{path}'. No valid PyTree checkpointable found."
-      ) from None
+      resolved_name = await _resolve_auto_pytree_name(layout, path)
+      return cls(path, layout_enum, layout, resolved_name)
 
     await layout.validate(path, pytree_name)
     return cls(path, layout_enum, layout, pytree_name)

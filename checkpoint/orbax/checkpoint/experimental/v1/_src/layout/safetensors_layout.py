@@ -60,6 +60,7 @@ from orbax.checkpoint._src.arrays import numpy_utils
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import async_path
+from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.tree import utils as tree_utils
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -75,6 +76,16 @@ AbstractCheckpointable = checkpoint_layout.AbstractCheckpointable
 
 HEADER_NUM_BYTES = 8
 SAFETENSORS_SUFFIX = ".safetensors"
+
+
+async def matches_markers(index: fs_probe.DirectoryIndex) -> bool:
+  """Returns whether `index` shows discriminating markers of this layout."""
+  if not index.exists():
+    return False
+  return index.path().suffix == SAFETENSORS_SUFFIX or bool(
+      index.with_suffix(SAFETENSORS_SUFFIX)
+  )
+
 
 # Read-planning defaults. `SafetensorsOptions` overrides the over-read ratio
 # (`max_over_read_ratio`) and the chunk size (`read_chunk_bytes`); the
