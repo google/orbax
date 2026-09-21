@@ -90,6 +90,7 @@ class AtomicityOptions:
   allow_legacy_atomic_rename: bool = False
 
 
+# pyformat: disable
 @dataclasses.dataclass(frozen=True)
 class FileOptions:
   """Options used to configure checkpoint directories and files.
@@ -98,9 +99,16 @@ class FileOptions:
     path_permission_mode: Path permission mode for step directories, user
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
+    skip_sync_file_validations: If True, bypasses synchronous filesystem
+      existence and validation checks prior to async saving in
+      AsyncCheckpointer. Default is False. This is experimental and should only
+      be used if you are certain of the effects.
   """
+# pyformat: enable
 
   path_permission_mode: int | None = None
+  skip_sync_file_validations: bool = False
 
 
 @dataclasses.dataclass

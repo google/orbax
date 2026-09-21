@@ -60,7 +60,7 @@ async def remove_existing_path(
     path: path_types.Path,
     *,
     context: context_lib.Context,
-):
+) -> None:
   """Removes the existing path.
 
   Args:
@@ -72,7 +72,9 @@ async def remove_existing_path(
         '[process=%s] Specified `overwrite`: removing existing path.',
         multihost.process_index(),
     )
-    await async_path.rmtree(path)
+    await async_path.rmtree(
+        path, missing_ok=context.file_options.skip_sync_file_validations
+    )
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'save_checkpointables_async:rmtree',
@@ -99,6 +101,10 @@ async def maybe_overwrite_existing(
   Raises:
     ValueError: If the path exists and overwrite is False.
   """
+  if context.file_options.skip_sync_file_validations:
+    if overwrite:
+      await remove_existing_path(path, context=context)
+    return
   # Sync before and after existence check, since otherwise the processes may
   # not agree and it is possible for one process to run ahead and create the
   # directory before another has checked for its existence.

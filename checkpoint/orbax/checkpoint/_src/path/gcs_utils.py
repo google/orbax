@@ -100,19 +100,26 @@ def cleanup_hns_folders(path: epath.Path) -> None:
     )
 
 
-def rmtree(path: epath.Path) -> None:
+def rmtree(path: epath.Path, *, missing_ok: bool = False) -> None:
   """Deletes a GCS path, performing HNS folder cleanup if necessary.
 
   Args:
     path: the global path to delete, must be a GCS path.
+    missing_ok: Whether to ignore if the path does not exist.
 
   Raises:
     ValueError: if path is not a GCS path.
+    FileNotFoundError: if path does not exist and missing_ok is False.
   """
   if not is_gcs_path(path):
     raise ValueError(f'Path is not a GCS path: {path}')
 
-  path.rmtree()
+  try:
+    path.rmtree()
+  except FileNotFoundError:
+    if not missing_ok:
+      raise
+    return
 
   # For HNS, clean up the remaining empty directory structure.
   if is_hierarchical_namespace_enabled(path):

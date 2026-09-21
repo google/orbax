@@ -7,9 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.12.5] - 2026-09-17
 
-- Batch array persistence writes by location and device assignment in `CloudPathwaysArrayHandler.serialize` and symmetrically group reads by location and mesh in `deserialize`.
+### Added
+
+- Add `FileOptions.skip_sync_file_validations` to skip synchronized file
+  validation during async checkpointing.
 
 ## [0.12.4] - 2026-08-12
 

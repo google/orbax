@@ -752,11 +752,10 @@ def create_all_async(
   barrier_sync_key_prefix = multiprocessing_options.barrier_sync_key_prefix
   active_processes = multiprocessing_options.active_processes
   primary_host = multiprocessing_options.primary_host
-  # Sync for existence check to complete on all hosts before directory
-  # creation starts.
+  # Sync all hosts before directory creation starts.
   multihost.sync_global_processes(
       multihost.unique_barrier_key(
-          'create_tmp_directory:post_existence_check',
+          'create_tmp_directory:sync_before_directory_creation',
           prefix=barrier_sync_key_prefix,
       ),
       timeout=multihost.coordination_timeout(),

@@ -223,15 +223,20 @@ class FileOptions(_ActiveContextGuard):
       The implementation of :py:class:`~.v1.path.Path` to use.  Defaults to
       `etils.epath.Path`, but may be overridden to some other subclass of
       :py:class:`~.v1.path.Path`.
+    skip_sync_file_validations:
+      If True, bypasses synchronous filesystem existence and validation checks
+      prior to async saving. Default is False.
   """
 
   path_permission_mode: int | None = None
   path_class: type[path_types.Path] = epath.Path
+  skip_sync_file_validations: bool = False
 
   def v0(self) -> v0_options_lib.FileOptions:
     """Converts this :py:class:`~.v1.options.FileOptions` to a v0 :py:class:`~orbax.checkpoint.options.FileOptions`."""
     return v0_options_lib.FileOptions(
         path_permission_mode=self.path_permission_mode,
+        skip_sync_file_validations=self.skip_sync_file_validations,
     )
 
 
