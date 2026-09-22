@@ -364,47 +364,46 @@ class CheckpointerTestBase:
       """Test case."""
       sleep_time = 1.0
       handler, tree, restore_args = test_utils.concurrent_gb_test_setup()
-      checkpointer = self.checkpointer(handler)
+      with self.checkpointer(handler) as checkpointer:
+        byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
+        with mock.patch.object(
+            limits,
+            'get_byte_limiter',
+            new=lambda _: byte_limiter,
+        ):
+          checkpointer.save(self.directory, tree)
+          self.wait_if_async(checkpointer)
+        completion_times = byte_limiter.completion_times
+        # Replicated shards are handled within the _write_array_shard function.
+        # Since shards are only saved once per replica, we only have to check
+        # the primary process.
+        if multihost.process_index() == 0:
+          self.assertLen(completion_times, len(jax.tree.leaves(tree)))
+          test_utils.assert_every_n_is_x_apart(
+              self,
+              completion_times,
+              limit_bytes // np.int32().itemsize,
+              sleep_time,
+          )
 
-      byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
-      with mock.patch.object(
-          limits,
-          'get_byte_limiter',
-          new=lambda _: byte_limiter,
-      ):
-        checkpointer.save(self.directory, tree)
-      self.wait_if_async(checkpointer)
-      completion_times = byte_limiter.completion_times
-      # Replicated shards are handled within the _write_array_shard function.
-      # Since shards are only saved once per replica, we only have to check
-      # the primary process.
-      if multihost.process_index() == 0:
-        self.assertLen(completion_times, len(jax.tree.leaves(tree)))
+        byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
+        with mock.patch.object(
+            limits,
+            'get_byte_limiter',
+            new=lambda _: byte_limiter,
+        ):
+          checkpointer.restore(self.directory, restore_args=restore_args)
+        completion_times = byte_limiter.completion_times
+        self.assertLen(
+            completion_times,
+            len(jax.tree.leaves(tree)),
+        )
         test_utils.assert_every_n_is_x_apart(
             self,
             completion_times,
             limit_bytes // np.int32().itemsize,
             sleep_time,
         )
-
-      byte_limiter = test_utils.get_byte_limiter(limit_bytes, sleep_time)
-      with mock.patch.object(
-          limits,
-          'get_byte_limiter',
-          new=lambda _: byte_limiter,
-      ):
-        checkpointer.restore(self.directory, restore_args=restore_args)
-      completion_times = byte_limiter.completion_times
-      self.assertLen(
-          completion_times,
-          len(jax.tree.leaves(tree)),
-      )
-      test_utils.assert_every_n_is_x_apart(
-          self,
-          completion_times,
-          limit_bytes // np.int32().itemsize,
-          sleep_time,
-      )
 
     @parameterized.named_parameters(
         dict(
