@@ -1191,6 +1191,38 @@ class CompositeCheckpointHandlerTest(parameterized.TestCase):
       self.assertIn(
           '/jax/orbax/write/background_item_finalize_secs', recorded_metrics
       )
+      self.assertNotIn(
+          '/jax/orbax/write/blocking_sync_item_duration_secs', recorded_metrics
+      )
+
+  def test_blocking_sync_item_duration_metric(self):
+    sync_handler = mock.create_autospec(CheckpointHandler, instance=True)
+    handler = CompositeCheckpointHandler(sync_item=sync_handler)
+    with (
+        mock.patch.object(
+            handler,
+            '_get_or_set_handler',
+            return_value=sync_handler,
+            autospec=True,
+        ),
+        mock.patch(
+            'jax.monitoring.record_event_duration_secs'
+        ) as mock_record_duration,
+    ):
+      self.save(
+          handler,
+          self.directory,
+          CompositeArgs(
+              sync_item=args_lib.StandardSave({'a': 1}),
+          ),
+      )
+      sync_handler.save.assert_called_once()
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      self.assertIn(
+          '/jax/orbax/write/blocking_sync_item_duration_secs', recorded_metrics
+      )
 
 
 if __name__ == '__main__':

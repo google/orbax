@@ -695,6 +695,8 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     save_ops = []
     time_taken_per_item = {}
     time_taken_all_items = 0.0
+    blocking_sync_item_duration = 0.0
+    has_sync_item = False
     for item_name, item_directory in self._current_temporary_paths.items():
       item_start_time = time.time()
       arg = args[item_name]
@@ -704,12 +706,21 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
         save_ops.append(handler.async_save(item_directory.get(), args=arg))
       else:
         # Blocking save.
+        sync_item_start_time = time.time()
         future.CommitFutureAwaitingContractedSignals(
             asyncio.to_thread(handler.save, item_directory.get(), args=arg)
         ).result()
+        blocking_sync_item_duration += time.time() - sync_item_start_time
+        has_sync_item = True
       item_end_time = time.time() - item_start_time
       time_taken_per_item[item_name] = f'{item_end_time:.8f}'
       time_taken_all_items += item_end_time
+
+    if has_sync_item:
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/blocking_sync_item_duration_secs',
+          blocking_sync_item_duration,
+      )
 
     commit_futures.extend(
         jax.tree.flatten(await asyncio.gather(*save_ops))[0] or []
