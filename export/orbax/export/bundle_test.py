@@ -29,6 +29,7 @@
 """Test suite for model bundle execution."""
 
 import os
+from unittest import mock
 
 from absl.testing import absltest
 from orbax.export import bundle
