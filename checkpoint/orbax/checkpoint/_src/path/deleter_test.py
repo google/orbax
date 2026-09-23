@@ -122,22 +122,14 @@ class CheckpointDeleterTest(parameterized.TestCase):
         num_threads=None,
     )
     if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
-      num_threads = deleter._num_threads
+      path_deleter = deleter._path_deleter
     else:
-      num_threads = deleter._standard_deleter._num_threads
-    self.assertEqual(num_threads, expected_threads)
-    if expected_threads > 1:
-      self.assertIsNotNone(
-          deleter._parallel_deleter
-          if hasattr(deleter, '_parallel_deleter')
-          else deleter._standard_deleter._parallel_deleter
-      )
-    else:
-      self.assertIsNone(
-          deleter._parallel_deleter
-          if hasattr(deleter, '_parallel_deleter')
-          else deleter._standard_deleter._parallel_deleter
-      )
+      path_deleter = deleter._standard_deleter._path_deleter
+    self.assertEqual(path_deleter._num_threads, expected_threads)
+    self.assertEqual(
+        path_deleter._parallel_deleter is not None,
+        expected_threads > 1,
+    )
 
   def test_checkpoint_deleter_auto_threads_gcs(self):
     gcs_dir = epath.Path('gs://my-bucket/checkpoints')
@@ -151,10 +143,10 @@ class CheckpointDeleterTest(parameterized.TestCase):
         num_threads=None,
     )
     if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
-      num_threads = deleter._num_threads
+      path_deleter = deleter._path_deleter
     else:
-      num_threads = deleter._standard_deleter._num_threads
-    self.assertEqual(num_threads, 1)
+      path_deleter = deleter._standard_deleter._path_deleter
+    self.assertEqual(path_deleter._num_threads, 1)
 
 
 
@@ -203,6 +195,7 @@ class GcsRenameTest(unittest.TestCase):
     mock_final_dest = mock.MagicMock()
     mock_final_dest.__str__.return_value = 'gs://mocked/final/destination'  # pyrefly: ignore[missing-attribute]
     mock_dest_parent.__truediv__.return_value = mock_final_dest
+    mock_final_dest.parent = mock_dest_parent
 
     # Setup the "Source" Mock (The step being deleted)
     mock_step_path = mock.MagicMock()
@@ -225,6 +218,61 @@ class GcsRenameTest(unittest.TestCase):
 
     # Verify the Rename was actually called
     mock_step_path.rename.assert_called_with(mock_final_dest)
+
+
+class PathDeleterTest(parameterized.TestCase):
+
+  @parameterized.parameters(1, 2)
+  def test_exact_directory_removal(self, threads):
+    parent = epath.Path(self.create_tempdir().full_path)
+    target = parent / 'arbitrary-name'
+    target.mkdir()
+    (target / 'payload').write_text('remove')
+    sibling = parent / 'keep'
+    sibling.write_text('keep')
+    deleter_lib.PathDeleter(parent, num_threads=threads).delete(target)
+    self.assertFalse(target.exists())
+    self.assertEqual(sibling.read_text(), 'keep')
+
+  @parameterized.parameters(False, True)
+  def test_relocation_uses_requested_rename_behavior(self, overwrite):
+    target, destination = mock.MagicMock(), mock.MagicMock()
+    with mock.patch.object(
+        deleter_lib.event_tracking, 'record_delete_event'
+    ) as record:
+      deleter_lib.PathDeleter(epath.Path('/tmp'), num_threads=1).delete(
+          target, destination=destination, overwrite=overwrite
+      )
+    destination.parent.mkdir.assert_called_once_with(
+        parents=True, exist_ok=True
+    )
+    (target.replace if overwrite else target.rename).assert_called_once_with(
+        destination
+    )
+    (target.rename if overwrite else target.replace).assert_not_called()
+    record.assert_called_once_with(target)
+
+  def test_gcs_removal_reuses_existing_helper(self):
+    path = epath.Path('gs://bucket/checkpoint')
+    with mock.patch.object(deleter_lib.gcs_utils, 'rmtree') as remove:
+      deleter_lib.PathDeleter(path.parent).delete(path)
+    remove.assert_called_once_with(path)
+
+  def test_step_deletion_delegates_to_path_deleter(self):
+    parent = epath.Path(self.create_tempdir().full_path)
+    target = parent / '42'
+    target.mkdir()
+    deleter = deleter_lib.StandardCheckpointDeleter(
+        parent,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+    )
+    with mock.patch.object(
+        deleter._path_deleter, 'delete', wraps=deleter._path_deleter.delete
+    ) as delete:
+      deleter.delete(42)
+    delete.assert_called_once_with(target)
+    self.assertFalse(target.exists())
 
 
 if __name__ == '__main__':

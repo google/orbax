@@ -904,6 +904,28 @@ class Checkpointer(epy.ContextManager):
           directory=self.directory, custom_metadata=metadata.custom_metadata
       )
 
+  def delete(
+      self,
+      step: int,
+      *,
+      checkpointable_name: str | None = None,
+      missing_ok: bool = False,
+  ) -> None:
+    """Deletes an explicit step or one named checkpointable within that step."""
+    raise NotImplementedError('Checkpoint deletion is not yet implemented.')
+
+  def delete_async(
+      self,
+      step: int,
+      *,
+      checkpointable_name: str | None = None,
+      missing_ok: bool = False,
+  ) -> async_types.AsyncResponse[None]:
+    """Deletes asynchronously with the same scope and arguments as delete."""
+    raise NotImplementedError(
+        'Asynchronous checkpoint deletion is not yet implemented.'
+    )
+
   def reload(self):
     """Reloads internal properties from the root directory.
 
