@@ -368,6 +368,8 @@ def _filter_batch_requests(
   return filtered_requests
 
 
+
+
 class BasePyTreeCheckpointHandler(
     async_checkpoint_handler.DeferredPathAsyncCheckpointHandler
 ):
