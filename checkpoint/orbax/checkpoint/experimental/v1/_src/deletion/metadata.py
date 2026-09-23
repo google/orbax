@@ -123,10 +123,6 @@ async def read_record(path: path_types.Path) -> dict[str, Any] | None:
         f'Invalid deletion record at {record_path}: {e}'
     ) from e
   try:
-    if record.get('version') != 1 or record.get('path') != str(
-        path if parse.urlparse(str(path)).scheme else path.absolute()
-    ):
-      raise ValueError('Unknown record version or mismatched checkpoint path.')
     validation.validate_checkpointable_name(record['checkpointable_name'])
     if (
         not isinstance(record.get('operation_id'), str)

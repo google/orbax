@@ -145,8 +145,6 @@ class MetadataTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         metadata_serialization.checkpoint_metadata_file_path(path), original
     )
     record = {
-        'version': 1,
-        'path': str(path),
         'operation_id': 'a' * 32,
         'checkpointable_name': 'optimizer',
         'destination': None,
@@ -294,8 +292,6 @@ class MetadataTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     )
     self.assertEqual(await validation.prepare_item(path, 'optimizer'), original)
     record = {
-        'version': 1,
-        'path': str(path),
         'operation_id': 'a' * 32,
         'checkpointable_name': 'optimizer',
         'destination': None,
