@@ -136,7 +136,18 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
     return self._custom_metadata
 
 
-  def _properties_strings(self) -> dict[str, str]:
+  def properties(self) -> dict[str, Any]:
+    """Returns a dictionary view of the checkpoint metadata properties."""
+    props = {
+        'metadata': self.metadata,
+        'init_timestamp_nsecs': self.init_timestamp_nsecs,
+        'commit_timestamp_nsecs': self.commit_timestamp_nsecs,
+        'custom_metadata': self.custom_metadata,
+    }
+    return {k: v for k, v in props.items() if v is not None}
+
+  def properties_strings(self) -> dict[str, str]:
+    """Returns a dictionary view of properties with string values."""
     return {
         'metadata': str(self.metadata),
         'init_timestamp_nsecs': str(self.init_timestamp_nsecs),
@@ -144,5 +155,7 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
         'custom_metadata': str(self.custom_metadata),
     }
 
+  _properties_strings = properties_strings
+
   def __repr__(self):
-    return f'CheckpointMetadata({pprint.pformat(self._properties_strings())})'
+    return f'CheckpointMetadata({pprint.pformat(self.properties_strings())})'
