@@ -151,7 +151,7 @@ class MultiprocessingOptions(_ActiveContextGuard):
   you're doing.
 
   This dataclass defines the configuration parameters for multiprocessing
-  checkpoint saving operations within the Orbax framework.
+  checkpoint saving operations and deletion coordination within Orbax.
 
   Example:
     Configure a multi-host setup where process 1 is designated as the primary
@@ -225,7 +225,8 @@ class FileOptions(_ActiveContextGuard):
       :py:class:`~.v1.path.Path`.
     skip_sync_file_validations:
       If True, bypasses synchronous filesystem existence and validation checks
-      prior to async saving. Default is False.
+      prior to async saving. Default is False. Deletion recovery records are
+      still checked to prevent overwriting an unfinished partial deletion.
   """
 
   path_permission_mode: int | None = None
