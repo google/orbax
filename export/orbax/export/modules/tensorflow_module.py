@@ -280,7 +280,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   ) -> PyTree:
     """Converts `params` to tf.Variables in the same pytree structure."""
     mesh = dtensor_utils.get_current_mesh()
-    default_cpu_device = tf.config.list_logical_devices('CPU')[0]
+    default_cpu_device = tf.config.list_logical_devices('CPU')[0].name
     if mesh is not None:
       if pspecs is None:
         raise ValueError(
