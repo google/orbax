@@ -30,11 +30,19 @@ EMPTY_CHECKPOINTABLE_KEY = ""
 AUTO_CHECKPOINTABLE_KEY = "AUTO"
 
 METRICS_CHECKPOINTABLE_KEY = "metrics"
+CHECKPOINT_DELETION_KEY = "_CHECKPOINT_DELETION"
 
-RESERVED_CHECKPOINTABLE_KEYS = frozenset({
-    METRICS_CHECKPOINTABLE_KEY,
-    AUTO_CHECKPOINTABLE_KEY,
-})
+# Orbax format markers shared by layout detection and deletion validation.
+PYTREE_METADATA_FILE = "_METADATA"
+ORBAX_CHECKPOINT_INDICATOR_FILE = "orbax.checkpoint"
+
+RESERVED_CHECKPOINTABLE_KEYS = frozenset(
+    {
+        METRICS_CHECKPOINTABLE_KEY,
+        AUTO_CHECKPOINTABLE_KEY,
+        CHECKPOINT_DELETION_KEY,
+    }
+)
 
 Checkpointable = handler_types.Checkpointable
 AbstractCheckpointable = handler_types.AbstractCheckpointable

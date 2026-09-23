@@ -557,9 +557,9 @@ class DeletionOptions(_ActiveContextGuard):
 
         For instance, if a checkpoint is in
         gs://my-bucket/experiments/run1/, providing the value 'trash' will move
-        a deleted step to gs://my-bucket/trash/<step_id>. Useful when direct
-        deletion is time consuming. It gathers all deleted items in a
-        centralized path for future cleanup.
+        a deleted step under gs://my-bucket/trash/ with a unique suffix. This
+        gathers deleted items in a centralized path for future cleanup.
+
     """
 
     todelete_full_path: str | None = None
