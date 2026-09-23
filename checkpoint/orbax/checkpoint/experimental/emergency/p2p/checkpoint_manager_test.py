@@ -94,7 +94,7 @@ class CheckpointManagerTest(absltest.TestCase):
         mock.patch('socket.gethostbyname', return_value='127.0.0.1')
     )
     self.enter_context(
-        mock.patch('socket.gethostname', return_value='localhost')
+        mock.patch('socket.gethostname', return_value='127.0.0.1')
     )
     self.mock_global_max = self.enter_context(
         mock.patch.object(multihost, 'global_max', return_value=[0])
