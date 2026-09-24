@@ -14,10 +14,11 @@
 
 """Controller-side colocated orchestration for Pathways MTC."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
 import logging as python_logging
 import math
+import os
 import threading
 import time
 from typing import Any, Callable
@@ -49,7 +50,9 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.time_block
 PyTree = Any
 _STATE_ITEM_NAME = 'state'
 _DATASET_ITEM_NAME = 'dataset'
-_LATEST_STEP_RETRY_TIMEOUT_SECS = 30
+_LATEST_STEP_RETRY_TIMEOUT_SECS = int(
+    os.environ.get('LATEST_STEP_RETRY_TIMEOUT_SECS', '180')
+)
 # Abseil maps standard levels below DEBUG to increasing VLOG levels.
 _VLOG2_LEVEL = python_logging.DEBUG - 1
 _RETRIABLE_COLOCATED_CALL_EXCEPTIONS = (
@@ -833,8 +836,8 @@ class ColocatedController:
     """Returns a fresh dummy input array for worker-management RPCs."""
     return dispatchers.get_dummy_input_array(self._worker_cpu_devices)
 
-  def latest_step(self) -> int | None:
-    """Returns the highest step present on every worker, or `None`."""
+  def all_steps(self) -> Sequence[int]:
+    """Returns all common steps present on every worker, sorted."""
     attempt = 0
     deadline = time.time() + _LATEST_STEP_RETRY_TIMEOUT_SECS
     last_error = None
@@ -842,7 +845,7 @@ class ColocatedController:
       attempt += 1
       try:
         with TimeBlock(
-            f'Pathways colocated MTC latest_step attempt={attempt}',
+            f'Pathways colocated MTC all_steps attempt={attempt}',
             level=_VLOG2_LEVEL,
         ):
           result = self._worker_manager.all_steps(self._worker_dummy())
@@ -851,7 +854,7 @@ class ColocatedController:
             result, op_name='all_steps'
         )
         if not worker_step_arrays:
-          return None
+          return []
 
         worker_step_sets = []
         for steps in worker_step_arrays:
@@ -861,49 +864,27 @@ class ColocatedController:
               if int(step) != colocated_utils.NO_STEP_SENTINEL
           })
 
+        if not worker_step_sets:
+          return []
         common_steps = set.intersection(*worker_step_sets)
-        worker_latest_steps = [
-            max(steps) if steps else None for steps in worker_step_sets
-        ]
-        if not common_steps:
-          logging.vlog(
-              2,
-              'Workers reported no common checkpoint steps: %s',
-              [sorted(steps) for steps in worker_step_sets],
-          )
-          return None
-        latest_common_step = max(common_steps)
-        max_worker_step = max(
-            step for step in worker_latest_steps if step is not None
-        )
-        if latest_common_step < max_worker_step:
-          logging.info(
-              'Pathways colocated MTC latest_step selected lower common '
-              'step=%d while worker_latest_steps=%s.',
-              latest_common_step,
-              worker_latest_steps,
-          )
-        else:
-          logging.vlog(
-              2,
-              'Pathways colocated MTC latest_step selected step=%d from '
-              'worker_latest_steps=%s.',
-              latest_common_step,
-              worker_latest_steps,
-          )
-        return latest_common_step
+        return sorted(common_steps)
       except _RETRIABLE_COLOCATED_CALL_EXCEPTIONS as e:
         last_error = e
         logging.info(
-            'latest_step transient failure on attempt=%s (%s), retrying...',
+            'all_steps transient failure on attempt=%s (%s), retrying...',
             attempt,
             e,
         )
         time.sleep(1)
     raise RuntimeError(
-        'latest_step failed after retry budget'
+        'all_steps failed after retry budget'
         f' ({_LATEST_STEP_RETRY_TIMEOUT_SECS}s).'
     ) from last_error
+
+  def latest_step(self) -> int | None:
+    """Returns the highest step present on every worker, or `None`."""
+    steps = self.all_steps()
+    return max(steps) if steps else None
 
   def should_save(self, step: int) -> bool:
     """Returns whether workers want to save `step`."""
