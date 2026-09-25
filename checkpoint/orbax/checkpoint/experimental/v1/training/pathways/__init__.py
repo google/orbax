@@ -12,19 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Publishes Orbax version."""
+"""Public API for `training.pathways` package."""
 
-# A new PyPI release will be pushed everytime `__version__` is increased.
-# Also modify version and date in CHANGELOG.
-# LINT.IfChange
-__version__ = '0.12.6'
-# LINT.ThenChange(//depot/orbax/checkpoint/CHANGELOG.md)
+# pylint: disable=g-importing-member, g-multiple-import, unused-import, g-bad-import-order
 
-
-# TODO: b/362813406 - Add latest change timestamp and commit number.
-def get_details() -> str:
-  """Returns the Orbax version details.
-
-  It includes release version.
-  """
-  return f'orbax-checkpoint version: {__version__}'
+from orbax.checkpoint.experimental.v1._src.training.pathways.snapshotter import (
+    Snapshotter,
+)

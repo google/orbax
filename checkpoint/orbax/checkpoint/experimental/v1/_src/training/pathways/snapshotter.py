@@ -21,10 +21,8 @@ from typing import Any
 
 from etils import epath
 import jax
-from orbax.checkpoint.experimental.v1 import training
+from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-from pathwaysutils.experimental import concatenate_by_mesh_axis
-from pathwaysutils.experimental import split_by_mesh_axis
 
 
 def is_shardable_array(x: ...) -> bool:  # pyrefly: ignore[invalid-annotation]
@@ -53,10 +51,34 @@ def _wrap_if_prng_key(x: Any, orig_x: Any) -> Any:
   return x
 
 
+def _get_pathwaysutils():
+  """Imports and returns pathwaysutils experimental modules."""
+  try:
+    # pylint: disable=g-import-not-at-top
+    from pathwaysutils.experimental import concatenate_by_mesh_axis  # pyrefly: ignore[missing-import]
+    from pathwaysutils.experimental import split_by_mesh_axis  # pyrefly: ignore[missing-import]
+  except ImportError as e:
+    raise ImportError(
+        "Snapshotter requires pathwaysutils. Please ensure pathwaysutils is"
+        " installed or linked via"
+        " //orbax/checkpoint/experimental/v1:pathways_support."
+    ) from e
+  return concatenate_by_mesh_axis, split_by_mesh_axis
+
+
 class Snapshotter:
   """Manages asynchronous backups of JAX array states to pinned host memory."""
 
   def __init__(self, *, replica_axis_index: int = 0):
+    """Initializes Snapshotter.
+
+    Args:
+      replica_axis_index: The index of the mesh axis representing data/model
+        replicas. Typically corresponds to physical slices (connected by DCN).
+    """
+    self._concatenate_by_mesh_axis, self._split_by_mesh_axis = (
+        _get_pathwaysutils()
+    )
     self._latest_snapshot: tuple[tree_types.PyTree, int] | None = None
     self._lock = threading.Lock()
     self._queue = queue.Queue(maxsize=1)
@@ -149,7 +171,7 @@ class Snapshotter:
     def get_active_pytree(x):
       mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
       data = _unwrap_if_prng_key(x)
-      all_replicas = split_by_mesh_axis.split_by_mesh_axis(
+      all_replicas = self._split_by_mesh_axis.split_by_mesh_axis(
           data,
           mesh_axis_name,
       )
@@ -163,9 +185,11 @@ class Snapshotter:
             "No active replicas found."
         )
 
-      reconstructed_state = concatenate_by_mesh_axis.concatenate_by_mesh_axis(
-          active_replicas,
-          mesh_axis_name,
+      reconstructed_state = (
+          self._concatenate_by_mesh_axis.concatenate_by_mesh_axis(
+              active_replicas,
+              mesh_axis_name,
+          )
       )
       return _wrap_if_prng_key(reconstructed_state, x)
 
@@ -217,13 +241,13 @@ class Snapshotter:
     self._queue.join()
 
   @property
-  def latest(self) -> training.CheckpointMetadata[None] | None:
+  def latest(self) -> training_metadata_types.CheckpointMetadata[None] | None:
     """Returns the training step of the most recently pinned backup."""
     with self._lock:
       if self._latest_snapshot is None:
         return None
       _, step = self._latest_snapshot
-    return training.CheckpointMetadata(
+    return training_metadata_types.CheckpointMetadata(
         step=step,
         path=epath.Path(),
         metadata=None,

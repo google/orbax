@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-09-25
+
 ### Added
 
 - #v1 Add `CheckpointLayout.AUTO` to detect the checkpoint layout from
   filesystem markers when loading.
+- Add `v1.training.pathways.Snapshotter` to public API and docs, which provides
+  a simple mechanism for scale-up/scale-down recovery with large-scale Pathways
+  training.
 
 ## [0.12.5] - 2026-09-17
 

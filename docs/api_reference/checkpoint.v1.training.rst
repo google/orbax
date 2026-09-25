@@ -25,6 +25,7 @@ RootMetadata
    :maxdepth: 3
 
    checkpoint.v1.training.checkpointer
+   checkpoint.v1.training.pathways
    checkpoint.v1.training.save_decision_policies
    checkpoint.v1.training.preservation_policies
    checkpoint.v1.training.errors

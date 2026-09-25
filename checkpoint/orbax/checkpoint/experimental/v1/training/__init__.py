@@ -16,6 +16,8 @@
 
 # pylint: disable=g-importing-member, g-multiple-import, unused-import, g-bad-import-order
 
+from orbax.checkpoint.experimental.v1.training import pathways
+
 from orbax.checkpoint.experimental.v1._src.training.checkpointer import (
     Checkpointer,
 )

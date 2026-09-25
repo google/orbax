@@ -26,6 +26,16 @@ class ImportSymbolsTest(unittest.TestCase):
     self.assertTrue(hasattr(ocp.path, 'step'))
     self.assertTrue(hasattr(ocp.path.step, 'NameFormat'))
 
+  def test_import_v1_training(self):
+    self.assertTrue(hasattr(ocp.training, 'Checkpointer'))
+    self.assertTrue(hasattr(ocp.training.pathways, 'Snapshotter'))
+
+  def test_snapshotter_without_pathwaysutils(self):
+    with self.assertRaisesRegex(
+        ImportError, 'Snapshotter requires pathwaysutils'
+    ):
+      _ = ocp.training.pathways.Snapshotter()
+
 
 if __name__ == '__main__':
   unittest.main()
