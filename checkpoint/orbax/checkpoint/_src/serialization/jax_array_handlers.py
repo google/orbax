@@ -28,7 +28,6 @@ from absl import logging
 from etils import epath
 import humanize
 import jax
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
@@ -114,15 +113,38 @@ def _has_prng_key_dtype(arg: Any) -> bool:
   )
 
 
-def _get_underlying_shape(
-    shape: tuple[int, ...] | None, dtype: Any
-) -> tuple[int, ...] | None:
-  """Returns the data shape for underlying data of PRNG keys."""
+def _physical_read_spec(
+    arg: types.RestoreArgs, sharding: jax.sharding.Sharding
+) -> tuple[tuple[int, ...] | None, Any, jax.sharding.Sharding]:
+  """Returns the shape, dtype and sharding the stored array is read with.
+
+  PRNG keys are stored as their key data: unsigned integers with trailing
+  dimensions. A key's logical shape and partition spec from the restore args
+  are translated to that form. Other arrays pass through unchanged.
+
+  Args:
+    arg: restore args for the parameter.
+    sharding: sharding requested for the parameter.
+
+  Returns:
+    Shape (None when the restore args carry none), dtype and sharding.
+  """
+  shape = arg.global_shape if hasattr(arg, 'global_shape') else None
+  if not _has_prng_key_dtype(arg):
+    return shape, arg.dtype, sharding
+  key_data = jax.eval_shape(
+      jax.random.key_data, jax.ShapeDtypeStruct(shape or (), arg.dtype)
+  )
   if shape is None:
-    return None
-  return jax.eval_shape(
-      jax.random.key_data, jax.ShapeDtypeStruct(shape=shape, dtype=dtype)
-  ).shape
+    return None, key_data.dtype, sharding
+  if isinstance(sharding, jax.sharding.NamedSharding):
+    # Extend PartitionSpec with None dims for key trailing shape
+    # instead of forcing replicated, so local-mode reads work.
+    trailing = [None] * (len(key_data.shape) - len(shape))
+    sharding = jax.sharding.NamedSharding(
+        sharding.mesh, jax.sharding.PartitionSpec(*sharding.spec, *trailing)
+    )
+  return key_data.shape, key_data.dtype, sharding
 
 
 @functools.lru_cache(maxsize=4096)
@@ -1070,31 +1092,12 @@ async def _deserialize_arrays(
       )
       tspec = array_read_spec.json
 
-      base_shape = arg.global_shape if hasattr(arg, 'global_shape') else None
+      arg_global_shape, dtype, sharding_for_read = _physical_read_spec(
+          arg, sharding
+      )
       if _has_prng_key_dtype(arg):
-        # set dtype=None to deserialize for random keys
+        # Read the stored key data as-is rather than casting to it.
         dtype = None
-        arg_global_shape = _get_underlying_shape(base_shape, arg.dtype)
-        if isinstance(sharding, jax.sharding.NamedSharding):
-          # Extend PartitionSpec with None dims for key trailing shape
-          # instead of forcing replicated, so local-mode reads work.
-          key_trailing_ndim = (
-              len(arg_global_shape) - len(base_shape)
-              if arg_global_shape and base_shape
-              else 0
-          )
-          physical_spec = jax.sharding.PartitionSpec(
-              *sharding.spec, *([None] * key_trailing_ndim)
-          )
-          sharding_for_read = jax.sharding.NamedSharding(
-              sharding.mesh, physical_spec
-          )
-        else:
-          sharding_for_read = sharding
-      else:
-        dtype = arg.dtype
-        arg_global_shape = base_shape
-        sharding_for_read = sharding
 
       if logging.vlog_is_on(1):
         logging.vlog(1, 'tspec = %s', tspec)
@@ -1717,6 +1720,30 @@ def _validate_sharding_and_get_primary_replica_processes(
   return primary_replica_pids
 
 
+def _single_replica_abstract_arrays(
+    args: Sequence[SingleReplicaArrayRestoreArgs],
+    single_replica_shardings: Sequence[jax.sharding.Sharding],
+) -> tuple[jax.ShapeDtypeStruct, ...] | None:
+  """Returns the leaves the broadcast will receive, or None if not knowable.
+
+  Args:
+    args: restore args for each parameter.
+    single_replica_shardings: sharding each parameter is read with on the
+      primary replica.
+
+  Returns:
+    One `jax.ShapeDtypeStruct` per parameter in the form the read produces,
+    or None when any parameter lacks a shape or dtype.
+  """
+  abstract_arrays = []
+  for arg, sharding in zip(args, single_replica_shardings):
+    shape, dtype, sharding = _physical_read_spec(arg, sharding)
+    if shape is None or dtype is None:
+      return None
+    abstract_arrays.append(jax.ShapeDtypeStruct(shape, dtype, sharding=sharding))
+  return tuple(abstract_arrays)
+
+
 async def _single_replica_deserialize_and_broadcast(
     infos: Sequence[types.ParamInfo],
     args: Sequence[SingleReplicaArrayRestoreArgs],
@@ -1734,14 +1761,36 @@ async def _single_replica_deserialize_and_broadcast(
       primary_replica_id=primary_replica_id,
       sharding=shardings[0],
   )
+  global_mesh = cast(jax.sharding.NamedSharding, shardings[0]).mesh
+  abstract_arrays = _single_replica_abstract_arrays(
+      args, single_replica_shardings
+  )
+  warmup_ops = []
+  if abstract_arrays is not None:
+    # Compile the merge programs alongside the primary replica's read, so the
+    # compile is off the critical path and every host enters it at the same
+    # time rather than when its own read happens to finish.
+    warmup_ops.append(
+        asyncio.to_thread(
+            multislice.precompile_broadcast,
+            abstract_arrays,
+            global_mesh,  # pyrefly: ignore[bad-argument-type]
+            replica_axis_index,
+            memory_limit_bytes=broadcast_memory_limit_bytes,
+            memory_scaling_factor=broadcast_memory_scaling_factor,
+        )
+    )
   if _is_host_for_primary_replica(primary_replica_pids):
     start_deserialization = time.time()
-    deserialized = await _deserialize_arrays(
-        infos,
-        args,
-        single_replica_shardings,
-        metadata_key,
-        None,
+    deserialized, *_ = await asyncio.gather(
+        _deserialize_arrays(
+            infos,
+            args,
+            single_replica_shardings,
+            metadata_key,
+            None,
+        ),
+        *warmup_ops,
     )
     deserialization_elapsed_s = time.time() - start_deserialization
     jax.monitoring.record_event_duration_secs(
@@ -1753,31 +1802,18 @@ async def _single_replica_deserialize_and_broadcast(
         deserialization_elapsed_s,
     )
   else:
-
-    @functools.partial(
-        jax.jit, static_argnums=0, out_shardings=tuple(single_replica_shardings)
-    )
-    def create_zeros(shape_dtype_tup):
-      return jax.tree.map(
-          lambda sd: jnp.zeros(sd.shape, dtype=sd.dtype), shape_dtype_tup
+    if abstract_arrays is None:
+      raise ValueError(
+          'Restoring outside the primary replica requires `global_shape` and'
+          ' `dtype` on every `SingleReplicaArrayRestoreArgs`.'
       )
-
-    shape_dtype = [
-        jax.ShapeDtypeStruct(arg.global_shape, arg.dtype) for arg in args
-    ]
-    local_mesh = cast(
-        jax.sharding.NamedSharding, single_replica_shardings[0]
-    ).mesh
-    if hasattr(jax, 'set_mesh'):
-      with jax.set_mesh(local_mesh):  # pyrefly: ignore[bad-argument-type]
-        deserialized = create_zeros(tuple(shape_dtype))
-    else:
-      with local_mesh:
-        deserialized = create_zeros(tuple(shape_dtype))
+    # Hosts outside the primary replica contribute zeros, which the broadcast
+    # allocates per device itself; only the shapes are needed here.
+    await asyncio.gather(*warmup_ops)
+    deserialized = abstract_arrays
 
   deserialized = tuple(deserialized)
   start_broadcast = time.time()
-  global_mesh = cast(jax.sharding.NamedSharding, shardings[0]).mesh
   shared_state, _ = multislice.broadcast_one_replica_to_all(
       deserialized,
       global_mesh,  # pyrefly: ignore[bad-argument-type]

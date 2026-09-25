@@ -216,6 +216,32 @@ class UtilsTest(parameterized.TestCase):
     )
     self.assertEqual(num_broadcasts, 2)
 
+  def test_precompile_broadcast_warms_cache(self):
+    # Arrange
+    jax.config.update('jax_log_compiles', True)
+    self.addCleanup(jax.config.update, 'jax_log_compiles', False)
+    compile_log = 'Compiling jit(_sum_over_replica_axis)'
+    arrays, mesh, _ = setup_replica_sharded_arrays(
+        [np.arange(8 * 16000).reshape((8, 16000))],
+        (2, len(jax.devices()) // 2),  # pyrefly: ignore[bad-argument-type]
+    )
+    abstract_arrays = tuple(
+        jax.ShapeDtypeStruct(a.shape, a.dtype, sharding=a.sharding)
+        for a in arrays
+    )
+    with self.assertLogs(level='INFO') as precompile_logs:
+      multislice.precompile_broadcast(abstract_arrays, mesh, replica_axis_index=0)
+
+    # Act
+    with self.assertLogs(level='INFO') as broadcast_logs:
+      multislice.broadcast_one_replica_to_all(
+          tuple(arrays), mesh, replica_axis_index=0, is_source=True
+      )
+
+    # Assert
+    self.assertIn(compile_log, '\n'.join(precompile_logs.output))
+    self.assertNotIn(compile_log, '\n'.join(broadcast_logs.output))
+
   def test_globalize_single_replica_arrays_under_active_mesh(self):
     if len(jax.devices()) < 2:
       self.skipTest('Need at least 2 devices for this test')
