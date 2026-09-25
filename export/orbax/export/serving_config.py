@@ -77,6 +77,15 @@ class ServingConfig:
       preprocessor's outputs to be directly passed to the tf_postprocessor,
       bypassing the JAX function. Requires the preprocessor to return a tuple of
       two elements: (jax_inputs, postprocessor_inputs_extra).
+    use_output_alias: When True, the exported JAX model function writes its
+      outputs into buffers donated at serving time instead of allocating them.
+      Only supported by Orbax Model export. The pipeline becomes graph-based
+      (keyword-arguments based), so the `JaxModule` method must be an
+      `ApplyFnInfo`, the processors (if any) must be `data_processors`, and
+      every model output must have a unique name. Donation is only served from
+      AOT executables, so input shapes must be concrete: with
+      `input_polymorphic_shape`, `input_polymorphic_shape_symbol_values` is
+      required.
   """
 
   # The key of the serving signature or a sequence of keys mapping to the same
@@ -156,6 +165,25 @@ class ServingConfig:
   #   }
   preprocess_output_passthrough_enabled: bool = False
 
+  # When set to true, the exported JAX model function writes its outputs into
+  # buffers that are donated at serving time, instead of allocating them. The
+  # model function takes one extra trailing argument holding one donated buffer
+  # per output; it is hidden from the serving signature, and the runtime fills
+  # it in.
+  #
+  # Callers address the donated buffers by output name, and the runtime only
+  # passes output names to the model in a keyword-arguments based pipeline, so
+  # this option makes the pipeline graph-based even without `data_processors`.
+  # It therefore requires:
+  # - the `JaxModule` method to be an `ApplyFnInfo`, with an input signature
+  #   that is a mapping keyed by its `input_keys`;
+  # - any processors to be given as `data_processors`;
+  # - every output of the model function to have a unique name;
+  # - `Jax2ObmOptions.enable_auto_layout` to be off.
+  #
+  # Only supported by Orbax Model export.
+  use_output_alias: bool = False
+
   def __post_init__(self):
     """Post-initialization checks for ServingConfig.
 
@@ -169,9 +197,27 @@ class ServingConfig:
           `output_keys`.
         - `tf_preprocessor` and `preprocessors` are both set.
         - `tf_postprocessor` and `postprocessors` are both set.
+        - `use_output_alias` is set along with `tf_preprocessor`,
+          `preprocessors`, `tf_postprocessor`, `postprocessors`, or
+          `preprocess_output_passthrough_enabled`.
     """
     if not self.signature_key:
       raise ValueError('`signature_key` must be set.')
+    if self.use_output_alias and (
+        self.tf_preprocessor
+        or self.preprocessors
+        or self.tf_postprocessor
+        or self.postprocessors
+        or self.preprocess_output_passthrough_enabled
+    ):
+      # `use_output_alias` makes the pipeline graph-based, which only runs
+      # `data_processors`.
+      raise ValueError(
+          '`use_output_alias` cannot be set at the same time as'
+          ' `tf_preprocessor`, `preprocessors`, `tf_postprocessor`,'
+          ' `postprocessors` or `preprocess_output_passthrough_enabled`; use'
+          ' `data_processors` instead.'
+      )
     if self.data_processors:
       if (
           self.tf_preprocessor
