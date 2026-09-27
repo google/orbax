@@ -14,6 +14,7 @@
 
 """Tests for V1 metadata API against generated V0 and V1 Checkpoints."""
 
+import json
 import os
 from typing import Tuple, Type
 
@@ -207,6 +208,8 @@ class MetadataCompatibilityTest(parameterized.TestCase):
           expected = compatibility_test_utils.strip_sharding_metadata(expected)
           actual = compatibility_test_utils.strip_sharding_metadata(actual)
         test_utils.assert_tree_equal(self, expected, actual)
+        # Metadata of every golden checkpoint must render as JSON.
+        self.assertIsInstance(json.dumps(loaded.to_json_dict()), str)
       else:
         with self.assertRaisesRegex(error_type, error_msg):  # pyrefly: ignore[bad-argument-type]
           ocp.metadata(

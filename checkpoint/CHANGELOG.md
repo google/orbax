@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `to_json_dict()` to `ShardingMetadata` and `StorageMetadata`.
+- #v1 Add `CheckpointMetadata.to_json_dict()` to render checkpoint metadata as
+  JSON-compatible values.
+
 ## [0.12.6] - 2026-09-25
 
 ### Added

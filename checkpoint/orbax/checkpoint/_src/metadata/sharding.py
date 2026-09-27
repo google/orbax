@@ -174,6 +174,17 @@ class ShardingMetadata(abc.ABC):
   def to_serialized_string(self) -> str:
     """Converts `ShardingMetadata` to `serialized_string`."""
 
+  def to_json_dict(self) -> dict[str, Any]:
+    """Converts `ShardingMetadata` to a JSON-compatible dict.
+
+    Subclasses should override this. The default parses
+    `to_serialized_string()`, so existing subclasses keep working.
+
+    Returns:
+      The JSON object that `to_serialized_string()` encodes.
+    """
+    return json.loads(self.to_serialized_string())
+
 
 @dataclasses.dataclass
 class NamedShardingMetadata(ShardingMetadata):
@@ -249,17 +260,23 @@ class NamedShardingMetadata(ShardingMetadata):
           f'Sharding data not found in deserialized_dict: {deserialized_dict}'
       )
 
-  def to_serialized_string(self) -> str:
+  def to_json_dict(self) -> dict[str, Any]:
+    """Returns the JSON-compatible dict that `to_serialized_string` encodes."""
     sharding_data = {}
     sharding_data[_SHARDING_TYPE] = ShardingTypes.NAMED_SHARDING.value
     sharding_data[_MESH_SHAPE] = self.shape.tolist()
-    sharding_data[_MESH_AXES] = self.axis_names
+    sharding_data[_MESH_AXES] = list(self.axis_names)
     if self.axis_types is not None:
       sharding_data[_MESH_AXIS_TYPES] = [str(a) for a in self.axis_types]
-    sharding_data[_PARTITION_SPEC] = self.partition_spec
+    sharding_data[_PARTITION_SPEC] = [
+        list(p) if isinstance(p, tuple) else p for p in self.partition_spec
+    ]
     if self.device_mesh:
       sharding_data[_DEVICE_MESH] = dataclasses.asdict(self.device_mesh)
-    return json.dumps(sharding_data)
+    return sharding_data
+
+  def to_serialized_string(self) -> str:
+    return json.dumps(self.to_json_dict())
 
   def __repr__(self):
     return (
@@ -316,11 +333,15 @@ class SingleDeviceShardingMetadata(ShardingMetadata):
         f'Device str not found in deserialized_dict: {deserialized_dict}'
     )
 
+  def to_json_dict(self) -> dict[str, Any]:
+    """Returns the JSON-compatible dict that `to_serialized_string` encodes."""
+    return {
+        _SHARDING_TYPE: ShardingTypes.SINGLE_DEVICE_SHARDING.value,
+        _DEVICE_STR: self.device_str,
+    }
+
   def to_serialized_string(self) -> str:
-    sharding_data = {}
-    sharding_data[_SHARDING_TYPE] = ShardingTypes.SINGLE_DEVICE_SHARDING.value
-    sharding_data[_DEVICE_STR] = self.device_str
-    return json.dumps(sharding_data)
+    return json.dumps(self.to_json_dict())
 
   def __repr__(self):
     return f'SingleDeviceShardingMetadata(device_str={self.device_str})'

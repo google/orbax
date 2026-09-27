@@ -33,11 +33,14 @@ from orbax.checkpoint.experimental.v1._src.serialization import options_resoluti
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import compatibility
+from orbax.checkpoint.experimental.v1._src.tree import json_utils
 
 NumpySerializationParam = types.SerializationParam[np.ndarray]
 NumpyDeserializationParam = types.DeserializationParam[types.AbstractArray]
 Shape = arrays_types.Shape
 AbstractArray = types.AbstractArray
+
+_VALUE_TYPE = 'np.ndarray'
 
 
 @dataclasses.dataclass
@@ -63,6 +66,15 @@ class NumpyMetadata(AbstractArray):
   shape: Shape | None
   dtype: np.dtype | None
   storage_metadata: value_metadata.StorageMetadata | None
+
+  def to_json_dict(self) -> dict[str, json_utils.JsonValue]:
+    """Converts the metadata to a JSON-compatible dict."""
+    return {
+        'value_type': _VALUE_TYPE,
+        'shape': json_utils.shape_to_json(self.shape),
+        'dtype': json_utils.dtype_to_json(self.dtype),
+        'storage_metadata': json_utils.leaf_to_json(self.storage_metadata),
+    }
 
 
 def _create_v0_numpy_handler(

@@ -36,12 +36,15 @@ from orbax.checkpoint.experimental.v1._src.serialization import protocol_utils
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types
 from orbax.checkpoint.experimental.v1._src.synchronization import compatibility
+from orbax.checkpoint.experimental.v1._src.tree import json_utils
 
 
 Shape = arrays_types_v0.Shape
 AbstractShardedArray = types.AbstractShardedArray
 ArraySerializationParam = types.SerializationParam[jax.Array]
 ArrayDeserializationParam = types.DeserializationParam[AbstractShardedArray]
+
+_VALUE_TYPE = 'jax.Array'
 
 
 @dataclasses.dataclass
@@ -76,6 +79,23 @@ class ArrayMetadata(AbstractShardedArray):
     if self.sharding_metadata is None:
       return None
     return self.sharding_metadata.to_jax_sharding()
+
+  def to_json_dict(self) -> dict[str, json_utils.JsonValue]:
+    """Converts the metadata to a JSON-compatible dict.
+
+    Reads `sharding_metadata` rather than `sharding`, so it works without the
+    devices that saved the checkpoint.
+
+    Returns:
+      The leaf's `value_type`, shape, dtype, sharding and storage metadata.
+    """
+    return {
+        'value_type': _VALUE_TYPE,
+        'shape': json_utils.shape_to_json(self.shape),
+        'dtype': json_utils.dtype_to_json(self.dtype),
+        'sharding_metadata': json_utils.leaf_to_json(self.sharding_metadata),
+        'storage_metadata': json_utils.leaf_to_json(self.storage_metadata),
+    }
 
 
 def _create_v0_array_handler(

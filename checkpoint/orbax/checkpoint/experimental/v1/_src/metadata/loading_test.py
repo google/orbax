@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import dataclasses
+import json
+from typing import Any
 
 from absl.testing import absltest
 from etils import epath
@@ -79,6 +81,30 @@ class PyTreeMetadataTest(absltest.TestCase):
     metadata = ocp.metadata(self.directory)
     self.assertIsInstance(metadata, metadata_types.CheckpointMetadata)
     self.assertEqual(expected_metadata, metadata.metadata)
+
+  def test_to_json_dict(self):
+    metadata = ocp.metadata(self.directory)
+
+    rendered: dict[str, Any] = metadata.to_json_dict()
+
+    self.assertEqual(json.loads(json.dumps(rendered)), rendered)
+    self.assertEqual(rendered['path'], str(metadata.path))
+    self.assertEqual(
+        rendered['metadata']['c']['a'],
+        {
+            'value_type': 'np.ndarray',
+            'shape': [2, 4],
+            'dtype': 'int64',
+            'storage_metadata': {'chunk_shape': [2, 4], 'write_shape': None},
+        },
+    )
+    self.assertEqual(
+        rendered['metadata']['x'],
+        {'value_type': 'scalar', 'python_type': 'float'},
+    )
+    self.assertEqual(
+        rendered['commit_timestamp_nsecs'], metadata.commit_timestamp_nsecs
+    )
 
   def test_metadata_custom_checkpointable_name(self):
     self.directory.rmtree()

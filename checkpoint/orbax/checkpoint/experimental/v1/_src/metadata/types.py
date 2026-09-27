@@ -22,6 +22,7 @@ import typing
 from typing import Any, Generic, TypeVar
 
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+from orbax.checkpoint.experimental.v1._src.tree import json_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
 
@@ -135,6 +136,24 @@ class CheckpointMetadata(Generic[CheckpointableMetadataT]):
   def custom_metadata(self) -> tree_types.JsonType | None:
     return self._custom_metadata
 
+
+  def to_json_dict(self) -> dict[str, json_utils.JsonValue]:
+    """Converts the checkpoint metadata to a JSON-compatible dict.
+
+    Leaves of `metadata` are rendered by `json_utils.leaf_to_json`. Timestamps
+    stay integer nanoseconds, as stored in the checkpoint.
+
+    Returns:
+      A dict that `json.dumps` accepts.
+    """
+    result: dict[str, json_utils.JsonValue] = {
+        'path': str(self.path),
+        'metadata': json_utils.tree_to_json(self.metadata),
+        'init_timestamp_nsecs': self.init_timestamp_nsecs,
+        'commit_timestamp_nsecs': self.commit_timestamp_nsecs,
+        'custom_metadata': self.custom_metadata,
+    }
+    return result
 
   def _properties_strings(self) -> dict[str, str]:
     return {

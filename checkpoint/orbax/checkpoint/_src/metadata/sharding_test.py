@@ -12,11 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+
 from absl.testing import absltest
 import jax
 import numpy as np
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
+
+
+class _SerializedOnlyShardingMetadata(sharding_metadata.ShardingMetadata):
+  """Implements only the abstract methods, like an external subclass."""
+
+  @classmethod
+  def from_jax_sharding(cls, jax_sharding):
+    raise NotImplementedError()
+
+  def to_jax_sharding(self):
+    raise NotImplementedError()
+
+  @classmethod
+  def from_deserialized_dict(cls, deserialized_dict):
+    raise NotImplementedError()
+
+  def to_serialized_string(self):
+    return '{"sharding_type": "Custom", "shape": [2]}'
 
 
 class TestShardingMetadata(absltest.TestCase):
@@ -184,6 +204,48 @@ class TestShardingMetadata(absltest.TestCase):
     self.assertEqual(
         converted_single_device_sharding_metadata,
         single_device_sharding_metadata,
+    )
+
+  def test_named_sharding_to_json_dict(self):
+    devices = [sharding_metadata.DeviceMetadata(id=i) for i in range(4)]
+    named_sharding_metadata = sharding_metadata.NamedShardingMetadata(
+        shape=np.array([2, 2]),
+        axis_names=["data", "model"],
+        partition_spec=(("data", "model"), None),
+        axis_types=(jax.sharding.AxisType.Explicit,) * 2,
+        device_mesh=sharding_metadata.DeviceMetadataMesh(
+            mesh=[devices[:2], devices[2:]]
+        ),
+    )
+    expected = {
+        "sharding_type": "NamedSharding",
+        "shape": [2, 2],
+        "axis_names": ["data", "model"],
+        "axis_types": ["AxisType.Explicit", "AxisType.Explicit"],
+        "partition_spec": [["data", "model"], None],
+        "device_mesh": {
+            "mesh": [[{"id": 0}, {"id": 1}], [{"id": 2}, {"id": 3}]]
+        },
+    }
+
+    self.assertEqual(named_sharding_metadata.to_json_dict(), expected)
+    self.assertEqual(
+        named_sharding_metadata.to_serialized_string(), json.dumps(expected)
+    )
+
+  def test_single_device_sharding_to_json_dict(self):
+    single_device_sharding_metadata = (
+        sharding_metadata.SingleDeviceShardingMetadata(device_str="cpu:0")
+    )
+    self.assertEqual(
+        single_device_sharding_metadata.to_json_dict(),
+        {"sharding_type": "SingleDeviceSharding", "device_str": "cpu:0"},
+    )
+
+  def test_default_to_json_dict_parses_serialized_string(self):
+    self.assertEqual(
+        _SerializedOnlyShardingMetadata().to_json_dict(),
+        {"sharding_type": "Custom", "shape": [2]},
     )
 
 

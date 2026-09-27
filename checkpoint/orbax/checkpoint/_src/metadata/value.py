@@ -17,13 +17,17 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
+from typing import Any, Optional
 
 from etils import epath
 import jax
 from jax import numpy as jnp
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import sharding as sharding_metadata
+
+
+def _shape_to_list(shape: arrays_types.Shape | None) -> list[int] | None:
+  return None if shape is None else [int(d) for d in shape]
 
 
 @dataclasses.dataclass
@@ -57,6 +61,13 @@ class StorageMetadata:
 
   chunk_shape: arrays_types.Shape | None
   write_shape: arrays_types.Shape | None = None
+
+  def to_json_dict(self) -> dict[str, Any]:
+    """Converts `StorageMetadata` to a JSON-compatible dict."""
+    return {
+        'chunk_shape': _shape_to_list(self.chunk_shape),
+        'write_shape': _shape_to_list(self.write_shape),
+    }
 
 
 @dataclasses.dataclass
