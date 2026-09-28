@@ -581,6 +581,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       *args,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
+      save_context: checkpointer.SaveContext | None = None,
       **kwargs,
   ):
     """Saves the given item to the provided directory.
@@ -599,22 +600,34 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         due to the need to delete any existing files.
       custom_metadata: a dictionary of custom metadata to be written to the
         checkpoint directory via StepMetadata.
+      save_context: optional blocking-phase context from a wrapping caller
+        (e.g. `CheckpointManager.save()`), used to measure the full blocking
+        save and to record each blocking metric exactly once per save.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
     Raises:
       ValueError if the provided directory already exists.
     """
-    checkpoint_start_time = time.time()
+    checkpoint_start_time = (
+        save_context.checkpoint_start_time
+        if save_context is not None
+        else time.time()
+    )
+    start_sync_start_time = time.time()
     multihost.sync_global_processes(
         multihost.unique_barrier_key(
             'Checkpointer:save_start',
             prefix=self._barrier_sync_key_prefix,
         ),
         processes=self._active_processes,
-        record_event_name=(
-            '/jax/orbax/write/checkpoint_start_sync_duration_secs'
-        ),
+    )
+    start_sync_duration_secs = time.time() - start_sync_start_time
+    if save_context is not None:
+      start_sync_duration_secs += save_context.start_sync_duration_secs
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+        start_sync_duration_secs,
     )
     directory = epath.Path(directory)
     operation_recorder = event_tracking.OperationRecorder(
@@ -628,6 +641,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     wait_prev_start_time = time.perf_counter()
     self.wait_until_finished()
     wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
+    if save_context is not None:
+      wait_prev_duration_secs += save_context.wait_prev_duration_secs
     jax.monitoring.record_event_duration_secs(
         '/jax/orbax/write/blocking_wait_prev_duration_secs',
         wait_prev_duration_secs,

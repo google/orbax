@@ -717,6 +717,10 @@ async def create_all(
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/directory_creation_secs', directory_creation_secs
   )
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/blocking_directory_creation_secs',
+      directory_creation_secs,
+  )
   logging.vlog(
       1,
       'Synchronous directory creation took %s seconds',
@@ -813,6 +817,10 @@ async def _create_paths(
   # sync directory creation.
   jax.monitoring.record_event_duration_secs(
       '/jax/orbax/write/async_directory_creation_secs',
+      directory_creation_secs,
+  )
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/background_directory_creation_secs',
       directory_creation_secs,
   )
   logging.vlog(

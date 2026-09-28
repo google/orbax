@@ -16,6 +16,7 @@ import asyncio
 import concurrent.futures
 import stat
 import unittest
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -71,9 +72,48 @@ class AtomicRenameTemporaryPathTest(
         self.directory / 'ckpt2',
     ]
     tmp_paths = [AtomicRenameTemporaryPath.from_final(path) for path in paths]
-    await atomicity.create_all(tmp_paths)
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record_duration:
+      await atomicity.create_all(tmp_paths)
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      self.assertIn(
+          '/jax/orbax/write/blocking_directory_creation_secs', recorded_metrics
+      )
     self.assertTrue(tmp_paths[0].get().exists())
     self.assertTrue(tmp_paths[1].get().exists())
+    self.assertFalse(paths[0].exists())
+    self.assertFalse(paths[1].exists())
+
+  async def test_create_paths_records_background_directory_creation(self):
+    paths = [
+        self.directory / 'ckpt1',
+        self.directory / 'ckpt2',
+    ]
+    tmp_paths = [AtomicRenameTemporaryPath.from_final(path) for path in paths]
+    with mock.patch(
+        'jax.monitoring.record_event_duration_secs'
+    ) as mock_record_duration:
+      await atomicity._create_paths(  # pylint: disable=protected-access
+          tmp_paths, subdirectories=['subdir']
+      )
+      recorded_metrics = [
+          call[0][0] for call in mock_record_duration.call_args_list
+      ]
+      self.assertIn(
+          '/jax/orbax/write/background_directory_creation_secs',
+          recorded_metrics,
+      )
+      # Background creation must not be attributed to the blocking phase.
+      self.assertNotIn(
+          '/jax/orbax/write/blocking_directory_creation_secs',
+          recorded_metrics,
+      )
+    for tmp_path in tmp_paths:
+      self.assertTrue(tmp_path.get().exists())
+      self.assertTrue((tmp_path.get() / 'subdir').exists())
     self.assertFalse(paths[0].exists())
     self.assertFalse(paths[1].exists())
 
