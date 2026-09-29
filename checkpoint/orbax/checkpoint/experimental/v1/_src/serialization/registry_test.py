@@ -108,7 +108,7 @@ class RegistryTest(parameterized.TestCase):
 
   def test_replace_with_different_abstract_type(self):
 
-    class DummyIntHandlerInt2(types.LeafHandler[int, type(None)]):
+    class DummyIntHandlerInt2(types.LeafHandler[int, type(None)]):  # pyrefly: ignore[invalid-annotation]
 
       def __init__(self, context: context_lib.Context | None = None):
         del context

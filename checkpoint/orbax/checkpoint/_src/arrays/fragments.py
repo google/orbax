@@ -238,7 +238,7 @@ class _GenericFragment(Generic[A]):
 
 
 @dataclasses.dataclass(frozen=True, init=False, eq=False, repr=False)
-class AbstractFragment(_GenericFragment[type(None)]):
+class AbstractFragment(_GenericFragment[type(None)]):  # pyrefly: ignore[invalid-annotation]
   """An abstract fragment."""
   ARRAY_T = type(None)
   NP_API = None

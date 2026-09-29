@@ -154,7 +154,7 @@ def _pretty_slice(s: slice) -> str:
   return f'{start}:{stop}{step}'
 
 
-def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:
+def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:  # pyrefly: ignore[invalid-annotation]
   """Returns a pretty-printed string representation of a NdSlice."""
   idx_str = (
       '...'

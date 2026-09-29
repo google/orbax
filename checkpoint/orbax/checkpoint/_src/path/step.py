@@ -235,7 +235,7 @@ def latest_step_metadata(
           reverse=True,
       ),
       default=None,
-      key=lambda metadata: metadata.step,
+      key=lambda metadata: metadata.step,  # pyrefly: ignore[missing-attribute]
   )
 
 

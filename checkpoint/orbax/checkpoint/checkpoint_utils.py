@@ -285,7 +285,7 @@ def wait_for_new_checkpoint(
   )
   step = _wait_for_new_checkpoint(
       checkpoint_dir,
-      step_name_format=step_name_format,
+      step_name_format=step_name_format,  # pyrefly: ignore[bad-argument-type]
       until_step=until_step,
       seconds_to_sleep=seconds_to_sleep,
       timeout=timeout,
@@ -305,7 +305,7 @@ def wait_for_new_checkpoint(
       _release_snapshot(
           checkpoint_dir,
           step,
-          step_name_format,
+          step_name_format,  # pyrefly: ignore[bad-argument-type]
           snapshot_dir,
           ignore_file_not_found_error=ignore_snapshot_errors,
       )
