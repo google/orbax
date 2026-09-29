@@ -966,6 +966,33 @@ class SingleReplicaArrayHandlerTest(
     )
     super().tearDown()
 
+  def test_physical_read_spec_translates_prng_keys(self):
+    # Arrange
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape((2, 4)), ('x', 'y')
+    )
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    key_dtype = jax.random.key(0).dtype
+    arg = SingleReplicaArrayRestoreArgs(
+        sharding=sharding, global_shape=(4,), dtype=key_dtype
+    )
+    key_data = jax.eval_shape(
+        jax.random.key_data, jax.ShapeDtypeStruct((4,), key_dtype)
+    )
+
+    # Act
+    shape, dtype, read_sharding = jax_array_handlers._physical_read_spec(
+        arg, sharding
+    )
+
+    # Assert
+    self.assertEqual(shape, key_data.shape)
+    self.assertEqual(dtype, key_data.dtype)
+    self.assertEqual(
+        read_sharding,
+        jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x', None)),
+    )
+
   def get_2d_arrays(
       self, array_size: int
   ) -> tuple[list[np.ndarray], list[jax.sharding.PartitionSpec]]:
