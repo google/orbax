@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Iterator
+import contextlib
 import dataclasses
+import math
 
 from absl import logging
 import humanize
@@ -75,37 +78,43 @@ def register_memory_profiler(profiler: MemoryProfiler | None) -> None:
   _profiler = profiler
 
 
-def profiler_start() -> None:
-  if _profiler:
-    _profiler.profiler_start()
+def _resolve_profiler(
+    profiler: MemoryProfiler | None = None,
+) -> MemoryProfiler | None:
+  return profiler if profiler is not None else _profiler
 
 
-def profiler_end() -> None:
-  if _profiler:
-    _profiler.profiler_end()
+def profiler_start(profiler: MemoryProfiler | None = None) -> None:
+  if p := _resolve_profiler(profiler):
+    p.profiler_start()
 
 
-def profiler_peak_usage_gib() -> float:
-  if _profiler:
-    return _profiler.peak_usage_gib
+def profiler_end(profiler: MemoryProfiler | None = None) -> None:
+  if p := _resolve_profiler(profiler):
+    p.profiler_end()
+
+
+def profiler_peak_usage_gib(profiler: MemoryProfiler | None = None) -> float:
+  if p := _resolve_profiler(profiler):
+    return p.peak_usage_gib
   return 0.0
 
 
-def get_prev_blocking_time_sec() -> float:
-  if _profiler:
-    return _profiler.get_prev_blocking_time_sec()
+def get_prev_blocking_time_sec(profiler: MemoryProfiler | None = None) -> float:
+  if p := _resolve_profiler(profiler):
+    return p.get_prev_blocking_time_sec()
   return 0.0
 
 
-def get_expected_surge_gib() -> float:
-  if _profiler:
-    return _profiler.get_expected_surge_gib()
+def get_expected_surge_gib(profiler: MemoryProfiler | None = None) -> float:
+  if p := _resolve_profiler(profiler):
+    return p.get_expected_surge_gib()
   return 0.0
 
 
-def get_total_memory_gib() -> float:
-  if _profiler:
-    return _profiler.total_memory_gib
+def get_total_memory_gib(profiler: MemoryProfiler | None = None) -> float:
+  if p := _resolve_profiler(profiler):
+    return p.total_memory_gib
   return 0.0
 
 
@@ -131,10 +140,12 @@ class MemoryRegulator:
     kp: Proportional coefficient
     ki: Integral coefficient
     kd: Derivative coefficient
+    profiler: Optional memory profiler providing feedback to this regulator
     integral: Integral term accumulated over time
     prev_error: Error term from the previous step
     integral_windup_limit: Upper and lower bounds for the integral term to
       prevent windup
+    current_limit_bytes: Current memory limit in bytes
   """
 
   max_memory_limit_gib: float
@@ -143,11 +154,13 @@ class MemoryRegulator:
   kp: float = 0.4
   ki: float = 0.05
   kd: float = 0.1
+  profiler: MemoryProfiler | None = None
 
   integral: float = dataclasses.field(init=False)
   prev_error: float = dataclasses.field(init=False)
   _prev_expected_surge_gib: float = dataclasses.field(init=False)
   integral_windup_limit: float = dataclasses.field(init=False)
+  current_limit_bytes: int = dataclasses.field(init=False)
 
   def __post_init__(self):
     """Post-initialization validation and field setup."""
@@ -155,6 +168,7 @@ class MemoryRegulator:
     self.prev_error = 0.0
     self._prev_expected_surge_gib = 0.0
     self.integral_windup_limit = 50.0
+    self.current_limit_bytes = int(self.min_memory_limit_gib * 1024**3)
 
     if self.max_memory_limit_gib <= 0:
       raise ValueError(
@@ -198,6 +212,11 @@ class MemoryRegulator:
     surge passes, `expected_surge_gib` should be reset to 0, and the memory
     limit will be restored.
 
+    If a reading is NaN, infinite or negative, the readings are ignored and
+    `current_limit_gib` is returned without updating the controller state. An
+    infinite `expected_surge_gib` is valid and lowers the limit to
+    `min_memory_limit_gib`.
+
     Args:
       current_limit_gib: The current memory limit in GiB.
       peak_memory_usage_gib: The peak memory usage observed in GiB since the
@@ -211,6 +230,25 @@ class MemoryRegulator:
     Returns:
       The calculated memory limit for the next interval in GiB.
     """
+    # An infinite surge is valid and lowers the limit to the minimum. The
+    # `>= 0` comparisons are False for NaN.
+    if not (
+        math.isfinite(peak_memory_usage_gib)
+        and peak_memory_usage_gib >= 0
+        and math.isfinite(total_memory_gib)
+        and total_memory_gib >= 0
+        and expected_surge_gib >= 0
+    ):
+      logging.warning(
+          'MemoryRegulated: Ignoring invalid memory readings (peak=%f GiB,'
+          ' total=%f GiB, expected_surge=%f GiB); keeping the limit at %f GiB.',
+          peak_memory_usage_gib,
+          total_memory_gib,
+          expected_surge_gib,
+          current_limit_gib,
+      )
+      return current_limit_gib
+
     effective_host_limit = total_memory_gib
 
     target_mem_gib = effective_host_limit * self.target_ratio
@@ -274,13 +312,15 @@ class MemoryRegulator:
 
     return clamped_with_surge
 
-  def update_limit_bytes(self, current_limit_bytes: int) -> int:
+  def update_limit_bytes(self, current_limit_bytes: int | None = None) -> int:
     """Calculates the next memory limit in bytes, using profiler inputs."""
-    peak_usage_gib = profiler_peak_usage_gib()
-    blocking_time_sec = get_prev_blocking_time_sec()
-    expected_surge_gib = get_expected_surge_gib()
+    if current_limit_bytes is None:
+      current_limit_bytes = self.current_limit_bytes
+    peak_usage_gib = profiler_peak_usage_gib(self.profiler)
+    blocking_time_sec = get_prev_blocking_time_sec(self.profiler)
+    expected_surge_gib = get_expected_surge_gib(self.profiler)
 
-    total_memory_gib = get_total_memory_gib()
+    total_memory_gib = get_total_memory_gib(self.profiler)
     current_limit_gib = current_limit_bytes / (1024**3)
     next_limit_gib = self.get_next_memory_limit(
         current_limit_gib=current_limit_gib,
@@ -290,6 +330,7 @@ class MemoryRegulator:
         total_memory_gib=total_memory_gib,
     )
     next_limit_bytes = int(next_limit_gib * 1024**3)
+    self.current_limit_bytes = next_limit_bytes
     logging.info(
         'MemoryRegulated: Updated device_host_concurrent_bytes to %s'
         ' (peak=%f GiB, total=%f GiB)',
@@ -298,3 +339,36 @@ class MemoryRegulator:
         total_memory_gib,
     )
     return next_limit_bytes
+
+  @contextlib.contextmanager
+  def regulate(self) -> Iterator[int]:
+    """Calculates the limit for one save and profiles that save.
+
+    Steps the controller once, then profiles the enclosed block with `profiler`
+    to provide the readings for the next call::
+
+      with regulator.regulate() as limit_bytes:
+        ...  # Save with a concurrent memory limit of `limit_bytes`.
+
+    Yields:
+      The limit for this save in bytes.
+
+    Raises:
+      ValueError: If `profiler` is not set, or if it is also registered with
+        `register_memory_profiler`. The save engine opens its own profiling
+        windows on the registered profiler, which would cut this one short.
+    """
+    profiler = self.profiler
+    if profiler is None:
+      raise ValueError('MemoryRegulator.regulate() requires a profiler.')
+    if profiler is _profiler:
+      raise ValueError(
+          'The profiler of a MemoryRegulator must not also be registered with'
+          ' register_memory_profiler() when using regulate().'
+      )
+    limit_bytes = self.update_limit_bytes()
+    profiler.profiler_start()
+    try:
+      yield limit_bytes
+    finally:
+      profiler.profiler_end()

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from orbax.checkpoint._src.serialization import memory_regulator
@@ -22,20 +25,26 @@ class MockMemoryProfiler(memory_regulator.MemoryProfiler):
   def __init__(self):
     super().__init__()
     self.started = False
+    self.ended = False
     self.blocking_time = 0.0
     self.expected_surge = 0.0
+    self.total_memory = 0.0
 
   def profiler_start(self):
     self.started = True
 
   def profiler_end(self):
-    pass
+    self.ended = True
 
   def get_prev_blocking_time_sec(self):
     return self.blocking_time
 
   def get_expected_surge_gib(self):
     return self.expected_surge
+
+  @property
+  def total_memory_gib(self):
+    return self.total_memory
 
 
 class MemoryRegulatorTest(parameterized.TestCase):
@@ -55,6 +64,220 @@ class MemoryRegulatorTest(parameterized.TestCase):
     self.assertEqual(memory_regulator.profiler_peak_usage_gib(), 25.5)
     self.assertEqual(memory_regulator.get_prev_blocking_time_sec(), 12.0)
     self.assertEqual(memory_regulator.get_expected_surge_gib(), 10.0)
+
+  def test_explicit_profiler_overrides_global(self):
+    global_profiler = MockMemoryProfiler()
+    global_profiler.expected_surge = 1.0
+    memory_regulator.register_memory_profiler(global_profiler)
+    self.addCleanup(memory_regulator.register_memory_profiler, None)
+
+    explicit_profiler = MockMemoryProfiler()
+    explicit_profiler.expected_surge = 7.0
+    explicit_profiler._peak_usage_bytes = int(3 * 1024**3)
+
+    memory_regulator.profiler_start(explicit_profiler)
+    self.assertTrue(explicit_profiler.started)
+    self.assertFalse(global_profiler.started)
+    self.assertEqual(
+        memory_regulator.get_expected_surge_gib(explicit_profiler), 7.0
+    )
+    self.assertEqual(
+        memory_regulator.profiler_peak_usage_gib(explicit_profiler), 3.0
+    )
+    self.assertEqual(memory_regulator.get_expected_surge_gib(), 1.0)
+
+  def test_regulator_uses_its_own_profiler(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = 250.0
+    profiler.expected_surge = 5.0
+    controller = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+    with mock.patch.object(
+        controller, "get_next_memory_limit", autospec=True, return_value=20.0
+    ) as mock_next:
+      controller.update_limit_bytes(10 * 1024**3)
+    mock_next.assert_called_once_with(
+        current_limit_gib=10.0,
+        peak_memory_usage_gib=100.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=5.0,
+        total_memory_gib=250.0,
+    )
+
+  def test_update_limit_bytes_carries_state_across_calls(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = 250.0
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+    self.assertEqual(regulator.current_limit_bytes, 10 * 1024**3)
+
+    for expected in [60 * 1024**3, 80 * 1024**3]:
+      self.assertEqual(regulator.update_limit_bytes(), expected)
+      self.assertEqual(regulator.current_limit_bytes, expected)
+
+  def test_update_limit_bytes_with_registered_profiler(self):
+    # Checkpoint handlers pass their own copy of the limit and rely on the
+    # registered profiler.
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = 250.0
+    memory_regulator.register_memory_profiler(profiler)
+    self.addCleanup(memory_regulator.register_memory_profiler, None)
+    regulator = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+
+    self.assertEqual(regulator.update_limit_bytes(10 * 1024**3), 60 * 1024**3)
+    self.assertEqual(regulator.update_limit_bytes(60 * 1024**3), 80 * 1024**3)
+
+  def test_update_limit_bytes_keeps_limit_on_invalid_reading(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = math.nan
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+
+    self.assertEqual(regulator.update_limit_bytes(), 10 * 1024**3)
+    self.assertEqual(
+        regulator.update_limit_bytes(33 * 1024**3 + 1), 33 * 1024**3 + 1
+    )
+    self.assertEqual(regulator.current_limit_bytes, 33 * 1024**3 + 1)
+
+  def test_regulate_steps_once_and_profiles_block(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = 250.0
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+
+    with mock.patch.object(
+        regulator, "update_limit_bytes", wraps=regulator.update_limit_bytes
+    ) as update_limit_bytes:
+      with regulator.regulate() as limit_bytes:
+        self.assertTrue(profiler.started)
+        self.assertFalse(profiler.ended)
+      update_limit_bytes.assert_called_once_with()
+    self.assertTrue(profiler.ended)
+    self.assertEqual(limit_bytes, 60 * 1024**3)
+    self.assertEqual(regulator.current_limit_bytes, 60 * 1024**3)
+
+  def test_regulate_uses_peak_from_previous_block(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    profiler.total_memory = 250.0
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+
+    with regulator.regulate() as first_limit_bytes:
+      profiler._peak_usage_bytes = int(250 * 1024**3)
+    with regulator.regulate() as second_limit_bytes:
+      pass
+
+    self.assertEqual(first_limit_bytes, 60 * 1024**3)
+    # Target = 200. error = 200 - 250 = -50. p_term = -20.
+    # i_term = 0.05 * 50 = 2.5. d_term = 0.1 * (-50 - 100) = -15.
+    # new_limit = 60 - 20 + 2.5 - 15 = 27.5.
+    self.assertEqual(second_limit_bytes, int(27.5 * 1024**3))
+
+  def test_regulate_ends_profiling_on_error(self):
+    profiler = MockMemoryProfiler()
+    profiler.total_memory = 250.0
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+
+    with self.assertRaisesRegex(RuntimeError, "save failed"):
+      with regulator.regulate():
+        raise RuntimeError("save failed")
+    self.assertTrue(profiler.ended)
+
+  def test_regulate_requires_profiler(self):
+    regulator = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+
+    with self.assertRaisesRegex(ValueError, "requires a profiler"):
+      with regulator.regulate():
+        pass
+    self.assertEqual(regulator.current_limit_bytes, 10 * 1024**3)
+
+  def test_regulate_rejects_registered_profiler(self):
+    profiler = MockMemoryProfiler()
+    profiler.total_memory = 250.0
+    memory_regulator.register_memory_profiler(profiler)
+    self.addCleanup(memory_regulator.register_memory_profiler, None)
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+
+    with self.assertRaisesRegex(ValueError, "register_memory_profiler"):
+      with regulator.regulate():
+        pass
+    self.assertFalse(profiler.started)
+    self.assertEqual(regulator.current_limit_bytes, 10 * 1024**3)
+
+  @parameterized.named_parameters(
+      dict(testcase_name="nan_peak", peak=math.nan, total=250.0, surge=0.0),
+      dict(testcase_name="inf_peak", peak=math.inf, total=250.0, surge=0.0),
+      dict(testcase_name="negative_peak", peak=-1.0, total=250.0, surge=0.0),
+      dict(testcase_name="nan_total", peak=100.0, total=math.nan, surge=0.0),
+      dict(testcase_name="inf_total", peak=100.0, total=math.inf, surge=0.0),
+      dict(testcase_name="negative_total", peak=100.0, total=-1.0, surge=0.0),
+      dict(testcase_name="nan_surge", peak=100.0, total=250.0, surge=math.nan),
+      dict(testcase_name="negative_surge", peak=100.0, total=250.0, surge=-5.0),
+  )
+  def test_invalid_readings_keep_limit_and_state(self, peak, total, surge):
+    controller = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+    controller.integral = 10.0
+    controller.prev_error = 5.0
+    controller._prev_expected_surge_gib = 2.0
+
+    with self.assertLogs(level="WARNING") as logs:
+      next_limit = controller.get_next_memory_limit(
+          current_limit_gib=30.0,
+          peak_memory_usage_gib=peak,
+          blocking_time_sec=0.0,
+          expected_surge_gib=surge,
+          total_memory_gib=total,
+      )
+
+    self.assertEqual(next_limit, 30.0)
+    self.assertEqual(controller.integral, 10.0)
+    self.assertEqual(controller.prev_error, 5.0)
+    self.assertEqual(controller._prev_expected_surge_gib, 2.0)
+    self.assertLen(logs.output, 1)
+    self.assertIn("Ignoring invalid memory readings", logs.output[0])
+
+  def test_infinite_surge_lowers_limit_to_min(self):
+    controller = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+
+    next_limit = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=200.0,
+        blocking_time_sec=0.0,
+        expected_surge_gib=math.inf,
+        total_memory_gib=250.0,
+    )
+
+    self.assertEqual(next_limit, 10.0)
+
+  def test_zero_total_memory_is_valid(self):
+    controller = memory_regulator.MemoryRegulator(max_memory_limit_gib=80.0)
+
+    # Target = 0. error = -5. max_error_gib = -5.
+    # base_adjustment = 0.4 * -5 + 0.1 * -5 = -2.5.
+    # adjustment = min(-5, -2.5) = -5. new_limit = 30 - 5 = 25.
+    next_limit = controller.get_next_memory_limit(
+        current_limit_gib=30.0,
+        peak_memory_usage_gib=5.0,
+        blocking_time_sec=0.0,
+        total_memory_gib=0.0,
+    )
+
+    self.assertEqual(next_limit, 25.0)
 
   def test_controller_initialization(self):
     controller = memory_regulator.MemoryRegulator(
