@@ -15,3 +15,35 @@ tests:
     verbose: true
     skip_validation: true
     enable_pathways: false
+  - name: p2p_checkpoint_manager_benchmark
+    cluster_name: orbax-cluster-test-mtc
+    tpu_type: v5litepod-16
+    zone: us-west1-c
+    gcp_region: us-west1
+    gcp_project: orbax-checkpoint
+    config_file: orbax/checkpoint/_src/testing/benchmarks/configs/p2p_checkpoint_manager_benchmark.yaml
+    docker_image: gcr.io/orbax-checkpoint/orbax-benchmarks-runner:latest
+    output_directory: gs://orbax-benchmarks/cloud_runs/
+    nodelete_cluster_on_completion: true
+    ramdisk_directory: /local/test
+    num_slices: 2
+    test_restart_workflow: false
+    verbose: true
+    skip_validation: true
+    enable_pathways: false
+  - name: pathways_checkpoint_manager_benchmark
+    cluster_name: orbax-cluster-test-pathways
+    tpu_type: v5litepod-16
+    zone: us-west1-c
+    gcp_region: us-west1
+    gcp_project: orbax-checkpoint
+    config_file: orbax/checkpoint/_src/testing/benchmarks/configs/checkpoint_manager_benchmark.yaml
+    docker_image: gcr.io/orbax-checkpoint/orbax-benchmarks-runner:latest
+    output_directory: gs://orbax-benchmarks/cloud_runs/
+    nodelete_cluster_on_completion: true
+    ramdisk_directory: /local/test
+    num_slices: 2
+    test_restart_workflow: false
+    verbose: true
+    skip_validation: true
+    enable_pathways: true
