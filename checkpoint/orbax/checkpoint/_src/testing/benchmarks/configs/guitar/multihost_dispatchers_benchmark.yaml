@@ -1,0 +1,19 @@
+suite_name: "Multihost Dispatchers Benchmark"
+
+mesh_configs:
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 2, "model": 2}
+    dcn_parallelism: {"data": 2}
+  - mesh_axes: ["data", "model"]
+    ici_parallelism: {"data": 1, "model": 1}
+    dcn_parallelism: {"data": 4, "model": 1}
+
+checkpoint_config:
+  spec:
+    array: {dtype: "float32", shape: [1024, 2048], sharding: ["data", "model"]}
+
+benchmarks:
+  - generator: "orbax.checkpoint._src.testing.benchmarks.multihost_dispatchers_benchmark.MultihostDispatchersBenchmark"
+    options:
+      use_colocated: [True, False]
+      device_count: [null, 2]
