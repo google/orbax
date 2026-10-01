@@ -51,7 +51,9 @@ from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
 ORBAX_CHECKPOINT_INDICATOR_FILE = orbax_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
 COMMIT_SUCCESS_FILE = atomicity_types.COMMIT_SUCCESS_FILE
-CHECKPOINT_METADATA_FILENAME = metadata_serialization._CHECKPOINT_METADATA_FILENAME  # pylint: disable=protected-access
+CHECKPOINT_METADATA_FILENAME = (
+    metadata_serialization.CHECKPOINT_METADATA_FILENAME
+)
 PYTREE_METADATA_FILE = format_utils.PYTREE_METADATA_FILE
 
 

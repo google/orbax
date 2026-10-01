@@ -53,9 +53,11 @@ InternalCheckpointMetadata = (
     step_metadata_serialization.InternalCheckpointMetadata
 )
 
-PYTREE_METADATA_FILE = "_METADATA"
-ORBAX_CHECKPOINT_INDICATOR_FILE = "orbax.checkpoint"
-CHECKPOINT_METADATA = "_CHECKPOINT_METADATA"
+PYTREE_METADATA_FILE = checkpoint_layout.PYTREE_METADATA_FILE
+ORBAX_CHECKPOINT_INDICATOR_FILE = (
+    checkpoint_layout.ORBAX_CHECKPOINT_INDICATOR_FILE
+)
+CHECKPOINT_METADATA = metadata_serialization.CHECKPOINT_METADATA_FILENAME
 
 _OCDBT_MANIFEST_FILE = "manifest.ocdbt"
 _ZARRAY_FILE = ".zarray"

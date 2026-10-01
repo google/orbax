@@ -181,6 +181,58 @@ def _is_local_path(path: epath.Path) -> bool:
   return not scheme or len(scheme) <= 1
 
 
+class PathDeleter:
+  """Removes or relocates an exact directory, without step lookup or barriers.
+
+  Callers own validation, destination selection, and process coordination.
+  """
+
+  def __init__(self, directory: epath.Path, *, num_threads: int | None = None):
+    self._num_threads = num_threads
+    if self._num_threads is None:
+      if _is_local_path(directory):
+        cpu_count = os.cpu_count() or 4
+        self._num_threads = min(16, max(1, cpu_count // 2))
+      else:
+        self._num_threads = 1
+    self._parallel_deleter = (
+        _ParallelDirectoryDeleter(self._num_threads)
+        if self._num_threads > 1 and _is_local_path(directory)
+        else None
+    )
+
+  def delete(
+      self,
+      path: epath.Path,
+      *,
+      destination: epath.Path | None = None,
+      overwrite: bool = False,
+  ) -> None:
+    """Deletes a directory or moves it to an explicitly supplied destination.
+
+    Args:
+      path: The directory to delete, or to relocate when `destination` is set.
+      destination: If set, `path` is moved here instead of being deleted.
+        Missing parent directories are created.
+      overwrite: Applies only to relocation. The v0 local step deleter
+        preserves its replace behavior; other callers use a non-overwriting
+        rename.
+    """
+    if destination is not None:
+      destination.parent.mkdir(parents=True, exist_ok=True)
+      if overwrite:
+        path.replace(destination)
+      else:
+        path.rename(destination)
+    elif self._parallel_deleter is not None and _is_local_path(path):
+      self._parallel_deleter.delete(path)
+    elif gcs_utils.is_gcs_path(path):
+      gcs_utils.rmtree(path)
+    else:
+      path.rmtree()
+    event_tracking.record_delete_event(path)
+
+
 class StandardCheckpointDeleter:
   """A StandardCheckpointDeleter."""
 
@@ -212,28 +264,7 @@ class StandardCheckpointDeleter:
     self._todelete_full_path = todelete_full_path
     self._name_format = name_format
     self._duration_metric = duration_metric
-    self._num_threads = num_threads
-    if self._num_threads is None:
-      if _is_local_path(self._directory):
-        self._num_threads = min(16, os.cpu_count() // 2)  # pyrefly: ignore[unsupported-operation]
-      else:
-        self._num_threads = 1
-    self._parallel_deleter = None
-    if self._num_threads > 1 and _is_local_path(self._directory):
-      self._parallel_deleter = _ParallelDirectoryDeleter(self._num_threads)
-
-  def _rmtree(self, path: epath.Path):
-    """Recursively deletes a path.
-
-    Args:
-      path: the path to delete.
-    """
-    # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
-    # StorageBackend.
-    if gcs_utils.is_gcs_path(path):
-      gcs_utils.rmtree(path)
-    else:
-      path.rmtree()
+    self._path_deleter = PathDeleter(directory, num_threads=num_threads)
 
   def delete(self, step: int) -> None:
     """Deletes step dir or renames it if options are set.
@@ -292,8 +323,6 @@ class StandardCheckpointDeleter:
       else:
         self._delete_step_permanently(step, delete_target)
 
-      event_tracking.record_delete_event(delete_target)
-
     finally:
       jax.monitoring.record_event_duration_secs(
           self._duration_metric,  # pyrefly: ignore[bad-argument-type]
@@ -327,7 +356,6 @@ class StandardCheckpointDeleter:
       destination_parent_path = epath.Path(
           f'gs://{bucket_name}/{self._todelete_full_path}'
       )
-      destination_parent_path.mkdir(parents=True, exist_ok=True)
 
       # Create a unique name for the destination to avoid collisions.
       now = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -343,7 +371,7 @@ class StandardCheckpointDeleter:
 
       # Call the high-level rename method.
       # This will be fast on HNS and slow (but functional) on non-HNS.
-      delete_target.rename(dest_path)
+      self._path_deleter.delete(delete_target, destination=dest_path)
       logging.info('Successfully renamed step %d to %s', step, dest_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
       message = f'Rename failed for step {step}. Error: {e}'
@@ -353,22 +381,13 @@ class StandardCheckpointDeleter:
   def _rename_step_to_subdir(self, step: int, delete_target: epath.Path):
     """Renames a step directory to its corresponding todelete_subdir."""
     rename_dir = self._directory / self._todelete_subdir  # pyrefly: ignore[unsupported-operation]
-    rename_dir.mkdir(parents=True, exist_ok=True)
     dst = step_lib.build_step_path(rename_dir, self._name_format, step)
-    delete_target.replace(dst)
+    self._path_deleter.delete(delete_target, destination=dst, overwrite=True)
     logging.info('Renamed step %d to %s', step, dst)
 
   def _delete_step_permanently(self, step: int, delete_target: epath.Path):
     """Permanently deletes a step directory."""
-    if self._parallel_deleter is not None:
-      logging.info(
-          'Using parallel file deletion with %d threads for step %d.',
-          self._num_threads,
-          step,
-      )
-      self._parallel_deleter.delete(delete_target)
-    else:
-      self._rmtree(delete_target)
+    self._path_deleter.delete(delete_target)
     logging.info('Deleted step %d.', step)
 
   def delete_steps(self, steps: Sequence[int]) -> None:
