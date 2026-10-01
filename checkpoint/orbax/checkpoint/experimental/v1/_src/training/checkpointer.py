@@ -904,6 +904,61 @@ class Checkpointer(epy.ContextManager):
           directory=self.directory, custom_metadata=metadata.custom_metadata
       )
 
+  def delete(
+      self,
+      step: int | CheckpointMetadata,
+      *,
+      checkpointable_name: str | None = None,
+      missing_ok: bool = False,
+  ) -> bool:
+    """Deletes an explicit step or one named checkpointable within that step.
+
+    Metadata selects its step within this Checkpointer, not its path or
+    saved generation. None for checkpointable_name selects the whole checkpoint.
+    Completion returns True; an absent target with no cleanup returns False
+    when missing_ok is True.
+    This interface is not implemented yet; calls raise NotImplementedError.
+
+    Args:
+      step: The step number or :py:class:`.CheckpointMetadata` to delete.
+      checkpointable_name: The name of the checkpointable to delete. If None,
+        the entire checkpoint will be deleted.
+      missing_ok: If True, do not raise an error if the checkpoint or
+        checkpointable does not exist.
+
+    Returns:
+      True if any deletion occurred, False otherwise.
+    """
+    raise NotImplementedError('Checkpoint deletion is not yet implemented.')
+
+  def delete_async(
+      self,
+      step: int | CheckpointMetadata,
+      *,
+      checkpointable_name: str | None = None,
+      missing_ok: bool = False,
+  ) -> async_types.AsyncResponse[bool]:
+    """Deletes asynchronously with the same scope and arguments as delete.
+
+    The implemented API will return a boolean response tracked by wait() and
+    close(), with the same result as delete().
+    This interface is not implemented yet; calls raise NotImplementedError.
+
+    Args:
+      step: The step number or :py:class:`.CheckpointMetadata` to delete.
+      checkpointable_name: The name of the checkpointable to delete. If None,
+        the entire checkpoint will be deleted.
+      missing_ok: If True, do not raise an error if the checkpoint or
+        checkpointable does not exist.
+
+    Returns:
+      An :py:class:`.AsyncResponse` that resolves to a boolean indicating
+      whether any deletion occurred.
+    """
+    raise NotImplementedError(
+        'Asynchronous checkpoint deletion is not yet implemented.'
+    )
+
   def reload(self):
     """Reloads internal properties from the root directory.
 
