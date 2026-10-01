@@ -49,8 +49,22 @@ class ApplyFnInfo:
     output_keys: The keys of the output dict that the `apply_fn` produces. These
       keys are also used to determine the topological ordering of the `apply_fn`
       and other `DataProcessor`s in the pipeline.
+    use_input_aliasing: If True, the exported function takes one extra input
+      argument per output, aliased to that output, so that an execution writes
+      its results into the buffers passed for those inputs (donated at serving
+      time) instead of allocating them. The extra arguments are hidden from the
+      serving signature, and the runtime fills them in by output name. Only
+      supported by Orbax Model export. It makes every pipeline that serves
+      this function graph-based (keyword-arguments based), so processors (if
+      any) must be given as `data_processors`, the input signature must be a
+      mapping keyed by input name, and every output must have a unique name.
+      `Jax2ObmOptions.enable_auto_layout` must be off. Donation is only served
+      from AOT executables, so input shapes must be concrete: with
+      `input_polymorphic_shape`, `input_polymorphic_shape_symbol_values` is
+      required.
   """
 
   apply_fn: ApplyFn
   input_keys: Set[str]
   output_keys: Set[str]
+  use_input_aliasing: bool = False
