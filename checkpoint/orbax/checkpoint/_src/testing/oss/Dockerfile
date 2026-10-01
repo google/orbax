@@ -48,7 +48,7 @@ RUN pip install --no-cache-dir gcsfs portpicker clu tensorflow pyyaml
 
 # 4. Install Orbax from Source
 WORKDIR /app/orbax_repo/checkpoint
-RUN pip install xpk
+RUN pip install xpk==v1.0.0
 
 # 5. Environment Setup
 # Set PYTHONPATH so 'import orbax' works from the correctly mapped directory
