@@ -48,7 +48,6 @@ from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import utils as tree_utils
-
 import tensorstore as ts
 
 mock = unittest.mock
@@ -915,6 +914,38 @@ class PlaceholderHandlerTest(
     self.assertListEqual(restored, values)
 
 
+class SingleReplicaArrayHandlerArgsTest(
+    unittest.IsolatedAsyncioTestCase, parameterized.TestCase
+):
+
+  @parameterized.named_parameters(
+      ('missing', None, 'Must provide ArrayRestoreArgs'),
+      ('empty', [], 'mismatched lengths'),
+      (
+          'mismatched',
+          [ArrayRestoreArgs(), ArrayRestoreArgs()],
+          'mismatched lengths',
+      ),
+      ('unsupported', [types.RestoreArgs()], 'Must provide `ArrayRestoreArgs`'),
+      (
+          'single_replica_without_sharding',
+          [SingleReplicaArrayRestoreArgs()],
+          'Must provide `sharding`',
+      ),
+  )
+  async def test_invalid_args(self, args, message):
+    handler = type_handlers.SingleReplicaArrayHandler()
+    with self.assertRaisesRegex(ValueError, message):
+      await handler.deserialize(
+          [ParamInfo(name='array', parent_dir=epath.Path('.'))], args
+      )
+
+  async def test_empty_batch(self):
+    handler = type_handlers.SingleReplicaArrayHandler()
+    with self.assertRaisesRegex(ValueError, 'input of length 0'):
+      await handler.deserialize([], [])
+
+
 @dataclasses.dataclass
 class SingleReplicaTestConfig:
   mesh: jax.sharding.Mesh
@@ -928,6 +959,7 @@ class SingleReplicaTestConfig:
   enable_write_sharding_file: bool = True
   array_metadata_store: array_metadata_store_lib.Store | None = None
   active_mesh_on_restore: bool = False
+  standard_array_indices: tuple[int, ...] = ()
 
   @property
   def arrays(self) -> list[jax.Array]:
@@ -935,6 +967,16 @@ class SingleReplicaTestConfig:
     return [
         test_utils.create_sharded_array(arr, self.mesh, pspec)
         for arr, pspec in zip(self.np_arrays, self.partition_specs)
+    ]
+
+  def restore_args(self, arrays: list[jax.Array]) -> list[ArrayRestoreArgs]:
+    return [
+        ArrayRestoreArgs(sharding=arr.sharding, global_shape=arr.shape)
+        if i in self.standard_array_indices
+        else test_utils.create_single_replica_restore_args(
+            arr, self.mesh, axes
+        )
+        for i, (arr, axes) in enumerate(zip(arrays, self.partition_specs))
     ]
 
 
@@ -1020,7 +1062,6 @@ class SingleReplicaArrayHandlerTest(
     """Test single replica serialize and deserialize."""
     arrays = config.arrays
     mesh = config.mesh
-    mesh_axes = config.partition_specs
     replica_axis_index = config.replica_axis_index
     primary_replica_id = config.primary_replica_id
     is_ocdbt = config.is_ocdbt
@@ -1082,14 +1123,7 @@ class SingleReplicaArrayHandlerTest(
         )
       test_utils.sync_global_processes('merge_ocdbt_complete')
 
-    restore_args = [
-        test_utils.create_single_replica_restore_args(
-            arr,
-            mesh,
-            axes,
-        )
-        for arr, axes in zip(arrays, mesh_axes)
-    ]
+    restore_args = config.restore_args(arrays)
     num_replicas = mesh.devices.shape[replica_axis_index]
     with mock.patch.object(
         multislice, 'slice_count', return_value=num_replicas
@@ -1149,6 +1183,39 @@ class SingleReplicaArrayHandlerTest(
         partition_specs=mesh_axes,
         is_ocdbt=False,
         use_replica_parallel=use_replica_parallel,
+    )
+    await self.single_replica_serialize_deserialize(config)
+
+  @parameterized.product(
+      standard_array_indices=((0, 2), (1, 3), (0, 1, 2, 3)),
+      primary_replica_id=(0, 1),
+      is_ocdbt=(True, False),
+  )
+  async def test_mixed_restore_args(
+      self, standard_array_indices, primary_replica_id, is_ocdbt
+  ):
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape(2, 4), ('x', 'y')
+    )
+    arrays = [
+        np.arange(64, dtype=np.int64).reshape(8, 8),
+        np.arange(128, dtype=np.float32).reshape(16, 8) * 2,
+        np.arange(128, dtype=np.float32).reshape(8, 16) * 3,
+        np.arange(256, dtype=np.float64).reshape(16, 16) * 4,
+    ]
+    mesh_axes = [
+        jax.sharding.PartitionSpec('x', 'y')
+        if i in standard_array_indices
+        else jax.sharding.PartitionSpec(None, 'y')
+        for i in range(len(arrays))
+    ]
+    config = SingleReplicaTestConfig(
+        mesh=mesh,
+        np_arrays=arrays,
+        partition_specs=mesh_axes,
+        primary_replica_id=primary_replica_id,
+        is_ocdbt=is_ocdbt,
+        standard_array_indices=standard_array_indices,
     )
     await self.single_replica_serialize_deserialize(config)
 
