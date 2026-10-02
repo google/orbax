@@ -130,7 +130,13 @@ async def _create_tmp_directory(
   Returns:
     The tmp directory.
   """
-  if await async_path.exists(tmp_dir):
+  # Bound the loop to prevent infinite retry on persistent deletion failure.
+  # On object stores (e.g. GCS), when both a directory marker object and child
+  # files exist, the first rmtree pass may only delete the directory marker,
+  # requiring a second pass for child files.
+  for _ in range(3):
+    if not await async_path.exists(tmp_dir):
+      break
     logging.warning(
         'Attempted to create temporary directory %s which already exists.'
         ' Removing existing directory since it is not finalized.',

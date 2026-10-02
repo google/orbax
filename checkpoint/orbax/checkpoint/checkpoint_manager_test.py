@@ -1194,16 +1194,73 @@ class CheckpointManagerTest(
       np.testing.assert_array_equal(restored_arr, np.arange(16))
       self.assertDictEqual(metadata, restored_metadata)
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='enable_async_false_skip_false',
+          enable_async=False,
+          skip_sync_file_validations=False,
+      ),
+      dict(
+          testcase_name='enable_async_false_skip_true',
+          enable_async=False,
+          skip_sync_file_validations=True,
+      ),
+      dict(
+          testcase_name='enable_async_true_skip_false',
+          enable_async=True,
+          skip_sync_file_validations=False,
+      ),
+      dict(
+          testcase_name='enable_async_true_skip_true',
+          enable_async=True,
+          skip_sync_file_validations=True,
+      ),
+      dict(
+          testcase_name='enable_async_true_file_options_none',
+          enable_async=True,
+          file_options_none=True,
+      ),
+  )
   @mock.patch.object(gcs_utils, 'is_gcs_path', autospec=True, return_value=True)
-  def test_save_gcs_with_unfinalized_checkpoints(self, is_gcs_path):
+  def test_save_gcs_with_unfinalized_checkpoints(
+      self,
+      is_gcs_path,
+      enable_async: bool,
+      skip_sync_file_validations: bool = False,
+      file_options_none: bool = False,
+  ):
     del is_gcs_path
     subdir = self.directory / '0'
     subdir.mkdir(parents=True, exist_ok=True)
+    if multihost.process_index() == 0:
+      (subdir / 'stale_file').write_text('stale')
     test_utils.sync_global_processes('test_make_unfinalized_checkpoint')
-    with CheckpointManager(self.directory, item_names=('params',)) as manager:
-      self.assertTrue(self.save_params(0, manager, self.pytree))
+    file_opts = (
+        None
+        if file_options_none
+        else FileOptions(skip_sync_file_validations=skip_sync_file_validations)
+    )
+    options = CheckpointManagerOptions(
+        enable_async_checkpointing=enable_async,
+        file_options=file_opts,  # pyrefly: ignore[bad-argument-type]
+    )
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=options
+    ) as manager:
+      with mock.patch.object(
+          manager._checkpointer, 'save', wraps=manager._checkpointer.save
+      ) as mock_save:
+        self.assertTrue(self.save_params(0, manager, self.pytree))
+        mock_save.assert_called_once()
+        skip_sync = bool(file_opts and file_opts.skip_sync_file_validations)
+        expected_force = not skip_sync if enable_async else True
+        self.assertEqual(
+            mock_save.call_args.kwargs['force'],
+            expected_force,
+        )
       self.wait_if_async(manager)
       self.assertSameElements([0], manager.all_steps())
+      self.assertFalse((subdir / 'stale_file').exists())
 
       restored = self.restore_params(0, manager)
       test_utils.assert_tree_equal(self, self.pytree, restored)
