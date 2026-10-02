@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Allow `SingleReplicaArrayHandler` to restore mixed batches of
+  `SingleReplicaArrayRestoreArgs` and `ArrayRestoreArgs`, so arrays partitioned
+  across the replica axis can use the normal restore path.
+
 ## [0.12.6] - 2026-09-25
 
 ### Added
