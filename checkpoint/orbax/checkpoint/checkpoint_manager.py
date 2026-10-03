@@ -957,7 +957,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           handler,
           multiprocessing_options=options.multiprocessing_options,
           async_options=options.async_options or AsyncOptions(),
-          file_options=options.file_options,
+          file_options=options.file_options or FileOptions(),
           atomicity_options=options.atomicity_options,
           checkpoint_metadata_store=self._non_blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
@@ -966,7 +966,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return Checkpointer(
           handler,
           multiprocessing_options=options.multiprocessing_options,
-          file_options=options.file_options,
+          file_options=options.file_options or FileOptions(),
           atomicity_options=options.atomicity_options,
           checkpoint_metadata_store=self._blocking_metadata_store,
           temporary_path_class=options.temporary_path_class,
@@ -1040,7 +1040,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         CompositeCheckpointHandler(
             composite_options=composite_checkpoint_handler.CompositeOptions(
                 multiprocessing_options=options.multiprocessing_options,
-                file_options=options.file_options,
+                file_options=options.file_options or FileOptions(),
                 async_options=options.async_options,
                 atomicity_options=options.atomicity_options,
                 temporary_path_class=options.temporary_path_class,
@@ -1534,13 +1534,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     step_stats.checkpointer_blocking_start_time = time.time()
     if isinstance(self._checkpointer, Checkpointer):
+      skip_sync = bool(
+          isinstance(self._checkpointer, AsyncCheckpointer)
+          and self._options.file_options
+          and self._options.file_options.skip_sync_file_validations
+      )
       # `Checkpointer.save()` folds these into its own blocking metrics so that
       # each is recorded once per save and spans the full blocking save.
       self._checkpointer.save(
           save_directory,
           args=args,
           custom_metadata=custom_metadata,
-          force=True,
+          force=not skip_sync,
           save_context=checkpointer_lib.SaveContext(
               checkpoint_start_time=(
                   step_stats.checkpoint_manager_blocking_start_time
