@@ -463,6 +463,8 @@ def initialize_multi_tier_checkpointing(
       ICI data parallelism * DCN data parallelism. If not provided, it will be
       inferred from the number of slices.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
+      Also bounds each wait on the replicator, including the wait for its
+      restore marker.
     use_mtc_process_ids: Use the MTC rank server to calculate process ids.
     use_colocated_python: Whether to use Colocated Python for initialization.
     devices: Optional JAX devices for Colocated Python initialization. This is
@@ -603,7 +605,10 @@ def initialize_multi_tier_checkpointing(
       local_checkpoint_directory,
       timeout_seconds=jax_initialization_timeout_seconds,
   )
-  _block_and_process_restore_dir(local_checkpoint_directory)
+  _block_and_process_restore_dir(
+      local_checkpoint_directory,
+      timeout_seconds=jax_initialization_timeout_seconds,
+  )
 
 
 def _retrieve_jax_init_info(
