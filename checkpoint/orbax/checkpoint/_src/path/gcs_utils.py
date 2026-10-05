@@ -17,6 +17,7 @@
 import functools
 import os
 import pathlib
+from typing import Any
 from urllib import parse
 from absl import logging
 from etils import epath
@@ -28,17 +29,48 @@ def is_gcs_path(path: pathlib.PurePosixPath) -> bool:
   return path.as_posix().startswith(_GCS_PATH_PREFIX)
 
 
-def parse_gcs_path(path: epath.PathLike) -> tuple[str, str]:
-  parsed = parse.urlparse(str(path))
+def parse_gcs_path(
+    path: epath.PathLike, add_trailing_slash: bool = True
+) -> tuple[str, str]:
+  """Parses a GCS path into a bucket name and a path within the bucket."""
+  path_str = str(path)
+  for prefix in _GCS_PATH_PREFIX:
+    if prefix != 'gs://' and path_str.startswith(prefix):
+      path_str = 'gs://' + path_str.removeprefix(prefix)
+      break
+  parsed = parse.urlparse(path_str)
   assert parsed.scheme == 'gs', f'Unsupported scheme for GCS: {parsed.scheme}'
+  if not parsed.netloc:
+    raise ValueError(
+        'The GCS path should contain the bucket name and the '
+        f'file path inside the bucket. Got: {path}'
+    )
   # Strip the leading slash from the path.
   standardized_path = parsed.path
   if standardized_path.startswith('/'):
     standardized_path = standardized_path[1:]
   # Add a trailing slash if it's missing.
-  if not standardized_path.endswith('/'):
+  if add_trailing_slash and not standardized_path.endswith('/'):
     standardized_path = standardized_path + '/'
   return parsed.netloc, standardized_path
+
+
+def get_kvstore_for_gcs(ckpt_path: str) -> dict[str, Any]:
+  """Constructs a TensorStore kvstore spec for a GCS path."""
+  gcs_bucket, path_without_bucket = parse_gcs_path(
+      ckpt_path, add_trailing_slash=False
+  )
+  # TODO(b/518937340): Consider enabling gcs_grpc by default.
+  # TODO(b/518937340): Migrate TENSORSTORE_GCS_BACKEND flag to `Context`.
+  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
+  logging.vlog(
+      1, 'Using GCS backend (TENSORSTORE_GCS_BACKEND): %s', gcs_backend
+  )
+  return {
+      'driver': gcs_backend,
+      'bucket': gcs_bucket,
+      'path': path_without_bucket,
+  }
 
 
 @functools.lru_cache(maxsize=32)

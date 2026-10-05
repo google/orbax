@@ -74,8 +74,6 @@ _OCDBT_TMP_METADATA_PREFIX = 'ocdbt_tmp_meta/'
 ZARR_VER2 = 'zarr'
 ZARR_VER3 = 'zarr3'
 
-_GCS_PATH_RE = r'^gs://([^/]*)(?:/(.*))?$'
-
 # Even if the data is equal to the fill value, we still want to write it
 # to the checkpoint. This results in unnecessary writes in some edge
 # cases, but it allows us to verify that data was actually written when
@@ -210,27 +208,11 @@ class OcdbtTemporaryMetadataContext:
   path: epath.Path
 
 
-def _get_kvstore_for_gcs(ckpt_path: str) -> JsonSpec:
-  """Constructs a TensorStore kvstore spec for a GCS path."""
-  m = re.fullmatch(_GCS_PATH_RE, ckpt_path, re.DOTALL)
-  if m is None:
-    raise ValueError(
-        'The ckpt_path should contain the bucket name and the '
-        f'file path inside the bucket. Got: {ckpt_path}'
-    )
-  gcs_bucket = m.group(1)
-  path_without_bucket = m.group(2) or ''
-  # TODO(b/518937340): Consider enabling gcs_grpc by default.
-  # TODO(b/518937340): Migrate TENSORSTORE_GCS_BACKEND flag to `Context`.
-  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
-  logging.vlog(
-      1, 'Using GCS backend (TENSORSTORE_GCS_BACKEND): %s', gcs_backend
-  )
-  return {
-      'driver': gcs_backend,
-      'bucket': gcs_bucket,
-      'path': path_without_bucket,
-  }
+def _use_gcs_driver(directory: str) -> bool:
+  """Returns whether to use TensorStore's native GCS driver for `directory`."""
+  if directory.startswith('gs://'):
+    return True
+  return False
 
 
 def _normalize_path(path: str) -> str:
@@ -309,11 +291,22 @@ def _override_ocdbt_kvspec_parameters_for_temporary_metadata(
   if write_mode == OcdbtWriteMode.WRITE:
     metadata_prefix = _OCDBT_TMP_METADATA_PREFIX
 
+  persistent_base = current_parameters.base_driver_spec
+  if (
+      isinstance(persistent_base, dict)
+      and persistent_base.get('path')
+      and not str(persistent_base['path']).endswith('/')
+  ):
+    persistent_base = {
+        **persistent_base,
+        'path': f"{persistent_base['path']}/",
+    }
+
   base_driver_spec = {
       'driver': 'kvstack',
       'layers': [
           # Write to the real persistent checkpoint directory by default.
-          {'base': current_parameters.base_driver_spec},
+          {'base': persistent_base},
           # Per-process metadata is stored in the separate local temporary
           # directory. `prefix` ensures that writes and reads of
           # metadata-related files are routed to the temporary directory.
@@ -357,7 +350,7 @@ def _build_ocdbt_kvstore_tspec(
     A Tensorstore KvStore spec in dictionary form.
   """
   directory = _normalize_path(directory)
-  is_gcs_path = directory.startswith('gs://')
+  is_gcs_path = _use_gcs_driver(directory)
 
   if not is_gcs_path and not os.path.isabs(directory):
     raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
@@ -367,7 +360,7 @@ def _build_ocdbt_kvstore_tspec(
 
   # Base KVStore spec (nested within OCDBT KVStore spec).
   if is_gcs_path:
-    base_driver_spec = _get_kvstore_for_gcs(directory)
+    base_driver_spec = gcs_utils.get_kvstore_for_gcs(directory)
   else:
     base_driver_spec = {
         'driver': DEFAULT_DRIVER,
@@ -466,14 +459,14 @@ def _build_non_ocdbt_kvstore_tspec(
 ) -> JsonSpec:
   """Constructs a spec for a Tensorstore KvStore, non-OCDBT."""
   directory = _normalize_path(directory)
-  is_gcs_path = directory.startswith('gs://')
+  is_gcs_path = _use_gcs_driver(directory)
 
   if name is None:
     path = str(directory)
   else:
     path = os.path.join(directory, name)
   if is_gcs_path:
-    kv_spec = _get_kvstore_for_gcs(path)
+    kv_spec = gcs_utils.get_kvstore_for_gcs(path)
   else:
     kv_spec = {'driver': DEFAULT_DRIVER, 'path': path}
 
@@ -533,9 +526,16 @@ def _get_backend_ocdbt_target_data_file_size(
     if gcs_utils.is_gcs_path(epath.Path(base)):
       return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
   elif isinstance(base, dict):
-    # OCDBT base can also be a dict with 'driver' and 'path' keys.
+    # OCDBT base can also be a dict with 'driver' and 'path' keys, or a kvstack.
     if base.get('driver') in ('gcs', 'gcs_grpc'):
       return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
+    if base.get('driver') == 'kvstack':
+      for layer in base.get('layers', ()):
+        if 'prefix' not in layer and (
+            _get_backend_ocdbt_target_data_file_size(layer)
+            == _GCS_OCDBT_TARGET_DATA_FILE_SIZE
+        ):
+          return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
     path_str = base.get('path')
     if path_str and gcs_utils.is_gcs_path(epath.Path(path_str)):
       return _GCS_OCDBT_TARGET_DATA_FILE_SIZE
@@ -933,6 +933,9 @@ def is_remote_storage(tspec: dict[str, Any] | str) -> bool:
   for key in ('base', 'kvstore'):
     if key in tspec:
       return is_remote_storage(tspec[key])
+
+  if tspec.get('driver') == 'kvstack':
+    return any(is_remote_storage(layer) for layer in tspec.get('layers', ()))
 
   if 'driver' in tspec:
     for rule in _REMOTE_DRIVER_VALIDATIONS:
