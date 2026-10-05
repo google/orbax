@@ -128,10 +128,10 @@ class AtomicRenameTemporaryPathTest(
     self.assertIsNotNone(tmp_path._snapshot)
 
     await tmp_path.create()
-    # pylint: disable=protected-access  # pytype: disable=attribute-error
+    # pylint: disable=protected-access
     self.assertEqual(tmp_path._snapshot._source, path)
     self.assertEqual(tmp_path._snapshot._snapshot, tmp_path.get())
-    # pylint: enable=protected-access  # pytype: enable=attribute-error
+    # pylint: enable=protected-access
 
     (tmp_path.get() / 'foo').write_text('new bar')
     self.assertEqual((path / 'foo').read_text(), 'bar')

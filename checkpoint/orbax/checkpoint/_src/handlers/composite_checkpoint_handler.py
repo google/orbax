@@ -581,7 +581,7 @@ class CompositeCheckpointHandler(AsyncCheckpointHandler):
     # registered for the item.
     registered_handler_for_args = (
         checkpoint_args.get_registered_handler_cls(args)
-    )()  # pytype: disable=not-instantiable
+    )()
 
     # Add items from `item_names` to the handler registry if it is not already
     # registered. This happens on the first call of `_get_or_set_handler` for

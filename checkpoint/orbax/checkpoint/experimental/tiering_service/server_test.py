@@ -32,7 +32,6 @@ from sqlalchemy.future import select
 try:
   from google.protobuf import timestamp_pb2  # pylint: disable=g-import-not-at-top
 except ImportError:
-  # pytype: disable=import-error
   from google.protobuf import timestamp_pb2  # pylint: disable=g-import-not-at-top
 
 

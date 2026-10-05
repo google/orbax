@@ -92,7 +92,7 @@ class GcsUtilsTest(absltest.TestCase):
         'sys.modules',
         {'google.cloud.storage_control_v2': mock_storage_control_v2},
     ):
-      gcs_utils.cleanup_hns_folders(gcs_path)  # pytype: disable=wrong-arg-types
+      gcs_utils.cleanup_hns_folders(gcs_path)  # pyrefly: ignore[bad-argument-type]
 
     # list_folders should have been called the right prefix
     mock_client.list_folders.assert_called_once()

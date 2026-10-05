@@ -100,7 +100,7 @@ class StringLeafHandler(types.LeafHandler[str, AbstractString]):
 
       write_coros = []
       for t, param in zip(tensorstores, params):
-        write_coros.append(t.with_transaction(txn).write(param.value))  # pyrefly: ignore[missing-attribute]
+        write_coros.append(t.with_transaction(txn).write(param.value))
       await asyncio.gather(*write_coros)
       await txn.commit_async()
 

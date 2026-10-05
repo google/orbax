@@ -170,7 +170,7 @@ class DbLibTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     # sqlite+aiosqlite://
     engine = db_lib.get_async_engine(config)
     self.assertEqual(
-        str(engine.url), f"sqlite+aiosqlite:///{tmp_file.full_path}"  # pyrefly: ignore[missing-attribute]
+        str(engine.url), f"sqlite+aiosqlite:///{tmp_file.full_path}"
     )
     await engine.dispose()
 

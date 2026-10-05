@@ -110,7 +110,7 @@ class ArrayCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     """Saves an array synchronously."""
 
     async def async_save():
-      commit_futures = await self.async_save(directory, *args, **kwargs)  # pytype: disable=bad-return-type
+      commit_futures = await self.async_save(directory, *args, **kwargs)
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       if commit_futures:  # May be None.

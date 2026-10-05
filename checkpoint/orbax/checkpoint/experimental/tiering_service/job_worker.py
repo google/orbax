@@ -559,7 +559,7 @@ class TieringServiceWorker:
       transfer_status = dict(transfer_status)
     transfer_status["error"] = error_msg
     job.transfer_status = transfer_status
-    session.add(job)  # pyrefly: ignore[missing-attribute]
+    session.add(job)
 
     # Clean up target TierPath on failure (set state to FAILED)
     target_tp = await self._get_target_tier_path(
@@ -567,7 +567,7 @@ class TieringServiceWorker:
     )
     if target_tp:
       target_tp.state = db_schema.TierPathState.FAILED
-      session.add(target_tp)  # pyrefly: ignore[missing-attribute]
+      session.add(target_tp)
 
     logging.error("Failed job %d: %s", job.id, error_msg)
 
@@ -583,7 +583,7 @@ class TieringServiceWorker:
     job.worker_host = None
     job.worker_pid = None
     job.expiration_at = None
-    session.add(job)  # pyrefly: ignore[missing-attribute]
+    session.add(job)
 
     if job.request_type == db_schema.RequestType.REQUEST_TYPE_COPY:
       # Mark target TierPath as ready
@@ -602,7 +602,7 @@ class TieringServiceWorker:
         ):
           ttl = datetime.timedelta(seconds=60 * 60)
           target_tp.expires_at = assets.calculate_expires_at(ttl)
-        session.add(target_tp)  # pyrefly: ignore[missing-attribute]
+        session.add(target_tp)
       logging.info(
           "Completed job %d, target TierPath %s marked ready",
           job.id,

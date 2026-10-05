@@ -319,7 +319,7 @@ class CompatibleTypeHandler(
 
   def __init__(
       self,
-      leaf_handler: types.LeafHandler[types.Leaf, types.AbstractLeaf],  # pyrefly: ignore[invalid-type-var]
+      leaf_handler: types.LeafHandler[types.Leaf, types.AbstractLeaf],
       typestr: str,
   ):
     self._leaf_handler = leaf_handler
@@ -330,7 +330,7 @@ class CompatibleTypeHandler(
 
   async def serialize(
       self,
-      values: Sequence[types.Leaf],  # pyrefly: ignore[invalid-type-var]
+      values: Sequence[types.Leaf],
       infos: Sequence[types_v0.ParamInfo],
       args: Sequence[types_v0.SaveArgs] | None = None,
   ) -> Sequence[future.Future]:
@@ -392,7 +392,7 @@ class CompatibleTypeHandler(
       self,
       infos: Sequence[types_v0.ParamInfo],
       args: Sequence[types_v0.RestoreArgs] | None = None,
-  ) -> Sequence[types.Leaf]:  # pyrefly: ignore[invalid-type-var]
+  ) -> Sequence[types.Leaf]:
     _validate_deserialization_infos(infos)
 
     params = []

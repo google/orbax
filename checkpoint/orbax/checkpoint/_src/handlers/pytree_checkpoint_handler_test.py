@@ -317,7 +317,7 @@ class PyTreeCheckpointHandlerTest(
         dtype = np.float64 if isinstance(value, float) else np.int64
         return value_metadata.ScalarMetadata(
             name='', directory=None, dtype=dtype  # pyrefly: ignore[bad-argument-type]
-        )  # pytype: disable=wrong-arg-types  # jnp-type
+        )
       if isinstance(value, str):
         return value_metadata.StringMetadata(name='', directory=None)
       if isinstance(value, optax.EmptyState):
@@ -753,10 +753,10 @@ class PyTreeCheckpointHandlerTest(
     restore_args = {
         'a': RestoreArgs(
             restore_type=float
-        ),  # pytype: disable=wrong-arg-types  # jnp-type
+        ),
         'b': RestoreArgs(
             restore_type=int
-        ),  # pytype: disable=wrong-arg-types  # jnp-type
+        ),
     }
 
     self.handler.save(self.directory, args=PyTreeSaveArgs(pytree))
@@ -1927,7 +1927,7 @@ class PyTreeCheckpointHandlerTest(
 
       async def serialize(  # pyrefly: ignore[bad-override]
           self,
-          values: Sequence[int],  # pytype: disable=signature-mismatch
+          values: Sequence[int],
           infos: Sequence[ParamInfo],
           args: Optional[Sequence[SaveArgs]] = None,
       ) -> Sequence[future.Future]:

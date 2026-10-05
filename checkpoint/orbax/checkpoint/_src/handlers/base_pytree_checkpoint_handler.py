@@ -781,7 +781,7 @@ class BasePyTreeCheckpointHandler(
     """
 
     async def async_save(*args, **kwargs):
-      commit_futures = await self.async_save(*args, **kwargs)  # pyrefly: ignore[bad-return-type]
+      commit_futures = await self.async_save(*args, **kwargs)
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       if commit_futures:  # May be None.

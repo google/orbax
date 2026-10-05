@@ -157,10 +157,10 @@ class StandardCheckpointHandlerTestBase(
 
     # create a custom layout
     arr_layout = arrays_sharding_lib.get_device_local_layout(arr)
-    custom_layout = Format(  # pytype: disable=wrong-keyword-args
+    custom_layout = Format(
         DLL(  # pyrefly: ignore[bad-argument-type]
-            major_to_minor=arr_layout.major_to_minor[::-1],  # pytype: disable=attribute-error
-            tiling=arr_layout.tiling,  # pytype: disable=attribute-error
+            major_to_minor=arr_layout.major_to_minor[::-1],
+            tiling=arr_layout.tiling,
         ),
         sharding=arr.sharding,  # pyrefly: ignore[unexpected-keyword]
     )
@@ -426,7 +426,7 @@ class StandardCheckpointHandlerTestBase(
         spec=jax.sharding.PartitionSpec('x'),
     )
 
-    invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(  # pytype: disable=wrong-arg-types
+    invalid_sharding_metadata = sharding_metadata.NamedShardingMetadata(
         shape=np.array([2, 4]),
         axis_names=['x'],
         partition_spec=(jax.sharding.PartitionSpec('x'),),  # pyrefly: ignore[bad-argument-type]

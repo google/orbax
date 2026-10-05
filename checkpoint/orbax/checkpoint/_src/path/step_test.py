@@ -537,8 +537,8 @@ class UtilsTest(parameterized.TestCase):
         standard_format
     )
 
-    self.assertFalse(standard_format.single_host_load_and_broadcast)  # pytype: disable=attribute-error
-    self.assertTrue(new_format.single_host_load_and_broadcast)  # pytype: disable=attribute-error
+    self.assertFalse(standard_format.single_host_load_and_broadcast)  # pyrefly: ignore[missing-attribute]
+    self.assertTrue(new_format.single_host_load_and_broadcast)  # pyrefly: ignore[missing-attribute]
 
   def test_single_host_load_and_broadcast_name_format_composite_raises_error(
       self,

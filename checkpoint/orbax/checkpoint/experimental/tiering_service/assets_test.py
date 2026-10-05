@@ -612,7 +612,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         prefix="/mnt/lustre-b",
         zone="us-central1-b",
     )
-    session.add_all([b1, b2])  # pyrefly: ignore[missing-attribute]
+    session.add_all([b1, b2])
     await session.commit()
 
     request = tiering_service_pb2.ReserveRequest(
@@ -1229,7 +1229,7 @@ class AssetsDbTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
           prefix="/mnt/lustre-a",
           zone="us-central1-a",
       )
-      session.add(b1)  # pyrefly: ignore[missing-attribute]
+      session.add(b1)
       await session.commit()
 
       request = tiering_service_pb2.ReserveRequest(

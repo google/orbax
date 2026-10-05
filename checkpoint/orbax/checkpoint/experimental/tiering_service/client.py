@@ -476,7 +476,7 @@ class TieringClient:
     if uuid is not None:
       request.uuid = uuid
     else:
-      request.path = path  # pytype: disable=wrong-arg-types
+      request.path = path  # pyrefly: ignore[bad-assignment]
     if zone is not None:
       request.zone = zone
     if region is not None:

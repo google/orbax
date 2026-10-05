@@ -37,10 +37,10 @@ def is_subclass_protocol(cls: Type[Any], protocol: Type[Any]) -> bool:
     True if the class defines all the attributes of the protocol.
   """
 
-  if not typing_extensions.is_protocol(protocol):  # pytype: disable=not-supported-yet
+  if not typing_extensions.is_protocol(protocol):
     raise ValueError(f'Protocol {protocol} is not a Protocol.')
 
-  members = typing_extensions.get_protocol_members(protocol)  # pytype: disable=not-supported-yet
+  members = typing_extensions.get_protocol_members(protocol)
 
   if not members:
     return True  # empty protocol, so it matches any type.
