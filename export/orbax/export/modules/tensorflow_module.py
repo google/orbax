@@ -171,7 +171,7 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
   ):
     """Wraps JAX functions and parameters in TF functions and variables."""
     if (
-        obx_export_config.obx_export_tf_preprocess_only  # pytype: disable=attribute-error
+        obx_export_config.obx_export_tf_preprocess_only  # pyrefly: ignore[missing-attribute]
     ):
       # Skip the heavy jax_params_to_tf_variables() call in TF preprocess only
       # mode.

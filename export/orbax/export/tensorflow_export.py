@@ -45,7 +45,7 @@ class TensorFlowExport(export_base.ExportBase):
     self._serving_signatures = {}
     self._process_serving_configs(
         serving_configs,
-        obx_export_config.obx_export_tf_preprocess_only,  # pytype: disable=attribute-error
+        obx_export_config.obx_export_tf_preprocess_only,  # pyrefly: ignore[missing-attribute]
     )
 
   def save(

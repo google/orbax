@@ -183,7 +183,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
 
     self.assertIsNotNone(processor.obm_function)
     self.assertEqual(
-        processor.obm_function.lowering_platforms,  # pytype: disable=attribute-error
+        processor.obm_function.lowering_platforms,  # pyrefly: ignore[missing-attribute]
         ('cpu',),
     )
 
@@ -216,7 +216,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     # Note: The underlying OBM Function signature uses None for dynamic
     # dimensions, regardless of the symbolic string provided by the user.
     out_spec = processor.output_signature
-    self.assertEqual(list(out_spec.shape), [None, 3])  # pytype: disable=attribute-error
+    self.assertEqual(list(out_spec.shape), [None, 3])
 
   def test_prepare_with_polymorphic_shapes_none(self):
     def add(x: jax.Array) -> jax.Array:
@@ -232,7 +232,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     )
 
     out_spec = processor.output_signature
-    self.assertEqual(list(out_spec.shape), [None, 3])  # pytype: disable=attribute-error
+    self.assertEqual(list(out_spec.shape), [None, 3])
 
 
 class JaxShapeSpecGeneratorTest(parameterized.TestCase):

@@ -27,33 +27,29 @@ class ConfigTest(absltest.TestCase):
         default=True,
         help_str='Configuration only used for tests.',
     )
-    # pytype: disable=attribute-error
-    self.assertEqual(orbax_export_config.obx_export_test_bool_config, True)
+    self.assertEqual(orbax_export_config.obx_export_test_bool_config, True)  # pyrefly: ignore[missing-attribute]
     orbax_export_config.update('obx_export_test_bool_config', False)
     self.assertEqual(orbax_export_config.obx_export_test_bool_config, False)
 
     orbax_export_config._undefine_state('obx_export_test_bool_config')
     self.assertNotIn('obx_export_test_bool_config', orbax_export_config.values)
-    # pytype: enable=attribute-error
 
   def test_config_setting_via_context(self):
     # The default value of obx_export_tf_preprocess_only is False.
-    # pytype: disable=attribute-error
-    self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, False)
+    self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, False)  # pyrefly: ignore[missing-attribute]
     with config.obx_export_tf_preprocess_only(True):
       self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, True)
     self.assertEqual(orbax_export_config.obx_export_tf_preprocess_only, False)
 
-    self.assertEqual(orbax_export_config.obx_export_preprocessors_only, False)
+    self.assertEqual(orbax_export_config.obx_export_preprocessors_only, False)  # pyrefly: ignore[missing-attribute]
     with config.OBX_EXPORT_PREPROCESSORS_ONLY(True):
       self.assertEqual(orbax_export_config.obx_export_preprocessors_only, True)
     self.assertEqual(orbax_export_config.obx_export_preprocessors_only, False)
 
-    self.assertEqual(orbax_export_config.obx_export_postprocessors_only, False)
+    self.assertEqual(orbax_export_config.obx_export_postprocessors_only, False)  # pyrefly: ignore[missing-attribute]
     with config.OBX_EXPORT_POSTPROCESSORS_ONLY(True):
       self.assertEqual(orbax_export_config.obx_export_postprocessors_only, True)
     self.assertEqual(orbax_export_config.obx_export_postprocessors_only, False)
-    # pytype: enable=attribute-error
 
   def test_config_setting_via_env(self):
     os.environ['OBX_EXPORT_TEST_BOOL_CONFIG'] = 'false'
@@ -64,12 +60,12 @@ class ConfigTest(absltest.TestCase):
         default=True,
         help_str='Configuration only used for tests.',
     )
-    self.assertEqual(orbax_export_config.obx_export_test_bool_config, False)  # pytype: disable=attribute-error
+    self.assertEqual(orbax_export_config.obx_export_test_bool_config, False)  # pyrefly: ignore[missing-attribute]
 
     # Attention: update the env variable after `define_bool_state` later will
     # not change the config default value.
     os.environ['OBX_EXPORT_TEST_BOOL_CONFIG'] = 'true'
-    self.assertEqual(orbax_export_config.obx_export_test_bool_config, False)  # pytype: disable=attribute-error
+    self.assertEqual(orbax_export_config.obx_export_test_bool_config, False)
     orbax_export_config._undefine_state('obx_export_test_bool_config')
 
 
