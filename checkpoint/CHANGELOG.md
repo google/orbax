@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Multi-tier checkpointing: `initialize_multi_tier_checkpointing` now passes
+  `jax_initialization_timeout_seconds` to the restore marker wait in the
+  standard (non-Colocated Python) path instead of silently using the 300 s
+  default.
+
 ## [0.12.6] - 2026-09-25
 
 ### Added

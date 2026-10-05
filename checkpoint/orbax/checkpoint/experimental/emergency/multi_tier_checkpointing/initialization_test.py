@@ -482,6 +482,65 @@ class MultiTierCheckpointingInitializationTest(
     self.assertTrue(expected_restore_dir.exists())
 
   @mock.patch.object(
+      initialization, "_block_and_process_restore_dir", autospec=True
+  )
+  @mock.patch.object(
+      initialization, "_wait_for_replicator_file_to_disappear", autospec=True
+  )
+  @mock.patch.object(
+      initialization, "_create_replicator_file", autospec=True
+  )
+  @mock.patch.object(
+      initialization, "_retrieve_jax_init_info", autospec=True
+  )
+  @mock.patch.object(jax.distributed, "initialize", autospec=True)
+  @mock.patch.object(
+      multihost, "initialize_runtime_to_distributed_ids", autospec=True
+  )
+  @mock.patch.object(
+      multihost, "initialize_distributed_to_device_ids", autospec=True
+  )
+  @mock.patch.object(
+      multihost, "runtime_to_distributed_ids", autospec=True
+  )
+  def test_initialize_multi_tier_checkpointing_restore_wait_uses_timeout(
+      self,
+      mock_runtime_to_distributed_ids,
+      unused_mock_initialize_distributed_to_device_ids,
+      unused_mock_initialize_runtime_to_distributed_ids,
+      unused_mock_jax_distributed_initialize,
+      mock_retrieve_jax_init_info,
+      unused_mock_create_replicator_file,
+      mock_wait_for_replicator_file_to_disappear,
+      mock_block_and_process_restore_dir,
+  ):
+    mock_runtime_to_distributed_ids.return_value = [0, 1]
+    mock_retrieve_jax_init_info.return_value = ["0", "coordinator_address"]
+    mock_wait_for_replicator_file_to_disappear.return_value = False
+    tmp_dir = epath.Path(self.create_tempdir().full_path)
+
+    with (
+        mock.patch.object(
+            initialization.jax, "process_count", return_value=2
+        ),
+        mock.patch.object(
+            initialization.jax, "process_index", return_value=0
+        ),
+    ):
+      initialization.initialize_multi_tier_checkpointing(
+          tmp_dir,
+          num_slices=1,
+          run_name="test-run",
+          data_parallelism=1,
+          jax_initialization_timeout_seconds=1234,
+      )
+    # The restore marker wait must honor the caller's timeout instead of the
+    # helper's 300 s default.
+    mock_block_and_process_restore_dir.assert_called_once_with(
+        tmp_dir, timeout_seconds=1234
+    )
+
+  @mock.patch.object(
       initialization, "_wait_for_replicator_file_to_disappear", autospec=True
   )
   @mock.patch.object(
