@@ -53,7 +53,7 @@ def resolve_slice(xs: NdSlice, shape: Shape) -> NdSlice:
   return tuple(
       slice(*x.indices(n))
       if isinstance(x, slice) else slice(x, x+1, 1)
-      for x, n in zip(() if xs is Ellipsis else xs, shape))  # pyrefly: ignore[bad-argument-type]
+      for x, n in zip(() if xs is Ellipsis else xs, shape))
 
 
 def to_hashable_index(
@@ -134,8 +134,8 @@ def normalize_slice(resolved_slice: Index, shape: Shape) -> Index:
   """
   return tuple(
       slice(
-          s.start if s.start >= 0 else dim + s.start,  # pytype:disable=unsupported-operands
-          s.stop if s.stop >= 0 else dim + s.stop,  # pytype:disable=unsupported-operands
+          s.start if s.start >= 0 else dim + s.start,
+          s.stop if s.stop >= 0 else dim + s.stop,
           s.step,
       )
       for s, dim in zip(resolved_slice, shape)
@@ -159,6 +159,6 @@ def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:  # pyrefly: i
   idx_str = (
       '...'
       if not idx or idx is Ellipsis
-      else ', '.join(_pretty_slice(s) for s in idx)  # pyrefly: ignore[not-iterable]
+      else ', '.join(_pretty_slice(s) for s in idx)
   )
   return f'np.s_[{idx_str}]'

@@ -75,7 +75,7 @@ class ValidationTest(parameterized.TestCase):
 
   def test_validate_save_checkpointables_invalid_structure(self):
     with self.assertRaises(ValueError):
-      validation.validate_save_checkpointables([{'a': 1}])  # pytype: disable=wrong-arg-types
+      validation.validate_save_checkpointables([{'a': 1}])  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaises(ValueError):
       validation.validate_save_checkpointables({'': {'a': 1}})

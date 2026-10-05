@@ -251,7 +251,7 @@ class ColocatedTransportTest(absltest.TestCase):
       pass
 
     self.assertEqual(
-        colocated_transport._device_platform(_DeviceWithoutPlatform()),  # pytype: disable=wrong-arg-types # pylint: disable=protected-access
+        colocated_transport._device_platform(_DeviceWithoutPlatform()),  # pylint: disable=protected-access  # pyrefly: ignore[bad-argument-type]
         'unknown',
     )
 
@@ -348,7 +348,7 @@ class ColocatedTransportTest(absltest.TestCase):
       device_map = colocated_transport._get_cpu_device_map()  # pylint: disable=protected-access
 
     with self.assertRaises(TypeError):
-      device_map[1] = cpu  # pytype: disable=unsupported-operands
+      device_map[1] = cpu  # pyrefly: ignore[unsupported-operation]
 
   def test_normalize_mesh_to_colocated_cpu_remaps_non_cpu_devices(self):
     cpu0 = mock.Mock(platform='cpu')
@@ -368,7 +368,7 @@ class ColocatedTransportTest(absltest.TestCase):
         '_to_serializable_cpu_device',
         side_effect=[cpu0, cpu1],
     ):
-      cpu_mesh = colocated_transport._normalize_mesh_to_colocated_cpu(  # pytype: disable=wrong-arg-types # pylint: disable=protected-access
+      cpu_mesh = colocated_transport._normalize_mesh_to_colocated_cpu(  # pylint: disable=protected-access
           mesh  # pyrefly: ignore[bad-argument-type]
       )
 

@@ -110,7 +110,7 @@ class PathwaysTest(absltest.TestCase):
         _FakeDevice(id=2, virtual_task_index=1, slice_index=0),
         _FakeDevice(id=72, virtual_task_index=0, slice_index=1),
     ]
-    grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+    grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 3)
     self.assertEqual([d.id for d in grouped[(0, 0)]], [0, 1])
@@ -123,7 +123,7 @@ class PathwaysTest(absltest.TestCase):
         _FakeDevice(id=1, task_id=0, slice_index=0),
         _FakeDevice(id=72, task_id=0, slice_index=1),
     ]
-    grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+    grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 2)
     self.assertEqual([d.id for d in grouped[(0, 0)]], [0, 1])
@@ -136,7 +136,7 @@ class PathwaysTest(absltest.TestCase):
         _FakeDevice(id=2, repr_vtask=1, slice_index=0),
     ]
 
-    grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+    grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 2)
     self.assertEqual([d.id for d in grouped[(0, 0)]], [0, 1])
@@ -149,7 +149,7 @@ class PathwaysTest(absltest.TestCase):
     ]
 
     with mock.patch.object(pathways.logging, 'warning') as warning:
-      grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+      grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 2)
     warning.assert_called_once()
@@ -166,7 +166,7 @@ class PathwaysTest(absltest.TestCase):
     ]
 
     with mock.patch.object(pathways.logging, 'warning') as warning:
-      grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+      grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 1)
     warning.assert_not_called()
@@ -177,7 +177,7 @@ class PathwaysTest(absltest.TestCase):
         _FakeDevice(id=2, task_id=0, repr_logical_task=1, slice_index=0),
     ]
 
-    grouped = pathways.group_devices_by_worker(devices)  # pytype: disable=wrong-arg-types
+    grouped = pathways.group_devices_by_worker(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertLen(grouped, 2)
     self.assertEqual([d.id for d in grouped[(0, 0)]], [0])
@@ -188,7 +188,7 @@ class PathwaysTest(absltest.TestCase):
         id=13,
         task_id=5,
     )
-    grouped = pathways.group_devices_by_worker([device])  # pytype: disable=wrong-arg-types
+    grouped = pathways.group_devices_by_worker([device])  # pyrefly: ignore[bad-argument-type]
     self.assertIn((5,), grouped)
     self.assertEqual(grouped[(5,)][0].id, 13)
 
@@ -201,7 +201,7 @@ class PathwaysTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'requires a task identifier; slice_index alone is ambiguous'
     ):
-      pathways.group_devices_by_worker([device])  # pytype: disable=wrong-arg-types
+      pathways.group_devices_by_worker([device])  # pyrefly: ignore[bad-argument-type]
 
   def test_group_devices_by_worker_raises_without_worker_metadata(self):
     device = _FakeDevice(
@@ -215,7 +215,7 @@ class PathwaysTest(absltest.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Unable to infer Pathways worker key from device attributes'
     ):
-      pathways.group_devices_by_worker([device])  # pytype: disable=wrong-arg-types
+      pathways.group_devices_by_worker([device])  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == '__main__':

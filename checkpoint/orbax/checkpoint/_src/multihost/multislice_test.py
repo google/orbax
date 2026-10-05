@@ -161,7 +161,7 @@ class UtilsTest(parameterized.TestCase):
         np.arange(3 * array_size * 16).reshape((16, 3 * array_size)) * 4,
     ]
     arrays, mesh, mesh_axes = setup_replica_sharded_arrays(
-        arr, (2, len(jax.devices()) // 2)  # pyrefly: ignore[bad-argument-type]
+        arr, (2, len(jax.devices()) // 2)
     )
     replica_axis_index = 0
 
@@ -193,7 +193,7 @@ class UtilsTest(parameterized.TestCase):
 
     _, primary_replica_pids = multislice.get_primary_replica_ids_and_pids(
         replica_axis_idx=replica_axis_index,
-        mesh=shardings[0].mesh,  # pytype: disable=attribute-error
+        mesh=shardings[0].mesh,
         primary_replica_id=0,
     )
     is_in_primary_replica = multihost.process_index() in primary_replica_pids
@@ -223,7 +223,7 @@ class UtilsTest(parameterized.TestCase):
     compile_log = 'Compiling jit(_sum_over_replica_axis)'
     arrays, mesh, _ = setup_replica_sharded_arrays(
         [np.arange(8 * 16000).reshape((8, 16000))],
-        (2, len(jax.devices()) // 2),  # pyrefly: ignore[bad-argument-type]
+        (2, len(jax.devices()) // 2),
     )
     abstract_arrays = tuple(
         jax.ShapeDtypeStruct(a.shape, a.dtype, sharding=a.sharding)
@@ -255,7 +255,7 @@ class UtilsTest(parameterized.TestCase):
         )
     ]
     arrays, mesh, _ = setup_replica_sharded_arrays(
-        arr, (2, num_devices_per_replica)  # pyrefly: ignore[bad-argument-type]
+        arr, (2, num_devices_per_replica)
     )
     sharded_arr = arrays[0]
     replica_axis_index = 0

@@ -109,7 +109,7 @@ class OrbaxLayoutCompositeTest(parameterized.TestCase):
     async def _save():
       handler_typestrs = {
           name: handler_types.typestr(
-              type(  # pyrefly: ignore[bad-argument-type]
+              type(
                   registration.resolve_handler_for_save(
                       layout._handler_registry, checkpointables[name], name=name
                   )

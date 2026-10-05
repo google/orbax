@@ -142,15 +142,15 @@ def construct_maximal_shardings(
 def get_device_local_layout(arr: jax.Array) -> Any:
   """Returns device_local_layout of a jax.Array."""
   return (
-      arr.format.layout  # pytype: disable=attribute-error
+      arr.format.layout  # pyrefly: ignore[missing-attribute]
       if jax.__version_info__ >= (0, 6, 3)
-      else arr.format.device_local_layout  # pytype: disable=attribute-error
+      else arr.format.device_local_layout  # pyrefly: ignore[missing-attribute]
   )
 
 
 def get_sharding_or_format(
     value: Any, *, support_format: bool = False
-) -> jax.sharding.Sharding | Format | None:  # pytype: disable=unsupported-operands
+) -> jax.sharding.Sharding | Format | None:
   """Returns the Format if it exists, then the Sharding if it exists, otherwise None."""
 
   if hasattr(value, 'sharding'):

@@ -52,7 +52,7 @@ class FragmentTest(parameterized.TestCase):
         _ = fragment_t(
             index=array_fragments._ndarray_from_index(index),
             value=value
-        )  # pytype: disable=wrong-arg-types
+        )
 
     with self.subTest('with_np_index'):
       f = fragment_t(index=np.s_[1:2:1, 3:4:1], value=value)
@@ -720,7 +720,7 @@ class FragmentsClassMethodsTest(parameterized.TestCase):
 
     with self.subTest('with_none_raises'):
       with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
-        fragments_t.all_of(None)  # pytype: disable=wrong-arg-types
+        fragments_t.all_of(None)  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.named_parameters(
       ('np_array', NpFragments),
@@ -767,7 +767,7 @@ class FragmentsClassMethodsTest(parameterized.TestCase):
 
     with self.subTest('with_none_raises'):
       with self.assertRaisesRegex(TypeError, 'Fragment value must be'):
-        fragments_t.none_of(None)  # pytype: disable=wrong-arg-types
+        fragments_t.none_of(None)
 
   def test_np_fragments_from_addressable_shards_of_np_array(self):
     # NumPy arrays aren't sharded so we expect a single fragment spanning the
@@ -1268,7 +1268,7 @@ class StackFragmentsTest(parameterized.TestCase):
         ],
     )
 
-    self.assert_stacking_is_rejected(fragments, 'Not all fragments have values')  # pytype: disable=wrong-arg-types
+    self.assert_stacking_is_rejected(fragments, 'Not all fragments have values')  # pyrefly: ignore[bad-specialization]
 
 
 class BackwardsCompatibleTypesTest(absltest.TestCase):

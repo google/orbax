@@ -121,7 +121,7 @@ class ShardingTest(parameterized.TestCase):
 
     self.assertEqual(sharding.shard_shape(s.shape), shard_shape)
     self.assertEqual(sharding.spec, jax.sharding.PartitionSpec(*pspec))
-    self.assertEqual(sharding.mesh.devices.shape, mesh_shape)  # pytype: disable=attribute-error
+    self.assertEqual(sharding.mesh.devices.shape, mesh_shape)
 
 
 if __name__ == '__main__':

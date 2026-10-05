@@ -139,7 +139,7 @@ class _SaveResponse(AsyncResponse[None]):
     )
 
     handler_typestrs = {
-        name: handler_types.typestr(type(handler))  # pyrefly: ignore[bad-argument-type]
+        name: handler_types.typestr(type(handler))
         for name, handler in handler_resolution.get_handlers_for_save(
             context.checkpointables_options.registry, checkpointables
         ).items()

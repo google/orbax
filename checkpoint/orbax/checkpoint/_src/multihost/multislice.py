@@ -298,7 +298,7 @@ def _globalize_single_replica_arrays(
     else:
       # Use jax.numpy.zeros to allocate directly on device
       # to avoid Host RAM spike.
-      slice_shape = _get_slice_shape(index, global_shape)  # pyrefly: ignore[bad-argument-type]
+      slice_shape = _get_slice_shape(index, global_shape)
       with _single_device_scope(d):
         zero_data = jnp.zeros(slice_shape, dtype=inp.dtype, device=d)
       device_buffers.append(zero_data)
