@@ -215,7 +215,7 @@ async def _async_serialize_shardings(
       if sharding_metadata_value is not None:
         serialized_sharding = sharding_metadata_value.to_serialized_string()
       if serialized_sharding is not None:
-        await t.with_transaction(sharding_metadata_txn).write(  # pytype: disable=attribute-error
+        await t.with_transaction(sharding_metadata_txn).write(
             serialized_sharding
         )
 
@@ -964,7 +964,7 @@ def _wrap_random_key_data(
       if meta.ext_metadata is None or not isinstance(meta.ext_metadata, dict):
         continue
 
-      if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):  # pytype: disable=attribute-error
+      if impl := meta.ext_metadata.get(array_metadata_lib.RANDOM_KEY_IMPL):
         deserialized_arrays[i] = jax.random.wrap_key_data(v, impl=impl)
         logging.vlog(
             1,
@@ -1043,7 +1043,7 @@ async def _deserialize_shardings(
             open=True,
             read=True,
         )
-        serialized_string = await t.read()  # pytype: disable=attribute-error
+        serialized_string = await t.read()
         if serialized_string:
           sharding = sharding_metadata.get_sharding_or_none(serialized_string)
       else:
@@ -1427,11 +1427,11 @@ class ArrayHandler(types.TypeHandler):
       for sharding_tensorstore in sharding_tensorstores:
         if sharding_tensorstore:
           sharding_string = await sharding_tensorstore.read()
-          if not sharding_string.item():  # pytype: disable=attribute-error
+          if not sharding_string.item():
             shardings.append(None)
             continue
           deserialized = sharding_metadata.from_serialized_string(
-              sharding_string.item()  # pytype: disable=attribute-error
+              sharding_string.item()
           )
           shardings.append(deserialized)
         else:
@@ -1666,7 +1666,7 @@ class ArrayHandler(types.TypeHandler):
         )
       ts_utils.print_ts_debug_data(self._metadata_key, infos)
 
-    return ret  # pytype: disable=bad-return-type
+    return ret
 
 
 def _is_host_for_primary_replica(primary_replica_ids: set[int]) -> bool:
@@ -1938,7 +1938,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
   async def deserialize(  # pyrefly: ignore[bad-override]
       self,
       infos: Sequence[types.ParamInfo],
-      args: Sequence[SingleReplicaArrayRestoreArgs] | None = None,  # pytype: disable=signature-mismatch
+      args: Sequence[SingleReplicaArrayRestoreArgs] | None = None,
   ) -> Sequence[jax.Array]:
     """Deserializing in case of single replica broadcasting.
 

@@ -331,7 +331,7 @@ async def _read_array_index_and_device_put(
       ) from e
     for device in devices:
       sharding = make_single_device_sharding(device, memory_kind=memory_kind)
-      result.append(jax.device_put(shard, Format(dll, sharding)))  # pytype: disable=wrong-arg-types
+      result.append(jax.device_put(shard, Format(dll, sharding)))
   return result, requested_bytes
 
 
@@ -392,7 +392,7 @@ async def _read_and_create_array(
 
 
 async def async_deserialize(
-    user_sharding: jax.sharding.Sharding | Format,  # pytype: disable=wrong-arg-types  # pytype: disable=unsupported-operands
+    user_sharding: jax.sharding.Sharding | Format,
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
     global_shape: Optional[Shape] = None,
     dtype: Optional[jnp.dtype] = None,

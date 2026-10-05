@@ -118,7 +118,7 @@ class NumpyHandler(types.TypeHandler):
     t = await ts.open(
         ts.Spec(tspec), create=True, open=True, context=ts_context
     )
-    await t.write(value, can_reference_source_data_indefinitely=True)  # pytype: disable=attribute-error
+    await t.write(value, can_reference_source_data_indefinitely=True)
 
   async def _background_serialize(
       self,
@@ -254,7 +254,7 @@ class ScalarHandler(NumpyHandler):
 
   async def serialize(  # pyrefly: ignore[bad-override]
       self,
-      values: Sequence[Scalar],  # pytype: disable=signature-mismatch
+      values: Sequence[Scalar],
       infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[types.SaveArgs]] = None,
   ) -> Sequence[future.Future]:
@@ -266,7 +266,7 @@ class ScalarHandler(NumpyHandler):
       self,
       infos: Sequence[types.ParamInfo],
       args: Optional[Sequence[RestoreArgs]] = None,
-  ) -> Sequence[Scalar]:  # pytype: disable=signature-mismatch
+  ) -> Sequence[Scalar]:
     """See superclass documentation."""
     results = await super().deserialize(infos, args)
     for r in results:
@@ -346,7 +346,7 @@ class StringHandler(types.TypeHandler):
             open=True,
             context=self._ts_context,
         )
-        write_coros.append(t.with_transaction(txn).write(value))  # pytype: disable=attribute-error
+        write_coros.append(t.with_transaction(txn).write(value))
 
     gather_future = asyncio.gather(*write_coros)
     await asyncio_utils.cancellable(

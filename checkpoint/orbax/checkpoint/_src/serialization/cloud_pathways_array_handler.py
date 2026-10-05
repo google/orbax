@@ -314,7 +314,7 @@ class CloudPathwaysArrayHandler(jax_array_handlers.ArrayHandler):
         # Re-wrap physical key_data uint32 arrays into target PRNG key.
         if jax.dtypes.issubdtype(orig_dtype, jax.dtypes.prng_key):
           arr = jax.random.wrap_key_data(
-              arr, dtype=orig_dtype  # pyrefly: ignore[bad-argument-type]
+              arr, dtype=orig_dtype
           )
         elif meta := array_metadatas_cache.get(info.name):
 

@@ -362,7 +362,7 @@ def get_replica_slices(
   if use_replica_parallel and is_safe_to_slice:
     candidate_slices = maybe_pick_replica_parallel()
   if candidate_slices is None:
-    candidate_slices = pick_single_replica()  # pytype: disable=attribute-error
+    candidate_slices = pick_single_replica()
   rslices, local_shape = candidate_slices
 
   if multihost.process_index() == 0:

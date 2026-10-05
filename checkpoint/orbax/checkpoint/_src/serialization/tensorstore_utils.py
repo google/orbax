@@ -442,13 +442,13 @@ def _build_ocdbt_kvstore_tspec(
   if name is not None:
     kv_spec['path'] = name
 
-  kv_spec.update({  # pytype: disable=attribute-error
+  kv_spec.update({
       # References the cache specified in ts.Context.
       'cache_pool': 'cache_pool#ocdbt',
   })
 
   if is_remote_storage(kv_spec):
-    kv_spec.update({  # pytype: disable=attribute-error
+    kv_spec.update({  # pyrefly: ignore[no-matching-overload]
         # Enable read coalescing.  This feature merges adjacent read_ops into
         # one, which could reduce I/O ops by a factor of 10. This is
         # especially beneficial for unstacked models.
@@ -604,7 +604,7 @@ def _build_zarr2_metadata(
   return {
       'shape': global_shape,
       'chunks': chunk_shape,
-      'compressor': compressor,  # pyrefly: ignore[bad-assignment]
+      'compressor': compressor,
   }
 
 
@@ -632,15 +632,15 @@ def _build_zarr3_metadata(
     # Use default level 3 straight from TensorStore.
     codecs[0]['configuration']['codecs'].append(
         {'name': 'zstd', 'configuration': {'level': 3}}
-    )  # pyrefly: ignore[bad-index]
+    )
 
   return {
       'shape': global_shape,
-      'chunk_grid': {  # pyrefly: ignore[bad-assignment]
+      'chunk_grid': {
           'name': 'regular',
           'configuration': {'chunk_shape': chunk_shape},
       },
-      'codecs': codecs,  # pyrefly: ignore[bad-assignment]
+      'codecs': codecs,
   }
 
 
