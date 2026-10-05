@@ -1380,6 +1380,74 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     # kvstack spec is independent of the mode and write options.
     self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
 
+  @parameterized.product(
+      gcs_backend=('gcs', 'gcs_grpc'),
+      use_process_spec=(True, False),
+      has_object_path=(True, False),
+  )
+  def test_gcs_path_with_temporary_metadata_context(
+      self,
+      gcs_backend: str,
+      use_process_spec: bool,
+      has_object_path: bool,
+  ):
+    directory = (
+        'gs://gcs_bucket/object_path' if has_object_path else 'gs://gcs_bucket'
+    )
+    process_spec = (
+        ts_utils.OcdbtProcessSpec(process_id='w13')
+        if use_process_spec
+        else None
+    )
+    if has_object_path and use_process_spec:
+      expected_path = f'object_path/{str(process_spec)}/'
+    elif has_object_path:
+      expected_path = 'object_path/'
+    elif use_process_spec:
+      expected_path = f'{str(process_spec)}/'
+    else:
+      expected_path = ''
+
+    with unittest.mock.patch.dict(
+        os.environ, {'TENSORSTORE_GCS_BACKEND': gcs_backend}
+    ):
+      kvstore_tspec = ts_utils.build_kvstore_tspec(
+          directory=directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=process_spec,
+          ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+              mode=ts_utils.OcdbtWriteMode.WRITE,
+          ),
+          ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+      )
+
+    self.assertEqual(
+        kvstore_tspec['target_data_file_size'],
+        ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
+    )
+    self.assertTrue(ts_utils.is_remote_storage(kvstore_tspec))
+    self.assertDictEqual(
+        kvstore_tspec['base'],
+        {
+            'driver': 'kvstack',
+            'layers': [
+                {
+                    'base': {
+                        'driver': gcs_backend,
+                        'bucket': 'gcs_bucket',
+                        'path': expected_path,
+                    },
+                },
+                {
+                    'prefix': 'ocdbt_tmp_meta/',
+                    'base': self.base_tmp_dir_spec,
+                },
+            ],
+        },
+    )
+    # Ensure TensorStore accepts the KvStore spec without error.
+    self.assertIsNotNone(ts.KvStore.Spec(kvstore_tspec))
+
 
 class GetTensorStoreRawBytesTest(parameterized.TestCase):
 

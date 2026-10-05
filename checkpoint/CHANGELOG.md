@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Consolidate GCS `kvstore` spec generation and support `gcs_grpc` with OCDBT
+  `kvstack`.
+
 ## [0.12.6] - 2026-09-25
 
 ### Added
