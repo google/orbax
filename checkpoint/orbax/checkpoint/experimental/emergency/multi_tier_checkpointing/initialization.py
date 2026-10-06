@@ -133,7 +133,7 @@ def _check_for_replicator_errors(
   fatal = _process_replicator_error_file(replicator_failed_file)
   if fatal:
     msg = f'Replicator fatal errors: {fatal}'
-    logging.log(python_logging.CRITICAL, msg)
+    python_logging.critical(msg)
     raise RuntimeError(msg)
 
 

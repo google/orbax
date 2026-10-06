@@ -268,11 +268,20 @@ class MultiTierCheckpointingInitializationTest(
     failed_file = root / initialization._REPLICATOR_FAILED_FILE
     failed_file.write_text("replicator daemon failed to start")
 
-    with self.assertRaisesRegex(
-        RuntimeError,
-        "Replicator fatal errors: replicator daemon failed to start",
+    with (
+        self.assertLogs(level="CRITICAL") as log_output,
+        self.assertRaisesRegex(
+            RuntimeError,
+            "Replicator fatal errors: replicator daemon failed to start",
+        ),
     ):
       initialization._block_and_process_restore_dir(root, timeout_seconds=1)
+    self.assertTrue(
+        any(
+            "Replicator fatal errors: replicator daemon failed to start" in msg
+            for msg in log_output.output
+        )
+    )
     self.assertFalse(failed_file.exists())
 
   def test_check_for_replicator_errors_processes_non_fatal_errors_file(self):
