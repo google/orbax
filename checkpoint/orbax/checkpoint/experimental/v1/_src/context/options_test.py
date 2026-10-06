@@ -18,14 +18,38 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from etils import epath
 import jax.numpy as jnp
 from orbax.checkpoint import options as v0_options_lib
+from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint.experimental.v1 import options as public_v1_options
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as ocp_options
 from orbax.checkpoint.experimental.v1._src.saving import saving
 from orbax.checkpoint.experimental.v1._src.serialization import registration
 from orbax.checkpoint.experimental.v1._src.serialization import types as serialization_types
+from orbax.checkpoint.experimental.v1._src.training import checkpointer as training_checkpointer
+from orbax.checkpoint.experimental.v1._src.training import save_decision_policies
 
+
+
+class _MockMemoryProfiler(public_v1_options.MemoryProfiler):
+
+  def __init__(self, total_memory_gib: float = 250.0):
+    super().__init__()
+    self._total_memory_gib = total_memory_gib
+    self.start_count = 0
+    self.end_count = 0
+
+  def profiler_start(self) -> None:
+    self.start_count += 1
+
+  def profiler_end(self) -> None:
+    self.end_count += 1
+
+  @property
+  def total_memory_gib(self) -> float:
+    return self._total_memory_gib
 
 
 class FileOptionsTest(parameterized.TestCase):
@@ -112,6 +136,140 @@ class MemoryOptionsTest(parameterized.TestCase):
             found,
             f'Expected call not found in {mock_handler_class.call_args_list}',
         )
+
+  def test_memory_regulator_and_expected_surge_bytes_with_save(self):
+    profiler = _MockMemoryProfiler(total_memory_gib=250.0)
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    regulator = public_v1_options.MemoryRegulator(
+        max_memory_limit_gib=80.0, ki=0.0, kd=0.0, profiler=profiler
+    )
+
+    ctx = context_lib.Context()
+    ctx.memory.memory_regulator = regulator
+    # Verify regulator takes precedence over static transfer_concurrent_bytes.
+    ctx.memory.transfer_concurrent_bytes = 512
+
+    directory = epath.Path(self.create_tempdir().full_path)
+    pytree = {'a': jnp.ones((2,))}
+
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      with ctx:
+        saving.save_checkpointables(
+            directory / 'step0', {'model': pytree, 'opt': pytree}
+        )
+      spy_limiter.assert_any_call(50 * 1024**3)
+      self.assertNotIn(mock.call(512), spy_limiter.call_args_list)
+
+    # One regulate() call per checkpoint save even with two PyTrees.
+    # error = 200 - 100 = 100 -> adjustment = 0.4 * 100 = 40 -> 10 + 40 = 50 GiB
+    self.assertEqual(profiler.start_count, 1)
+    self.assertEqual(profiler.end_count, 1)
+    self.assertEqual(regulator.current_limit_bytes, 50 * 1024**3)
+
+    # Simulate steady state at target (200 GiB) and an expected surge of 15 GiB.
+    profiler._peak_usage_bytes = int(200 * 1024**3)
+    surge_ctx = context_lib.Context(ctx)
+    surge_ctx.memory.expected_surge_bytes = 15 * 1024**3
+    self.assertIs(surge_ctx.memory.memory_regulator, regulator)
+
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      with surge_ctx:
+        saving.save_checkpointables(directory / 'step1', {'model': pytree})
+      spy_limiter.assert_any_call(35 * 1024**3)
+
+    self.assertEqual(profiler.start_count, 2)
+    self.assertEqual(profiler.end_count, 2)
+    self.assertEqual(regulator.current_limit_bytes, 35 * 1024**3)
+
+    # Next save without expected_surge_bytes restores the 50 GiB limit.
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      with ctx:
+        saving.save_checkpointables(directory / 'step2', {'model': pytree})
+      spy_limiter.assert_any_call(50 * 1024**3)
+
+    self.assertEqual(profiler.start_count, 3)
+    self.assertEqual(profiler.end_count, 3)
+    self.assertEqual(regulator.current_limit_bytes, 50 * 1024**3)
+
+    # If the regulator is removed, saving falls back to
+    # transfer_concurrent_bytes (512).
+    unregulated_ctx = context_lib.Context(ctx)
+    unregulated_ctx.memory.memory_regulator = None
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      with unregulated_ctx:
+        saving.save_checkpointables(directory / 'step3', {'model': pytree})
+      spy_limiter.assert_any_call(512)
+
+    self.assertEqual(profiler.start_count, 3)
+    self.assertEqual(profiler.end_count, 3)
+
+  def test_memory_regulator_with_training_checkpointer(self):
+    profiler = _MockMemoryProfiler(total_memory_gib=250.0)
+    profiler._peak_usage_bytes = int(100 * 1024**3)
+    regulator = public_v1_options.MemoryRegulator(
+        max_memory_limit_gib=80.0, ki=0.0, kd=0.0, profiler=profiler
+    )
+
+    ctx = context_lib.Context()
+    ctx.memory.memory_regulator = regulator
+
+    directory = epath.Path(self.create_tempdir().full_path)
+    pytree = {'a': jnp.ones((2,))}
+
+    ckptr = training_checkpointer.Checkpointer(
+        directory,
+        save_decision_policy=save_decision_policies.FixedIntervalPolicy(2),  # pyrefly: ignore[bad-argument-type]
+        context=ctx,
+    )
+    self.addCleanup(ckptr.close)
+
+    # Step 0: saved -> regulated once.
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      self.assertTrue(ckptr.save_checkpointables(0, {'model': pytree}))
+      spy_limiter.assert_any_call(50 * 1024**3)
+    self.assertEqual(profiler.start_count, 1)
+    self.assertEqual(profiler.end_count, 1)
+    self.assertEqual(regulator.current_limit_bytes, 50 * 1024**3)
+
+    # Step 1: skipped by policy -> regulator must not step.
+    self.assertFalse(ckptr.save_checkpointables(1, {'model': pytree}))
+    self.assertEqual(profiler.start_count, 1)
+    self.assertEqual(profiler.end_count, 1)
+    self.assertEqual(regulator.current_limit_bytes, 50 * 1024**3)
+
+    # Step 2: surge step via child Context.
+    profiler._peak_usage_bytes = int(200 * 1024**3)
+    surge_ctx = context_lib.Context(ctx)
+    surge_ctx.memory.expected_surge_bytes = 15 * 1024**3
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      with surge_ctx:
+        self.assertTrue(ckptr.save_checkpointables(2, {'model': pytree}))
+      spy_limiter.assert_any_call(35 * 1024**3)
+    self.assertEqual(profiler.start_count, 2)
+    self.assertEqual(profiler.end_count, 2)
+    self.assertEqual(regulator.current_limit_bytes, 35 * 1024**3)
+
+    # Step 4: normal save -> recovers from surge.
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      self.assertTrue(ckptr.save_checkpointables(4, {'model': pytree}))
+      spy_limiter.assert_any_call(50 * 1024**3)
+    self.assertEqual(profiler.start_count, 3)
+    self.assertEqual(profiler.end_count, 3)
+    self.assertEqual(regulator.current_limit_bytes, 50 * 1024**3)
 
   def test_memory_options_callback_propagation(self):
     class DummyCallback(serialization_types.SerializationStatusCallback):

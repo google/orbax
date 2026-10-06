@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add
+  `memory_regulator` and `expected_surge_bytes` to `v1.options.MemoryOptions`
+  for dynamic D2H transfer memory regulation.
+
 ## [0.12.7] - 2026-10-06
 
 ### Added

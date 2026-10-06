@@ -289,11 +289,20 @@ async def _run_blocking_save(
     )
 
   # Delegate to the handler to get the background awaitable.
-  background_awaitable = await layout.save_checkpointables(
-      path=temporary_path.path_awaiting_creation,
-      checkpointables=checkpointables,
-  )
-  return background_awaitable
+  regulator = context.memory_options.memory_regulator
+  if regulator is None:
+    return await layout.save_checkpointables(
+        path=temporary_path.path_awaiting_creation,
+        checkpointables=checkpointables,
+    )
+
+  with regulator.regulate(
+      expected_surge_bytes=context.memory_options.expected_surge_bytes,
+  ):
+    return await layout.save_checkpointables(
+        path=temporary_path.path_awaiting_creation,
+        checkpointables=checkpointables,
+    )
 
 
 def _check_directory_consistency(directory: path_types.PathLike):
