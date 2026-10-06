@@ -1534,18 +1534,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     step_stats.checkpointer_blocking_start_time = time.time()
     if isinstance(self._checkpointer, Checkpointer):
-      skip_sync = bool(
-          isinstance(self._checkpointer, AsyncCheckpointer)
-          and self._options.file_options
-          and self._options.file_options.skip_sync_file_validations
-      )
       # `Checkpointer.save()` folds these into its own blocking metrics so that
       # each is recorded once per save and spans the full blocking save.
       self._checkpointer.save(
           save_directory,
           args=args,
           custom_metadata=custom_metadata,
-          force=not skip_sync,
+          force=True,
           save_context=checkpointer_lib.SaveContext(
               checkpoint_start_time=(
                   step_stats.checkpoint_manager_blocking_start_time

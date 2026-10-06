@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from concurrent import futures
 import dataclasses
+import threading
 import time
 from typing import Any, Dict, List, Optional
 from unittest import mock
@@ -550,14 +551,12 @@ class AsyncCheckpointerTest(
       )
     checkpointer.close()
 
-  @parameterized.parameters((True,), (False,))
-  def test_skip_sync_file_validations(self, skip_sync_file_validations):
-    file_options = options_lib.FileOptions(
-        skip_sync_file_validations=skip_sync_file_validations
-    )
-    checkpointer = self.checkpointer(
-        PyTreeCheckpointHandler(), file_options=file_options
-    )
+  def test_skip_sync_file_validations(self):
+    with self.assertWarnsRegex(
+        DeprecationWarning, 'skip_sync_file_validations'
+    ):
+      options_lib.FileOptions(skip_sync_file_validations=True)
+    checkpointer = self.checkpointer(PyTreeCheckpointHandler())
     with mock.patch.object(
         async_path, 'exists', wraps=async_path.exists
     ) as mock_exists:
@@ -568,62 +567,64 @@ class AsyncCheckpointerTest(
           for call in mock_exists.call_args_list
           if call.args and call.args[0] == self.directory
       ]
-      if skip_sync_file_validations:
-        self.assertEmpty(directory_exists_calls)
-      else:
-        if multihost.is_primary_host(checkpointer._primary_host):
-          self.assertNotEmpty(directory_exists_calls)
+      if multihost.is_primary_host(checkpointer._primary_host):
+        self.assertNotEmpty(directory_exists_calls)
+    # Verify that saving to an existing destination with force=False raises
+    # ValueError when the background directory check completes, leaving the
+    # original checkpoint intact.
+    with self.assertRaisesRegex(ValueError, 'already exists'):
+      checkpointer.save(self.directory, self.pytree)
+      self.wait_if_async(checkpointer)
     restored = checkpointer.restore(
         self.directory, restore_args=self.pytree_restore_args
     )
     test_utils.assert_tree_equal(self, self.pytree, restored)
     checkpointer.close()
 
-  @parameterized.parameters((True,), (False,))
-  def test_overwrite_existing_primary_only_exists(
-      self, skip_sync_file_validations
-  ):
-    file_options = options_lib.FileOptions(
-        skip_sync_file_validations=skip_sync_file_validations
-    )
+  def _trace(self, events: list[tuple[str, epath.Path, str]], op: str):
+    """Patches `async_path.<op>` to record (op, path, thread name)."""
+    orig = getattr(async_path, op)
+
+    async def traced(path: epath.Path, *args, **kwargs):
+      events.append((op, path, threading.current_thread().name))
+      return await orig(path, *args, **kwargs)
+
+    return mock.patch.object(async_path, op, side_effect=traced)
+
+  @parameterized.parameters(
+      (atomicity.AtomicRenameTemporaryPath,),
+      (atomicity.CommitFileTemporaryPath,),
+  )
+  def test_overwrite_existing_primary_only_exists(self, temporary_path_class):
+    """Verifies MainThread never executes exists or rmtree for async saves."""
     checkpointer = self.checkpointer(
-        PyTreeCheckpointHandler(), file_options=file_options
+        PyTreeCheckpointHandler(),
+        temporary_path_class=temporary_path_class,
     )
     checkpointer.save(self.directory, self.pytree)
     self.wait_if_async(checkpointer)
+    events: list[tuple[str, epath.Path, str]] = []
     with (
-        mock.patch.object(
-            async_path, 'exists', wraps=async_path.exists
-        ) as mock_exists,
-        mock.patch.object(
-            async_path, 'rmtree', wraps=async_path.rmtree
-        ) as mock_rmtree,
+        self._trace(events, 'exists'),
+        self._trace(events, 'rmtree'),
+        self._trace(events, 'mkdir'),
     ):
       checkpointer.save(self.directory, self.doubled_pytree, force=True)
       self.wait_if_async(checkpointer)
-      directory_exists_calls = [
-          call
-          for call in mock_exists.call_args_list
-          if call.args and call.args[0] == self.directory
+
+    dir_events = [(op, th) for op, arg, th in events if arg == self.directory]
+    self.assertEmpty([op for op, th in dir_events if th == 'MainThread'])
+    rmtree_calls = [op for op, _ in dir_events if op == 'rmtree']
+    exists_calls = [op for op, _ in dir_events if op == 'exists']
+    if multihost.is_primary_host(checkpointer._primary_host):
+      self.assertNotEmpty(exists_calls)
+      self.assertLen(rmtree_calls, 1)
+      ops_order = [
+          op for op, arg, _ in events if op == 'mkdir' or arg == self.directory
       ]
-      directory_rmtree_calls = [
-          call
-          for call in mock_rmtree.call_args_list
-          if call.args and call.args[0] == self.directory
-      ]
-      if multihost.is_primary_host(checkpointer._primary_host):
-        if skip_sync_file_validations:
-          self.assertEmpty(directory_exists_calls)
-        else:
-          self.assertNotEmpty(directory_exists_calls)
-        self.assertLen(directory_rmtree_calls, 1)
-        self.assertEqual(
-            directory_rmtree_calls[0].kwargs.get('missing_ok'),
-            skip_sync_file_validations,
-        )
-      else:
-        self.assertEmpty(directory_exists_calls)
-        self.assertEmpty(directory_rmtree_calls)
+      self.assertLess(ops_order.index('rmtree'), ops_order.index('mkdir'))
+    else:
+      self.assertEmpty(exists_calls + rmtree_calls)
     restored = checkpointer.restore(
         self.directory, restore_args=self.pytree_restore_args
     )

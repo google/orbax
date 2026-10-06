@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 import time
-from typing import Awaitable, Iterable, Sequence
 
 from absl import logging
 import jax
@@ -43,6 +43,7 @@ async def _create_paths(
     operation_id: str,
     completion_signals: Sequence[synchronization.HandlerAwaitableSignal],
     blocking_creation: bool = False,
+    pre_create_fn: Callable[[], Awaitable[None]] | None = None,
 ):
   """Creates :py:class:`.`TemporaryPath` and subdirectories."""
   active_processes = context.multiprocessing_options.active_processes
@@ -52,13 +53,21 @@ async def _create_paths(
   )
   if multihost.is_primary_host(primary_host):
     start = time.time()
-    path = await tmp_path.create()
-    # subdirectory assumed to not have any nesting.
-    subdir_ops = [
-        async_path.mkdir(path / subdirectory, parents=False, exist_ok=False)
-        for subdirectory in subdirectories
-    ]
-    await asyncio.gather(*subdir_ops)
+    try:
+      if pre_create_fn is not None:
+        await pre_create_fn()
+      path = await tmp_path.create()
+      # subdirectory assumed to not have any nesting.
+      subdir_ops = [
+          async_path.mkdir(path / subdirectory, parents=False, exist_ok=False)
+          for subdirectory in subdirectories
+      ]
+      await asyncio.gather(*subdir_ops)
+    except BaseException as e:
+      future.set_error_signals(
+          completion_signals, operation_id=operation_id, error=e
+      )
+      raise
     directory_creation_secs = time.time() - start
     operation_type = (
         'blocking' if blocking_creation else 'background'
@@ -81,6 +90,13 @@ async def _create_paths(
         directory_creation_secs,
     )
     future.set_signals(completion_signals, operation_id=operation_id)
+  else:
+    await asyncio.to_thread(
+        future.wait_for_signals,
+        completion_signals,
+        timeout_secs=multihost.coordination_timeout(),
+        operation_id=operation_id,
+    )
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'create_directory:post',
@@ -229,6 +245,7 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
       path: TemporaryPath,
       subdirectories: Iterable[str],
       blocking_creation: bool = False,
+      pre_create_fn: Callable[[], Awaitable[None]] | None = None,
   ) -> PathAwaitingCreation:
     # TODO(b/407609827): V0 TypeHandler implementations, which are still used on
     # the saving path, do not have knowledge of the `PathAwaitingCreation`, and
@@ -248,5 +265,6 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
         operation_id=synchronization.get_operation_id(),
         completion_signals=completion_signals,
         blocking_creation=blocking_creation,
+        pre_create_fn=pre_create_fn,
     )
     return cls(path.get(), awaitable)

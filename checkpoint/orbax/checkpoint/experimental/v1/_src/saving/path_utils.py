@@ -23,7 +23,6 @@ from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.deletion import metadata as deletion_metadata
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
-from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 
 
 def get_temporary_path(
@@ -57,77 +56,36 @@ def get_temporary_path(
   return tmpdir
 
 
-async def remove_existing_path(
-    path: path_types.Path,
-    *,
-    context: context_lib.Context,
-) -> None:
-  """Removes the existing path.
-
-  Args:
-    path: The path to remove.
-    context: The Orbax context.
-  """
-  if multihost.is_primary_host(context.multiprocessing_options.primary_host):
-    logging.info(
-        '[process=%s] Specified `overwrite`: removing existing path.',
-        multihost.process_index(),
-    )
-    await async_path.rmtree(
-        path, missing_ok=context.file_options.skip_sync_file_validations
-    )
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'save_checkpointables_async:rmtree',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      operation_id=synchronization.get_operation_id(),
-      processes=context.multiprocessing_options.active_processes,
-  )
-
-
 async def maybe_overwrite_existing(
     path: path_types.Path,
     *,
     overwrite: bool,
-    context: context_lib.Context,
+    primary_host: int | None = 0,
+    skip_rmtree: bool = False,
 ) -> None:
   """Checks if the path exists and overwrites it if necessary.
 
   Args:
     path: The path to check.
     overwrite: Whether to overwrite the path if it exists.
-    context: The Orbax context.
+    primary_host: The primary host index, or None if all hosts are primary.
+    skip_rmtree: Whether to skip existence and removal checks after verifying
+      deletion metadata availability.
 
   Raises:
     ValueError: If the path exists and overwrite is False.
   """
-  await deletion_metadata.ensure_available(path)
-  if context.file_options.skip_sync_file_validations:
-    if overwrite:
-      await remove_existing_path(path, context=context)
+  if not multihost.is_primary_host(primary_host):
     return
-  # Sync before and after existence check, since otherwise the processes may
-  # not agree and it is possible for one process to run ahead and create the
-  # directory before another has checked for its existence.
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'save_checkpointables_async:maybe_overwrite_existing:pre',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      operation_id=synchronization.get_operation_id(),
-      processes=context.multiprocessing_options.active_processes,
-  )
+  await deletion_metadata.ensure_available(path)
+  if skip_rmtree:
+    return
   if await async_path.exists(path):
     if overwrite:
-      await remove_existing_path(path, context=context)
+      logging.info(
+          '[process=%s] Specified `overwrite`: removing existing path.',
+          multihost.process_index(),
+      )
+      await async_path.rmtree(path)
     else:
       raise ValueError(f'Destination {path} already exists.')
-  await multihost.sync_global_processes(
-      multihost.unique_barrier_key(
-          'save_checkpointables_async:maybe_overwrite_existing:post',
-          prefix=context.multiprocessing_options.barrier_sync_key_prefix,
-      ),
-      operation_id=synchronization.get_operation_id(),
-      processes=context.multiprocessing_options.active_processes,
-  )
