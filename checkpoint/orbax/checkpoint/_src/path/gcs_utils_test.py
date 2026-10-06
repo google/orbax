@@ -39,7 +39,10 @@ class GcsUtilsTest(absltest.TestCase):
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)
 
-    gcs_path.rmtree.assert_called_once()
+    self.assertEqual(
+        gcs_path.rmtree.mock_calls,
+        [mock.call(), mock.call(missing_ok=True)],
+    )
     mock_cleanup_hns_folders.assert_not_called()
 
   @mock.patch.object(gcs_utils, 'is_hierarchical_namespace_enabled')
@@ -54,7 +57,10 @@ class GcsUtilsTest(absltest.TestCase):
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)
 
-    gcs_path.rmtree.assert_called_once()
+    self.assertEqual(
+        gcs_path.rmtree.mock_calls,
+        [mock.call(), mock.call(missing_ok=True)],
+    )
     mock_cleanup_hns_folders.assert_called_once_with(gcs_path)
 
   def test_cleanup_hns_folders(self):

@@ -116,6 +116,11 @@ def rmtree(path: epath.Path, *, missing_ok: bool = False) -> None:
 
   try:
     path.rmtree()
+
+    # When having directory placeholder, rmtree will fail to
+    # delete the files inside the directory, so do another round of deletion.
+    # TODO: b/570544727 - resolve double rmtree required on GCS.
+    path.rmtree(missing_ok=True)
   except FileNotFoundError:
     if not missing_ok:
       raise
