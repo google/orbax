@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `FileOptions.skip_sync_file_validations=True` (V0 and #v1) now checks for and
+  removes an existing destination in the background directory-creation thread
+  (with `create_directories_asynchronously=True`) instead of only skipping the
+  checks. With `force=False` / `overwrite=False`, an existing destination would
+  raise an exception when the save is awaited (e.g. `wait_until_finished()`).
+
 ## [0.12.8] - 2026-10-20
 
 ### Added
