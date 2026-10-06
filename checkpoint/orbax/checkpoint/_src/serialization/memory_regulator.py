@@ -54,15 +54,13 @@ class MemoryProfiler(abc.ABC):
     """Peak memory usage in GiB."""
     return self.peak_usage_bytes / _BYTES_TO_GIB
 
-  @abc.abstractmethod
   def get_prev_blocking_time_sec(self) -> float:
     """Returns the previous iteration's blocking time in seconds."""
-    raise NotImplementedError
+    return 0.0
 
-  @abc.abstractmethod
   def get_expected_surge_gib(self) -> float:
     """Returns the expected memory surge for the next iteration in GiB."""
-    raise NotImplementedError
+    return 0.0
 
   @property
   def total_memory_gib(self) -> float:
@@ -312,13 +310,21 @@ class MemoryRegulator:
 
     return clamped_with_surge
 
-  def update_limit_bytes(self, current_limit_bytes: int | None = None) -> int:
+  def update_limit_bytes(
+      self,
+      current_limit_bytes: int | None = None,
+      *,
+      expected_surge_bytes: int | float | None = None,
+  ) -> int:
     """Calculates the next memory limit in bytes, using profiler inputs."""
     if current_limit_bytes is None:
       current_limit_bytes = self.current_limit_bytes
     peak_usage_gib = profiler_peak_usage_gib(self.profiler)
     blocking_time_sec = get_prev_blocking_time_sec(self.profiler)
-    expected_surge_gib = get_expected_surge_gib(self.profiler)
+    if expected_surge_bytes is not None:
+      expected_surge_gib = expected_surge_bytes / _BYTES_TO_GIB
+    else:
+      expected_surge_gib = get_expected_surge_gib(self.profiler)
 
     total_memory_gib = get_total_memory_gib(self.profiler)
     current_limit_gib = current_limit_bytes / (1024**3)
@@ -341,7 +347,11 @@ class MemoryRegulator:
     return next_limit_bytes
 
   @contextlib.contextmanager
-  def regulate(self) -> Iterator[int]:
+  def regulate(
+      self,
+      *,
+      expected_surge_bytes: int | float | None = None,
+  ) -> Iterator[int]:
     """Calculates the limit for one save and profiles that save.
 
     Steps the controller once, then profiles the enclosed block with `profiler`
@@ -349,6 +359,10 @@ class MemoryRegulator:
 
       with regulator.regulate() as limit_bytes:
         ...  # Save with a concurrent memory limit of `limit_bytes`.
+
+    Args:
+      expected_surge_bytes: Anticipated memory surge in bytes for this save.
+        When provided, overrides the profiler's `get_expected_surge_gib()`.
 
     Yields:
       The limit for this save in bytes.
@@ -366,7 +380,12 @@ class MemoryRegulator:
           'The profiler of a MemoryRegulator must not also be registered with'
           ' register_memory_profiler() when using regulate().'
       )
-    limit_bytes = self.update_limit_bytes()
+    if expected_surge_bytes is None:
+      limit_bytes = self.update_limit_bytes()
+    else:
+      limit_bytes = self.update_limit_bytes(
+          expected_surge_bytes=expected_surge_bytes
+      )
     profiler.profiler_start()
     try:
       yield limit_bytes

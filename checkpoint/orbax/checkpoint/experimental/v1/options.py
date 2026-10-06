@@ -26,6 +26,7 @@ from orbax.checkpoint.experimental.v1._src.context.options import (
     PathwaysOptions,
     DeletionOptions,
     MemoryOptions,
+    MemoryRegulatorOptions,
     SafetensorsOptions,
     CheckpointLayout,
     AtomicityOptions,
