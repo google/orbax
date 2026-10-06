@@ -473,6 +473,7 @@ class MultiTierCheckpointingInitializationTest(
         process_id=0,
         coordinator_address="coordinator_address",
         initialization_timeout=900,
+        shutdown_timeout_seconds=300,
     )
     mock_initialize_runtime_to_distributed_ids.assert_called_once()
     mock_initialize_distributed_to_device_ids.assert_called_once()
@@ -930,6 +931,7 @@ class MultiTierCheckpointingInitializationTest(
       )
     mock_jax_distributed_initialize.assert_called_once_with(
         initialization_timeout=900,
+        shutdown_timeout_seconds=300,
     )
     mock_initialize_runtime_to_distributed_ids.assert_called_once()
     mock_initialize_distributed_to_device_ids.assert_called_once()
@@ -937,6 +939,80 @@ class MultiTierCheckpointingInitializationTest(
     mock_create_replicator_file.assert_called_once()
     expected_restore_dir = epath.Path(tmp_dir) / "1"
     self.assertTrue(expected_restore_dir.exists())
+
+  @mock.patch.object(
+      initialization, "_wait_for_replicator_file_to_disappear", autospec=True
+  )
+  @mock.patch.object(initialization, "_create_replicator_file", autospec=True)
+  @mock.patch.object(jax.distributed, "initialize", autospec=True)
+  @mock.patch.object(
+      multihost, "initialize_runtime_to_distributed_ids", autospec=True
+  )
+  @mock.patch.object(
+      multihost, "initialize_distributed_to_device_ids", autospec=True
+  )
+  @mock.patch.object(multihost, "runtime_to_distributed_ids", autospec=True)
+  def test_initialize_multi_tier_checkpointing_custom_shutdown_timeout(
+      self,
+      mock_runtime_to_distributed_ids,
+      mock_initialize_distributed_to_device_ids,
+      mock_initialize_runtime_to_distributed_ids,
+      mock_jax_distributed_initialize,
+      mock_create_replicator_file,
+      mock_wait_for_replicator_file_to_disappear,
+  ):
+    mock_runtime_to_distributed_ids.return_value = [0, 1]
+    mock_jax_distributed_initialize.return_value = None
+    mock_initialize_runtime_to_distributed_ids.return_value = [None, None]
+    mock_initialize_distributed_to_device_ids.return_value = None
+    mock_create_replicator_file.return_value = [None, None]
+    mock_wait_for_replicator_file_to_disappear.return_value = False
+
+    tmp_dir = epath.Path(self.create_tempdir().full_path)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    jax_init_info_file = tmp_dir / initialization._JAX_INIT_INFO_FILE
+    jax_init_info_file.write_text("0\ncoordinator_address")
+
+    with (
+        mock.patch.object(
+            initialization.jax, "process_count", return_value=2
+        ),
+        mock.patch.object(
+            initialization.jax, "process_index", return_value=0
+        ),
+    ):
+      with self.subTest(use_mtc_process_ids=True):
+        (tmp_dir / "test-run-s1-n0-w0.restore").write_text("restore_dir")
+        initialization.initialize_multi_tier_checkpointing(
+            tmp_dir,
+            num_slices=1,
+            run_name="test-run",
+            data_parallelism=1,
+            jax_shutdown_timeout_seconds=60,
+            use_mtc_process_ids=True,
+        )
+        mock_jax_distributed_initialize.assert_called_once_with(
+            process_id=0,
+            coordinator_address="coordinator_address",
+            initialization_timeout=900,
+            shutdown_timeout_seconds=60,
+        )
+
+      mock_jax_distributed_initialize.reset_mock()
+      with self.subTest(use_mtc_process_ids=False):
+        (tmp_dir / "test-run-s2-n0-w0.restore").write_text("restore_dir")
+        initialization.initialize_multi_tier_checkpointing(
+            tmp_dir,
+            num_slices=1,
+            run_name="test-run",
+            data_parallelism=1,
+            jax_shutdown_timeout_seconds=45,
+            use_mtc_process_ids=False,
+        )
+        mock_jax_distributed_initialize.assert_called_once_with(
+            initialization_timeout=900,
+            shutdown_timeout_seconds=45,
+        )
 
 
 if __name__ == "__main__":

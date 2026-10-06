@@ -408,6 +408,7 @@ def _initialize_mtc_colocated(
 def _initialize_jax_from_mtc(
     local_checkpoint_directory: epath.Path,
     jax_initialization_timeout_seconds: int = 900,
+    jax_shutdown_timeout_seconds: int = 300,
 ) -> str:
   """Initialize jax with jax_init_info."""
   local_checkpoint_directory = epath.Path(local_checkpoint_directory)
@@ -430,6 +431,7 @@ def _initialize_jax_from_mtc(
       process_id=int(process_id),
       coordinator_address=coordinator_address,
       initialization_timeout=jax_initialization_timeout_seconds,
+      shutdown_timeout_seconds=jax_shutdown_timeout_seconds,
   )
   return process_id
 
@@ -443,6 +445,7 @@ def initialize_multi_tier_checkpointing(
     run_name: Optional[str] = None,
     data_parallelism: Optional[int] = None,
     jax_initialization_timeout_seconds: int = 900,
+    jax_shutdown_timeout_seconds: int = 300,
     use_mtc_process_ids: bool = True,
     use_colocated_python: bool = False,
     devices: Optional[Sequence[jax.Device]] = None,
@@ -463,6 +466,7 @@ def initialize_multi_tier_checkpointing(
       ICI data parallelism * DCN data parallelism. If not provided, it will be
       inferred from the number of slices.
     jax_initialization_timeout_seconds: The timeout for JAX initialization.
+    jax_shutdown_timeout_seconds: The timeout for JAX distributed shutdown.
     use_mtc_process_ids: Use the MTC rank server to calculate process ids.
     use_colocated_python: Whether to use Colocated Python for initialization.
     devices: Optional JAX devices for Colocated Python initialization. This is
@@ -521,12 +525,15 @@ def initialize_multi_tier_checkpointing(
   # Standard Multi-Controller Path
   if use_mtc_process_ids:
     process_id = _initialize_jax_from_mtc(
-        local_checkpoint_directory, jax_initialization_timeout_seconds
+        local_checkpoint_directory,
+        jax_initialization_timeout_seconds,
+        jax_shutdown_timeout_seconds,
     )
   else:
     process_id = None
     jax.distributed.initialize(
         initialization_timeout=jax_initialization_timeout_seconds,
+        shutdown_timeout_seconds=jax_shutdown_timeout_seconds,
     )
 
   # must be called after jax.distributed.initialize
