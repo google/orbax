@@ -83,6 +83,9 @@ class ValidationTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       validation.validate_save_checkpointables({'metrics': {'a': 1}})
 
+    with self.assertRaises(ValueError):
+      validation.validate_save_checkpointables({'array_metadatas': {'a': 1}})
+
   @parameterized.parameters(
       list(zip(_generate_basic_combinations(_VALID_LEAVES)))
   )
