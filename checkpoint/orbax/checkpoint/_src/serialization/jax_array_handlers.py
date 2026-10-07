@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import asyncio
+import collections.abc
 import dataclasses
 import functools
 import os
 import time
-from typing import Any, Callable, Dict, Sequence, Set, TypeAlias, Union, cast
+from typing import Any, Callable, cast, Dict, Sequence, Set, TypeAlias, Union
 import warnings
 
 from absl import logging
@@ -1935,41 +1936,79 @@ class SingleReplicaArrayHandler(ArrayHandler):
     )
     return jax.sharding.NamedSharding(replica_mesh, sharding.spec)
 
-  async def deserialize(  # pyrefly: ignore[bad-override]
+  async def deserialize(
       self,
-      infos: Sequence[types.ParamInfo],
-      args: Sequence[SingleReplicaArrayRestoreArgs] | None = None,
-  ) -> Sequence[jax.Array]:
-    """Deserializing in case of single replica broadcasting.
+      infos: collections.abc.Sequence[types.ParamInfo],
+      args: collections.abc.Sequence[types.RestoreArgs] | None = None,
+  ) -> collections.abc.Sequence[jax.Array]:
+    """Restores arrays, optionally broadcasting from a single replica.
 
     Args:
       infos: ParamInfo.
-      args: must be of type `SingleReplicaArrayRestoreArgs`.
+      args: `SingleReplicaArrayRestoreArgs` uses single-replica broadcasting.
+        `ArrayRestoreArgs` uses the normal `ArrayHandler` restore path, allowing
+        arrays partitioned across the replica axis to opt out of broadcasting.
+        All processes must use the same argument types for corresponding arrays.
 
     Returns:
       Deserialized parameters.
     Raises:
-      ValueError if `args` is not provided.
-      ValueError if `args.sharding` is not provided or `args.mesh` and
-      `args.mesh_axes` or `single_replica_pids` or `single_replica_ids` are
-      not provided.
+      ValueError if `args` is not provided or contains unsupported types.
+      ValueError if `sharding` is not provided for single-replica arguments.
     """
     if args is None:
       raise ValueError(
-          'Must provide SingleReplicaArrayRestoreArgs to restore as jax.Array.'
+          'Must provide ArrayRestoreArgs to restore as jax.Array.'
       )
     types.check_input_arguments(infos, args)
-    for arg in args:
-      if not isinstance(arg, SingleReplicaArrayRestoreArgs):
+    single_replica_infos: list[types.ParamInfo] = []
+    single_replica_args: list[SingleReplicaArrayRestoreArgs] = []
+    standard_infos: list[types.ParamInfo] = []
+    standard_args: list[ArrayRestoreArgs] = []
+    for info, arg in zip(infos, args):
+      if isinstance(arg, SingleReplicaArrayRestoreArgs):
+        if arg.sharding is None:
+          raise ValueError(
+              'Must provide `sharding` to restore with'
+              ' `SingleReplicaArrayHandler`.'
+          )
+        single_replica_infos.append(info)
+        single_replica_args.append(arg)
+      elif isinstance(arg, ArrayRestoreArgs):
+        standard_infos.append(info)
+        standard_args.append(arg)
+      else:
         raise ValueError(
-            'Must provide `SingleReplicaArrayRestoreArgs`, but got'
+            'Must provide `ArrayRestoreArgs` or'
+            ' `SingleReplicaArrayRestoreArgs`, but got'
             f' {type(arg)}.'
         )
-      if arg.sharding is None:
-        raise ValueError(
-            'Must provide `sharding` to restore with'
-            ' `SingleReplicaArrayHandler`.'
+
+    single_replica_results = iter(
+        await self._deserialize_single_replica(
+            single_replica_infos, single_replica_args
         )
+        if single_replica_args
+        else ()
+    )
+    standard_results = iter(
+        await super().deserialize(standard_infos, standard_args)
+        if standard_args
+        else ()
+    )
+    return [
+        next(single_replica_results)
+        if isinstance(arg, SingleReplicaArrayRestoreArgs)
+        else next(standard_results)
+        for arg in args
+    ]
+
+  async def _deserialize_single_replica(
+      self,
+      infos: collections.abc.Sequence[types.ParamInfo],
+      args: collections.abc.Sequence[SingleReplicaArrayRestoreArgs],
+  ) -> collections.abc.Sequence[jax.Array]:
+    """Restores and broadcasts a nonempty batch of single-replica arguments."""
 
     # arg.single_replica_sharding is not required to be passed.
     single_replica_shardings = [
