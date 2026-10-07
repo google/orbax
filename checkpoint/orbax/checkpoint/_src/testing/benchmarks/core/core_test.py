@@ -492,7 +492,7 @@ class TestSuiteTest(parameterized.TestCase):
     class MyGeneratorWithFailure(core.BenchmarksGenerator):
 
       def test_fn(self, test_context: core.TestContext) -> core.TestResult:
-        if test_context.options.opt1 == 2 and test_context.options.opt2 == 'b':  # pytype: disable=attribute-error
+        if test_context.options.opt1 == 2 and test_context.options.opt2 == 'b':  # pyrefly: ignore[missing-attribute]
           raise ValueError('opt1=2, opt2=b failed')
         metrics = metric_lib.Metrics()
         metrics.results['fake_metric'] = (0.1, 's')

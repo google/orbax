@@ -79,7 +79,7 @@ class ColocatedUtilsTest(absltest.TestCase):
         ]
     )
 
-    value = colocated_utils.require_unanimous_scalar_result(  # pytype: disable=wrong-arg-types
+    value = colocated_utils.require_unanimous_scalar_result(
         result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
     )
 
@@ -93,7 +93,7 @@ class ColocatedUtilsTest(absltest.TestCase):
         ]
     )
 
-    values = colocated_utils.scalar_result_values(result, op_name='test_op')  # pytype: disable=wrong-arg-types
+    values = colocated_utils.scalar_result_values(result, op_name='test_op')  # pyrefly: ignore[bad-argument-type]
 
     self.assertEqual(values, [4, 5])
 
@@ -105,7 +105,7 @@ class ColocatedUtilsTest(absltest.TestCase):
         ]
     )
 
-    values = colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
+    values = colocated_utils.array_result_values(
         result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
     )
 
@@ -118,7 +118,7 @@ class ColocatedUtilsTest(absltest.TestCase):
     )
 
     with self.assertRaisesRegex(ValueError, 'expected array shard value'):
-      colocated_utils.array_result_values(  # pytype: disable=wrong-arg-types
+      colocated_utils.array_result_values(
           result, op_name='test_op'  # pyrefly: ignore[bad-argument-type]
       )
 
@@ -131,7 +131,7 @@ class ColocatedUtilsTest(absltest.TestCase):
     )
 
     with self.assertRaisesRegex(RuntimeError, 'workers disagreed'):
-      colocated_utils.require_unanimous_scalar_result(result, op_name='test_op')  # pytype: disable=wrong-arg-types
+      colocated_utils.require_unanimous_scalar_result(result, op_name='test_op')  # pyrefly: ignore[bad-argument-type]
 
   def test_assert_arrays_on_platform(self):
     arr = self._replicated_array(jnp.array([1, 2], dtype=jnp.int32))
@@ -193,7 +193,7 @@ class ColocatedUtilsTest(absltest.TestCase):
         _FakeDevice(id=1, virtual_task_index=0, slice_index=0),
     ]
 
-    distributed = colocated_utils.compute_distributed_to_device_ids(devices)  # pytype: disable=wrong-arg-types
+    distributed = colocated_utils.compute_distributed_to_device_ids(devices)  # pyrefly: ignore[bad-argument-type]
 
     self.assertEqual(distributed, [[0, 1], [2], [72], [74]])
 

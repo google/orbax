@@ -375,7 +375,7 @@ def _tree_trim(
           )
           for k, v in keep_items
       }
-      return type(template)((*keep_dict.items(), *placeholder_items))  # pytype:disable=wrong-arg-count
+      return type(template)((*keep_dict.items(), *placeholder_items))
     case named_tuple if utils.isinstance_of_namedtuple(named_tuple):
       if structure is None:
         structure = ()
@@ -431,7 +431,7 @@ def _tree_trim(
           )
           for i, (t, s) in enumerate(zip(template, structure))
       )
-      return type(template)(elements)  # pytype:disable=wrong-arg-count
+      return type(template)(elements)
     case n if n is not None and utils.is_jax_internal_node(n):
       s_flat = _jax_internal_node_to_dict(structure)
       t_flat = _jax_internal_node_to_dict(template)

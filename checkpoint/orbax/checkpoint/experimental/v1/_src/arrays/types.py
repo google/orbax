@@ -74,7 +74,7 @@ class AbstractShardedArray(Protocol):
 
   shape: Shape | None
   dtype: DType | None
-  sharding: jax.sharding.Sharding | Format | None = None  # pytype: disable=invalid-annotation
+  sharding: jax.sharding.Sharding | Format | None = None
 
 
 ArrayLike: TypeAlias = AbstractArray | AbstractShardedArray

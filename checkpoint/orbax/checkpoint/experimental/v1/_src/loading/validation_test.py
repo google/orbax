@@ -89,7 +89,7 @@ class ValidationTest(parameterized.TestCase):
 
   def test_validate_abstract_checkpointables_invalid_structure(self):
     with self.assertRaises(ValueError):
-      validation.validate_abstract_checkpointables([{'a': 1}])  # pytype: disable=wrong-arg-types
+      validation.validate_abstract_checkpointables([{'a': 1}])  # pyrefly: ignore[bad-argument-type]
 
     with self.assertRaisesRegex(ValueError, 'Empty string is not supported'):
       validation.validate_abstract_checkpointables({'': {'a': 1}})

@@ -22,13 +22,11 @@ from etils import epath
 from orbax.checkpoint.experimental.emergency.p2p import constants
 
 
-# pytype:disable=import-error
 # pylint:disable=g-import-not-at-top
 try:
-  import grain.python as pygrain_module
+  import grain.python as pygrain_module  # pyrefly: ignore[missing-import]
 except ImportError:
   pygrain_module = None
-# pytype:enable=import-error
 # pylint:enable=g-import-not-at-top
 
 

@@ -124,7 +124,7 @@ class CompatibilityCheckpointHandler(
 
   def save(self, directory: path_types.Path, *args, **kwargs):
     async def async_save(*args, **kwargs):
-      commit_futures = await self.async_save(*args, **kwargs)  # pyrefly: ignore[bad-return-type]
+      commit_futures = await self.async_save(*args, **kwargs)
       # Futures are already running, so sequential waiting is equivalent to
       # concurrent waiting.
       if commit_futures:  # May be None.
@@ -162,7 +162,7 @@ class CompatibilityCheckpointHandler(
     ...
 
   def __repr__(self):
-    return f'CompatibilityCheckpointHandler({handler_types.typestr(type(self._handler))})'  # pyrefly: ignore[bad-argument-type]
+    return f'CompatibilityCheckpointHandler({handler_types.typestr(type(self._handler))})'
 
 
 @dataclasses.dataclass
@@ -181,6 +181,6 @@ def get_compatibility_handler(
 
     @classmethod
     def typestr(cls) -> str:
-      return handler_types.typestr(type(handler))  # pyrefly: ignore[bad-argument-type]
+      return handler_types.typestr(type(handler))
 
   return _CompatibilityHandler(handler)

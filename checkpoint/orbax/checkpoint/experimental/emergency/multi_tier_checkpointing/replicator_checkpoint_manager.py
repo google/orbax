@@ -899,7 +899,7 @@ class ReplicatorCheckpointManager(
   ) -> None:
     """Initializes the Pathways single-controller transport wrapper."""
     # pylint: disable=consider-using-from-import,g-import-not-at-top,line-too-long
-    import orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.colocated_controller as colocated_controller  # pytype: disable=import-error
+    import orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.colocated_controller as colocated_controller
     # pylint: enable=consider-using-from-import,g-import-not-at-top,line-too-long
 
     self._colocated_controller = colocated_controller.ColocatedController(

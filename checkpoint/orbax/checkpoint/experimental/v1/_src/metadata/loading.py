@@ -24,7 +24,7 @@ from orbax.checkpoint.experimental.v1._src.layout import registry as layout_regi
 from orbax.checkpoint.experimental.v1._src.loading import validation
 from orbax.checkpoint.experimental.v1._src.metadata import types as metadata_types
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-from typing_extensions import deprecated  # pytype: disable=not-supported-yet
+from typing_extensions import deprecated
 
 
 CheckpointMetadata = metadata_types.CheckpointMetadata

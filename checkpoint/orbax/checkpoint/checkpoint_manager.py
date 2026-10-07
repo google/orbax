@@ -1497,7 +1497,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         )
         extra_args = save_kwargs[key] if key in save_kwargs else {}
         extra_args = extra_args or {}
-        args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
+        args_dict[key] = save_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pyrefly: ignore[bad-argument-count]
       args = args_lib.Composite(**args_dict)
     else:
       if self._default_item.get():
@@ -1771,7 +1771,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         item = items[key] if key in items else None
         extra_args = restore_kwargs[key] if key in restore_kwargs else {}
         extra_args = extra_args or {}
-        args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pytype: disable=wrong-arg-count
+        args_dict[key] = restore_ckpt_arg_cls(item, **extra_args)  # pylint: disable=too-many-function-args  # pyrefly: ignore[bad-argument-count]
       args = args_lib.Composite(**args_dict)
     else:
       if self._default_item.get():
@@ -2049,7 +2049,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _wait_for_checkpointers(self):
     if is_async_checkpointer(self._checkpointer):
-      self._checkpointer.wait_until_finished()  # pytype: disable=attribute-error
+      self._checkpointer.wait_until_finished()  # pyrefly: ignore[missing-attribute]
 
   def wait_until_finished(self):
     """Blocks until any incomplete save operations are completed.
@@ -2143,7 +2143,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Delegates to underlying Checkpointer.
     """
     if is_async_checkpointer(self._checkpointer):
-      self._checkpointer.check_for_errors()  # pytype: disable=attribute-error
+      self._checkpointer.check_for_errors()  # pyrefly: ignore[missing-attribute]
 
   def _finalize_checkpoint(self, step: int):
     """Executes final actions just before the checkpoint write completes.

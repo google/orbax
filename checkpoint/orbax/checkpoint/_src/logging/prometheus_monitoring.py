@@ -60,8 +60,8 @@ if enable_telemetry.lower() == 'true':
 
   try:
     prometheus_client = importlib.import_module('prometheus_client')
-    _prom_counter = prometheus_client.Counter  # pytype: disable=attribute-error
-    _prom_histogram = prometheus_client.Histogram  # pytype: disable=attribute-error
+    _prom_counter = prometheus_client.Counter
+    _prom_histogram = prometheus_client.Histogram
   except (ImportError, AttributeError):
     pass
 
@@ -199,9 +199,9 @@ class PrometheusMonitoring(monitoring.MetricRecorder):
           multiprocess = importlib.import_module(
               'prometheus_client.multiprocess'
           )
-          registry = prometheus_client.CollectorRegistry()  # pytype: disable=attribute-error
-          multiprocess.MultiProcessCollector(registry)  # pytype: disable=attribute-error
-          prometheus_client.start_http_server(port, registry=registry)  # pytype: disable=attribute-error
+          registry = prometheus_client.CollectorRegistry()  # pyrefly: ignore[missing-attribute]
+          multiprocess.MultiProcessCollector(registry)
+          prometheus_client.start_http_server(port, registry=registry)  # pyrefly: ignore[missing-attribute]
           logging.info(
               'Prometheus multiprocess metrics server started on port %s.',
               port,
@@ -212,7 +212,7 @@ class PrometheusMonitoring(monitoring.MetricRecorder):
 
       if not multiprocess_started:
         # Standard single-process server
-        prometheus_client.start_http_server(port)  # pytype: disable=attribute-error
+        prometheus_client.start_http_server(port)  # pyrefly: ignore[missing-attribute]
         logging.info('Prometheus metrics server started on port %s.', port)
       self._initialized = True
     except (OSError, ValueError) as e:
@@ -247,7 +247,7 @@ class PrometheusMonitoring(monitoring.MetricRecorder):
           except ValueError:
             # pylint: disable=protected-access
             self._metrics[metric_name_safe] = (
-                prometheus_client.REGISTRY._names_to_collectors.get(  # pytype: disable=attribute-error
+                prometheus_client.REGISTRY._names_to_collectors.get(  # pyrefly: ignore[missing-attribute]
                     metric_name_safe
                 )
             )

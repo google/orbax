@@ -94,15 +94,15 @@ class TypesTest(absltest.TestCase):
   def test_checkpointable_handler_typing_foo(self):
     handler = FooHandler()
     self.assertTrue(handler.is_handleable(Foo()))
-    self.assertFalse(handler.is_handleable(None))  # pytype: disable=wrong-arg-types
+    self.assertFalse(handler.is_handleable(None))  # pyrefly: ignore[bad-argument-type]
     self.assertTrue(handler.is_abstract_handleable(None))
-    self.assertFalse(handler.is_abstract_handleable(Foo()))  # pytype: disable=wrong-arg-types
+    self.assertFalse(handler.is_abstract_handleable(Foo()))  # pyrefly: ignore[bad-argument-type]
 
   def test_checkpointable_handler_typing_bar(self):
     handler = BarHandler()
     self.assertTrue(handler.is_handleable(Bar()))
-    self.assertFalse(handler.is_handleable(AbstractBar()))  # pytype: disable=wrong-arg-types
-    self.assertFalse(handler.is_abstract_handleable(Bar()))  # pytype: disable=wrong-arg-types
+    self.assertFalse(handler.is_handleable(AbstractBar()))  # pyrefly: ignore[bad-argument-type]
+    self.assertFalse(handler.is_abstract_handleable(Bar()))  # pyrefly: ignore[bad-argument-type]
     self.assertTrue(handler.is_abstract_handleable(AbstractBar()))
 
 

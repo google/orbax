@@ -721,7 +721,7 @@ class ColocatedController:
       ],
   ) -> None:
     # pylint: disable=g-import-not-at-top,consider-using-from-import
-    import orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.sidecar_worker_checkpoint_manager as sidecar_worker_checkpoint_manager  # pytype: disable=import-error
+    import orbax.checkpoint.experimental.emergency.multi_tier_checkpointing.sidecar_worker_checkpoint_manager as sidecar_worker_checkpoint_manager  # pyrefly: ignore[missing-import]
     # pylint: enable=g-import-not-at-top,consider-using-from-import
 
     _validate_colocated_options(options)
@@ -1176,7 +1176,7 @@ class ColocatedController:
     if self._persistent_checkpoint_manager is not None:
       ops.append(self._persistent_checkpoint_manager.check_for_errors)
     ops.append(self._worker_check_for_errors)
-    _run_lifecycle_ops(*ops)  # pyrefly: ignore[bad-argument-type]
+    _run_lifecycle_ops(*ops)
 
   def close(self) -> None:
     """Closes worker-side and persistent managers."""

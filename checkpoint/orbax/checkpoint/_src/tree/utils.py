@@ -428,7 +428,7 @@ def _pytree_key_as_tree_key(key: PyTreeKey) -> TreeKey:
           | jtu.DictKey(key=k)
           | jtu.FlattenedIndexKey(key=k)
           | jtu.GetAttrKey(name=k)):
-      return k  # pytype: disable=bad-return-type
+      return k
   raise KeyError(f'Cannot convert unexpected PyTreeKey to TreeKey: {key!r}')
 
 

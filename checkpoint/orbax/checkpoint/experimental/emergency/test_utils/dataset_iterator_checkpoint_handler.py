@@ -57,7 +57,7 @@ class DatasetIteratorCheckpointHandler(ocp.CheckpointHandler):
       args: Any = None,
   ):
     """Saves the given iterator to the checkpoint in `directory`."""
-    item = item or args.item  # pytype:disable=attribute-error
+    item = item or args.item
     logging.info("args: %s, item: %s", args, item)
     if isinstance(item, DatasetIteratorCheckpointHandler.DummyIterator):
       logging.info("Saving DummyIterator.")
@@ -76,7 +76,7 @@ class DatasetIteratorCheckpointHandler(ocp.CheckpointHandler):
       args: Any = None,
   ) -> DummyIterator:
     """Restores the given iterator from the checkpoint in `directory`."""
-    item = item or args.item  # pytype:disable=attribute-error
+    item = item or args.item
     process_index, process_count = jax.process_index(), jax.process_count()
     filename = directory / f"process_{process_index}-of-{process_count}.json"
     if not filename.exists():
@@ -111,14 +111,15 @@ class DatasetIteratorCheckpointHandler(ocp.CheckpointHandler):
     return f"{cls.__module__}.{cls.__qualname__}"
 
 
-@ocp.args.register_with_handler(DatasetIteratorCheckpointHandler, for_save=True)  # pytype:disable=wrong-arg-types
+@ocp.args.register_with_handler(DatasetIteratorCheckpointHandler, for_save=True)
 @dataclasses.dataclass
 class DatasetIteratorCheckpointSave(ocp.args.CheckpointArgs):
   item: Any
 
 
-@ocp.args.register_with_handler(DatasetIteratorCheckpointHandler, for_restore=True)  # pytype:disable=wrong-arg-types
+@ocp.args.register_with_handler(
+    DatasetIteratorCheckpointHandler, for_restore=True
+)
 @dataclasses.dataclass
 class DatasetIteratorCheckpointRestore(ocp.args.CheckpointArgs):
   item: Any
-

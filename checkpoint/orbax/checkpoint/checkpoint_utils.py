@@ -505,7 +505,7 @@ def construct_restore_args(
 
   def _array_restore_args(
       value: Any,
-      sharding: Optional[jax.sharding.Sharding | Format],  # pytype: disable=unsupported-operands
+      sharding: Optional[jax.sharding.Sharding | Format],
       dtype: Optional[np.dtype] = None,
   ) -> type_handlers.ArrayRestoreArgs:
     global_shape = None

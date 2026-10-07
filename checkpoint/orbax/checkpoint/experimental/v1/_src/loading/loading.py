@@ -39,7 +39,7 @@ from orbax.checkpoint.experimental.v1._src.synchronization import synchronizatio
 from orbax.checkpoint.experimental.v1._src.synchronization import thread_utils
 from orbax.checkpoint.experimental.v1._src.synchronization import types as async_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
-from typing_extensions import deprecated  # pytype: disable=not-supported-yet
+from typing_extensions import deprecated
 
 
 STATE_CHECKPOINTABLE_KEY = checkpoint_layout.STATE_CHECKPOINTABLE_KEY
