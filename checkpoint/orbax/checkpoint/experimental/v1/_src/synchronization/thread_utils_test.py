@@ -14,6 +14,7 @@
 
 import asyncio
 import concurrent.futures
+import threading
 import time
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -73,6 +74,42 @@ class BackgroundThreadRunnerTest(parameterized.TestCase):
     result = runner.result()
     self.assertEqual(result, 42)
     self.assertEqual(completed, [42])
+
+  def test_failed_result_shuts_down_runner_and_skips_success_callback(self):
+    async def fail():
+      raise ValueError("failure")
+
+    runner = thread_utils.BackgroundThreadRunner[None](fail())
+    self.assertIsNotNone(runner._runner)
+    worker = runner._runner._thread
+    callbacks = []
+    runner.on_complete(callbacks.append)
+    for _ in range(2):
+      with self.assertRaisesRegex(ValueError, "failure"):
+        runner.result()
+    self.assertTrue(runner.done())
+    self.assertFalse(worker.is_alive())
+    self.assertEmpty(callbacks)
+
+  def test_timeout_does_not_stop_pending_work(self):
+    release = threading.Event()
+
+    async def target():
+      await asyncio.to_thread(release.wait)
+      return 42
+
+    runner = thread_utils.BackgroundThreadRunner[int](target())
+    assert runner._runner is not None
+    worker = runner._runner._thread
+    try:
+      with self.assertRaises(concurrent.futures.TimeoutError):
+        runner.result(timeout=0)
+      self.assertFalse(runner.done())
+      self.assertTrue(worker.is_alive())
+    finally:
+      release.set()
+    self.assertEqual(runner.result(), 42)
+    self.assertFalse(worker.is_alive())
 
 
 if __name__ == "__main__":

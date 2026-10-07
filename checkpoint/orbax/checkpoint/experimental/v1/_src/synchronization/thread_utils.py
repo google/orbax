@@ -33,24 +33,33 @@ class BackgroundThreadRunner(Generic[T]):
       self,
       target: Coroutine[Any, Any, T],
   ):
-    self._runner = asyncio_utils.AsyncRunner()
-    self._future = self._runner.run_coroutine(target)
+    runner = asyncio_utils.AsyncRunner()
+    self._runner: asyncio_utils.AsyncRunner | None = runner
+    self._future = runner.run_coroutine(target)
 
   def result(self, timeout: float | None = None) -> T:
-    r = self._future.result(timeout=timeout)
-    if self._runner:
-      try:
-        self._runner.shutdown()
-      except Exception:  # pylint: disable=broad-exception-caught
-        pass
-      self._runner = None  # pyrefly: ignore[bad-assignment]
-    return r
+    try:
+      return self._future.result(timeout=timeout)
+    finally:
+      # A failed operation needs cleanup too. A timeout while work is still
+      # running must leave the runner alive so result() can be retried.
+      if self._future.done() and self._runner is not None:
+        runner, self._runner = self._runner, None
+        try:
+          runner.shutdown()
+        except Exception:  # pylint: disable=broad-exception-caught
+          pass
+
+  def done(self) -> bool:
+    """Returns whether the target coroutine has finished."""
+    return self._future.done()
 
   def on_complete(self, callback: Callable[[T], None]) -> None:
     """Registers a callback to be called when the task is complete."""
 
     def _callback(fut):
-      callback(fut.result())
+      if not fut.cancelled() and fut.exception() is None:
+        callback(fut.result())
 
     self._future.add_done_callback(_callback)
 
