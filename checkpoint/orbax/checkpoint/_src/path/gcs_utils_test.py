@@ -135,6 +135,30 @@ class GcsUtilsTest(absltest.TestCase):
       with self.assertRaisesRegex(FileNotFoundError, 'Directory not found'):
         gcs_utils.rmtree(gcs_path, missing_ok=False)
 
+  def test_split_gcs_path_and_bucket_root(self):
+    prefixes = ['gs://']
+    for prefix in prefixes:
+      with self.subTest(prefix=prefix):
+        raw_path = f'{prefix}my-bucket/dir/sub'
+        self.assertEqual(
+            gcs_utils.split_gcs_path(raw_path), ('my-bucket', 'dir/sub')
+        )
+        self.assertEqual(
+            gcs_utils.gcs_bucket_root(raw_path), f'{prefix}my-bucket'
+        )
+        path = epath.Path(raw_path)
+        self.assertEqual(
+            gcs_utils.split_gcs_path(path), ('my-bucket', 'dir/sub')
+        )
+        self.assertEqual(
+            gcs_utils.gcs_bucket_root(path),
+            str(epath.Path(f'{prefix}my-bucket')),
+        )
+
+  def test_gcs_bucket_root_rejects_non_gcs_path(self):
+    with self.assertRaises(ValueError):
+      gcs_utils.gcs_bucket_root(epath.Path('/tmp/some/local/dir'))
+
 
 if __name__ == '__main__':
   absltest.main()

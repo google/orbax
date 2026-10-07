@@ -41,6 +41,59 @@ def parse_gcs_path(path: epath.PathLike) -> tuple[str, str]:
   return parsed.netloc, standardized_path
 
 
+def split_gcs_path(path: epath.PathLike) -> tuple[str, str]:
+  """Splits a GCS path into (bucket_name, relative_blob_path).
+
+  `parse_gcs_path` is intentionally not reused: it asserts a `gs` scheme,
+  appends a trailing slash to the returned object path, and does not understand
+  non-URL GCS mount points. Blob names here are passed directly to the storage
+  client and must not gain a trailing slash.
+
+  Args:
+    path: The GCS path to split.
+
+  Returns:
+    A tuple of (bucket_name, relative_blob_path).
+  """
+  path_str = str(path)
+  if path_str.startswith('gs://'):
+    parsed = parse.urlparse(path_str)
+    return parsed.netloc, parsed.path.lstrip('/')
+  for prefix in _GCS_PATH_PREFIX:
+    if path_str.startswith(prefix):
+      parts = path_str[len(prefix) :].split('/', 1)
+      bucket = parts[0]
+      blob_path = parts[1] if len(parts) > 1 else ''
+      return bucket, blob_path
+  parsed = parse.urlparse(path_str)
+  return parsed.netloc, parsed.path.lstrip('/')
+
+
+def gcs_bucket_root(path: epath.PathLike) -> str:
+  """Returns the bucket root of a GCS path, preserving its access prefix.
+
+  `is_gcs_path` accepts `gs://` URLs as well as non-URL GCS mount points. Paths
+  derived from the source (such as a relocation destination) must keep the same
+  prefix so that they are reached through the same filesystem as the source.
+
+  Args:
+    path: The GCS path.
+
+  Returns:
+    The prefix and bucket, e.g. `gs://bucket` or `/gcs/bucket`.
+
+  Raises:
+    ValueError: If `path` is not a recognized GCS path.
+  """
+  path_str = str(path)
+  bucket, _ = split_gcs_path(path)
+  if bucket:
+    for prefix in _GCS_PATH_PREFIX:
+      if path_str.startswith(prefix):
+        return f'{prefix}{bucket}'
+  raise ValueError(f'Could not parse GCS bucket from path: {path}.')
+
+
 @functools.lru_cache(maxsize=32)
 def get_bucket(bucket_name: str):
   # pylint: disable=g-import-not-at-top
