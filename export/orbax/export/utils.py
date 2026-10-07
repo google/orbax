@@ -27,7 +27,6 @@ from jax import export as jax_export
 from jax import tree_util
 import jax.numpy as jnp
 import jaxtyping
-import numpy as np
 from orbax.export import serving_config as osc
 import tensorflow as tf
 
@@ -113,6 +112,21 @@ class TensorSpecWithDefault:
           f'TensorSpec {self.tensor_spec} is not compatible with'
           f' the default value {self.default_val}'
       )
+
+  @property
+  def shape(self) -> tuple[int | None, ...]:
+    """The shape of the underlying tensor specification."""
+    return self.tensor_spec.shape
+
+  @property
+  def dtype(self) -> tf.DType:
+    """The dtype of the underlying tensor specification."""
+    return self.tensor_spec.dtype
+
+  @property
+  def name(self) -> str | None:
+    """The name of the underlying tensor specification."""
+    return self.tensor_spec.name
 
 
 NestedTfTensorSpec = jaxtyping.PyTree[
