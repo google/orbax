@@ -286,7 +286,101 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
           mock.ANY,
       )
 
+  async def test_pre_create_fn_executes_before_create(self):
+    await synchronization.synchronize_next_operation_id()
+    tmpdir = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_pre', self.directory / 'final_pre'
+    )
+    events = []
+    orig_create = tmpdir.create
+
+    async def pre_create():
+      events.append('pre_create')
+
+    async def wrapped_create(*args, **kwargs):
+      events.append('create')
+      return await orig_create(*args, **kwargs)
+
+    with mock.patch.object(tmpdir, 'create', side_effect=wrapped_create):
+      p = async_utils.PathAwaitingCreation.build(
+          tmpdir,
+          [],
+          pre_create_fn=pre_create,
+      )
+      await p.create()
+      await p.await_creation()
+    self.assertEqual(events, ['pre_create', 'create'])
+
+  async def test_pre_create_fn_overwrites_existing_before_create(self):
+    await synchronization.synchronize_next_operation_id()
+    final_dir = self.directory / 'final_overwrite'
+    tmp_dir = self.directory / 'tmp_overwrite'
+    final_dir.mkdir(parents=True)
+    stale_file = final_dir / 'stale.txt'
+    stale_file.write_text('old')
+    tmpdir = atomicity.AtomicRenameTemporaryPath(tmp_dir, final_dir)
+
+    events = []
+    orig_exists = async_path.exists
+    orig_rmtree = async_path.rmtree
+    orig_mkdir = async_path.mkdir
+
+    async def traced_exists(path: epath.Path):
+      events.append(('exists', path))
+      return await orig_exists(path)
+
+    async def traced_rmtree(path: epath.Path, *args, **kwargs):
+      events.append(('rmtree', path))
+      return await orig_rmtree(path, *args, **kwargs)
+
+    async def traced_mkdir(path: epath.Path, *args, **kwargs):
+      events.append(('mkdir', path))
+      return await orig_mkdir(path, *args, **kwargs)
+
+    async def pre_create():
+      if await async_path.exists(final_dir):
+        await async_path.rmtree(final_dir)
+
+    with (
+        mock.patch.object(async_path, 'exists', side_effect=traced_exists),
+        mock.patch.object(async_path, 'rmtree', side_effect=traced_rmtree),
+        mock.patch.object(async_path, 'mkdir', side_effect=traced_mkdir),
+    ):
+      p = async_utils.PathAwaitingCreation.build(
+          tmpdir,
+          ['state'],
+          pre_create_fn=pre_create,
+      )
+      self.assertEmpty(events)
+      await p.create()
+      await p.await_creation()
+
+    self.assertFalse(final_dir.exists())
+    self.assertTrue((tmp_dir / 'state').exists())
+    ops = [op for op, path in events if path in (final_dir, tmp_dir)]
+    self.assertIn('rmtree', ops)
+    self.assertLess(ops.index('rmtree'), ops.index('mkdir'))
+
+  async def test_create_error_sets_error_signals(self):
+    await synchronization.synchronize_next_operation_id()
+    operation_id = synchronization.get_operation_id()
+    tmpdir = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_err', self.directory / 'final_err'
+    )
+    with mock.patch.object(
+        tmpdir, 'create', side_effect=OSError('mkdir failed')
+    ):
+      p = async_utils.PathAwaitingCreation.build(tmpdir, ['state'])
+      with self.assertRaisesRegex(OSError, 'mkdir failed'):
+        await p.create()
+        await p.await_creation()
+      with self.assertRaisesRegex(ValueError, 'mkdir failed'):
+        future.wait_for_signals(
+            [synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION],
+            timeout_secs=1,
+            operation_id=operation_id,
+        )
+
 
 if __name__ == '__main__':
   absltest.main()
-

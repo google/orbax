@@ -17,6 +17,7 @@
 import asyncio
 import concurrent.futures
 import datetime
+import functools
 import sys
 import threading
 import time
@@ -511,28 +512,23 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       self, directory: epath.Path, *, force: bool
   ) -> None:
     """Removes existing destination if force=True, or checks for collisions."""
-    skip = self._file_options.skip_sync_file_validations
-
     # 1. Force overwrite: only the primary host performs cleanup.
     if force:
       if not utils.is_primary_host(self._primary_host):
         return
-      should_remove = skip or await async_path.exists(directory)
-      if should_remove:
+      if await async_path.exists(directory):
         logging.info(
             '[process=%s] Specified `force`: removing existing directory.',
             multihost.process_index(),
         )
         await async_path.rmtree(
-            directory,
-            missing_ok=skip,
+            directory
         )  # Post-sync handled by create_tmp_directory.
       return
 
     # 2. Collision validation: verify destination directory does not exist.
-    if not skip:
-      if await async_path.exists(directory):
-        raise ValueError(f'Destination {directory} already exists.')
+    if await async_path.exists(directory):
+      raise ValueError(f'Destination {directory} already exists.')
 
   async def _save(
       self,
@@ -542,15 +538,30 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-    await self._prepare_destination_async(directory, force=force)
+    if not self._create_directories_asynchronously:
+      await self._prepare_destination_async(directory, force=force)
 
     commit_ops = []
     if self._create_directories_asynchronously:
+      is_in_place_tmpdir = (
+          not isinstance(tmpdir, atomicity.DeferredWritableTemporaryPath)
+          and tmpdir.get() == directory
+      )
+      pre_create_fn = None
+      if not (force and is_in_place_tmpdir):
+        pre_create_fn = functools.partial(
+            self._prepare_destination_async, directory, force=force
+        )
+      # `create_all_async` sends `STEP_DIRECTORY_CREATION` only after
+      # `pre_create_fn` and `tmpdir.create()` complete, so handler commit
+      # futures (`CommitFutureAwaitingContractedSignals`) are strictly ordered
+      # after directory preparation.
       commit_ops.append(
           atomicity.create_all_async(
               [tmpdir],
               completion_signals=_DIRECTORY_CREATION_SIGNALS,
               multiprocessing_options=self._multiprocessing_options,
+              pre_create_fn=pre_create_fn,
           )
       )
     else:

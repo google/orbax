@@ -1252,12 +1252,7 @@ class CheckpointManagerTest(
       ) as mock_save:
         self.assertTrue(self.save_params(0, manager, self.pytree))
         mock_save.assert_called_once()
-        skip_sync = bool(file_opts and file_opts.skip_sync_file_validations)
-        expected_force = not skip_sync if enable_async else True
-        self.assertEqual(
-            mock_save.call_args.kwargs['force'],
-            expected_force,
-        )
+        self.assertTrue(mock_save.call_args.kwargs['force'])
       self.wait_if_async(manager)
       self.assertSameElements([0], manager.all_steps())
       self.assertFalse((subdir / 'stale_file').exists())

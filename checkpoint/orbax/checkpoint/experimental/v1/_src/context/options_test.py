@@ -14,12 +14,15 @@
 
 """Tests for checkpoint file options."""
 
+import pathlib
+import threading
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax.numpy as jnp
 from orbax.checkpoint import options as v0_options_lib
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as ocp_options
 from orbax.checkpoint.experimental.v1._src.saving import saving
@@ -47,6 +50,54 @@ class FileOptionsTest(parameterized.TestCase):
     self.assertIsInstance(v0_opts, v0_options_lib.FileOptions)
     self.assertEqual(v0_opts.path_permission_mode, 0o777)
     self.assertTrue(v0_opts.skip_sync_file_validations)
+
+  def test_skip_sync_file_validations_deprecated(self):
+    with self.assertWarnsRegex(
+        DeprecationWarning, 'skip_sync_file_validations'
+    ):
+      opts = ocp_options.FileOptions(skip_sync_file_validations=True)
+    self.assertTrue(opts.skip_sync_file_validations)
+
+  def test_save_async_overwrite_deferred_off_main_thread(self):
+    directory = pathlib.Path(self.create_tempdir().full_path) / 'ckpt'
+    pytree = {'a': jnp.ones((2,))}
+    saving.save(str(directory), pytree)  # pyrefly: ignore[bad-argument-type]
+    self.assertTrue(directory.exists())
+
+    orig_exists = async_path.exists
+    orig_rmtree = async_path.rmtree
+    orig_mkdir = async_path.mkdir
+    events = []
+
+    async def traced_exists(path):
+      events.append(('exists', str(path), threading.current_thread().name))
+      return await orig_exists(path)
+
+    async def traced_rmtree(path, *args, **kwargs):
+      events.append(('rmtree', str(path), threading.current_thread().name))
+      return await orig_rmtree(path, *args, **kwargs)
+
+    async def traced_mkdir(path, *args, **kwargs):
+      events.append(('mkdir', str(path), threading.current_thread().name))
+      return await orig_mkdir(path, *args, **kwargs)
+
+    with (
+        mock.patch.object(async_path, 'exists', side_effect=traced_exists),
+        mock.patch.object(async_path, 'rmtree', side_effect=traced_rmtree),
+        mock.patch.object(async_path, 'mkdir', side_effect=traced_mkdir),
+    ):
+      response = saving.save_pytree_async(
+          str(directory), {'a': jnp.ones((2,)) * 2}, overwrite=True
+      )
+      response.result()
+
+    dir_events = [(op, th) for op, p, th in events if p == str(directory)]
+    self.assertEmpty([op for op, th in dir_events if th == 'MainThread'])
+    self.assertIn('rmtree', [op for op, _ in dir_events])
+    ops_order = [
+        op for op, p, _ in events if op == 'mkdir' or p == str(directory)
+    ]
+    self.assertLess(ops_order.index('rmtree'), ops_order.index('mkdir'))
 
 
 class AtomicityOptionsTest(parameterized.TestCase):

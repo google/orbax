@@ -21,7 +21,9 @@ import contextvars
 import dataclasses
 import enum
 from typing import Any, Protocol
+import warnings
 
+from absl import logging
 from etils import epath
 import numpy as np
 from orbax.checkpoint import options as v0_options_lib
@@ -224,13 +226,22 @@ class FileOptions(_ActiveContextGuard):
       `etils.epath.Path`, but may be overridden to some other subclass of
       :py:class:`~.v1.path.Path`.
     skip_sync_file_validations:
-      If True, bypasses synchronous filesystem existence and validation checks
-      prior to async saving. Default is False.
+      Deprecated: This option is no longer active and will be removed in a
+      future release.
   """
 
   path_permission_mode: int | None = None
   path_class: type[path_types.Path] = epath.Path
   skip_sync_file_validations: bool = False
+
+  def __post_init__(self):
+    if self.skip_sync_file_validations:
+      msg = (
+          '`FileOptions.skip_sync_file_validations` is deprecated, no longer'
+          ' active, and will be removed in a future release.'
+      )
+      logging.warning(msg)
+      warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
   def v0(self) -> v0_options_lib.FileOptions:
     """Converts this :py:class:`~.v1.options.FileOptions` to a v0 :py:class:`~orbax.checkpoint.options.FileOptions`."""

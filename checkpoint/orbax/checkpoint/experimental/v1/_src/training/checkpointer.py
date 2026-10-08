@@ -572,10 +572,10 @@ class Checkpointer(epy.ContextManager):
           ' exists.',
           step,
       )
-      try:
-        self._manager.delete(step)
-      except FileNotFoundError:
-        pass
+      self._manager.wait_until_finished()
+      self._manager._checkpoints.delete_if(  # pylint: disable=protected-access
+          lambda info: info.step == step
+      )
     elif any(c.step == step for c in self.checkpoints):
       raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
 
