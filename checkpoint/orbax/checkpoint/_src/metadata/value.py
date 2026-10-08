@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
+from typing import Any, Optional
 
 from etils import epath
 import jax
@@ -57,6 +57,9 @@ class StorageMetadata:
 
   chunk_shape: arrays_types.Shape | None
   write_shape: arrays_types.Shape | None = None
+  zarr_metadata: dict[str, Any] | None = dataclasses.field(
+      default=None, compare=False, repr=False
+  )
 
 
 @dataclasses.dataclass

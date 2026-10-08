@@ -1142,6 +1142,24 @@ def array_metadata_from_tensorstore(
     info: types.ParamInfo,
     sharding: sharding_metadata.ShardingMetadata | None = None,
 ) -> value_metadata.ArrayMetadata:
+  """Extracts ArrayMetadata and StorageMetadata from an open TensorStore.
+
+  Args:
+    t: Open TensorStore array to inspect.
+    info: Parameter info providing the name, directory and write shape.
+    sharding: Sharding metadata to attach; None if unsharded or unknown.
+
+  Returns:
+    ArrayMetadata with shape, dtype and storage (incl. Zarr) metadata.
+  """
+  base_t = t
+  while getattr(base_t, 'base', None) is not None:
+    base_t = base_t.base
+  try:
+    zarr_metadata = base_t.spec().to_json().get('metadata')
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.debug('Zarr metadata unavailable (best-effort): %s', e)
+    zarr_metadata = None
   return value_metadata.ArrayMetadata(
       name=info.name,
       directory=info.parent_dir,
@@ -1151,6 +1169,7 @@ def array_metadata_from_tensorstore(
       storage=value_metadata.StorageMetadata(
           chunk_shape=t.chunk_layout.read_chunk_template.shape,
           write_shape=info.write_shape,
+          zarr_metadata=zarr_metadata,
       ),
   )
 
