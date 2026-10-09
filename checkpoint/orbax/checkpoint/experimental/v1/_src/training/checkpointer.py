@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+import dataclasses
+import time
 import typing
 from typing import Any, Callable, Iterable, Sequence
 
 from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import standard_logger
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -98,6 +103,7 @@ class Checkpointer(epy.ContextManager):
       custom_metadata: tree_types.JsonType | None = None,
       cleanup_tmp_directories: bool = False,
       lightweight_initialize: bool = False,
+      logger: abstract_logger.AbstractLogger | None = None,
   ):
     """Initializes a Checkpointer.
 
@@ -170,8 +176,11 @@ class Checkpointer(epy.ContextManager):
         useful to improve init performance when there are O(1k) or more existing
         checkpoint steps present and checkpoint info properties like `time` and
         `metrics` are not needed.
+      logger: A :py:class:`~orbax.checkpoint.logging.AbstractLogger` used to log
+        checkpointing events (such as save and restore step statistics).
     """
     self._context = context_lib.Context(context or context_lib.get_context())
+    self._logger = logger or standard_logger.StandardLogger()
 
     default_save_decision_policy = save_decision_policies.AnySavePolicy([
         save_decision_policies.InitialSavePolicy(),
@@ -205,6 +214,7 @@ class Checkpointer(epy.ContextManager):
         directory,
         options=options,
         metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
+        logger=self._logger,
     )
 
   @property
@@ -795,11 +805,27 @@ class Checkpointer(epy.ContextManager):
         keys saved with `save_checkpointables`.
     """
     with context_lib.get_context(self._context):
+      step_stats = step_statistics.RestoreStepStatistics()
+      step_stats.checkpoint_manager_start_time = time.time()
+      step_stats.directory = str(self.directory)
       step = self._resolve_existing_checkpoint(step).step
-      return loading.load_checkpointables(
-          self.directory / self._step_name_format.build_name(step),
+      step_stats.step = step
+      restore_directory = (
+          self.directory / self._step_name_format.build_name(step)
+      )
+      step_stats.checkpointer_start_time = time.time()
+      restored = loading.load_checkpointables(
+          restore_directory,
           abstract_checkpointables,
       )
+      step_stats.checkpointer_duration_secs = (
+          time.time() - step_stats.checkpointer_start_time
+      )
+      step_stats.checkpoint_manager_duration_secs = (
+          time.time() - step_stats.checkpoint_manager_start_time
+      )
+      self._logger.log_entry(dataclasses.asdict(step_stats))
+      return restored
 
   def load_async(
       self,
