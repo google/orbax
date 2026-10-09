@@ -79,13 +79,21 @@ def create_sharded_pytree(
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
   if replicated_arrays:
     mesh_axes_2d = jax.sharding.PartitionSpec(None, 'y')
-  mesh_1d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
+  mesh_1d = (
+      mesh_2d
+      if replicated_arrays
+      else jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
+  )
   mesh_axes_1d = jax.sharding.PartitionSpec(
       'x',
   )
   if replicated_arrays:
     mesh_axes_1d = jax.sharding.PartitionSpec(None,)
-  mesh_0d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
+  mesh_0d = (
+      mesh_2d
+      if replicated_arrays
+      else jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
+  )
   mesh_axes_0d = jax.sharding.PartitionSpec(
       None,
   )
