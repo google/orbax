@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix `CheckpointManager.wait_until_finished()` to only accumulate
+  `wait_for_prev_duration_secs` when called from the main thread.
+
 ## [0.12.7] - 2026-10-06
 
 ### Added
