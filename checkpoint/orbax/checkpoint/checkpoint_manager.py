@@ -2116,7 +2116,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       raise
     finally:
       duration = time.time() - start_time
-      if duration > 0:
+      if duration > 0 and current_thread is threading.main_thread():
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/wait_for_prev_duration_secs',
             duration,
