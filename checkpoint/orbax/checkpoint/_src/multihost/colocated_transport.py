@@ -227,9 +227,9 @@ def _normalize_single_device_sharding_to_colocated_cpu(
   device = next(iter(sharding.device_set))
   if _device_platform(device) == 'cpu':
     return sharding
-  return jax.sharding.SingleDeviceSharding(
-      _to_serializable_cpu_device(device), memory_kind=sharding.memory_kind
-  )
+  # The accelerator memory kind is intentionally dropped, see
+  # `colocated_cpu_sharding`.
+  return jax.sharding.SingleDeviceSharding(_to_serializable_cpu_device(device))
 
 
 def install_pathways_colocated_serialization_patch() -> None:
@@ -322,18 +322,56 @@ def colocated_cpu_sharding(
     sharding: jax.sharding.Sharding,
 ) -> jax.sharding.Sharding:
   """Returns a CPU sharding colocated with the given sharding."""
+  # The memory kind is not propagated: the colocated Python sidecar
+  # materializes arrays in the default CPU memory, and requesting e.g.
+  # `pinned_host` breaks the transfer. `to_final_specs` restores the original
+  # sharding, including its memory kind.
   if isinstance(sharding, jax.sharding.SingleDeviceSharding):
     cpu_devices = cp.colocated_cpu_devices(list(sharding.device_set))
-    return jax.sharding.SingleDeviceSharding(
-        cpu_devices[0], memory_kind=sharding.memory_kind
-    )
+    return jax.sharding.SingleDeviceSharding(cpu_devices[0])
   if isinstance(sharding, jax.sharding.NamedSharding):
     cpu_mesh = colocated_cpu_mesh(sharding.mesh)  # pyrefly: ignore[bad-argument-type]
-    return jax.sharding.NamedSharding(
-        cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
-    )
+    return jax.sharding.NamedSharding(cpu_mesh, sharding.spec)
   raise TypeError(
       f'Sharding type {type(sharding)} not supported in to_colocated_python.'
+  )
+
+
+def validate_single_device_list(
+    arrays: Sequence[jax.Array | jax.ShapeDtypeStruct],
+    names: Sequence[str],
+) -> None:
+  """Raises unless `arrays` share one device list, as colocated Python needs.
+
+  Args:
+    arrays: Arrays or specs that are passed to colocated Python together.
+    names: The name of each array, used in the error message.
+
+  Raises:
+    ValueError: If `arrays` use more than one device list.
+  """
+  names_by_device_list: dict[Any, list[str]] = {}
+  num_devices_by_device_list: dict[Any, int] = {}
+  for arr, name in zip(arrays, names):
+    device_list = arr.sharding._internal_device_list  # pylint: disable=protected-access
+    names_by_device_list.setdefault(device_list, []).append(str(name))
+    num_devices_by_device_list[device_list] = len(arr.sharding.device_set)
+  if len(names_by_device_list) <= 1:
+    return
+  details = []
+  for device_list, device_list_names in names_by_device_list.items():
+    shown = ', '.join(device_list_names[:5])
+    if len(device_list_names) > 5:
+      shown += f' (+{len(device_list_names) - 5} more)'
+    details.append(
+        f'  - {num_devices_by_device_list[device_list]} device(s): {shown}'
+    )
+  raise ValueError(
+      'Colocated Python requires all jax.Arrays saved or restored together to'
+      f' use the same device list, but found {len(names_by_device_list)} device'
+      ' lists. Place all arrays on the same mesh, e.g. replicate'
+      ' scalars such as optimizer step counts. Arrays by device list:\n'
+      + '\n'.join(details)
   )
 
 

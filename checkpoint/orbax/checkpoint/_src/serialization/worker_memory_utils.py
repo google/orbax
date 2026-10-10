@@ -15,7 +15,7 @@
 """Utilities for managing worker memory usage."""
 
 import collections
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 import functools
 
 from absl import logging
@@ -233,4 +233,55 @@ def next_memory_budgeted_batch(
         len(current_batch),
         _humanize_worker_memory_usage(current_worker_memory_usage),
     )
+    yield current_batch
+
+
+def next_memory_budgeted_batch_indices(
+    specs: Sequence[jax.ShapeDtypeStruct],
+    worker_memory_budget: int,
+    *,
+    dispatcher: dispatchers.Dispatcher,
+) -> Iterator[list[int]]:
+  """Yields consecutive batches of `specs` that fit the worker memory budget.
+
+  Like `next_memory_budgeted_batch`, but for arrays that are yet to be
+  materialized by `dispatcher`, e.g. when restoring. A spec that alone exceeds
+  the budget gets its own batch.
+
+  Args:
+    specs: The arrays to materialize, with shardings.
+    worker_memory_budget: The maximum amount of memory to use on any worker.
+    dispatcher: The dispatcher that materializes the arrays.
+
+  Yields:
+    Batches of indices into `specs`.
+  """
+  device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+  worker_ids = set(device_to_worker_ids_map.values())
+  current_batch: list[int] = []
+  current_worker_memory_usage = dict.fromkeys(worker_ids, 0)
+  for i, spec in enumerate(specs):
+    spec_worker_memory_usage = dict.fromkeys(worker_ids, 0)
+    shard_memory_size = (
+        int(np.prod(spec.sharding.shard_shape(spec.shape)))
+        * spec.dtype.itemsize
+    )
+    for device in spec.sharding.device_set:
+      spec_worker_memory_usage[device_to_worker_ids_map[device.id]] += (
+          shard_memory_size
+      )
+    incremented_worker_memory_usage = {
+        worker_id: usage + spec_worker_memory_usage[worker_id]
+        for worker_id, usage in current_worker_memory_usage.items()
+    }
+    if not current_batch or _is_array_under_memory_budget(
+        worker_memory_budget, incremented_worker_memory_usage
+    ):
+      current_batch.append(i)
+      current_worker_memory_usage = incremented_worker_memory_usage
+    else:
+      yield current_batch
+      current_batch = [i]
+      current_worker_memory_usage = spec_worker_memory_usage
+  if current_batch:
     yield current_batch
