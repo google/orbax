@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextvars
+import copy
 import dataclasses
 import enum
 from typing import Any, Protocol
@@ -27,6 +28,7 @@ import numpy as np
 from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.serialization import memory_regulator as memory_regulator_lib
 from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -571,6 +573,10 @@ class DeletionOptions(_ActiveContextGuard):
 
 
 
+MemoryRegulator = memory_regulator_lib.MemoryRegulator
+MemoryProfiler = memory_regulator_lib.MemoryProfiler
+
+
 @dataclasses.dataclass(kw_only=True)
 class MemoryOptions(_ActiveContextGuard):
   """Options for configuring memory limits for save / load.
@@ -599,6 +605,20 @@ class MemoryOptions(_ActiveContextGuard):
       asynchronous with this option enabled, as we have to block on some array
       writes before beginning others. Also see `is_prioritized_key_fn`.
       `None` indicates no limit.
+    memory_regulator: Optional :py:class:`MemoryRegulator` that dynamically
+      regulates the device-to-host transfer concurrency limit across saves
+      based on memory profiling feedback. When set, its regulated limit takes
+      precedence over `transfer_concurrent_bytes`. Like
+      `transfer_concurrent_bytes`, the limit is enforced independently for each
+      PyTree checkpointable in a save; the controller accounts for the
+      aggregate only through observed peak memory. The regulator instance is
+      shared by reference across child `Context`s so PID controller state
+      persists across sequential saves.
+    expected_surge_bytes: Optional anticipated temporary increase in memory
+      consumption (in bytes) for the save operation. When used with
+      `memory_regulator`, preemptively reduces the regulated memory limit by
+      this amount to create headroom during the surge without updating PID
+      history. When `None`, falls back to the profiler's expected surge.
     is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
       using jax.tree.map_with_path) that should be scheduled for D2H transfer
       before other keys. The transfer is scheduled before returning to the
@@ -622,11 +642,26 @@ class MemoryOptions(_ActiveContextGuard):
   write_concurrent_bytes: int | None = None
   read_concurrent_bytes: int | None = None
   transfer_concurrent_bytes: int | None = None
+  memory_regulator: MemoryRegulator | None = None
+  expected_surge_bytes: int | float | None = None
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
   serialization_status_callback: (
       serialization_types.SerializationStatusCallback | None
   ) = None
   deepcopy_host_arrays: bool = True
+
+  def __deepcopy__(self, memo: dict[int, Any]) -> MemoryOptions:
+    result = object.__new__(type(self))
+    memo[id(self)] = result
+    for field in dataclasses.fields(self):
+      value = getattr(self, field.name)
+      copied = (
+          value
+          if field.name == 'memory_regulator'
+          else copy.deepcopy(value, memo)
+      )
+      object.__setattr__(result, field.name, copied)
+    return result
 
 
 @dataclasses.dataclass(kw_only=True)

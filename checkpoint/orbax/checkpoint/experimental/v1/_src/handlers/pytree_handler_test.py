@@ -2563,6 +2563,46 @@ class PyTreeHandlerLeafTest(
         restored = handler.load(self.directory)
         self.assertEqual(value, restored)
 
+  def test_memory_regulator_fallback_when_cleared(self):
+    regulator = options_lib.MemoryRegulator(max_memory_limit_gib=80.0)
+    ctx = context_lib.Context()
+    ctx.memory.memory_regulator = regulator
+    ctx.memory.transfer_concurrent_bytes = 512
+
+    test_handler = handler_test_utils.create_test_handler(
+        pytree_handler.PyTreeHandler, context=ctx
+    )
+    handler = test_handler._handler
+    assert isinstance(handler, pytree_handler.PyTreeHandler)
+    self.assertEqual(
+        handler._handler_impl._save_device_host_concurrent_bytes,
+        regulator.current_limit_bytes,
+    )
+
+    # First save with regulator active.
+    test_handler.save(self.directory / 'step0', {'a': np.ones((2,))})
+    self.assertEqual(
+        handler._handler_impl._save_device_host_concurrent_bytes,
+        regulator.current_limit_bytes,
+    )
+
+    # When the regulator is removed from context, subsequent save resets
+    # _save_device_host_concurrent_bytes to transfer_concurrent_bytes.
+    ctx.memory.memory_regulator = None
+    test_handler.save(self.directory / 'step1', {'a': np.ones((2,))})
+    self.assertEqual(
+        handler._handler_impl._save_device_host_concurrent_bytes,
+        512,
+    )
+
+    # Re-adding the regulator updates the limit back to the regulated limit.
+    ctx.memory.memory_regulator = regulator
+    test_handler.save(self.directory / 'step2', {'a': np.ones((2,))})
+    self.assertEqual(
+        handler._handler_impl._save_device_host_concurrent_bytes,
+        regulator.current_limit_bytes,
+    )
+
 
 if __name__ == '__main__':
   multiprocess_test.main()

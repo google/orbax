@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import math
 from unittest import mock
 
@@ -218,6 +219,59 @@ class MemoryRegulatorTest(parameterized.TestCase):
         pass
     self.assertFalse(profiler.started)
     self.assertEqual(regulator.current_limit_bytes, 10 * 1024**3)
+
+  def test_regulate_with_expected_surge_bytes_and_recovery(self):
+    profiler = MockMemoryProfiler()
+    profiler._peak_usage_bytes = int(200 * 1024**3)
+    profiler.total_memory = 250.0
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+    regulator.current_limit_bytes = 30 * 1024**3
+
+    with regulator.regulate(expected_surge_bytes=12 * 1024**3) as surge_limit:
+      self.assertEqual(surge_limit, 18 * 1024**3)
+      self.assertEqual(regulator.current_limit_bytes, 18 * 1024**3)
+
+    with regulator.regulate() as recovered_limit:
+      self.assertEqual(recovered_limit, 30 * 1024**3)
+      self.assertEqual(regulator.current_limit_bytes, 30 * 1024**3)
+
+  def test_deepcopy_creates_independent_instance(self):
+    profiler = MockMemoryProfiler()
+    regulator = memory_regulator.MemoryRegulator(
+        max_memory_limit_gib=80.0, profiler=profiler
+    )
+    regulator.integral = 12.5
+    regulator.current_limit_bytes = 30 * 1024**3
+
+    cloned = copy.deepcopy(regulator)
+    self.assertIsNot(cloned, regulator)
+    self.assertEqual(cloned.integral, 12.5)
+    self.assertEqual(cloned.current_limit_bytes, 30 * 1024**3)
+
+    cloned.integral = 0.0
+    cloned.current_limit_bytes = 10 * 1024**3
+    self.assertEqual(regulator.integral, 12.5)
+    self.assertEqual(regulator.current_limit_bytes, 30 * 1024**3)
+
+  def test_minimal_profiler_defaults(self):
+    class MinimalProfiler(memory_regulator.MemoryProfiler):
+
+      def profiler_start(self) -> None:
+        pass
+
+      def profiler_end(self) -> None:
+        pass
+
+      @property
+      def total_memory_gib(self) -> float:
+        return 100.0
+
+    profiler = MinimalProfiler()
+    self.assertEqual(profiler.get_prev_blocking_time_sec(), 0.0)
+    self.assertEqual(profiler.get_expected_surge_gib(), 0.0)
+    self.assertEqual(profiler.total_memory_gib, 100.0)
 
   @parameterized.named_parameters(
       dict(testcase_name="nan_peak", peak=math.nan, total=250.0, surge=0.0),

@@ -91,6 +91,16 @@ def _get_v0_save_args(
   return jax.tree.map_with_path(_leaf_get_v0_save_args, checkpointable)
 
 
+def _get_transfer_concurrent_bytes(
+    context: context_lib.Context,
+) -> int | None:
+  """Returns the D2H transfer limit; a memory regulator takes precedence."""
+  regulator = context.memory_options.memory_regulator
+  if regulator is not None:
+    return regulator.current_limit_bytes
+  return context.memory_options.transfer_concurrent_bytes
+
+
 def _create_v0_handler(
     context: context_lib.Context,
     *,
@@ -101,7 +111,7 @@ def _create_v0_handler(
   return base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler(
       save_concurrent_bytes=context.memory_options.write_concurrent_bytes,
       restore_concurrent_bytes=context.memory_options.read_concurrent_bytes,
-      save_device_host_concurrent_bytes=context.memory_options.transfer_concurrent_bytes,
+      save_device_host_concurrent_bytes=_get_transfer_concurrent_bytes(context),
       use_ocdbt=context.array_options.saving.use_ocdbt,
       use_zarr3=context.array_options.saving.use_zarr3,
       use_compression=context.array_options.saving.use_compression,
@@ -376,6 +386,10 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   ) -> Awaitable[None]:
     start_time = time.time()
     self.validate_leaves_handleable(checkpointable)
+
+    self._handler_impl._save_device_host_concurrent_bytes = (  # pylint: disable=protected-access
+        _get_transfer_concurrent_bytes(self._context)
+    )
 
     save_args = create_v0_save_args(self._context, checkpointable)
     save_args = dataclasses.replace(
