@@ -227,9 +227,9 @@ def _normalize_single_device_sharding_to_colocated_cpu(
   device = next(iter(sharding.device_set))
   if _device_platform(device) == 'cpu':
     return sharding
-  return jax.sharding.SingleDeviceSharding(
-      _to_serializable_cpu_device(device), memory_kind=sharding.memory_kind
-  )
+  # The accelerator memory kind is intentionally dropped, see
+  # `colocated_cpu_sharding`.
+  return jax.sharding.SingleDeviceSharding(_to_serializable_cpu_device(device))
 
 
 def install_pathways_colocated_serialization_patch() -> None:
@@ -322,16 +322,16 @@ def colocated_cpu_sharding(
     sharding: jax.sharding.Sharding,
 ) -> jax.sharding.Sharding:
   """Returns a CPU sharding colocated with the given sharding."""
+  # The memory kind is not propagated: the colocated Python sidecar
+  # materializes arrays in the default CPU memory, and requesting e.g.
+  # `pinned_host` breaks the transfer (b/470048871). `to_final_specs` restores
+  # the original sharding, including its memory kind.
   if isinstance(sharding, jax.sharding.SingleDeviceSharding):
     cpu_devices = cp.colocated_cpu_devices(list(sharding.device_set))
-    return jax.sharding.SingleDeviceSharding(
-        cpu_devices[0], memory_kind=sharding.memory_kind
-    )
+    return jax.sharding.SingleDeviceSharding(cpu_devices[0])
   if isinstance(sharding, jax.sharding.NamedSharding):
     cpu_mesh = colocated_cpu_mesh(sharding.mesh)  # pyrefly: ignore[bad-argument-type]
-    return jax.sharding.NamedSharding(
-        cpu_mesh, sharding.spec, memory_kind=sharding.memory_kind
-    )
+    return jax.sharding.NamedSharding(cpu_mesh, sharding.spec)
   raise TypeError(
       f'Sharding type {type(sharding)} not supported in to_colocated_python.'
   )

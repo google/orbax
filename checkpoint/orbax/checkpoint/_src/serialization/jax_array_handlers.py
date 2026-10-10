@@ -657,6 +657,35 @@ def _serialize_arrays_batches_without_dispatcher(
   )
 
 
+def _validate_single_device_list(
+    arrays: Sequence[jax.Array], infos: Sequence[types.ParamInfo]
+) -> None:
+  """Raises if `arrays` do not share one device list, naming the parameters."""
+  names_by_device_list: dict[Any, list[str]] = {}
+  num_devices_by_device_list: dict[Any, int] = {}
+  for arr, info in zip(arrays, infos):
+    device_list = arr.sharding._internal_device_list  # pylint: disable=protected-access
+    names_by_device_list.setdefault(device_list, []).append(str(info.name))
+    num_devices_by_device_list[device_list] = len(arr.sharding.device_set)
+  if len(names_by_device_list) <= 1:
+    return
+  details = []
+  for device_list, names in names_by_device_list.items():
+    shown = ', '.join(names[:5])
+    if len(names) > 5:
+      shown += f' (+{len(names) - 5} more)'
+    details.append(
+        f'  - {num_devices_by_device_list[device_list]} device(s): {shown}'
+    )
+  raise ValueError(
+      'Colocated Python requires all jax.Arrays saved together to use the same'
+      f' device list, but found {len(names_by_device_list)} device lists.'
+      ' Place all arrays on the same mesh before saving, e.g. replicate'
+      ' scalars such as optimizer step counts. Arrays by device list:\n'
+      + '\n'.join(details)
+  )
+
+
 def _serialize_arrays(
     arrays: Sequence[jax.Array],
     infos: Sequence[types.ParamInfo],
@@ -1516,6 +1545,8 @@ class ArrayHandler(types.TypeHandler):
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
         [not info.enable_pinned_host_transfer for info in infos]
     )
+    if isinstance(self._dispatcher, dispatchers.ColocatedPythonDispatcher):
+      _validate_single_device_list(arrays, infos)
 
     future_list = []
     if self._enable_write_sharding_file:
@@ -1642,18 +1673,29 @@ class ArrayHandler(types.TypeHandler):
       result_specs = await _get_abstract_arrays(
           args, shardings, self._array_metadata_store, infos
       )
-      ret = self._dispatcher.dispatch(
-          _sync_deserialize_arrays,
-          result_specs=result_specs,
-          func_kwargs={
-              'infos': infos,
-              'args': args,
-              'shardings': shardings,
-              'metadata_key': self._metadata_key,
-              'array_metadata_store': self._array_metadata_store,
-          },
-      )
-      jax.block_until_ready(ret)
+      # Bound worker memory by restoring in batches, each reaching its final
+      # sharding before the next one starts.
+      batches = [list(range(len(infos)))]
+      limiter = infos[0].device_host_byte_limiter
+      if isinstance(limiter, limits.LimitInFlightBytes):
+        batches = worker_memory_utils.memory_budgeted_batch_indices(
+            result_specs, limiter.max_bytes, dispatcher=self._dispatcher
+        )
+      ret = []
+      for batch in batches:
+        batch_ret = self._dispatcher.dispatch(
+            _sync_deserialize_arrays,
+            result_specs=[result_specs[i] for i in batch],
+            func_kwargs={
+                'infos': [infos[i] for i in batch],
+                'args': [args[i] for i in batch],
+                'shardings': [shardings[i] for i in batch],
+                'metadata_key': self._metadata_key,
+                'array_metadata_store': self._array_metadata_store,
+            },
+        )
+        jax.block_until_ready(batch_ret)
+        ret.extend(batch_ret)
     if logging.vlog_is_on(1):
       for a in ret:
         logging.vlog(
