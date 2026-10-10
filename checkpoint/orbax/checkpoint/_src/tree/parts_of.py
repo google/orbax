@@ -129,8 +129,8 @@ class PartsOf(Generic[T]):
     if bogus_paths:
       raise Error(
           'The following paths in input value are not part of the full tree'
-          f' structure: {bogus_paths}.\nGot value paths {self._present}\nand'
-          f' template paths {template_paths}'
+          f' structure: {bogus_paths}.\nGot value paths'
+          f' {self._present.keys()}\nand template paths {template_paths.keys()}'
       )
 
   @classmethod
