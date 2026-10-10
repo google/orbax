@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from unittest import mock
+
 from absl.testing import absltest
 import jax
 import numpy as np
@@ -85,6 +88,40 @@ class TestShardingMetadata(absltest.TestCase):
         converted_jax_sharding, jax.sharding.NamedSharding
     )
     self.assertEqual(converted_jax_sharding, jax_sharding)
+
+  def test_device_metadata_mesh_from_jax_mesh_reuses_device_id_tree(self):
+    devices = np.asarray(jax.devices())
+    mesh = jax.sharding.Mesh(devices, ("x",))
+    equivalent_mesh = jax.sharding.Mesh(devices.copy(), ("x",))
+
+    self.assertIs(
+        sharding_metadata.DeviceMetadataMesh.from_jax_mesh(mesh),
+        sharding_metadata.DeviceMetadataMesh.from_jax_mesh(equivalent_mesh),
+    )
+
+  def test_named_sharding_serializes_cached_device_mesh_dict(self):
+    device_mesh = sharding_metadata.DeviceMetadataMesh(
+        mesh=[sharding_metadata.DeviceMetadata(id=0)]
+    )
+    named_sharding_metadata = sharding_metadata.NamedShardingMetadata(
+        shape=np.array([1]),
+        axis_names=(["x"]),
+        partition_spec=(None,),
+        device_mesh=device_mesh,
+    )
+    original_asdict = sharding_metadata.dataclasses.asdict
+
+    with mock.patch.object(
+        sharding_metadata.dataclasses, "asdict", wraps=original_asdict
+    ) as asdict_mock:
+      serialized_string = named_sharding_metadata.to_serialized_string()
+      named_sharding_metadata.to_serialized_string()
+
+    self.assertEqual(asdict_mock.call_count, 1)
+    self.assertEqual(
+        json.loads(serialized_string)["device_mesh"],
+        {"mesh": [{"id": 0}]},
+    )
 
   def test_convert_between_jax_single_device_sharding_and_sharding_metadata(
       self,
