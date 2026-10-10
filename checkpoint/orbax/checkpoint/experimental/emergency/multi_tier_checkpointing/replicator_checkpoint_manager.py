@@ -934,9 +934,7 @@ class ReplicatorCheckpointManager(
 
   def all_steps(self, read: bool = False) -> Sequence[int]:
     if self._colocated_controller is not None:
-      raise NotImplementedError(
-          'all_steps is not supported in colocated mode.'
-      )
+      return self._colocated_controller.all_steps()
     return self._non_null_local_engine.all_steps(read=read)
 
   def latest_step(self) -> int | None:
