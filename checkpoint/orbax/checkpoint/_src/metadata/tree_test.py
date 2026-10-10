@@ -336,14 +336,16 @@ class TreeMetadataTest(parameterized.TestCase):
     self._check_tree_property(tree, metadata)
 
   @parameterized.parameters(
-      # An empty registered pytree (0 leaves, not a container) is unsupported
-      # because it is neither a container nor a single leaf.
+      # An empty registered pytree (0 leaves, not a container) is supported
+      # as it represents an empty custom object when support_rich_types=True.
       (test_tree_utils.MyFlax(),),
+      # None is supported as it represents an empty custom object when
+      # support_rich_types=False.
       (None,),
   )
-  def test_invalid_tree_type(self, tree):
-    with self.assertRaises(ValueError):
-      _TreeMetadataImpl(tree=tree)
+  def test_valid_empty_tree_type(self, tree):
+    metadata = _TreeMetadataImpl(tree=tree)
+    self.assertEqual(metadata.tree, tree)
 
   @parameterized.parameters(
       (1,),
