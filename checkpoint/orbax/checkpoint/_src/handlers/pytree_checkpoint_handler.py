@@ -458,6 +458,20 @@ def _get_impl_save_args(
   )
 
 
+@typing.overload
+def _concurrent_bytes(
+    concurrent_gb: int | None, *, use_default_if_none: bool = ...
+) -> int | None:
+  ...
+
+
+@typing.overload
+def _concurrent_bytes(
+    concurrent_gb: int | str | None, *, use_default_if_none: bool = ...
+) -> int | str | None:
+  ...
+
+
 def _concurrent_bytes(
     concurrent_gb: int | str | None, *, use_default_if_none: bool = True
 ) -> int | str | None:
@@ -502,6 +516,7 @@ class PyTreeCheckpointHandler(
       save_concurrent_gb: Optional[int] = None,
       restore_concurrent_gb: Optional[int] = None,
       save_device_host_concurrent_gb: int | str | None = None,
+      restore_device_host_concurrent_gb: int | None = None,
       memory_limit_options: options_lib.MemoryLimitOptions | None = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
@@ -548,6 +563,10 @@ class PyTreeCheckpointHandler(
         truly asynchronous with this option enabled, as we have to block on some
         array writes before beginning others. Also see `is_prioritized_key_fn`.
         Can be set to "auto" to enable Memory Regulator.
+      restore_device_host_concurrent_gb: max GB that a worker may materialize at
+        once when `ArrayHandler` restores jax.Arrays through a dispatcher (e.g.
+        Pathways colocated Python); `SingleReplicaArrayHandler` does not use
+        it. If None, all arrays are restored at once.
       memory_limit_options: Memory limit options for the checkpoint handler.
       use_ocdbt: enables Tensorstore OCDBT driver. This option allows using a
         different checkpoint format which is faster to read and write, as well
@@ -605,14 +624,27 @@ class PyTreeCheckpointHandler(
     self._save_device_host_concurrent_bytes = _concurrent_bytes(
         save_device_host_concurrent_gb, use_default_if_none=False
     )
+    if restore_device_host_concurrent_gb is not None and not (
+        isinstance(restore_device_host_concurrent_gb, int)
+        and not isinstance(restore_device_host_concurrent_gb, bool)
+        and restore_device_host_concurrent_gb > 0
+    ):
+      raise ValueError(
+          'restore_device_host_concurrent_gb must be a positive int or None,'
+          f' got {restore_device_host_concurrent_gb!r}.'
+      )
+    self._restore_device_host_concurrent_bytes = _concurrent_bytes(
+        restore_device_host_concurrent_gb, use_default_if_none=False
+    )
     logging.info(
         'save_device_host_concurrent_bytes=%s',
         self._save_device_host_concurrent_bytes,
     )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
-        save_concurrent_bytes=self._save_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
-        restore_concurrent_bytes=self._restore_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
+        save_concurrent_bytes=self._save_concurrent_bytes,
+        restore_concurrent_bytes=self._restore_concurrent_bytes,
         save_device_host_concurrent_bytes=self._save_device_host_concurrent_bytes,
+        restore_device_host_concurrent_bytes=self._restore_device_host_concurrent_bytes,
         memory_limit_options=memory_limit_options,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
@@ -702,8 +734,14 @@ class PyTreeCheckpointHandler(
   ) -> PyTree:
     """Deserializes values or gets them from the aggregate file."""
     byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)  # pyrefly: ignore[bad-argument-type]
+    device_host_byte_limiter = limits.get_byte_limiter(
+        self._restore_device_host_concurrent_bytes
+    )
     param_infos = jax.tree.map(
-        lambda info: info.replace(byte_limiter=byte_limiter),
+        lambda info: info.replace(
+            byte_limiter=byte_limiter,
+            device_host_byte_limiter=device_host_byte_limiter,
+        ),
         param_infos,
     )
 
