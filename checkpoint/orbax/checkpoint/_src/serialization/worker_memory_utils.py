@@ -234,3 +234,52 @@ def next_memory_budgeted_batch(
         _humanize_worker_memory_usage(current_worker_memory_usage),
     )
     yield current_batch
+
+
+def memory_budgeted_batch_indices(
+    specs: Sequence[jax.ShapeDtypeStruct],
+    worker_memory_budget: int,
+    *,
+    dispatcher: dispatchers.Dispatcher,
+) -> list[list[int]]:
+  """Splits `specs` into consecutive batches that fit the worker memory budget.
+
+  Like `next_memory_budgeted_batch`, but for arrays that are yet to be
+  materialized by `dispatcher`, e.g. when restoring. A spec that alone exceeds
+  the budget gets its own batch.
+
+  Args:
+    specs: The arrays to materialize, with shardings.
+    worker_memory_budget: The maximum amount of memory to use on any worker.
+    dispatcher: The dispatcher that materializes the arrays.
+
+  Returns:
+    Batches of indices into `specs`.
+  """
+  device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+  worker_ids = set(device_to_worker_ids_map.values())
+  batches = []
+  current_worker_memory_usage = dict.fromkeys(worker_ids, 0)
+  for i, spec in enumerate(specs):
+    spec_worker_memory_usage = dict.fromkeys(worker_ids, 0)
+    shard_memory_size = (
+        int(np.prod(spec.sharding.shard_shape(spec.shape)))
+        * spec.dtype.itemsize
+    )
+    for device in spec.sharding.device_set:
+      spec_worker_memory_usage[device_to_worker_ids_map[device.id]] += (
+          shard_memory_size
+      )
+    incremented_worker_memory_usage = {
+        worker_id: usage + spec_worker_memory_usage[worker_id]
+        for worker_id, usage in current_worker_memory_usage.items()
+    }
+    if batches and _is_array_under_memory_budget(
+        worker_memory_budget, incremented_worker_memory_usage
+    ):
+      batches[-1].append(i)
+      current_worker_memory_usage = incremented_worker_memory_usage
+    else:
+      batches.append([i])
+      current_worker_memory_usage = spec_worker_memory_usage
+  return batches
