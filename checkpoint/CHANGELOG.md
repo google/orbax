@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ArrayHandler(dispatcher_restore_concurrent_bytes=...)` (configurable via
+  `ocp.pathways.register_type_handlers`) bounds per-worker staging memory when
+  restoring `jax.Array`s through a dispatcher (e.g. Pathways colocated Python)
+  by restoring in memory-budgeted batches. It is off by default; colocated
+  Python restores of host-offloaded arrays without it log a warning.
+
+### Changed
+
+- Colocated Python now raises an error naming the affected parameters, instead
+  of a generic JAX error, when arrays on different device lists are saved or
+  restored together (even if save or restore batching would split them across
+  calls).
+
 ### Fixed
 
 - Avoid `jax.devices()` calls in Pathways multihost backend detection,
@@ -15,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during elasticity.
 - Support `bool` and `float16` dtypes and validate sharding in
   `CloudPathwaysArrayHandler` persistence helper.
+- Colocated Python no longer copies accelerator memory kinds (e.g.
+  `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
+  broke saving and restoring such arrays.
 
 ## [0.12.10] - 2026-11-12
 
