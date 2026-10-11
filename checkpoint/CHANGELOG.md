@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `PyTreeCheckpointHandler(restore_device_host_concurrent_gb=...)` bounds the
+  memory that dispatcher workers (e.g. Pathways colocated Python) use when
+  restoring, by restoring `jax.Array`s in memory-budgeted batches.
+
+### Fixed
+
+- Colocated Python no longer copies accelerator memory kinds (e.g.
+  `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
+  broke saving and restoring such arrays.
+- Colocated Python saves fail before starting, naming the affected parameters,
+  when the arrays span multiple device lists.
+
 ## [0.12.7] - 2026-10-06
 
 ### Added

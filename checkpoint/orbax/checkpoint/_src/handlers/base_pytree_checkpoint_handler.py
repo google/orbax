@@ -383,6 +383,7 @@ class BasePyTreeCheckpointHandler(
       save_concurrent_bytes: Optional[int] = None,
       restore_concurrent_bytes: Optional[int] = None,
       save_device_host_concurrent_bytes: int | str | None = None,
+      restore_device_host_concurrent_bytes: int | None = None,
       memory_limit_options: options_lib.MemoryLimitOptions | None = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
@@ -414,6 +415,10 @@ class BasePyTreeCheckpointHandler(
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
         before a new array can start being transferred. Can be "auto".
+      restore_device_host_concurrent_bytes: max bytes that a worker may
+        materialize at once when restoring jax.Arrays through a dispatcher
+        (e.g. Pathways colocated Python). If None, all arrays are restored at
+        once.
       memory_limit_options: Options for configuring memory limits for save.
         Can help to reduce the possibility of OOM's when checkpoints are saved.
       use_ocdbt: Whether to use OCDBT format for saving.
@@ -446,6 +451,9 @@ class BasePyTreeCheckpointHandler(
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
+    self._restore_device_host_concurrent_bytes = (
+        restore_device_host_concurrent_bytes
+    )
     self._max_save_device_host_concurrent_bytes = None
     if memory_limit_options is not None:
       if memory_limit_options.max_transfer_concurrent_gb is not None:
@@ -800,8 +808,14 @@ class BasePyTreeCheckpointHandler(
     """Deserializes values or skips."""
     flat_metadata = tree_utils.to_flat_dict(metadata)
     byte_limiter = limits.get_byte_limiter(self._restore_concurrent_bytes)
+    device_host_byte_limiter = limits.get_byte_limiter(
+        self._restore_device_host_concurrent_bytes
+    )
     param_infos = jax.tree.map(
-        lambda info: info.replace(byte_limiter=byte_limiter),
+        lambda info: info.replace(
+            byte_limiter=byte_limiter,
+            device_host_byte_limiter=device_host_byte_limiter,
+        ),
         param_infos,
     )
     batch_requests = batched_serialization_requests(
