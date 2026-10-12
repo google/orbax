@@ -20,6 +20,7 @@ operations live inside the checkpoint, outside the directory being removed.
 
 import asyncio
 from collections.abc import Collection
+import dataclasses
 import json
 import os
 import pathlib
@@ -41,6 +42,40 @@ RECORD_FILENAME = checkpoint_layout.CHECKPOINT_DELETION_KEY
 
 DeletionInProgressError = errors.DeletionInProgressError
 DeletionRecoveryError = errors.DeletionRecoveryError
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class DeletionRecord:
+  """Persisted intent to delete one named checkpointable.
+
+  Attributes:
+    operation_id: Unique hex id of the deletion that wrote this record.
+    checkpointable_name: The name of the checkpointable being deleted.
+    destination: Where the checkpointable is relocated to, or None if it is
+      removed directly.
+    original_metadata: Checkpoint metadata before the deletion.
+    updated_metadata: Checkpoint metadata after the deletion.
+  """
+
+  operation_id: str
+  checkpointable_name: str
+  destination: str | None
+  original_metadata: dict[str, Any]
+  updated_metadata: dict[str, Any]
+
+  def to_json(self) -> dict[str, Any]:
+    return dataclasses.asdict(self)
+
+  @classmethod
+  def from_json(cls, value: dict[str, Any]) -> 'DeletionRecord':
+    """Builds a record from JSON, raising KeyError if a field is missing."""
+    return cls(
+        operation_id=value['operation_id'],
+        checkpointable_name=value['checkpointable_name'],
+        destination=value.get('destination'),
+        original_metadata=value['original_metadata'],
+        updated_metadata=value['updated_metadata'],
+    )
 
 
 async def _read_json(path: path_types.Path) -> dict[str, Any]:
@@ -95,7 +130,7 @@ def updated_metadata(original: dict[str, Any], name: str) -> dict[str, Any]:
   }
 
 
-async def read_record(path: path_types.Path) -> dict[str, Any] | None:
+async def read_record(path: path_types.Path) -> DeletionRecord | None:
   """Validates the record and its metadata, or returns None if absent.
 
   Both reads and deletion retries use this check so they agree on whether an
@@ -114,7 +149,7 @@ async def read_record(path: path_types.Path) -> dict[str, Any] | None:
   if not await async_path.exists(record_path):
     return None
   try:
-    record = await _read_json(record_path)
+    value = await _read_json(record_path)
   except FileNotFoundError:
     # The worker may have finished cleanup after the existence check.
     return None
@@ -123,27 +158,24 @@ async def read_record(path: path_types.Path) -> dict[str, Any] | None:
         f'Invalid deletion record at {record_path}: {e}'
     ) from e
   try:
-    if record.get('version') != 1 or record.get('path') != str(
-        path if parse.urlparse(str(path)).scheme else path.absolute()
-    ):
-      raise ValueError('Unknown record version or mismatched checkpoint path.')
-    validation.validate_checkpointable_name(record['checkpointable_name'])
+    record = DeletionRecord.from_json(value)
+    validation.validate_checkpointable_name(record.checkpointable_name)
     if (
-        not isinstance(record.get('operation_id'), str)
-        or len(record['operation_id']) != 32
-        or any(c not in '0123456789abcdef' for c in record['operation_id'])
+        not isinstance(record.operation_id, str)
+        or len(record.operation_id) != 32
+        or any(c not in '0123456789abcdef' for c in record.operation_id)
     ):
       raise ValueError('Missing operation id.')
-    if record['updated_metadata'] != updated_metadata(
-        record['original_metadata'], record['checkpointable_name']
+    if record.updated_metadata != updated_metadata(
+        record.original_metadata, record.checkpointable_name
     ):
       raise ValueError('Invalid replacement metadata.')
-    if record.get('destination') is not None and not isinstance(
-        record['destination'], str
+    if record.destination is not None and not isinstance(
+        record.destination, str
     ):
       raise ValueError('Invalid relocation destination.')
     current = await read_checkpoint_metadata(path)
-    if current not in (record['original_metadata'], record['updated_metadata']):
+    if current not in (record.original_metadata, record.updated_metadata):
       raise ValueError(
           'Checkpoint metadata conflicts with the deletion record.'
       )
@@ -203,7 +235,7 @@ async def check_read(
   record = await read_record(path)
   if record is None:
     return None
-  deleting_name = record['checkpointable_name']
+  deleting_name = record.checkpointable_name
   if requested_read_names is None:
     logging.warning(
         'Excluding checkpointable %r at %s: deletion was started but cleanup '

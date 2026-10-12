@@ -50,6 +50,7 @@ def save(
 
   Example usage:
     Simple save of a dictionary containing JAX arrays::
+
       state = {
           'params': {
               'w': jnp.ones((8, 8)),
@@ -243,6 +244,7 @@ def save_checkpointables_async(
   Example usage:
     Saving multiple distinct components (e.g. model parameters and dataset
     iterator) asynchronously::
+
       path = '/tmp/my_checkpoint_step_100'
 
       # Setup components

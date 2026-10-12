@@ -67,6 +67,11 @@ from orbax.checkpoint.experimental.v1._src.saving.saving import (
     save_async,
 )
 
+from orbax.checkpoint.experimental.v1._src.deletion.deletion import (
+    delete,
+    delete_async,
+)
+
 ### DEPRECATED APIS ###
 from orbax.checkpoint.experimental.v1._src.saving.saving import (
     save_pytree,

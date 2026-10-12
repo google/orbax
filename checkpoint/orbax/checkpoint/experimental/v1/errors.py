@@ -14,7 +14,12 @@
 
 """Public API for user-facing errors."""
 
-# pylint: disable=g-importing-member, unused-import,
+# pylint: disable=g-importing-member, g-multiple-import, unused-import,
+
+from orbax.checkpoint.experimental.v1._src.deletion.errors import (
+    DeletionInProgressError,
+    DeletionRecoveryError,
+)
 
 from orbax.checkpoint.experimental.v1._src.layout.checkpoint_layout import (
     InvalidLayoutError,
