@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Add `delete` and `delete_async` free functions and
+  `training.Checkpointer.delete` / `delete_async` for deleting an entire
+  checkpoint or a single named checkpointable.
+
 ### Fixed
 
 - Fix `CheckpointManager.wait_until_finished()` to only accumulate
