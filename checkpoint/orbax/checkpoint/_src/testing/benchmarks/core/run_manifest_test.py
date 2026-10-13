@@ -19,6 +19,7 @@ from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import run_manifest
 
 
@@ -73,6 +74,19 @@ class CaptureRunManifestTest(parameterized.TestCase):
     # Format is a non-empty version string.
     self.assertNotEqual(m.jax_version, '')
     self.assertNotEqual(m.orbax_version, '')
+
+  def test_captures_backend(self):
+    m = run_manifest.capture_run_manifest()
+    self.assertEqual(m.backend, 'cpu')
+    self.assertIn('| `backend` | `cpu` |', m.as_markdown())
+
+  def test_names_simdevice_backend(self):
+    with mock.patch.object(
+        backends, 'is_simdevice', autospec=True, return_value=True
+    ):
+      m = run_manifest.capture_run_manifest()
+
+    self.assertEqual(m.backend, 'simdevice')
 
   def test_xla_flags_picked_up_from_env(self):
     with mock.patch.dict('os.environ', {'XLA_FLAGS': '--xla_dump_to=/tmp/x'}):

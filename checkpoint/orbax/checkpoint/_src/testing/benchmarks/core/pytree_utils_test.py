@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -187,6 +190,19 @@ class FunctionalEquivalenceTest(absltest.TestCase):
         [],
         {'W': np.eye(4)},
         {'W': np.eye(4)},
+    )
+
+  @mock.patch.object(backends, 'is_simdevice', autospec=True, return_value=True)
+  def test_simdevice_raises(self, _):
+    w = {'W': np.eye(4, dtype=np.float32)}
+    self.assertRaisesRegex(
+        RuntimeError,
+        'meaningless on SimDevice',
+        pytree_utils.assert_functional_equivalence,
+        _linear_apply,
+        [np.arange(4, dtype=np.float32)],
+        w,
+        w,
     )
 
 
