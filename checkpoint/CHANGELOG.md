@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- #v1 Add `logger` parameter to `v1.training.Checkpointer` and log
+  `RestoreStepStatistics` in `load_checkpointables`.
 - #v1 Add `delete` and `delete_async` free functions and
   `training.Checkpointer.delete` / `delete_async` for deleting an entire
   checkpoint or a single named checkpointable.
