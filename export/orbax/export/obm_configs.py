@@ -419,6 +419,15 @@ class Jax2ObmOptions:
       bfloat16 to save memory.
     enable_auto_layout: If set to True, automatically generate the optimal
       layout for model parameters to improve serving performance.
+    auto_layout_topology: Optional name of a compile-only device topology (as
+      accepted by `jax.experimental.topologies.get_topology_desc`, e.g.
+      `"h200=1"` for CUDA) on which the optimal layouts are computed when
+      `enable_auto_layout` is True. Use it when exporting on a host that does
+      not have the target accelerator (e.g. a CPU host exporting for CUDA):
+      without it the layouts are computed on the host's default backend, which
+      may not match the target platform. Requires `enable_auto_layout` and a
+      single `native_serialization_platforms` entry, which is the topology's
+      platform.
     native_serialization_disabled_checks: A sequence of
       `jax_export.DisabledSafetyCheck` to disable when exporting.
     save_shlo_to_file: Whether to save the StableHLO bytes as an external file.
@@ -436,6 +445,7 @@ class Jax2ObmOptions:
   persist_xla_flags: bool = True
   enable_bf16_optimization: bool = False
   enable_auto_layout: bool = False
+  auto_layout_topology: str | None = None
   native_serialization_disabled_checks: Sequence[
       jax_export.DisabledSafetyCheck
   ] = ()
