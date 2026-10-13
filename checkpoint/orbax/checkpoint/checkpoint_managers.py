@@ -14,36 +14,9 @@
 
 """Public symbols for checkpoint_managers module."""
 
-# pylint: disable=g-importing-member, g-bad-import-order, unused-import, g-multiple-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import checkpoint_managers as _mod
+from orbax.checkpoint.v0.checkpoint_managers import *
 
-from orbax.checkpoint._src.checkpoint_managers import save_decision_policy
-from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
-    DecisionContext,
-    SaveDecisionPolicy,
-    FixedIntervalPolicy,
-    PreemptionCheckpointingPolicy,
-    InitialSavePolicy,
-    SpecificStepsPolicy,
-    ContinuousCheckpointingPolicy,
-    AnySavePolicy,
-)
-
-from orbax.checkpoint._src.checkpoint_managers import preservation_policy
-from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
-    PreservationContext,
-    PreservationPolicy,
-    LatestN,
-    EveryNSeconds,
-    EveryNSteps,
-    EveryNStepsClosest,
-    CustomSteps,
-    AnyPreservationPolicy,
-    BestN,
-    LatestDuration,
-)
-
-from orbax.checkpoint._src.checkpoint_managers.policy_checkpoint_info import PolicyCheckpointInfo
-from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
-from orbax.checkpoint.checkpoint_manager import CheckpointManager
-
-from orbax.checkpoint.abstract_checkpoint_manager import AbstractCheckpointManager
+sys.modules[__name__] = _mod

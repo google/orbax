@@ -1,0 +1,125 @@
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Configuration options for APIs like CheckpointManager and Checkpointer."""
+
+import dataclasses
+import enum
+from typing import Callable, Optional, Set
+
+from orbax.checkpoint.v0._src.multihost import multihost
+
+
+
+@dataclasses.dataclass
+class AsyncOptions:
+  """Options used to configure async behavior.
+
+  See :py:class:`.AsyncCheckpointer` for details.
+  """
+
+  timeout_secs: int = (
+      1200  # 20 minutes. Same as default in `AsyncCheckpointer`.
+  )
+  barrier_sync_fn: Optional[multihost.BarrierSyncFn] = None
+  post_finalization_callback: Optional[Callable[[], None]] = None
+  create_directories_asynchronously: bool = True
+
+
+@dataclasses.dataclass
+class MultiprocessingOptions:
+  """Options used to configure multiprocessing behavior.
+
+  primary_host: the host id of the primary host.  Default to 0.  If it's set
+    to None, then all hosts will be considered as primary.  It's useful in
+    the case that all hosts are only working with local storage.
+  active_processes: A set of process indices (corresponding to
+    `multihost.process_index()`) over which `CheckpointManager` is expected to
+    be called. This makes it possible to have a `CheckpointManager` instance
+    that runs over a subset of processes, rather than all processes as it is
+    normally expected to do. If specified, `primary_host` must belong to
+    `active_processes`.
+  barrier_sync_key_prefix: A string to be prepended to the barrier sync key
+    used to synchronize processes. This is useful to avoid collisions with
+    other barrier syncs if another CheckpointManager is being used concurrently.
+  """
+
+  primary_host: Optional[int] = 0
+  active_processes: Optional[Set[int]] = None
+  barrier_sync_key_prefix: Optional[str] = None
+
+
+
+
+class AtomicityMode(str, enum.Enum):
+  """Protocol mode for checkpoint save atomicity."""
+
+  AUTO = 'auto'
+  COMMIT_FILE = 'commit_file'
+  ATOMIC_RENAME = 'atomic_rename'
+
+
+@dataclasses.dataclass(frozen=True)
+class AtomicityOptions:
+  """Options used to configure checkpoint save atomicity protocol.
+
+  Attributes:
+    mode: Specifies the atomicity mode for saving checkpoints. - AUTO:
+      Automatically selects based on storage backend (GCSDirect -> COMMIT_FILE,
+      POSIX/GCSFuse -> ATOMIC_RENAME). - COMMIT_FILE: Writes in-place and
+      creates commit_success.txt upon completion (ideal for GCSFuse). -
+      ATOMIC_RENAME: Writes to temporary directory and renames to final
+        directory.
+    allow_legacy_atomic_rename: Optional. If True, permits reading legacy
+      checkpoints saved via AtomicRename that do not contain a
+      commit_success.txt file. Default is False.
+  """
+
+  mode: AtomicityMode = AtomicityMode.AUTO
+  allow_legacy_atomic_rename: bool = False
+
+
+# pyformat: disable
+@dataclasses.dataclass(frozen=True)
+class FileOptions:
+  """Options used to configure checkpoint directories and files.
+
+  Attributes:
+    path_permission_mode: Path permission mode for step directories, user
+      metadata files. e.g. 0o750. Please check
+      https://github.com/google/etils/blob/main/etils/epath/backend.py if your
+        path is supported. default=None.
+    skip_sync_file_validations: If True, bypasses synchronous filesystem
+      existence and validation checks prior to async saving in
+      AsyncCheckpointer. Default is False. This is experimental and should only
+      be used if you are certain of the effects.
+  """
+# pyformat: enable
+
+  path_permission_mode: int | None = None
+  skip_sync_file_validations: bool = False
+
+
+@dataclasses.dataclass
+class MemoryLimitOptions:
+  """Options for configuring memory limits for save.
+
+  Can help to reduce the possibility of OOM's when large checkpoints are saved.
+
+  Attributes:
+    max_transfer_concurrent_gb: The max memory limit in GB allowed for.
+      Required if `save_device_host_concurrent_gb` is set to `"auto"`.
+  """
+
+  max_transfer_concurrent_gb: int | None = None

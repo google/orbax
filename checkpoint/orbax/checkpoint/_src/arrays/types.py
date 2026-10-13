@@ -14,34 +14,9 @@
 
 """Basic type definitions for working with arrays and fragments."""
 
-import dataclasses
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.arrays import types as _mod
+from orbax.checkpoint.v0._src.arrays.types import *
 
-from jax import numpy as jnp
-import numpy as np
-
-
-Shape = tuple[int, ...]
-DType = jnp.dtype | np.dtype
-
-# Indexing an np.ndarray with an empty tuple gives an array of the same shape,
-# *unless* the array is zero-dimensional in which case the result is a scalar.
-# Indexing an np.ndarray with Ellipsis always gives an array of the same shape.
-# For that reason we use Ellipsis instead of an empty tuple, to avoid needing
-# a bunch of special-case code to deal with zero-dimensional arrays.
-NdSlice = tuple[slice, ...] | type(Ellipsis)
-
-Index = tuple[slice, ...]
-IndexBounds = tuple[tuple[int, int], ...]
-
-
-@dataclasses.dataclass(frozen=True)
-class NumpyShapeDtypeStruct:
-  """Abstract representation of a Numpy array."""
-
-  shape: Shape
-  dtype: np.dtype
-
-
-# Slice objects are not hashable before python 3.12.
-HashableSlice = tuple[int, int, int]
-HashableIndex = tuple[HashableSlice, ...]
+sys.modules[__name__] = _mod

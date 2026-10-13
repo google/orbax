@@ -14,13 +14,9 @@
 
 """Sharding utilities for Orbax."""
 
-import jax
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src import sharding_utils as _mod
+from orbax.checkpoint.v0._src.sharding_utils import *
 
-
-def make_single_device_sharding(device, *, memory_kind=None):
-  return jax.sharding.SingleDeviceSharding(device, memory_kind=memory_kind)
-
-
-make_single_device_sharding = getattr(
-    jax.sharding, 'make_single_device_sharding', make_single_device_sharding
-)
+sys.modules[__name__] = _mod

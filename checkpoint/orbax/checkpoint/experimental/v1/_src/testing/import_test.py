@@ -23,6 +23,12 @@ class ImportTest(unittest.TestCase):
     except ImportError as e:
       self.fail(f"Failed to import orbax.checkpoint: {e}")
 
+  def test_import_orbax_checkpoint_v0(self):
+    try:
+      from orbax.checkpoint import v0 as ocp  # pylint: disable=unused-import, g-import-not-at-top
+    except ImportError as e:
+      self.fail(f"Failed to import orbax.checkpoint.v0: {e}")
+
   def test_import_orbax_checkpoint_experimental_v1(self):
     try:
       import orbax.checkpoint.experimental.v1 as ocp  # pylint: disable=unused-import, g-import-not-at-top

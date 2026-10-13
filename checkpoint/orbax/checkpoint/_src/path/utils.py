@@ -14,80 +14,9 @@
 
 """Utils for path constructs."""
 
-import asyncio
-from collections.abc import AsyncIterable
-import functools
-import os
-import time
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.path import utils as _mod
+from orbax.checkpoint.v0._src.path.utils import *
 
-from typing import Iterable, Optional
-
-from absl import logging
-from etils import epath
-
-from orbax.checkpoint._src.path import gcs_utils
-
-
-
-@functools.lru_cache(maxsize=32)
-def get_storage_type(path: epath.Path | str) -> str:
-  """Returns the storage type of the given path."""
-  if isinstance(path, str):
-    path = epath.Path(path)
-
-
-  if gcs_utils.is_gcs_path(path):
-    return 'gcs'
-  else:
-    return 'other'
-
-
-class Timer(object):
-  """A simple timer to measure the time it takes to run a function."""
-
-  def __init__(self):
-    self._start = time.time()
-
-  def get_duration(self):
-    return time.time() - self._start
-
-
-
-
-def recursively_copy_files(
-    src: epath.PathLike,
-    dst: epath.PathLike,
-    *,
-    skip_paths: Iterable[str] | None = None,
-) -> None:
-  """Recursively copies files from src to dst.
-
-  Args:
-    src: The source directory to copy from.
-    dst: The destination directory to copy to.
-    skip_paths: An optional iterable of relative paths to skip.
-  """
-  src_path = epath.Path(src)
-  dst_path = epath.Path(dst)
-  skip_paths_set = set(skip_paths) if skip_paths is not None else set()
-
-  for root, dirs, files in os.walk(src_path):
-    relative_path = str(root)[len(str(src_path)) :].lstrip(os.sep)
-    if relative_path in skip_paths_set:
-      continue
-    # Prune dirs that are in skip_paths to prevent traversal.
-    dirs[:] = [
-        d for d in dirs if os.path.join(relative_path, d) not in skip_paths_set
-    ]
-
-    dst_root = dst_path / relative_path
-    dst_root.mkdir(parents=True, exist_ok=True)
-
-    for file in files:
-      relative_file_path = os.path.join(relative_path, file)
-      if relative_file_path in skip_paths_set:
-        continue
-
-      src_file = epath.Path(root) / file
-      dst_file = epath.Path(dst_root) / file
-      src_file.copy(dst_file)
+sys.modules[__name__] = _mod

@@ -14,46 +14,9 @@
 
 """Metadata describing Arrays. Meant to be used internally."""
 
-import dataclasses
-from typing import Any, Dict, TypeAlias
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.metadata import array_metadata as _mod
+from orbax.checkpoint.v0._src.metadata.array_metadata import *
 
-from orbax.checkpoint._src.arrays import types
-
-
-ExtMetadata: TypeAlias = Dict[str, Any]
-
-# Keys in the `ext_metadata` dict.
-RANDOM_KEY_IMPL = 'random_key_impl'
-
-
-@dataclasses.dataclass(frozen=True)
-class ArrayMetadata:
-  """TensorStore metadata for a single array in a checkpoint."""
-
-  param_name: str  # Unique full name of the parameter.
-  shape: types.Shape
-  dtype: types.DType
-  write_shape: types.Shape
-  chunk_shape: types.Shape
-  use_ocdbt: bool
-  use_zarr3: bool
-  ext_metadata: ExtMetadata | None = (
-      None  # to contain any extension metadata for an array.
-  )
-  compression_algorithm: str = 'none'
-  compression_level: int | None = None
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class SerializedArrayMetadata:
-  """Serialized version of `ArrayMetadata`.
-
-  Not all fields of `ArrayMetadata` are serialized.
-
-  Used in subchunking based checkpointing context.
-  """
-
-  param_name: str  # Unique full name of the parameter.
-  write_shape: types.Shape
-  chunk_shape: types.Shape
-  ext_metadata: ExtMetadata | None = None
+sys.modules[__name__] = _mod

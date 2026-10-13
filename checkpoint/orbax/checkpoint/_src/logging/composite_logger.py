@@ -14,48 +14,9 @@
 
 """Composite logging implementation for checkpointing."""
 
-from typing import Any
-from absl import logging
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.logging import composite_logger as _mod
+from orbax.checkpoint.v0._src.logging.composite_logger import *
 
-from orbax.checkpoint._src.logging import abstract_logger
-
-
-def is_valid_logger(logger: abstract_logger.AbstractLogger):
-  if not isinstance(logger, abstract_logger.AbstractLogger):
-    logging.warning(
-        'CompositeLogger only supports AbstractLogger instances.'
-    )
-    return False
-  if isinstance(logger, CompositeLogger):
-    logging.warning(
-        'CompositeLogger doesn\'t support instance of itself.'
-    )
-    return False
-  return True
-
-
-class CompositeLogger(abstract_logger.AbstractLogger):
-  """Composite logger implementation."""
-
-  def __init__(
-      self,
-      *loggers: abstract_logger.AbstractLogger,
-  ):
-    """CompositeLogger constructor.
-
-    Args:
-      *loggers: List of loggers to be used.
-    """
-    self._known_loggers: list[abstract_logger.AbstractLogger] = []
-    for logger in loggers:
-      if is_valid_logger(logger):
-        self._known_loggers.append(logger)
-
-  def log_entry(self, entry: Any):
-    """Logs an informational message.
-
-    Args:
-        entry: Additional structured data to be included in the log record.
-    """
-    for logger in self._known_loggers:
-      logger.log_entry(entry)
+sys.modules[__name__] = _mod

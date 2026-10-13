@@ -14,13 +14,9 @@
 
 """Checkpoint info for checkpoint policies."""
 
-import datetime
-from typing import Any, Protocol
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.checkpoint_managers import policy_checkpoint_info as _mod
+from orbax.checkpoint.v0._src.checkpoint_managers.policy_checkpoint_info import *
 
-
-class PolicyCheckpointInfo(Protocol):
-  """Protocol for info about checkpoint policies."""
-
-  step: int
-  metrics: dict[str, Any] | None
-  time: datetime.datetime
+sys.modules[__name__] = _mod

@@ -39,6 +39,7 @@ EXCLUDED_PATHS = [
 EXCLUDED_PATHS_FOR_PRESUBMIT = [
     'orbax/checkpoint/experimental/v1',
     'orbax/checkpoint/_src/checkpointers',
+    'orbax/checkpoint/v0/_src/checkpointers',
 ]
 
 
