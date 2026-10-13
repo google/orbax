@@ -14,114 +14,13 @@
 
 """Orbax metrics telemetry base."""
 
-from __future__ import annotations
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.logging import monitoring as _mod
+from orbax.checkpoint.v0._src.logging.monitoring import *
+from orbax.checkpoint.v0._src.logging.monitoring import _DEFAULT_PROMETHEUS_PORT
+from orbax.checkpoint.v0._src.logging.monitoring import _recorders
+from orbax.checkpoint.v0._src.logging.monitoring import _initialized
+from orbax.checkpoint.v0._src.logging.monitoring import _init_lock
 
-import abc
-import logging
-import os
-import threading
-from typing import Any
-
-_DEFAULT_PROMETHEUS_PORT = 9431
-
-
-class MetricRecorder(abc.ABC):
-  """Abstract base class for Orbax metric recorders."""
-
-  @abc.abstractmethod
-  def record_event(self, metric_name: str, **kwargs: Any) -> None:
-    """Records a named event with optional metadata."""
-    pass
-
-  @abc.abstractmethod
-  def record_scalar(
-      self, metric_name: str, value: float | int, **kwargs: Any
-  ) -> None:
-    """Records a scalar summary value with optional metadata."""
-    pass
-
-  @abc.abstractmethod
-  def record_duration(
-      self, metric_name: str, duration: float | int, **kwargs: Any
-  ) -> None:
-    """Records an event duration in seconds with optional metadata."""
-    pass
-
-
-_recorders: list[MetricRecorder] = []  # Protected by _init_lock
-_initialized = False  # Protected by _init_lock
-_init_lock = threading.Lock()
-
-
-def initialize(recorder: MetricRecorder) -> None:
-  """Registers a recorder and binds its methods to JAX monitoring listeners."""
-  global _initialized
-
-  with _init_lock:
-    _recorders.append(recorder)
-
-    if _initialized:
-      return
-
-    from jax import monitoring as jax_monitoring  # pylint: disable=g-import-not-at-top
-
-    def _proxy_record_event(metric_name: str, **kwargs: Any) -> None:
-      with _init_lock:
-        recorders_snapshot = _recorders[:]
-      for r in recorders_snapshot:
-        r.record_event(metric_name, **kwargs)
-
-    def _proxy_record_scalar(
-        metric_name: str, value: float | int, **kwargs: Any
-    ) -> None:
-      with _init_lock:
-        recorders_snapshot = _recorders[:]
-      for r in recorders_snapshot:
-        r.record_scalar(metric_name, value, **kwargs)
-
-    def _proxy_record_duration(
-        metric_name: str, duration: float | int, **kwargs: Any
-    ) -> None:
-      with _init_lock:
-        recorders_snapshot = _recorders[:]
-      for r in recorders_snapshot:
-        r.record_duration(metric_name, duration, **kwargs)
-
-    jax_monitoring.register_event_listener(_proxy_record_event)  # pyrefly: ignore[bad-argument-type]
-    jax_monitoring.register_scalar_listener(_proxy_record_scalar)  # pyrefly: ignore[bad-argument-type]
-    jax_monitoring.register_event_duration_secs_listener(_proxy_record_duration)  # pyrefly: ignore[bad-argument-type]
-
-    _initialized = True
-    logging.info('Installed JAX monitoring proxy listeners for Orbax.')
-
-
-def initialize_from_env() -> None:
-  """Initializes monitoring based on environment and build type."""
-
-  enable_telemetry = os.environ.get(
-      'ENABLE_ORBAX_PROMETHEUS_TELEMETRY', 'false'
-  )
-  if enable_telemetry.lower() == 'true':
-    try:
-      from orbax.checkpoint._src.logging import prometheus_monitoring  # pylint: disable=g-import-not-at-top
-      import multiprocessing  # pylint: disable=g-import-not-at-top
-
-      env_port = os.environ.get('ORBAX_PROMETHEUS_PORT')
-      default_port = _DEFAULT_PROMETHEUS_PORT
-      if env_port:
-        try:
-          default_port = int(env_port)
-        except ValueError:
-          logging.warning(
-              'Invalid ORBAX_PROMETHEUS_PORT "%s". Falling back to default %d.',
-              env_port,
-              _DEFAULT_PROMETHEUS_PORT,
-          )
-      port = (
-          default_port
-          if multiprocessing.current_process().name == 'MainProcess'
-          else 0
-      )
-      initialize(prometheus_monitoring.PrometheusMonitoring(port=port))
-    except ImportError as e:
-      logging.warning('Failed to import PrometheusMonitoring: %s', e)
+sys.modules[__name__] = _mod

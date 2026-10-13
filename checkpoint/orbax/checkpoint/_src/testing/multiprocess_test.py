@@ -14,44 +14,9 @@
 
 """Helper for running multi-process tests."""
 
-import os
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.testing import multiprocess_test as _mod
+from orbax.checkpoint.v0._src.testing.multiprocess_test import *
 
-import jax
-from orbax.checkpoint._src.multihost import multihost
-
-from orbax.checkpoint._src.testing.oss import multiprocess_test
-
-main = multiprocess_test.main
-
-
-class MultiProcessTest(multiprocess_test.MultiProcessTest):
-  # TODO(b/378138653) Support TPUless MultiProcessTest.
-
-  def setUp(self):
-    """Start distributed service."""
-    if multihost.is_pathways_backend():
-      assert (
-          jax.process_count() == 1
-      ), "Expected 1 process for Pathways backend."
-    else:
-      super().setUp()
-
-  def tearDown(self):
-    """Stop distributed service."""
-    if multihost.is_pathways_backend():
-      return
-    super().tearDown()
-
-  def multiprocess_create_tempdir(
-      self, name: str | None = None
-  ) -> str:
-    """Creates a temporary directory for the test."""
-    directory = self._get_tempdir_path_test()
-    if name is not None:
-      directory = os.path.join(directory, name)
-    if jax.process_index() == 0:
-      os.makedirs(directory, exist_ok=False)
-    jax.experimental.multihost_utils.sync_global_devices(
-        "multiprocess_create_tempdir"
-    )
-    return directory
+sys.modules[__name__] = _mod

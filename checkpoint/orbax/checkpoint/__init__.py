@@ -80,6 +80,7 @@ from orbax.checkpoint._src.handlers.handler_registration import DefaultCheckpoin
 # warning.
 from orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler import BasePyTreeCheckpointHandler
 
+from orbax.checkpoint import v0
 from orbax.checkpoint.experimental import v1
 
 # Test utils.

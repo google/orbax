@@ -14,41 +14,10 @@
 
 """Public symbols for type_handlers module."""
 
-# pylint: disable=g-importing-member, unused-import, g-bad-import-order
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import type_handlers as _mod
+from orbax.checkpoint.v0.type_handlers import *
+from orbax.checkpoint.v0.type_handlers import _assert_parameter_files_exist
 
-from orbax.checkpoint._src.serialization.type_handlers import ArrayHandler
-from orbax.checkpoint._src.serialization.type_handlers import ArrayRestoreArgs
-from orbax.checkpoint._src.serialization.type_handlers import NumpyHandler
-from orbax.checkpoint._src.serialization.type_handlers import ParamInfo
-from orbax.checkpoint._src.serialization.type_handlers import RestoreArgs
-from orbax.checkpoint._src.serialization.type_handlers import SaveArgs
-from orbax.checkpoint._src.serialization.type_handlers import ScalarHandler
-from orbax.checkpoint._src.serialization.type_handlers import SingleReplicaArrayHandler
-from orbax.checkpoint._src.serialization.type_handlers import SingleReplicaArrayRestoreArgs
-from orbax.checkpoint._src.serialization.type_handlers import StringHandler
-from orbax.checkpoint._src.serialization.type_handlers import TypeHandler
-
-# TypeHandler Registry
-from orbax.checkpoint._src.serialization.types import TypeHandlerRegistry
-from orbax.checkpoint._src.serialization.type_handler_registry import create_type_handler_registry
-from orbax.checkpoint._src.serialization.type_handler_registry import get_type_handler
-from orbax.checkpoint._src.serialization.type_handler_registry import has_type_handler
-from orbax.checkpoint._src.serialization.type_handler_registry import register_standard_handlers_with_options
-from orbax.checkpoint._src.serialization.type_handler_registry import register_type_handler
-from orbax.checkpoint._src.serialization.type_handler_registry import supported_types
-
-from orbax.checkpoint._src.serialization.type_handlers import is_ocdbt_checkpoint
-
-# BEGIN OF DEPRECATED FUNCTIONS
-# DON'T USE UNLESS YOU KNOW WHAT YOU'RE DOING
-from orbax.checkpoint._src.serialization.types import check_input_arguments
-from orbax.checkpoint._src.metadata.empty_values import is_supported_empty_value
-from orbax.checkpoint._src.serialization.types import is_supported_type
-from orbax.checkpoint._src.serialization.ocdbt_utils import merge_ocdbt_per_process_files
-from orbax.checkpoint._src.serialization.tensorstore_utils import assert_parameter_files_exist as _assert_parameter_files_exist
-from orbax.checkpoint._src.serialization.tensorstore_utils import get_cast_tspec_deserialize
-from orbax.checkpoint._src.serialization.tensorstore_utils import get_cast_tspec_serialize
-from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec_read
-from orbax.checkpoint._src.serialization.tensorstore_utils import get_json_tspec_write
-from orbax.checkpoint._src.serialization.tensorstore_utils import get_ts_context
-# END OF DEPRECATED FUNCTIONS
+sys.modules[__name__] = _mod

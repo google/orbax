@@ -18,48 +18,9 @@ No dependency on Pathways binaries should be added here, as it should remain
 lightweight.
 """
 
-from __future__ import annotations
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.serialization import pathways_types as _mod
+from orbax.checkpoint.v0._src.serialization.pathways_types import *
 
-import enum
-
-
-class CheckpointingImpl(enum.Enum):
-  """The implementation to use for Pathways checkpointing."""
-
-  COLOCATED_PYTHON = enum.auto()
-  PERSISTENCE = enum.auto()
-  NO_DISPATCHER = enum.auto()
-
-  @classmethod
-  def from_options(
-      cls,
-      *,
-      use_colocated_python: bool = False,
-      use_persistence_array_handler: bool = False,
-  ) -> CheckpointingImpl:
-    """Obtains a CheckpointingImpl from the given options.
-
-    More than one option can be set to True. Resolves in order of priority:
-      1. Colocated Python
-      3. Persistence Array Handler
-      4. No Dispatcher
-
-    "No Dispatcher" means that a non-Pathways implementation will be used. This
-    is very ill-advised if the backend is in fact a Pathways backend, as it will
-    lead to checkpointing from the controller, which adds a significant
-    bottleneck.
-
-    Args:
-      use_colocated_python: Whether to use colocated Python.
-      use_persistence_array_handler: Whether to use the persistence array
-        handler.
-
-    Returns:
-      The CheckpointingImpl to use.
-    """
-    if use_colocated_python:
-      return cls.COLOCATED_PYTHON
-    elif use_persistence_array_handler:
-      return cls.PERSISTENCE
-    else:
-      return cls.NO_DISPATCHER
+sys.modules[__name__] = _mod

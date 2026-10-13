@@ -14,75 +14,9 @@
 
 """Builds `CheckpointManagerOptions` for continuous checkpointing."""
 
-from orbax.checkpoint import checkpoint_manager
-from orbax.checkpoint._src.checkpoint_managers import preservation_policy as preservation_policy_lib
-from orbax.checkpoint._src.checkpoint_managers import save_decision_policy as save_decision_policy_lib
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.checkpoint_managers import continuous_checkpointing as _mod
+from orbax.checkpoint.v0._src.checkpoint_managers.continuous_checkpointing import *
 
-
-def continuous_checkpointing_options(
-    *,
-    target_interval_steps: int,
-    minimum_interval_secs: int | None = None,
-    max_to_keep: int | None = None,
-    deferral_window_steps: int | None = None,
-) -> checkpoint_manager.CheckpointManagerOptions:
-  """Returns `CheckpointManagerOptions` for continuous checkpointing.
-
-  Saves every `minimum_interval_secs` if no write is running. Always saves at
-  every multiple of `target_interval_steps` (target steps). Also starts a save
-  on the first step. Like timed saves, it is cancelled if its write is still
-  running at the next target step. There is no preemption save. Call `save()`
-  on every step. To save the last step, call `save(step, force=True)`.
-
-  Example::
-
-    options = ocp.checkpoint_managers.continuous_checkpointing_options(
-        target_interval_steps=1000,
-        minimum_interval_secs=300,
-        max_to_keep=3,
-    )
-    mngr = ocp.CheckpointManager(directory, options=options)
-    for step in range(num_train_steps):
-      ...
-      mngr.save(step, args=ocp.args.StandardSave(state))
-    mngr.save(num_train_steps - 1, args=..., force=True)
-
-  Args:
-    target_interval_steps: Always save at every multiple of this many steps.
-    minimum_interval_secs: Minimum time between saves. If None, a save starts as
-      soon as the previous one finishes.
-    max_to_keep: Number of latest checkpoints, and of latest target-step
-      checkpoints, to keep. If None, keeps all.
-    deferral_window_steps: Skip timed saves this many steps before each target
-      step. If None, timed saves are not skipped before target steps (an
-      in-flight timed save is cancelled when a target step arrives).
-
-  Returns:
-    The checkpoint manager options.
-
-  Raises:
-    ValueError: If an argument is out of range.
-  """
-  # The policies check the arguments.
-
-  # `InitialSavePolicy` decides the same way on every host, so all hosts skip
-  # or reach `ContinuousCheckpointingPolicy` together.
-  save_decision_policy = save_decision_policy_lib.AnySavePolicy([
-      save_decision_policy_lib.InitialSavePolicy(),
-      save_decision_policy_lib.ContinuousCheckpointingPolicy(
-          minimum_interval_secs=minimum_interval_secs,
-          target_interval_steps=target_interval_steps,
-          deferral_window_steps=deferral_window_steps,
-      ),
-  ])
-  preservation_policy = preservation_policy_lib.AnyPreservationPolicy([
-      preservation_policy_lib.LatestN(n=max_to_keep),
-      preservation_policy_lib.EveryNSteps(
-          interval_steps=target_interval_steps, max_to_keep=max_to_keep
-      ),
-  ])
-  return checkpoint_manager.CheckpointManagerOptions(
-      enable_async_checkpointing=True,
-      save_decision_policy=save_decision_policy,
-      preservation_policy=preservation_policy,
-  )
+sys.modules[__name__] = _mod
