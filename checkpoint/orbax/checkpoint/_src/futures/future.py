@@ -30,6 +30,7 @@ from typing_extensions import Protocol
 
 PyTree = Any
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
+_SIGNAL_ACTION_ERROR = 'signal_action_error'
 
 
 class AwaitableSignalsContract:
@@ -261,7 +262,10 @@ def wait_for_signals(
         signal, operation_id
     )
     client = signaling_client.get_signaling_client()
-    client.blocking_key_value_get(barrier_key, timeout_secs)
+    signal_value = client.blocking_key_value_get(barrier_key, timeout_secs)
+    if str(signal_value).startswith(_SIGNAL_ACTION_ERROR):
+      error_msg = signal_value.removeprefix(f'{_SIGNAL_ACTION_ERROR}:')
+      raise ValueError(error_msg)
 
 
 def set_signals(
@@ -286,6 +290,29 @@ def set_signals(
     client = signaling_client.get_signaling_client()
     client.key_value_set(
         barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
+    )
+
+
+def set_error_signals(
+    send_signals: Sequence[synchronization.HandlerAwaitableSignal],
+    *,
+    operation_id: str,
+    error: BaseException,
+) -> None:
+  """Sets error values on the barrier keys for `send_signals`.
+
+  Args:
+    send_signals: Signals to send error values for.
+    operation_id: The operation id to use for the barrier keys.
+    error: The exception to record on the barrier keys.
+  """
+  client = signaling_client.get_signaling_client()
+  for signal in send_signals:
+    barrier_key = AwaitableSignalsContract.get_unique_awaitable_singal_key(
+        signal, operation_id
+    )
+    client.key_value_set(
+        barrier_key, f'{_SIGNAL_ACTION_ERROR}:{error}', allow_overwrite=True
     )
 
 
@@ -393,6 +420,9 @@ class _SignalingThread(threading.Thread):
             e,
         )
         self._exception = e
+        set_error_signals(
+            self._send_signals, operation_id=self._operation_id, error=e
+        )
 
   def cancel(self):
     """Cancels the thread's background execution."""

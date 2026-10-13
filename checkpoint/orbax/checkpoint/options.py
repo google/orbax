@@ -17,7 +17,9 @@
 import dataclasses
 import enum
 from typing import Callable, Optional, Set
+import warnings
 
+from absl import logging
 from orbax.checkpoint._src.multihost import multihost
 
 
@@ -100,15 +102,24 @@ class FileOptions:
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported. default=None.
-    skip_sync_file_validations: If True, bypasses synchronous filesystem
-      existence and validation checks prior to async saving in
-      AsyncCheckpointer. Default is False. This is experimental and should only
-      be used if you are certain of the effects.
+    skip_sync_file_validations: Deprecated: This option is no longer active and
+      will be removed in a future release.
   """
 # pyformat: enable
 
   path_permission_mode: int | None = None
   skip_sync_file_validations: bool = False
+
+  def __post_init__(self):
+    if self.skip_sync_file_validations:
+      msg = (
+          '`FileOptions.skip_sync_file_validations` is deprecated, no longer'
+          ' active, and will be removed in a future release.'
+      )
+      logging.warning(msg)
+      warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
+
 
 
 @dataclasses.dataclass

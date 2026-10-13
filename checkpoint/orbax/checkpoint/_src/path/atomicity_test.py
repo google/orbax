@@ -144,6 +144,31 @@ class AtomicRenameTemporaryPathTest(
     self.assertTrue(path.exists())
     self.assertEqual((path / 'foo').read_text(), 'new bar')
 
+  async def test_create_all_async_executes_pre_create_fn_before_create(self):
+    path = self.directory / 'ckpt_pre_create'
+    tmp_path = AtomicRenameTemporaryPath.from_final(path)
+    events = []
+    orig_create = tmp_path.create
+
+    async def pre_create():
+      events.append(('pre_create', tmp_path.get().exists()))
+
+    async def wrapped_create():
+      events.append(('create', tmp_path.get().exists()))
+      return await orig_create()
+
+    with mock.patch.object(tmp_path, 'create', side_effect=wrapped_create):
+      commit_future = atomicity.create_all_async(
+          [tmp_path],
+          completion_signals=[],
+          pre_create_fn=pre_create,
+      )
+      await asyncio.to_thread(commit_future.result)
+
+    if multihost.is_primary_host(0):
+      self.assertEqual(events, [('pre_create', False), ('create', False)])
+      self.assertTrue(tmp_path.get().exists())
+
 
 class CommitFileTemporaryPathTest(
     parameterized.TestCase,

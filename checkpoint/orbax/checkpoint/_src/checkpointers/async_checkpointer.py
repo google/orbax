@@ -17,6 +17,7 @@
 import asyncio
 import concurrent.futures
 import datetime
+import functools
 import sys
 import threading
 import time
@@ -510,29 +511,29 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
   async def _prepare_destination_async(
       self, directory: epath.Path, *, force: bool
   ) -> None:
-    """Removes existing destination if force=True, or checks for collisions."""
-    skip = self._file_options.skip_sync_file_validations
+    """Removes existing destination if force=True, or checks for collisions.
 
+    Args:
+      directory: The final checkpoint destination directory.
+      force: Whether to overwrite an existing destination directory.
+    """
     # 1. Force overwrite: only the primary host performs cleanup.
     if force:
       if not utils.is_primary_host(self._primary_host):
         return
-      should_remove = skip or await async_path.exists(directory)
-      if should_remove:
+      if await async_path.exists(directory):
         logging.info(
             '[process=%s] Specified `force`: removing existing directory.',
             multihost.process_index(),
         )
         await async_path.rmtree(
             directory,
-            missing_ok=skip,
         )  # Post-sync handled by create_tmp_directory.
       return
 
     # 2. Collision validation: verify destination directory does not exist.
-    if not skip:
-      if await async_path.exists(directory):
-        raise ValueError(f'Destination {directory} already exists.')
+    if await async_path.exists(directory):
+      raise ValueError(f'Destination {directory} already exists.')
 
   async def _save(
       self,
@@ -542,18 +543,29 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-    await self._prepare_destination_async(directory, force=force)
-
     commit_ops = []
     if self._create_directories_asynchronously:
+      is_in_place_tmpdir = (
+          not isinstance(tmpdir, atomicity.DeferredWritableTemporaryPath)
+          and tmpdir.get() == directory
+      )
+      pre_create_fn = None
+      if not (force and is_in_place_tmpdir):
+        pre_create_fn = functools.partial(
+            self._prepare_destination_async, directory, force=force
+        )
+      # `STEP_DIRECTORY_CREATION` is sent only after `pre_create_fn` and
+      # `tmpdir.create()` finish, so commit futures wait for preparation.
       commit_ops.append(
           atomicity.create_all_async(
               [tmpdir],
               completion_signals=_DIRECTORY_CREATION_SIGNALS,
               multiprocessing_options=self._multiprocessing_options,
+              pre_create_fn=pre_create_fn,
           )
       )
     else:
+      await self._prepare_destination_async(directory, force=force)
       await self.create_temporary_path(tmpdir)
     # Run copy ops.
     # Try to save using new CheckpointArgs API if supported by the handler.
@@ -571,9 +583,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         await self._handler.async_save(path, args=ckpt_args) or []  # pyrefly: ignore[bad-argument-type]
     )
     commit_ops, _ = jax.tree.flatten(commit_ops)
-    commit_ops = [op for op in commit_ops if op is not None]
-
-    return commit_ops
+    return [op for op in commit_ops if op is not None]
 
   def save(
       self,
