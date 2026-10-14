@@ -31,7 +31,7 @@ def find_free_port():
   with contextlib.closing(
       socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   ) as s:
-    s.bind(("", 0))
+    s.bind(("127.0.0.1", 0))
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     return s.getsockname()[1]
 
@@ -111,11 +111,11 @@ def main():
     sys.exit(1)
 
   coordinator_port = find_free_port()
-  coordinator_address = f"localhost:{coordinator_port}"
+  coordinator_address = f"127.0.0.1:{coordinator_port}"
 
   slicebuilder_ports = [find_free_port() for _ in range(args.num_processes)]
   slicebuilder_addresses = ",".join(
-      f"localhost:{port}" for port in slicebuilder_ports
+      f"127.0.0.1:{port}" for port in slicebuilder_ports
   )
 
   logging.info(
@@ -160,7 +160,7 @@ def main():
     elif tpu_chips_per_process == 4:
       # Note: this branch assumes we are using 2x4 v6e LitePod, and will not
       # work with 4x2 v5e LitePod.
-      tpu_host_bounds = "1,2,1"
+      tpu_host_bounds = "2,1,1"
       tpu_chips_per_host_bounds = "2,2,1"
     elif tpu_chips_per_process == 8:
       tpu_host_bounds = "1,1,1"
