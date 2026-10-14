@@ -56,21 +56,26 @@ def _safe_module_version(import_path: str) -> str:
     return "missing"
 
 
-def _capture_topology() -> tuple[int, int, int, str]:
-  """Best-effort jax topology snapshot."""
+def _capture_topology() -> tuple[int, int, int, str, str]:
+  """Best-effort jax topology snapshot, including the backend name."""
   try:
     import jax  # pylint: disable=g-import-not-at-top
+    from orbax.checkpoint._src.testing.benchmarks.core import backends  # pylint: disable=g-import-not-at-top
 
     devices = jax.devices()
     kind = devices[0].device_kind if devices else "unknown"
+    # SimDevice reports its platform as TPU; name it so results are not
+    # mistaken for hardware runs.
+    backend = "simdevice" if backends.is_simdevice() else jax.default_backend()
     return (
         jax.process_count(),
         jax.process_index(),
         jax.device_count(),
         kind,
+        backend,
     )
   except Exception:  # pylint: disable=broad-exception-caught
-    return (1, 0, 0, "unknown")
+    return (1, 0, 0, "unknown", "unknown")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -90,6 +95,7 @@ class RunManifest:
   jax_device_kind: str
   xla_flags: str
   libtpu_init_args: str
+  backend: str = "unknown"
 
   def as_markdown(self) -> str:
     """Renders the run manifest as grouped markdown tables."""
@@ -115,6 +121,7 @@ class RunManifest:
     topo_table = [
         "| field | value |",
         "|---|---|",
+        f"| `backend` | `{self.backend}` |",
         f"| `jax_process_count` | `{self.jax_process_count}` |",
         f"| `jax_process_index` | `{self.jax_process_index}` |",
         f"| `jax_device_count` | `{self.jax_device_count}` |",
@@ -144,7 +151,7 @@ def capture_run_manifest() -> RunManifest:
   git_status = _safe_check_output(["git", "status", "--porcelain"])
   git_dirty = bool(git_status.strip())
 
-  pc, pi, dc, kind = _capture_topology()
+  pc, pi, dc, kind, backend = _capture_topology()
 
   return RunManifest(
       captured_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -160,4 +167,5 @@ def capture_run_manifest() -> RunManifest:
       jax_device_kind=kind,
       xla_flags=os.environ.get("XLA_FLAGS", ""),
       libtpu_init_args=os.environ.get("LIBTPU_INIT_ARGS", ""),
+      backend=backend,
   )
