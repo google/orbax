@@ -148,6 +148,8 @@ async def merge_ocdbt_per_process_files(
     ts_context: ts.Context,
     use_zarr3: bool,
     enable_validation: bool = True,
+    *,
+    store_ocdbt_metadata_and_values_separately: bool = False,
 ):
   """Merges OCDBT files written to per-process subdirectories.
 
@@ -168,6 +170,8 @@ async def merge_ocdbt_per_process_files(
       validation.
     enable_validation: If True, validate params after merging. May have a
       performance impact.
+    store_ocdbt_metadata_and_values_separately: Whether to store OCDBT metadata
+      and values separately.
   """
   start_time = time.time()
   open_ops = []
@@ -191,7 +195,10 @@ async def merge_ocdbt_per_process_files(
       directory.as_posix(),
       use_ocdbt=True,
       ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
-          mode=ts_utils.OcdbtWriteMode.MERGE
+          mode=ts_utils.OcdbtWriteMode.MERGE,
+          store_ocdbt_metadata_and_values_separately=(
+              store_ocdbt_metadata_and_values_separately
+          ),
       ),
   )
   open_ops.append(ts_utils.open_kv_store(parent_kvstore_tspec, ts_context))

@@ -260,6 +260,21 @@ class OcdbtSpecsE2eTest(
         self.assertFalse((process_dir / "ocdbt_meta").is_dir())
         self.assertFalse((process_dir / "ocdbt_data").is_dir())
 
+  def _verify_merged_ocdbt_files(
+      self,
+      path: epath.Path,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ) -> None:
+    """Verifies key merged OCDBT files at the given path."""
+    self.assertTrue((path / "manifest.ocdbt").exists())
+    self.assertFalse((path / "ocdbt_data").is_dir())
+    if store_ocdbt_metadata_and_values_separately:
+      self.assertFalse((path / "d").is_dir())
+      self.assertTrue((path / "ocdbt_meta").is_dir())
+    else:
+      self.assertTrue((path / "d").is_dir())
+      self.assertFalse((path / "ocdbt_meta").is_dir())
+
   @parameterized.product(
       store_ocdbt_metadata_and_values_separately=(False, True),
   )
@@ -302,7 +317,17 @@ class OcdbtSpecsE2eTest(
     )
 
     await ocdbt_utils.merge_ocdbt_per_process_files(
-        test_dir, ts_context, use_zarr3=False, enable_validation=False
+        test_dir,
+        ts_context,
+        use_zarr3=False,
+        enable_validation=False,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+    self._verify_merged_ocdbt_files(
+        test_dir,
+        store_ocdbt_metadata_and_values_separately,
     )
     await _verify_array_data(test_data, test_dir)
 
@@ -422,7 +447,17 @@ class OcdbtSpecsE2eTest(
     )
 
     await ocdbt_utils.merge_ocdbt_per_process_files(
-        test_dir, ts_context, use_zarr3=False, enable_validation=False
+        test_dir,
+        ts_context,
+        use_zarr3=False,
+        enable_validation=False,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+    self._verify_merged_ocdbt_files(
+        test_dir,
+        store_ocdbt_metadata_and_values_separately,
     )
     await _verify_array_data(test_data, test_dir)
 
