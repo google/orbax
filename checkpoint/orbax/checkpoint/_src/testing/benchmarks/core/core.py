@@ -605,8 +605,9 @@ class TestSuite:
       out = baseline_lib.BaselineRecorder(capture).write(baseline)
       logging.info("Wrote baseline for %s to %s", benchmark.name, out)
     if compare:
+      comparer = baseline_lib.BaselineComparer(compare)
       try:
-        report = baseline_lib.BaselineComparer(compare).compare(metrics)
+        baseline = comparer.load()
       except FileNotFoundError:
         logging.warning(
             "baseline_path=%s missing for %s; skipping compare.",
@@ -614,6 +615,15 @@ class TestSuite:
             benchmark.name,
         )
         return
+      mismatch = baseline_lib.backend_mismatch(
+          baseline, self._suite_metrics.run_manifest.backend
+      )
+      if mismatch:
+        logging.warning(
+            "[baseline] Not comparing %s: %s.", benchmark.name, mismatch
+        )
+        return
+      report = comparer.compare(metrics, baseline)
       lines = [_format_baseline_delta(d) for d in report.deltas]
       logging.info(
           "[baseline] %s vs %s:\n%s",
