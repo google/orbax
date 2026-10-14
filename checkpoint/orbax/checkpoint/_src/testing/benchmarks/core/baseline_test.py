@@ -208,5 +208,23 @@ class BaselineComparerTest(absltest.TestCase):
       self.assertAlmostEqual(ratios["save_0_basics/time_s"], 3.0)  # pyrefly: ignore[no-matching-overload]
 
 
+class BackendMismatchTest(absltest.TestCase):
+
+  def test_same_backend(self):
+    baseline = _baseline(manifest={"backend": "tpu"})
+    self.assertIsNone(baseline_lib.backend_mismatch(baseline, "tpu"))
+
+  def test_different_backend(self):
+    baseline = _baseline(manifest={"backend": "tpu"})
+    self.assertEqual(
+        baseline_lib.backend_mismatch(baseline, "simdevice"),
+        "baseline ran on tpu, this run on simdevice",
+    )
+
+  def test_baseline_without_backend_is_compared(self):
+    baseline = _baseline(manifest={"jax_version": "0.4.99"})
+    self.assertIsNone(baseline_lib.backend_mismatch(baseline, "simdevice"))
+
+
 if __name__ == "__main__":
   absltest.main()
