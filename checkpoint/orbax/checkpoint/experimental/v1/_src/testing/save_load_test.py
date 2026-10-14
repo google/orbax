@@ -234,11 +234,27 @@ class SaveLoadTestSuite:
         (tuple([]),),
         (dict(),),
         (list(),),
+    )
+    def test_empty_native_tree(self, tree):
+      ocp.save(self.directory, tree)
+      with self.subTest('with_item'):
+        loaded = ocp.load(self.directory, tree)
+        self.assertEqual(tree, loaded)
+      with self.subTest('without_item'):
+        loaded = ocp.load(self.directory)
+        self.assertEqual(tree, loaded)
+
+    @parameterized.parameters(
         (optax.EmptyState(),),
     )
-    def test_empty_tree(self, tree):
-      with self.assertRaisesRegex(ValueError, 'Found empty item'):
-        ocp.save(self.directory, tree)
+    def test_empty_custom_node(self, custom_node):
+      ocp.save(self.directory, custom_node)
+      with self.subTest('with_item'):
+        loaded = ocp.load(self.directory, custom_node)
+        self.assertEqual(custom_node, loaded)
+      with self.subTest('without_item'):
+        loaded = ocp.load(self.directory)
+        self.assertIsNone(loaded)
 
     def test_none_tree(self):
       with self.assertRaisesRegex(
