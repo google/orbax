@@ -14,24 +14,9 @@
 
 """Basic constructs for PyTree Metadata handling."""
 
-import dataclasses
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.metadata import pytree_metadata_options as _mod
+from orbax.checkpoint.v0._src.metadata.pytree_metadata_options import *
 
-
-@dataclasses.dataclass(kw_only=True)
-class PyTreeMetadataOptions:
-  """Options for managing PyTree metadata.
-
-  Attributes:
-    support_rich_types: [Experimental feature: subject to change without
-      notice.] If True, supports NamedTuple and Tuple node types in the
-      metadata. Otherwise, a NamedTuple node is converted to dict and Tuple node
-      to list.
-  """
-
-  # TODO: b/365169723 - Support different namedtuple ser/deser strategies.
-
-  support_rich_types: bool = False
-
-
-# Global default options.
-PYTREE_METADATA_OPTIONS = PyTreeMetadataOptions(support_rich_types=False)
+sys.modules[__name__] = _mod

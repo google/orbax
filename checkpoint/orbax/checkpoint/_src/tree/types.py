@@ -14,24 +14,9 @@
 
 """Public common types to work with pytrees."""
 
-from __future__ import annotations
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.tree import types as _mod
+from orbax.checkpoint.v0._src.tree.types import *
 
-from typing import Any, TypeVar, Union
-
-from jax import tree_util as jtu
-
-
-PyTree = Any
-
-# This trick doesn't allow us to achieve full type checking but we at least can
-# use concrete types to document things like `PyTreeOf[jax.Array]`.
-T = TypeVar('T')
-PyTreeOf = Union[PyTree, T]
-
-PyTreeKey = Union[
-    jtu.SequenceKey, jtu.DictKey, jtu.GetAttrKey, jtu.FlattenedIndexKey
-]
-PyTreePath = tuple[PyTreeKey, ...]
-
-JsonType = list['JsonValue'] | dict[str, 'JsonValue']
-JsonValue = str | int | float | bool | None | JsonType
+sys.modules[__name__] = _mod

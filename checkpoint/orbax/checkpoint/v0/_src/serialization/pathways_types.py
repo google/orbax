@@ -1,0 +1,65 @@
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Pathways types.
+
+No dependency on Pathways binaries should be added here, as it should remain
+lightweight.
+"""
+
+from __future__ import annotations
+
+import enum
+
+
+class CheckpointingImpl(enum.Enum):
+  """The implementation to use for Pathways checkpointing."""
+
+  COLOCATED_PYTHON = enum.auto()
+  PERSISTENCE = enum.auto()
+  NO_DISPATCHER = enum.auto()
+
+  @classmethod
+  def from_options(
+      cls,
+      *,
+      use_colocated_python: bool = False,
+      use_persistence_array_handler: bool = False,
+  ) -> CheckpointingImpl:
+    """Obtains a CheckpointingImpl from the given options.
+
+    More than one option can be set to True. Resolves in order of priority:
+      1. Colocated Python
+      3. Persistence Array Handler
+      4. No Dispatcher
+
+    "No Dispatcher" means that a non-Pathways implementation will be used. This
+    is very ill-advised if the backend is in fact a Pathways backend, as it will
+    lead to checkpointing from the controller, which adds a significant
+    bottleneck.
+
+    Args:
+      use_colocated_python: Whether to use colocated Python. # BEGIN
+      use_persistence_array_handler: Whether to use the persistence array
+        handler.
+
+    Returns:
+      The CheckpointingImpl to use.
+    """
+    if use_colocated_python:
+      return cls.COLOCATED_PYTHON
+    elif use_persistence_array_handler:
+      return cls.PERSISTENCE
+    else:
+      return cls.NO_DISPATCHER

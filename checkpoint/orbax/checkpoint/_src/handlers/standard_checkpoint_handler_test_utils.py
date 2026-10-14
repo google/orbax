@@ -14,18 +14,9 @@
 
 """Utils for testing StandardCheckpointHandler."""
 
-from orbax.checkpoint import test_utils
-from orbax.checkpoint._src.handlers import standard_checkpoint_handler
-from orbax.checkpoint._src.multihost import multihost
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.handlers import standard_checkpoint_handler_test_utils as _mod
+from orbax.checkpoint.v0._src.handlers.standard_checkpoint_handler_test_utils import *
 
-
-class StandardCheckpointHandler(
-    standard_checkpoint_handler.StandardCheckpointHandler
-):
-
-  def save(self, directory, *args, **kwargs):
-    super().save(directory, *args, **kwargs)
-    test_utils.sync_global_processes('StandardCheckpointHandler:save')
-    if multihost.process_index() == 0:
-      self.finalize(directory)
-    test_utils.sync_global_processes('StandardCheckpointHandler:finalize')
+sys.modules[__name__] = _mod

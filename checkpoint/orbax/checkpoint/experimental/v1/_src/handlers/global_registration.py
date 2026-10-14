@@ -53,12 +53,14 @@ _try_register_handler(
     proto_handler.ProtoHandler,
     secondary_typestrs=[
         'orbax.checkpoint._src.handlers.proto_checkpoint_handler.ProtoCheckpointHandler',
+        'orbax.checkpoint.v0._src.handlers.proto_checkpoint_handler.ProtoCheckpointHandler',
     ],
 )
 _try_register_handler(
     json_handler.JsonHandler,
     secondary_typestrs=[
         'orbax.checkpoint._src.handlers.json_checkpoint_handler.JsonCheckpointHandler',
+        'orbax.checkpoint.v0._src.handlers.json_checkpoint_handler.JsonCheckpointHandler',
     ],
 )
 _try_register_handler(
@@ -72,7 +74,9 @@ _try_register_handler(
     pytree_handler.PyTreeHandler,
     secondary_typestrs=[
         'orbax.checkpoint._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler',
+        'orbax.checkpoint.v0._src.handlers.pytree_checkpoint_handler.PyTreeCheckpointHandler',
         'orbax.checkpoint._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler',
+        'orbax.checkpoint.v0._src.handlers.standard_checkpoint_handler.StandardCheckpointHandler',
     ],
 )
 _try_register_handler(pytree_handler.PyTreeHandler, STATE_CHECKPOINTABLE_KEY)

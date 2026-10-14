@@ -1,0 +1,368 @@
+# Copyright 2026 The Orbax Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""To test Orbax in single-host setup."""
+
+import os
+from typing import Any
+import unittest
+from unittest import mock
+
+from absl import logging
+from absl.testing import absltest
+from absl.testing import parameterized
+from etils import epath
+from orbax.checkpoint.v0._src.path import deleter as deleter_lib
+from orbax.checkpoint.v0._src.path import step as step_lib
+
+
+class CheckpointDeleterTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.ckpt_dir = epath.Path(self.create_tempdir('ckpt').full_path)
+
+  def _get_save_diretory(self, step: int, directory: epath.Path) -> epath.Path:
+    return directory / str(step)
+
+  @parameterized.product(
+      threaded=(False, True),
+      todelete_subdir=(None, 'some_delete_dir'),
+  )
+  def test_checkpoint_deleter_delete(self, threaded, todelete_subdir):
+    """Test regular CheckpointDeleter."""
+    deleter = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=todelete_subdir,
+        todelete_full_path=None,
+        enable_background_delete=threaded,
+    )
+
+    step = 1
+    step_dir = self._get_save_diretory(step, self.ckpt_dir)
+    step_dir.mkdir()
+    self.assertTrue(step_dir.exists())
+    deleter.delete(step)
+    deleter.close()
+
+    # assert the step_dir is deleted
+    self.assertFalse(step_dir.exists())
+
+    # In case of rename, check if the new folder exists
+    if todelete_subdir is not None:
+      self.assertTrue((self.ckpt_dir / todelete_subdir / str(step)).exists())
+
+    deleter.close()
+
+  def test_checkpoint_deleter_parallel_delete(self):
+    """Test parallel deletion works and deletes all files."""
+    deleter = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=2,
+    )
+
+    step = 1
+    step_dir = self._get_save_diretory(step, self.ckpt_dir)
+    step_dir.mkdir()
+
+    # Create subdirectories and files
+    sub1 = step_dir / 'sub1'
+    sub1.mkdir()
+    (sub1 / 'file1.txt').write_text('hello')
+
+    sub2 = step_dir / 'sub2'
+    sub2.mkdir()
+    (sub2 / 'file2.txt').write_text('world')
+
+    (step_dir / 'root_file.txt').write_text('root')
+
+    self.assertTrue(step_dir.exists())
+    self.assertTrue((sub1 / 'file1.txt').exists())
+    self.assertTrue((sub2 / 'file2.txt').exists())
+
+    deleter.delete(step)
+    deleter.close()
+
+    # Assert the entire step_dir is deleted
+    self.assertFalse(step_dir.exists())
+
+  def test_is_local_path(self):
+    self.assertTrue(deleter_lib._is_local_path(epath.Path('/tmp/foo')))
+    self.assertTrue(deleter_lib._is_local_path(epath.Path('foo/bar')))
+    self.assertFalse(deleter_lib._is_local_path(epath.Path('gs://bucket/foo')))
+    self.assertFalse(deleter_lib._is_local_path(epath.Path('s3://bucket/foo')))
+
+  def test_checkpoint_deleter_auto_threads_local(self):
+    expected_threads = min(16, max(1, (os.cpu_count() or 4) // 2))
+    deleter: Any = deleter_lib.create_checkpoint_deleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=None,
+    )
+    if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
+      path_deleter = deleter._path_deleter
+    else:
+      path_deleter = deleter._standard_deleter._path_deleter
+    self.assertEqual(path_deleter._num_threads, expected_threads)
+    self.assertEqual(
+        path_deleter._parallel_deleter is not None,
+        expected_threads > 1,
+    )
+
+  def test_checkpoint_deleter_auto_threads_gcs(self):
+    gcs_dir = epath.Path('gs://my-bucket/checkpoints')
+    deleter: Any = deleter_lib.create_checkpoint_deleter(
+        gcs_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path=None,
+        enable_background_delete=False,
+        num_threads=None,
+    )
+    if isinstance(deleter, deleter_lib.StandardCheckpointDeleter):
+      path_deleter = deleter._path_deleter
+    else:
+      path_deleter = deleter._standard_deleter._path_deleter
+    self.assertEqual(path_deleter._num_threads, 1)
+
+
+
+class ThreadedCheckpointDeleterExceptionTest(parameterized.TestCase):
+
+  def test_exception_bubbling_on_close(self):
+    """Verifies exceptions in background thread are raised on close()."""
+    mock_standard_deleter = mock.MagicMock()
+    error_msg = 'Background deletion failed'
+    mock_standard_deleter.delete.side_effect = ValueError(error_msg)
+
+    with mock.patch.object(
+        deleter_lib,
+        'StandardCheckpointDeleter',
+        return_value=mock_standard_deleter,
+    ):
+      deleter = deleter_lib.ThreadedCheckpointDeleter(
+          epath.Path('/tmp'),
+          name_format=step_lib.standard_name_format(),
+      )
+      deleter.delete(1)
+
+      with self.assertRaisesRegex(ValueError, error_msg):
+        deleter.close()
+
+
+class GcsRenameTest(unittest.TestCase):
+
+  @mock.patch('orbax.checkpoint.v0._src.path.deleter.epath.Path')
+  def test_gcs_rename_logic_directly(self, mock_epath_constructor):
+    """Tests path construction and rename call logic."""
+    standard_checkpoint_deleter = deleter_lib.StandardCheckpointDeleter
+
+    deleter = standard_checkpoint_deleter(
+        directory=mock.MagicMock(),
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir=None,
+        todelete_full_path='trash_bin',
+    )
+    # When epath.Path() is called inside the code, it returns this mock parent
+    mock_dest_parent = mock.MagicMock()
+    mock_epath_constructor.return_value = mock_dest_parent
+
+    # When the code does (parent / child), return a specific final mock
+    mock_final_dest = mock.MagicMock()
+    mock_final_dest.__str__.return_value = 'gs://mocked/final/destination'  # pyrefly: ignore[missing-attribute]
+    mock_dest_parent.__truediv__.return_value = mock_final_dest
+    mock_final_dest.parent = mock_dest_parent
+
+    # Setup the "Source" Mock (The step being deleted)
+    mock_step_path = mock.MagicMock()
+    mock_step_path.__str__.return_value = 'gs://my-bucket/checkpoints/step_10'  # pyrefly: ignore[missing-attribute]
+    mock_step_path.name = 'step_10'
+
+    deleter._gcs_rename_step(step=10, delete_target=mock_step_path)
+
+    # Verify mkdir was called on the destination parent.
+    mock_dest_parent.mkdir.assert_called_with(parents=True, exist_ok=True)
+
+    # Verify the Parent Path string was constructed correctly
+    # The code does: epath.Path(f'gs://{bucket}/{todelete_full_path}')
+    (parent_path_arg,), _ = mock_epath_constructor.call_args
+    self.assertEqual(parent_path_arg, 'gs://my-bucket/trash_bin')
+
+    # Verify the Child Filename was constructed correctly
+    (child_name_arg,), _ = mock_dest_parent.__truediv__.call_args
+    self.assertIn('step_10-', child_name_arg)
+
+    # Verify the Rename was actually called
+    mock_step_path.rename.assert_called_with(mock_final_dest)
+
+
+class DeleteEventTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.ckpt_dir = epath.Path(self.create_tempdir().full_path)
+
+  @parameterized.parameters('permanent', 'subdir')
+  def test_successful_whole_checkpoint_records_one_event(self, mode):
+    target = self.ckpt_dir / '1'
+    operation = deleter_lib.StandardCheckpointDeleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+        todelete_subdir='trash' if mode == 'subdir' else None,
+    )
+    with (
+        mock.patch.object(step_lib, 'find_step_path', return_value=target),
+        mock.patch.object(operation._path_deleter, 'delete'),
+        mock.patch.object(
+            deleter_lib.event_tracking, 'record_delete_event'
+        ) as event,
+    ):
+      operation.delete(1)
+      event.assert_called_once_with(target)
+
+  def test_backend_early_return_still_records_whole_checkpoint(self):
+    # Internal backends (e.g. TFHUB) may return from the permanent-delete
+    # helper without delegating to PathDeleter.
+    target = self.ckpt_dir / '1'
+    operation = deleter_lib.StandardCheckpointDeleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+    )
+    with (
+        mock.patch.object(step_lib, 'find_step_path', return_value=target),
+        mock.patch.object(
+            operation, '_delete_step_permanently', return_value=None
+        ),
+        mock.patch.object(
+            deleter_lib.event_tracking, 'record_delete_event'
+        ) as event,
+    ):
+      operation.delete(1)
+      event.assert_called_once_with(target)
+
+  @parameterized.parameters('missing', 'failure', 'non_primary')
+  def test_unsuccessful_deletion_does_not_record_success(self, mode):
+    target = self.ckpt_dir / '1'
+    operation = deleter_lib.StandardCheckpointDeleter(
+        self.ckpt_dir,
+        name_format=step_lib.standard_name_format(),
+        primary_host=0,
+    )
+    with (
+        mock.patch.object(
+            deleter_lib.multihost,
+            'is_primary_host',
+            return_value=mode != 'non_primary',
+        ),
+        mock.patch.object(
+            step_lib,
+            'find_step_path',
+            return_value=target,
+            side_effect=ValueError('missing') if mode == 'missing' else None,
+        ),
+        mock.patch.object(
+            operation._path_deleter,
+            'delete',
+            side_effect=PermissionError('failed'),
+        ),
+        mock.patch.object(
+            deleter_lib.event_tracking, 'record_delete_event'
+        ) as event,
+    ):
+      if mode == 'failure':
+        with self.assertRaises(PermissionError):
+          operation.delete(1)
+      else:
+        operation.delete(1)
+      event.assert_not_called()
+
+
+class PathDeleterTest(parameterized.TestCase):
+
+  @parameterized.parameters(1, 2)
+  def test_exact_directory_removal(self, threads):
+    parent = epath.Path(self.create_tempdir().full_path)
+    target = parent / 'arbitrary-name'
+    target.mkdir()
+    (target / 'payload').write_text('remove')
+    sibling = parent / 'keep'
+    sibling.write_text('keep')
+    deleter_lib.PathDeleter(parent, num_threads=threads).delete(target)
+    self.assertFalse(target.exists())
+    self.assertEqual(sibling.read_text(), 'keep')
+
+  @parameterized.parameters(False, True)
+  def test_relocation_uses_requested_rename_behavior(self, overwrite):
+    target, destination = mock.MagicMock(), mock.MagicMock()
+    with mock.patch.object(
+        deleter_lib.event_tracking, 'record_delete_event'
+    ) as record:
+      deleter_lib.PathDeleter(epath.Path('/tmp'), num_threads=1).delete(
+          target, destination=destination, overwrite=overwrite
+      )
+    destination.parent.mkdir.assert_called_once_with(
+        parents=True, exist_ok=True
+    )
+    (target.replace if overwrite else target.rename).assert_called_once_with(
+        destination
+    )
+    (target.rename if overwrite else target.replace).assert_not_called()
+    record.assert_not_called()
+
+  def test_gcs_removal_reuses_existing_helper(self):
+    path = epath.Path('gs://bucket/checkpoint')
+    with mock.patch.object(deleter_lib.gcs_utils, 'rmtree') as remove:
+      deleter_lib.PathDeleter(path.parent).delete(path)
+    remove.assert_called_once_with(path)
+
+  def test_step_deletion_delegates_to_path_deleter(self):
+    parent = epath.Path(self.create_tempdir().full_path)
+    target = parent / '42'
+    target.mkdir()
+    deleter = deleter_lib.StandardCheckpointDeleter(
+        parent,
+        name_format=step_lib.standard_name_format(),
+        primary_host=None,
+    )
+    with (
+        mock.patch.object(
+            deleter._path_deleter, 'delete', wraps=deleter._path_deleter.delete
+        ) as delete,
+        mock.patch.object(
+            deleter_lib.event_tracking, 'record_delete_event'
+        ) as record,
+    ):
+      deleter.delete(42)
+    delete.assert_called_once_with(target)
+    record.assert_called_once_with(target)
+    self.assertFalse(target.exists())
+
+
+if __name__ == '__main__':
+  absltest.main()

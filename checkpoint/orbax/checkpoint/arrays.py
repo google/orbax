@@ -14,15 +14,9 @@
 
 """Utilities for working with arrays."""
 
-# pylint: disable=g-importing-member, g-bad-import-order, unused-import, g-multiple-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import arrays as _mod
+from orbax.checkpoint.v0.arrays import *
 
-from orbax.checkpoint._src.arrays.abstract_arrays import to_shape_dtype_struct
-
-from orbax.checkpoint._src.arrays.types import (
-    Index,
-    Shape,
-)
-
-from orbax.checkpoint._src.arrays.sharding import (
-    construct_maximal_shardings,
-)
+sys.modules[__name__] = _mod

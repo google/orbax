@@ -14,7 +14,9 @@
 
 """Public symbols for Pathways-related serialization."""
 
-# pylint: disable=g-importing-member, unused-import, g-bad-import-order
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import pathways as _mod
+from orbax.checkpoint.v0.pathways import *
 
-from orbax.checkpoint._src.serialization.pathways_handler_registry import CheckpointingImpl
-from orbax.checkpoint._src.serialization.pathways_handler_registry import register_pathways_handlers as register_type_handlers
+sys.modules[__name__] = _mod

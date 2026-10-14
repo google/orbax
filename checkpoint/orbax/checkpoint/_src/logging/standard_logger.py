@@ -14,21 +14,9 @@
 
 """Standard logging implementation for checkpointing."""
 
-from typing import Any
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.logging import standard_logger as _mod
+from orbax.checkpoint.v0._src.logging.standard_logger import *
 
-from absl import logging
-from orbax.checkpoint._src.logging import abstract_logger
-
-
-class StandardLogger(abstract_logger.AbstractLogger):
-  """Logging implementation utilizing an absl logging API."""
-
-  def log_entry(self, msg: Any, *args: Any, **kwargs: Any):
-    """Logs an informational message.
-
-    Args:
-        msg (Any): The main log message.
-        *args(Any):  Additional data to be included in the log record.
-        **kwargs: Additional structured data to be included in the log record.
-    """
-    logging.info(msg, *args, **kwargs)
+sys.modules[__name__] = _mod
