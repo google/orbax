@@ -20,16 +20,6 @@ jax.distributed.initialize() will be called to set up the distributed system
 using standard environment variables like JAX_COORDINATOR_ADDRESS,
 JAX_PROCESS_ID and JAX_NUM_PROCESSES.
 """
-# pylint: disable=g-statement-before-imports,g-import-not-at-top,g-bad-import-order
-
-import sys
-
-# SimDevice import must occur before JAX only if simulated run is requested.
-if any('simdevice' in arg for arg in sys.argv):
-  try:
-    import simdevice  # pylint: disable=unused-import
-  except (ImportError, FileNotFoundError):
-    pass
 
 import os
 
@@ -41,8 +31,11 @@ import jax
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
+from orbax.checkpoint._src.testing.benchmarks.core import launch_env
+from orbax.checkpoint._src.testing.benchmarks.core import simdevice_backend
 
 try:
+  # pylint: disable=g-import-not-at-top
   import pathwaysutils
 
   _PATHWAYS_AVAILABLE = True
@@ -101,6 +94,16 @@ def _init_jax_distributed():
       jax_process_id = os.environ.get('JAX_PROCESS_ID')
       jax_num_processes = os.environ.get('JAX_NUM_PROCESSES')
       jax_coordinator_port = os.environ.get('JAX_COORDINATOR_PORT')
+      if jax_process_id is None and (jax_platforms or '').startswith('cpu'):
+        # CPU runs on several machines (e.g. XPK CPU pods) take their place in
+        # the launch from the platform's environment. TPU and GPU runs rely on
+        # JAX's own cluster detection.
+        launch = launch_env.resolve()
+        if launch is not None:
+          logging.info('Launch environment: %s', launch)
+          jax_coordinator_address = launch.coordinator_address
+          jax_process_id = str(launch.task_id)
+          jax_num_processes = str(launch.num_tasks)
       logging.info('JAX_PLATFORMS: %s', jax_platforms)
       logging.info(
           'JAX_COORDINATOR_ADDRESS: %s',
@@ -242,7 +245,16 @@ def main(argv: list[str]) -> None:
 
   logging.info('run_benchmarks.py started.')
 
+  # Before anything starts a JAX backend.
+  simdevice_config = config_parsing.parse_simdevice_config(_CONFIG_FILE.value)
+  if simdevice_config is not None:
+    if simdevice_backend.needs_local_cluster(simdevice_config):
+      simdevice_backend.run_local_cluster(simdevice_config)
+      return
+    simdevice_backend.activate(simdevice_config)
+
   _init_jax_distributed()
+  simdevice_backend.check_process_count()
 
   if _ENABLE_HLO_DUMP.value:
     _configure_hlo_dump(_OUTPUT_DIRECTORY.value)
