@@ -18,6 +18,7 @@ from absl import logging
 import jax
 from jax.experimental import mesh_utils
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 
 
@@ -26,6 +27,23 @@ def _num_slices() -> int:
   if hasattr(jax.devices()[0], 'slice_index'):
     return max(d.slice_index for d in jax.devices()) + 1
   return 1
+
+
+def _process_is_dcn_granule(config: configs.MeshConfig) -> bool:
+  """Returns whether processes, rather than slices, are the DCN granule.
+
+  SimDevice devices have no `slice_index`, so on SimDevice each simulated host
+  stands in for one slice and a multislice config runs unchanged.
+
+  Args:
+    config: The mesh config.
+  """
+  if config.process_is_granule:
+    return True
+  if backends.is_simdevice():
+    logging.info('SimDevice: using simulated hosts as the DCN granule.')
+    return True
+  return False
 
 
 def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
@@ -69,7 +87,8 @@ def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
     return jax.sharding.Mesh(devices_array, config.mesh_axes)
 
   # --- Validation ---
-  if config.process_is_granule:
+  process_is_granule = _process_is_dcn_granule(config)
+  if process_is_granule:
     process_count = jax.process_count()
     num_devices_per_granule = num_devices // process_count
     if num_devices % process_count != 0:
@@ -106,7 +125,7 @@ def create_mesh(config: configs.MeshConfig) -> jax.sharding.Mesh:
       ici_shape,
       dcn_shape,
       devices,
-      process_is_granule=config.process_is_granule,
+      process_is_granule=process_is_granule,
       allow_split_physical_axes=config.allow_split_physical_axes,
   )
   logging.info(

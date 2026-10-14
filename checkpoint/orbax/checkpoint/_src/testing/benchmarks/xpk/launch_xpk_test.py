@@ -14,6 +14,7 @@
 
 from absl import flags
 from absl.testing import absltest
+from absl.testing import flagsaver
 from absl.testing import parameterized
 from orbax.checkpoint._src.testing.benchmarks.xpk import launch_xpk
 
@@ -178,53 +179,71 @@ class LaunchXpkTest(parameterized.TestCase):
     self.assertEqual(launch_xpk.get_hardware_type(tpu, device), expected)
 
 
-class ParseTpuSpecToTopologyTest(parameterized.TestCase):
+class ValidateSimDeviceTest(parameterized.TestCase):
+
+  def _flags(self, **overrides):
+    return dict(
+        dict(
+            enable_simdevice=True,
+            tpu_type=None,
+            device_type='n2-standard-32-2',
+            enable_pathways=False,
+        ),
+        **overrides,
+    )
+
+  def test_cpu_nodes(self):
+    self.assertTrue(launch_xpk._validate_simdevice(self._flags()))
 
   @parameterized.named_parameters(
-      # Cloud TPU specs
-      dict(
-          testcase_name='v6e_256',
-          tpu_type='v6e-256',
-          expected_version='v6e',
-          expected_topology='16,16,1',
-      ),
-      dict(
-          testcase_name='v6e_16',
-          tpu_type='v6e-16',
-          expected_version='v6e',
-          expected_topology='4,4,1',
-      ),
-      dict(
-          testcase_name='v5e_8',
-          tpu_type='v5litepod-8',
-          expected_version='v5e',
-          expected_topology='2,4,1',
-      ),
-      dict(
-          testcase_name='v4_8',
-          tpu_type='v4-8',
-          expected_version='v4',
-          expected_topology='2,2,1',
-      ),
-      dict(
-          testcase_name='v5p_8',
-          tpu_type='v5p-8',
-          expected_version='v5p',
-          expected_topology='2,2,1',
-      ),
-      dict(
-          testcase_name='v6e_8',
-          tpu_type='v6e-8',
-          expected_version='v6e',
-          expected_topology='2,4,1',
-      ),
+      dict(testcase_name='tpu_type', overrides=dict(tpu_type='v6e-8')),
+      dict(testcase_name='tpu_nodes', overrides=dict(device_type='v6e-8')),
+      dict(testcase_name='no_device_type', overrides=dict(device_type=None)),
+      dict(testcase_name='pathways', overrides=dict(enable_pathways=True)),
   )
-  def test_parse_tpu_spec_to_topology(
-      self, tpu_type, expected_version, expected_topology
-  ):
-    version, topology = launch_xpk.parse_tpu_spec_to_topology(tpu_type)
-    self.assertEqual(version, expected_version)
-    self.assertEqual(topology, expected_topology)
+  def test_invalid(self, overrides):
+    self.assertFalse(launch_xpk._validate_simdevice(self._flags(**overrides)))
+
+  def test_disabled(self):
+    self.assertTrue(
+        launch_xpk._validate_simdevice(
+            self._flags(enable_simdevice=False, tpu_type='v6e-8')
+        )
+    )
+
+
+class ConstructWorkloadCommandTest(absltest.TestCase):
+
+  def _command(self, **kwargs):
+    return launch_xpk.construct_workload_command(
+        workload_name='bench',
+        config_file='gs://bucket/config.yaml',
+        output_directory='gs://bucket/out',
+        run_id='run',
+        enable_pathways=False,
+        benchmark_binary_path='run_benchmarks.py',
+        hardware_type=HardwareType.CPU,
+        v_level=None,
+        **kwargs,
+    )
+
+  def test_cpu(self):
+    command = self._command()
+
+    self.assertIn('export JOBSET_NAME=bench', command)
+    self.assertIn('export JAX_PLATFORMS=cpu', command)
+    self.assertIn('--jax_cpu_collectives_implementation=gloo', command)
+    # run_benchmarks works out the process id and coordinator itself.
+    self.assertNotIn('JAX_PROCESS_ID', command)
+    self.assertNotIn('JAX_COORDINATOR_ADDRESS', command)
+
+  def test_simdevice(self):
+    command = self._command(enable_simdevice=True)
+
+    self.assertIn('export JOBSET_NAME=bench', command)
+    self.assertNotIn('JAX_PLATFORMS', command)
+    self.assertNotIn('gloo', command)
+    self.assertNotIn('SIMDEVICE_', command)
 
 
 class ConstructXpkCommandTest(parameterized.TestCase):
@@ -239,20 +258,17 @@ class ConstructXpkCommandTest(parameterized.TestCase):
     flags.FLAGS.set_default('priority', 'medium')
     flags.FLAGS.set_default('storage', 'local')
 
-  def test_simdevice_ignores_tpu_type_in_xpk_flags(self):
-    flags.FLAGS.set_default('enable_simdevice', True)
-    flags.FLAGS.set_default('tpu_type', 'v6e-8')
-    flags.FLAGS.set_default('device_type', 'n2-standard-4')
+  def test_simdevice_uses_device_type(self):
+    with flagsaver.flagsaver(
+        enable_simdevice=True, tpu_type=None, device_type='n2-standard-4'
+    ):
+      xpk_cmd = launch_xpk.construct_xpk_command(
+          workload_name='test-workload',
+          workload_command='python3 benchmark.py',
+      )
 
-    xpk_cmd = launch_xpk.construct_xpk_command(
-        workload_name='test-workload',
-        workload_command='python3 benchmark.py',
-    )
-
-    # We should see device-type but not tpu-type in the XPK command flags
     self.assertIn('--device-type=n2-standard-4', xpk_cmd)
-    self.assertNotIn('--tpu-type=v6e-8', xpk_cmd)
-    self.assertNotIn('--tpu-type', xpk_cmd)
+    self.assertNotIn('--tpu-type', ' '.join(xpk_cmd))
 
   def test_normal_tpu_uses_tpu_type_in_xpk_flags(self):
     flags.FLAGS.set_default('enable_simdevice', False)
