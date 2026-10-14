@@ -17,6 +17,7 @@ from absl.testing import absltest
 import jax
 from jax.experimental import mesh_utils
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 
@@ -53,6 +54,11 @@ class DeviceMeshTest(absltest.TestCase):
     # than the CPU shortcut that bypasses all validation logic.
     self.mock_default_backend = self.enter_context(
         mock.patch.object(jax, "default_backend", return_value="tpu")
+    )
+    self.mock_is_simdevice = self.enter_context(
+        mock.patch.object(
+            backends, "is_simdevice", autospec=True, return_value=False
+        )
     )
 
   def test_create_mesh_success(self):
@@ -203,6 +209,31 @@ class DeviceMeshTest(absltest.TestCase):
         ValueError, "The product of ICI parallelism values"
     ):
       device_mesh.create_mesh(config)
+
+  def test_simdevice_uses_simulated_hosts_as_slices(self):
+    self.mock_is_simdevice.return_value = True
+    self.mock_devices.return_value = [FakeDevice(device_id=i) for i in range(8)]
+    self.mock_process_count.return_value = 2
+    config = configs.MeshConfig(
+        mesh_axes=["x", "y"],
+        ici_parallelism={"x": 2, "y": 2},
+        dcn_parallelism={"y": 2},
+        process_is_granule=False,
+    )
+    self.mock_create_hybrid_device_mesh.return_value = np.arange(8).reshape(
+        (2, 4)
+    )
+
+    device_mesh.create_mesh(config)
+
+    self.mock_num_slices.assert_not_called()
+    self.mock_create_hybrid_device_mesh.assert_called_once_with(
+        [2, 2],
+        [1, 2],
+        self.mock_devices.return_value,
+        allow_split_physical_axes=False,
+        process_is_granule=True,
+    )
 
 
 if __name__ == "__main__":
