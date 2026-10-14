@@ -1491,6 +1491,78 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
       self.assertSameElements([0, preemption_step, 4, 8], manager.all_steps())
 
+  @mock.patch.object(multihost_utils, 'reached_preemption_sync_point')
+  @mock.patch.object(jax.monitoring, 'record_event_duration_secs')
+  @mock.patch.object(jax.monitoring, 'record_event')
+  def test_preemption_metrics_on_save_and_skip(
+      self,
+      mock_record_event,
+      mock_record_duration,
+      mock_reached_preemption_sync_point,
+  ):
+    if multihost.is_pathways_backend():
+      self.skipTest('Not applicable to Pathways.')
+
+    # Case 1: Preemption triggers save (max_to_keep=1 to also test pruning).
+    options = CheckpointManagerOptions(save_interval_steps=4, max_to_keep=1)
+    with CheckpointManager(
+        self.directory / 'save_triggered', options=options
+    ) as manager:
+      mock_reached_preemption_sync_point.side_effect = lambda step: step == 2
+      self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+      step0_time = manager._checkpoints[-1].time
+
+      self.assertTrue(manager.save(2, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+      step2_time = manager._checkpoints[-1].time
+      expected_duration = (step2_time - step0_time).total_seconds()
+      if multihost.process_index() == 0:
+        mock_record_duration.assert_any_call(
+            '/jax/checkpoint/write/preempt/duration_saved_secs',
+            expected_duration,
+            continuous_checkpointing_enabled=0,
+        )
+
+    # Case 2: ContinuousCheckpointingPolicy skips save on preemption step due
+    # to minimum_interval_secs.
+    mock_record_duration.reset_mock()
+    mock_record_event.reset_mock()
+    cc_options = CheckpointManagerOptions(
+        save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+            minimum_interval_secs=3600
+        ),
+    )
+    with CheckpointManager(
+        self.directory / 'cc_skipped', options=cc_options
+    ) as manager:
+      mock_reached_preemption_sync_point.side_effect = lambda step: step == 1
+      self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+
+      self.assertFalse(manager.save(1, args=args.PyTreeSave(self.pytree)))
+      if multihost.process_index() == 0:
+        mock_record_event.assert_any_call(
+            '/jax/checkpoint/write/preempt/save_skipped',
+            reason='minimum_interval_not_met',
+            continuous_checkpointing_enabled=1,
+        )
+        duration_calls = [
+            call
+            for call in mock_record_duration.call_args_list
+            if call.args
+            and call.args[0]
+            == '/jax/checkpoint/write/preempt/duration_lost_secs'
+        ]
+        self.assertLen(duration_calls, 1)
+        self.assertEqual(
+            duration_calls[0].kwargs,
+            {
+                'reason': 'minimum_interval_not_met',
+                'continuous_checkpointing_enabled': 1,
+            },
+        )
+
   @parameterized.parameters(True, False)
   @mock.patch.object(jax.monitoring, 'record_scalar')
   def test_init_telemetry_continuous_checkpointing(
