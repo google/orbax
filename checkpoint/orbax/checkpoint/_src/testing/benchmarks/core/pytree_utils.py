@@ -22,6 +22,7 @@ from absl import logging
 import jax
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 
 
 def assert_pytree_equal(pytree_expected: Any, pytree_actual: Any):
@@ -181,7 +182,15 @@ def assert_functional_equivalence(
   Raises:
     ValueError: If `reference_inputs` is empty.
     AssertionError: If any input's output diverges beyond `tolerance`.
+    RuntimeError: On SimDevice, which fabricates model outputs, so the
+      comparison would pass regardless of the parameters.
   """
+  if backends.is_simdevice():
+    raise RuntimeError(
+        "assert_functional_equivalence is meaningless on SimDevice: model"
+        " outputs are fabricated, not computed, so any two parameter sets"
+        " compare equal."
+    )
   if not reference_inputs:
     raise ValueError("reference_inputs must be a non-empty sequence")
   for idx, x in enumerate(reference_inputs):
