@@ -30,7 +30,7 @@ function print_usage() {
   echo "  --image IMAGE_NAME          Image name (default: orbax-benchmarks)"
   echo "  --branch BRANCH             GitHub branch (default: main)"
   echo "  --jax-version VERSION       JAX version: newest, nightly, or X.Y.Z (default: newest)"
-  echo "  --device DEVICE             Device type: tpu, gpu, cpu (default: tpu)"
+  echo "  --device DEVICE             Device type: tpu, gpu, cpu, simdevice (default: tpu)"
   echo "  --base-image IMAGE          Base Docker image (optional)"
   echo "  --build-benchmark BOOL      Build the main orbax benchmark image (default: true)"
   echo "  --dockerfile-benchmark FILE Dockerfile path to build orbax benchmark (optional)"
@@ -67,6 +67,7 @@ function prepare_local_orbax() {
   fi
   return 0
 }
+
 
 # LINT.IfChange(build_image_flags)
 # Parse flags
@@ -113,6 +114,13 @@ if [[ -z "$PROJECT_ID" ]]; then
   exit 1
 fi
 
+if [[ "$DEVICE" == "simdevice" && -z "$BASE_IMAGE" ]]; then
+  if [[ -z "$BASE_IMAGE" ]]; then
+    echo "Error: --device simdevice needs --base-image <SimDevice image>."
+    exit 1
+  fi
+fi
+
 # Set default base image if not provided
 if [[ -z "$BASE_IMAGE" ]]; then
   BASE_IMAGE="python:3.13-slim"
@@ -149,17 +157,22 @@ fi
 
 # --- Tag generation ---
 declare -a build_tags=()
-if [[ -n "$USER_TAG_FLAG" ]]; then
-  build_tags+=("$USER_TAG_FLAG")
-fi
-if [[ -n "$PR_NUMBER" ]]; then
-  build_tags+=("pr-$PR_NUMBER")
-elif [[ -n "$BRANCH" ]]; then
-  build_tags+=("$BRANCH")
-fi
+if [[ "$DEVICE" == "simdevice" ]]; then
+  # Only simdevice-<tag>: SimDevice images must not replace the shared tags.
+  build_tags+=("simdevice-${USER_TAG_FLAG:-$(date +%Y%m%d-%H%M)}")
+else
+  if [[ -n "$USER_TAG_FLAG" ]]; then
+    build_tags+=("$USER_TAG_FLAG")
+  fi
+  if [[ -n "$PR_NUMBER" ]]; then
+    build_tags+=("pr-$PR_NUMBER")
+  elif [[ -n "$BRANCH" ]]; then
+    build_tags+=("$BRANCH")
+  fi
 
-if [[ ${#build_tags[@]} -eq 0 ]]; then
-  build_tags+=("${BRANCH}-${DEVICE}-${JAX_VERSION}")
+  if [[ ${#build_tags[@]} -eq 0 ]]; then
+    build_tags+=("${BRANCH}-${DEVICE}-${JAX_VERSION}")
+  fi
 fi
 
 # de-duplicate tags

@@ -147,6 +147,15 @@ class TestValidateConfig(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, "Invalid 'simdevice' block"):
       config_parsing._validate_config(config)
 
+  @parameterized.parameters('capture_digests_path', 'reference_digests_path')
+  def test_digests_rejected_on_simdevice(self, option):
+    config = self._get_valid_config()
+    config['simdevice'] = {'device_type': 'v6e', 'topology': [2, 2, 1]}
+    config['benchmarks'][0]['options'][option] = 'digests.json'
+
+    with self.assertRaisesRegex(ValueError, 'on SimDevice'):
+      config_parsing._validate_config(config)
+
 
 class TestParseSimDeviceConfig(parameterized.TestCase):
 
