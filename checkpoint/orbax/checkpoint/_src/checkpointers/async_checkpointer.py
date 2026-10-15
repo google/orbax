@@ -446,6 +446,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     current_operation_id = (
         synchronization.OperationIdGenerator.get_current_operation_id()
     )
+    # Captured synchronously; the callback runs in the background save thread.
+    signals_namespace = future.current_signals_namespace()
 
     def _callback() -> None:
       finalize_start_time = time.time()
@@ -501,9 +503,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       # Clean up all awaitable signals for the current operation id as they are
       # no longer needed.
       if self._create_directories_asynchronously:
-        future.AwaitableSignalsContract.remove_all_awaitable_signals(
-            current_operation_id
-        )
+        with future.signals_namespace(signals_namespace):
+          future.AwaitableSignalsContract.remove_all_awaitable_signals(
+              current_operation_id
+          )
 
     return _callback
 
