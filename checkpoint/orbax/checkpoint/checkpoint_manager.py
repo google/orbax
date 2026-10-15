@@ -712,10 +712,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
 
+    # Per-manager namespace for awaitable-signal keys, applied around save
+    # dispatch so that other managers in the same process are unaffected.
+    self._signals_namespace = (
+        self._multiprocessing_options.barrier_sync_key_prefix
+        or future.AwaitableSignalsContract.awaitable_signals_contract_prefix
+    )
     if self._options.enable_per_process_directory_creation:
-      future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
-          f'_{multihost.process_index()}'
-      )
+      self._signals_namespace += f'_{multihost.process_index()}'
 
     self._save_decision_policy = (
         self._options.save_decision_policy
@@ -1541,23 +1545,28 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
       # `Checkpointer.save()` folds these into its own blocking metrics so that
       # each is recorded once per save and spans the full blocking save.
-      self._checkpointer.save(
-          save_directory,
-          args=args,
-          custom_metadata=custom_metadata,
-          force=not skip_sync,
-          save_context=checkpointer_lib.SaveContext(
-              checkpoint_start_time=(
-                  step_stats.checkpoint_manager_blocking_start_time
-              ),
-              start_sync_duration_secs=cm_start_sync_duration,
-              wait_prev_duration_secs=step_stats.wait_for_prev_duration_secs,
-          ),
-      )
+      with future.signals_namespace(self._signals_namespace):
+        self._checkpointer.save(
+            save_directory,
+            args=args,
+            custom_metadata=custom_metadata,
+            force=not skip_sync,
+            save_context=checkpointer_lib.SaveContext(
+                checkpoint_start_time=(
+                    step_stats.checkpoint_manager_blocking_start_time
+                ),
+                start_sync_duration_secs=cm_start_sync_duration,
+                wait_prev_duration_secs=step_stats.wait_for_prev_duration_secs,
+            ),
+        )
     else:
-      self._checkpointer.save(
-          save_directory, args=args, custom_metadata=custom_metadata, force=True
-      )
+      with future.signals_namespace(self._signals_namespace):
+        self._checkpointer.save(
+            save_directory,
+            args=args,
+            custom_metadata=custom_metadata,
+            force=True,
+        )
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/write/checkpoint_start_sync_duration_secs',
           cm_start_sync_duration,
