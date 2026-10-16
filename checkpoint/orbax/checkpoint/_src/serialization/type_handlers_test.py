@@ -119,6 +119,14 @@ def get_replica_pids(rep_id: int, mesh: jax.sharding.Mesh):
   return ids, pids
 
 
+class _DeprioritizedCallback(types.DefaultSerializationStatusCallback):
+  """Saves every array in memory-limited batches."""
+
+  def key_priority(self, keypath) -> types.TransferPriority:
+    del keypath  # Unused.
+    return types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+
+
 class SerializationTest(
     unittest.IsolatedAsyncioTestCase,
     multiprocess_test.MultiProcessTest,
@@ -322,6 +330,165 @@ class SerializationTest(
     test_utils.assert_array_equal(self, full_replicated_arr, restored[0])
     test_utils.assert_array_equal(self, partial_replicated_arr, restored[1])
     test_utils.assert_array_equal(self, sharded_arr, restored[2])
+
+  def _make_arrays_with_one_replica_per_process(self):
+    # Replica 0 is on process 0 and replica 1 is on process 1. Within a
+    # replica, each array is sharded 4 ways, so a replica holds whole arrays of
+    # 512, 384, 256 and 128 bytes.
+    sharding = jax.sharding.NamedSharding(
+        mesh=jax.sharding.Mesh(
+            devices=np.asarray(jax.devices()).reshape(2, 4),
+            axis_names=('x', 'y'),
+        ),
+        spec=jax.sharding.PartitionSpec('y'),
+    )
+    arrays = [
+        jax.device_put(
+            np.arange(rows * 8, dtype=np.float32).reshape(rows, 8), sharding
+        )
+        for rows in (16, 12, 8, 4)
+    ]
+    return arrays, sharding
+
+  async def _serialize_and_record_bytes_written(self, handler, arrays, infos):
+    """Serializes `arrays` and returns the bytes this process wrote for each."""
+    bytes_written = {}
+    real_serialize = serialization.async_serialize_from_host
+
+    async def record_serialize(rslices_on_host, *args, **kwargs):
+      bytes_written[rslices_on_host.global_shape] = rslices_on_host.nbytes
+      return await real_serialize(rslices_on_host, *args, **kwargs)
+
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', side_effect=record_serialize
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+    return [bytes_written[arr.shape] for arr in arrays]
+
+  async def _merge_ocdbt_files(self, ts_context):
+    if multihost.process_index() == 0:
+      await ocdbt_utils.merge_ocdbt_per_process_files(
+          self.directory, ts_context=ts_context, use_zarr3=False
+      )
+    test_utils.sync_global_processes('merge_ocdbt_complete')
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='unbalanced_ocdbt',
+          balance_arrays_across_replicas=False,
+          use_ocdbt=True,
+          # Replica 0 saves every array.
+          expected_bytes_by_process=((512, 384, 256, 128), (0, 0, 0, 0)),
+      ),
+      dict(
+          testcase_name='unbalanced_no_ocdbt',
+          balance_arrays_across_replicas=False,
+          use_ocdbt=False,
+          expected_bytes_by_process=((512, 384, 256, 128), (0, 0, 0, 0)),
+      ),
+      dict(
+          testcase_name='balanced_ocdbt',
+          balance_arrays_across_replicas=True,
+          use_ocdbt=True,
+          # Each replica saves different whole arrays, 640 bytes each.
+          expected_bytes_by_process=((512, 0, 0, 128), (0, 384, 256, 0)),
+      ),
+      dict(
+          testcase_name='balanced_no_ocdbt',
+          balance_arrays_across_replicas=True,
+          use_ocdbt=False,
+          expected_bytes_by_process=((512, 0, 0, 128), (0, 384, 256, 0)),
+      ),
+  )
+  async def test_serialization_without_replica_parallel(
+      self, balance_arrays_across_replicas, use_ocdbt, expected_bytes_by_process
+  ):
+    handler = type_handlers.ArrayHandler(
+        primary_host=0,
+        replica_id=0,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=balance_arrays_across_replicas,
+    )
+    arrays, sharding = self._make_arrays_with_one_replica_per_process()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
+    infos = [
+        get_param_info(
+            f'array_{i}',
+            self.directory,
+            is_ocdbt=use_ocdbt,
+            ts_context=ts_context,
+        )
+        for i in range(len(arrays))
+    ]
+    await _create_param_save_dirs(infos)
+
+    bytes_written = await self._serialize_and_record_bytes_written(
+        handler, arrays, infos
+    )
+    test_utils.sync_global_processes(
+        'test_serialization_without_replica_parallel:serialized'
+    )
+    if use_ocdbt:
+      await self._merge_ocdbt_files(ts_context)
+    restored = await handler.deserialize(
+        infos, [ArrayRestoreArgs(sharding=sharding)] * len(arrays)
+    )
+    metadatas = await handler.metadata(infos)
+
+    self.assertSequenceEqual(
+        bytes_written, expected_bytes_by_process[multihost.process_index()]
+    )
+    test_utils.assert_tree_equal(self, arrays, restored)
+    # Arrays are saved as whole shards either way, so the stored layout is the
+    # same with and without balancing.
+    self.assertSequenceEqual(
+        [m.storage.chunk_shape for m in metadatas],
+        [(4, 8), (3, 8), (2, 8), (1, 8)],
+    )
+
+  async def test_balanced_serialization_in_memory_limited_batches(self):
+    handler = type_handlers.ArrayHandler(
+        primary_host=0,
+        replica_id=0,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        callback=_DeprioritizedCallback(),
+    )
+    arrays, sharding = self._make_arrays_with_one_replica_per_process()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=True)
+    infos = [
+        get_param_info(
+            f'array_{i}', self.directory, is_ocdbt=True, ts_context=ts_context
+        ).replace(
+            keypath=(jax.tree_util.DictKey(f'array_{i}'),),
+            # Each process holds a whole replica, so every array costs its full
+            # size (128 to 512 bytes) on both processes and a 129-byte budget
+            # fits only one array per batch.
+            device_host_byte_limiter=limits.LimitInFlightBytes(129),
+        )
+        for i in range(len(arrays))
+    ]
+
+    bytes_written = await self._serialize_and_record_bytes_written(
+        handler, arrays, infos
+    )
+    test_utils.sync_global_processes(
+        'test_balanced_serialization_in_memory_limited_batches:serialized'
+    )
+    await self._merge_ocdbt_files(ts_context)
+    restored = await handler.deserialize(
+        infos, [ArrayRestoreArgs(sharding=sharding)] * len(arrays)
+    )
+
+    # Each memory-limited batch is balanced on its own, so a batch that holds a
+    # single array is always saved by replica 0.
+    expected_bytes_by_process = ((512, 384, 256, 128), (0, 0, 0, 0))
+    self.assertSequenceEqual(
+        bytes_written, expected_bytes_by_process[multihost.process_index()]
+    )
+    test_utils.assert_tree_equal(self, arrays, restored)
 
   async def test_array_deserialization_with_custom_layout(self):
     handler = type_handlers.ArrayHandler()
@@ -742,6 +909,17 @@ class ArrayHandlerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.pytree, _, _ = test_utils.setup_sharded_pytree()
+
+  def test_balance_arrays_across_replicas_rejects_local_checkpointing(self):
+    with self.assertRaisesRegex(
+        ValueError, '`balance_arrays_across_replicas` is incompatible'
+    ):
+      type_handlers.ArrayHandler(
+          primary_host=None,
+          replica_id=None,
+          use_replica_parallel=False,
+          balance_arrays_across_replicas=True,
+      )
 
 
 class ArrayHandlerCallbackTest(
