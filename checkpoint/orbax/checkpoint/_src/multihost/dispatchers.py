@@ -79,9 +79,19 @@ def _make_dummy_result_array(
     A dummy array with replicated sharding across the devices in the pytree.
     If abstract is True, returns a jax.ShapeDtypeStruct instead.
   """
+  device_lists = set()
   devices = set()
-  jax.tree.map(lambda x: devices.update(x.sharding.device_set), pytree)
-  device_list: list[jax.Device] = sorted(list(devices), key=lambda d: d.id)
+
+  def _collect(x):
+    devices.update(x.sharding.device_set)
+    if isinstance(x.sharding, jax.sharding.NamedSharding):
+      device_lists.add(tuple(x.sharding.mesh.devices.flatten()))
+
+  jax.tree.map(_collect, pytree)
+  if len(device_lists) == 1:
+    device_list = list(device_lists.pop())
+  else:
+    device_list = sorted(list(devices), key=lambda d: d.id)
   replicated_sharding = jax.sharding.NamedSharding(
       jax.sharding.Mesh(device_list, ('d',)),
       jax.sharding.PartitionSpec(),
