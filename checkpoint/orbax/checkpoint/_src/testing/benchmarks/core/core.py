@@ -261,17 +261,19 @@ class Benchmark(abc.ABC):
     )
     try:
       result = self.test_fn(context)
+      scan_path = result.path or path
       result.path = path
       result.local_path = local_path
-      # Inventory captures bytes/files the benchmark wrote under context.path
-      # (the per-run test dir). Only the primary host scans; the result is
-      # suite-level (same across hosts) and parallel walks would race.
+      # Inventory captures bytes/files the benchmark wrote under scan_path
+      # (result.path if overridden by test_fn, else context.path). Only the
+      # primary host scans; the result is suite-level (same across hosts) and
+      # parallel walks would race.
       if (
           multihost.get_process_index() == 0
           and result.inventory is None
-          and path is not None
+          and scan_path is not None
       ):
-        result.inventory = inventory_lib.scan_checkpoint(path)
+        result.inventory = inventory_lib.scan_checkpoint(scan_path)
     except Exception as e:  # pylint: disable=broad-exception-caught
       # We catch all exceptions to ensure that any error during the test
       # execution is recorded in the TestResult.
