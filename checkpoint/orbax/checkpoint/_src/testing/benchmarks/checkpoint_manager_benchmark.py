@@ -74,7 +74,14 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
     )
 
     json_data = {'a': 1, 'b': 'test'}
-    random_key = jax.random.key(0)
+    # `jax.random.key(0)` lives on one device of this process, and Orbax
+    # refuses to save such a host-local array when there are several processes.
+    # Replicate it on every device instead.
+    replicated = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',)),
+        jax.sharding.PartitionSpec(),
+    )
+    random_key = jax.jit(lambda: jax.random.key(0), out_shardings=replicated)()
     np_random_key = np.random.get_state()
     pytree_for_restore = self._get_pytree_for_restore(pytree)
 
