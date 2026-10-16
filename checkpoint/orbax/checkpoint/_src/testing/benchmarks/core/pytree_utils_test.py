@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 
@@ -86,6 +89,31 @@ class PytreeUtilsTest(parameterized.TestCase):
   )
   def test_assert_pytree_equal_passes_on_equal_values(self, v1, v2):
     pytree_utils.assert_pytree_equal(v1, v2)
+
+  @mock.patch.object(backends, 'is_simdevice', autospec=True, return_value=True)
+  def test_simdevice_skips_array_values(self, _):
+    sharding = jax.sharding.SingleDeviceSharding(jax.devices()[0])
+    pytree_utils.assert_pytree_equal(
+        {'a': jax.device_put(np.zeros(4), sharding), 'b': np.zeros(4), 'c': 1},
+        {'a': jax.device_put(np.ones(4), sharding), 'b': np.ones(4), 'c': 1},
+    )
+
+  @parameterized.parameters(
+      dict(v_actual=np.zeros(4, dtype=np.int64), expected_regex='Dtype'),
+      dict(v_actual=np.zeros(5, dtype=np.int32), expected_regex='Shape'),
+      dict(v_actual=1, expected_regex='Type'),
+  )
+  @mock.patch.object(backends, 'is_simdevice', autospec=True, return_value=True)
+  def test_simdevice_still_checks_structure(self, _, v_actual, expected_regex):
+    with self.assertRaisesRegex(AssertionError, expected_regex):
+      pytree_utils.assert_pytree_equal(
+          {'a': np.zeros(4, dtype=np.int32)}, {'a': v_actual}
+      )
+
+  @mock.patch.object(backends, 'is_simdevice', autospec=True, return_value=True)
+  def test_simdevice_still_compares_non_array_values(self, _):
+    with self.assertRaisesRegex(AssertionError, 'Value mismatch'):
+      pytree_utils.assert_pytree_equal({'step': 1}, {'step': 2})
 
 
 class DigestPytreeTest(absltest.TestCase):
@@ -187,6 +215,19 @@ class FunctionalEquivalenceTest(absltest.TestCase):
         [],
         {'W': np.eye(4)},
         {'W': np.eye(4)},
+    )
+
+  @mock.patch.object(backends, 'is_simdevice', autospec=True, return_value=True)
+  def test_simdevice_raises(self, _):
+    w = {'W': np.eye(4, dtype=np.float32)}
+    self.assertRaisesRegex(
+        RuntimeError,
+        'meaningless on SimDevice',
+        pytree_utils.assert_functional_equivalence,
+        _linear_apply,
+        [np.arange(4, dtype=np.float32)],
+        w,
+        w,
     )
 
 
