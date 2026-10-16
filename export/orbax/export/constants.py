@@ -98,6 +98,13 @@ LOADER_TYPE = 'loader_type'
 # SaveOptions extra_options key for TensorFlow SavedModel save options.
 TF_SAVE_OPTIONS = 'tf_save_options'
 
+# SaveOptions extra_options key for whether to keep the TensorFlow SavedModel as
+# saved before the Inference Converter runs, which keeps its object graph. If
+# not set, that copy is deleted after conversion. Where it is kept is up to the
+# saver. Without the Inference Converter there is no such copy to keep: the
+# TensorFlow SavedModel served is itself unconverted.
+KEEP_UNCONVERTED_TF_SAVED_MODEL = 'keep_unconverted_tf_saved_model'
+
 ################################################################################
 # Proto field names
 ################################################################################
