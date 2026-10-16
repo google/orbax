@@ -114,6 +114,16 @@ def _validate_config(config: dict[str, Any]) -> None:
           f' exclusive in benchmarks entry at index {i}: a run either captures'
           ' digests or compares against them.'
       )
+    if _SIMDEVICE_KEY in config and (
+        options.get('capture_digests_path')
+        or options.get('reference_digests_path')
+    ):
+      raise ValueError(
+          'Correctness digests cannot be captured or compared on SimDevice'
+          f' (benchmarks entry at index {i}): values that pass through a'
+          ' compiled program are fabricated, so the digests do not describe'
+          ' real data.'
+      )
 
   # Raises if the `simdevice:` block is malformed.
   _parse_simdevice_config(config)
