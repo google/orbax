@@ -31,6 +31,7 @@ CheckpointManagerBenchmarkOptions = (
 CheckpointManagerBenchmark = (
     checkpoint_manager_benchmark.CheckpointManagerBenchmark
 )
+_ORIGINAL_CHECKPOINT_MANAGER = checkpoint_manager.CheckpointManager
 
 
 class CheckpointManagerBenchmarkTest(parameterized.TestCase):
@@ -57,6 +58,14 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
       dict(
           options=CheckpointManagerBenchmarkOptions(
               train_steps=1, max_to_keep=[1, 2]
+          ),
+          expected_len=2,
+      ),
+      dict(
+          options=CheckpointManagerBenchmarkOptions(
+              train_steps=2,
+              overwrite_existing_step=[False, True],
+              warmup_save=True,
           ),
           expected_len=2,
       ),
@@ -126,6 +135,79 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
         CheckpointManagerBenchmarkOptions,
         CheckpointManagerBenchmark.options_class,
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='fresh_with_restore',
+          overwrite=False,
+          verify_restore=True,
+          expected_steps=['0', '1', '2'],
+          expected_restore_metric='restore_2::0_basics/time_s',
+      ),
+      dict(
+          testcase_name='overwrite_with_restore',
+          overwrite=True,
+          verify_restore=True,
+          expected_steps=['0'],
+          expected_restore_metric='restore_0::0_basics/time_s',
+      ),
+      dict(
+          testcase_name='overwrite_skip_restore',
+          overwrite=True,
+          verify_restore=False,
+          expected_steps=['0'],
+          expected_restore_metric=None,
+      ),
+  )
+  def test_warmup_and_overwrite_modes(
+      self,
+      overwrite,
+      verify_restore,
+      expected_steps,
+      expected_restore_metric,
+  ):
+    generator = CheckpointManagerBenchmark(
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
+        options=CheckpointManagerBenchmarkOptions(),
+    )
+    test_path = epath.Path(self.create_tempdir().full_path)
+    options = CheckpointManagerBenchmarkOptions(
+        train_steps=2,
+        max_to_keep=10,
+        overwrite_existing_step=overwrite,
+        warmup_save=True,
+        verify_restore=verify_restore,
+    )
+    context = benchmarks_core.TestContext(
+        pytree={'a': jnp.arange(4)}, path=test_path, options=options
+    )
+
+    with mock.patch.object(
+        checkpoint_manager, 'CheckpointManager', _ORIGINAL_CHECKPOINT_MANAGER
+    ):
+      result = generator.test_fn(context)
+
+    expected_metrics = {
+        'save_0::0_basics/time_s',
+        'save_1::0_basics/time_s',
+        'wait_until_finished_0::0_basics/time_s',
+        'wait_until_finished_1::0_basics/time_s',
+    }
+    if expected_restore_metric is not None:
+      expected_metrics.update(
+          {expected_restore_metric, 'correctness_check::0_basics/time_s'}
+      )
+    else:
+      self.assertNotIn(
+          'correctness_check::0_basics/time_s', result.metrics.results.keys()
+      )
+    self.assertContainsSubset(expected_metrics, result.metrics.results.keys())
+    attempt_dirs = list(test_path.iterdir())
+    self.assertLen(attempt_dirs, 1)
+    saved_steps = sorted(
+        step_path.name for step_path in attempt_dirs[0].iterdir()
+    )
+    self.assertEqual(saved_steps, expected_steps)
 
 
 if __name__ == '__main__':
