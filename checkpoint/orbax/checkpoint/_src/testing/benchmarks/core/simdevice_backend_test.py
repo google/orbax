@@ -22,7 +22,10 @@ import types
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import flagsaver
+from etils import epath
 import jax
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import configs
 from orbax.checkpoint._src.testing.benchmarks.core import simdevice_backend
 import yaml
@@ -31,6 +34,18 @@ _CONFIG = configs.SimDeviceConfig(device_type='v6e', topology=[2, 2, 1])
 
 # What the real plugin leaves in JAX_PLATFORMS once it is imported.
 _SIMDEVICE_PLATFORMS = 'simdevice,cpu'
+
+# Exits with the simulated host id, so host 0 succeeds and host 1 fails.
+_EXIT_WITH_HOST_ID = ('/bin/sh', '-c', 'exit "$SIMDEVICE_PROCESS_ID"')
+
+# Writes a simulated host's environment to a file named after its host id, in
+# the directory passed as $0.
+_WRITE_HOST_ENV = ('/bin/sh', '-c', 'env > "$0/$SIMDEVICE_PROCESS_ID"')
+
+
+def _read_env_file(path: epath.Path) -> dict[str, str]:
+  lines = path.read_text().splitlines()
+  return dict(line.split('=', 1) for line in lines if '=' in line)
 
 
 class RenderTopologyYamlTest(absltest.TestCase):
@@ -73,6 +88,7 @@ class ActivateTest(absltest.TestCase):
     self.mock_atexit_register = self.enter_context(
         mock.patch.object(atexit, 'register', autospec=True)
     )
+    self.enter_context(flagsaver.flagsaver())
 
   def _activate(self, config: configs.SimDeviceConfig) -> str:
     """Activates SimDevice and returns the topology file path."""
@@ -124,6 +140,89 @@ class ActivateTest(absltest.TestCase):
     self.mock_config_update.assert_not_called()
     # A second attempt is not blocked by the failed one.
     self._activate(_CONFIG)
+
+  def test_single_process_keeps_default_barrier(self):
+    self._activate(_CONFIG)
+
+    self.assertFalse(multihost.EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER.value)
+
+  def test_multi_process_uses_distributed_barrier(self):
+    self._activate(dataclasses.replace(_CONFIG, num_processes=2))
+
+    self.assertTrue(multihost.EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER.value)
+
+
+class CheckProcessCountTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.mock_process_count = self.enter_context(
+        mock.patch.object(jax, 'process_count', autospec=True, return_value=1)
+    )
+
+  def test_inactive_passes(self):
+    self.mock_process_count.return_value = 2
+    with mock.patch.object(simdevice_backend, '_active_config', None):
+      simdevice_backend.check_process_count()
+
+  def test_matching_count_passes(self):
+    with mock.patch.object(simdevice_backend, '_active_config', _CONFIG):
+      simdevice_backend.check_process_count()
+
+  def test_mismatch_raises(self):
+    config = dataclasses.replace(_CONFIG, num_processes=2)
+    with mock.patch.object(simdevice_backend, '_active_config', config):
+      with self.assertRaisesRegex(RuntimeError, 'expects 2 processes'):
+        simdevice_backend.check_process_count()
+
+
+class NeedsLocalClusterTest(absltest.TestCase):
+
+  def test_single_process(self):
+    self.assertFalse(simdevice_backend.needs_local_cluster(_CONFIG))
+
+  def test_multi_process_without_host_id(self):
+    config = dataclasses.replace(_CONFIG, num_processes=2)
+    with mock.patch.dict(os.environ):
+      os.environ.pop('SIMDEVICE_PROCESS_ID', None)
+      self.assertTrue(simdevice_backend.needs_local_cluster(config))
+
+  def test_multi_process_with_host_id(self):
+    config = dataclasses.replace(_CONFIG, num_processes=2)
+    with mock.patch.dict(os.environ, {'SIMDEVICE_PROCESS_ID': '1'}):
+      self.assertFalse(simdevice_backend.needs_local_cluster(config))
+
+
+class RunLocalClusterTest(absltest.TestCase):
+
+  def test_hosts_get_their_identity(self):
+    output_dir = epath.Path(self.create_tempdir().full_path)
+    config = dataclasses.replace(_CONFIG, num_processes=2)
+
+    simdevice_backend.run_local_cluster(
+        config, command=[*_WRITE_HOST_ENV, str(output_dir)]
+    )
+
+    host_envs = [_read_env_file(output_dir / str(i)) for i in range(2)]
+    for host_id, host_env in enumerate(host_envs):
+      with self.subTest(host_id=host_id):
+        self.assertEqual(host_env['SIMDEVICE_PROCESS_ID'], str(host_id))
+        self.assertEqual(host_env['JAX_PROCESS_ID'], str(host_id))
+        self.assertEqual(host_env['JAX_NUM_PROCESSES'], '2')
+    self.assertEqual(
+        host_envs[0]['JAX_COORDINATOR_ADDRESS'],
+        host_envs[1]['JAX_COORDINATOR_ADDRESS'],
+    )
+    self.assertEqual(
+        host_envs[0]['SIMDEVICE_BARRIER_ADDRESS'],
+        host_envs[1]['SIMDEVICE_BARRIER_ADDRESS'],
+    )
+
+  def test_failed_host_raises(self):
+    config = dataclasses.replace(_CONFIG, num_processes=2)
+
+    with self.assertRaisesRegex(RuntimeError, r'\{1: 1\}'):
+      simdevice_backend.run_local_cluster(config, command=_EXIT_WITH_HOST_ID)
 
 
 if __name__ == '__main__':

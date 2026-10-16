@@ -237,9 +237,13 @@ def main(argv: list[str]) -> None:
   # Before anything starts a JAX backend.
   simdevice_config = config_parsing.parse_simdevice_config(_CONFIG_FILE.value)
   if simdevice_config is not None:
+    if simdevice_backend.needs_local_cluster(simdevice_config):
+      simdevice_backend.run_local_cluster(simdevice_config)
+      return
     simdevice_backend.activate(simdevice_config)
 
   _init_jax_distributed()
+  simdevice_backend.check_process_count()
 
   if _ENABLE_HLO_DUMP.value:
     _configure_hlo_dump(_OUTPUT_DIRECTORY.value)
