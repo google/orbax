@@ -366,45 +366,94 @@ class CheckpointManager(
 
     return p2p_saved or persistent_saved
 
+  def _resolve_restore_step(self, step: int | None) -> tuple[int, bool]:
+    """Resolves target restore step and whether it came from persistent storage."""
+    if step is not None:
+      return step, False
+
+    step = self._p2p.get_latest_complete_step()
+    logging.info('P2P latest_step=%s', step)
+    if step is not None:
+      return step, False
+
+    if self._persistent_manager:
+      step = self._persistent_manager.latest_step()
+      logging.info('Persistent latest_step=%s', step)
+      if step is not None:
+        return step, True
+
+    raise FileNotFoundError(
+        'No steps found in either local/persistent storage or P2P registry.'
+    )
+
   def _restore_from_persistent_storage(
-      self, step: int, args: p2p_args_lib.Composite
-  ) -> Any:
-    """Restores from persistent storage."""
+      self,
+      step: int,
+      args: p2p_args_lib.Composite,
+      *,
+      use_latest_step: bool = False,
+  ) -> tuple[int, Any]:
+    """Restores from persistent storage, optionally resolving to latest step."""
     assert self._persistent_manager is not None
+    if use_latest_step:
+      persistent_step = self._persistent_manager.latest_step()
+      if persistent_step is None:
+        raise FileNotFoundError(
+            'No steps found in persistent storage to fall back to.'
+        )
+      if persistent_step != step:
+        logging.warning(
+            'Step %d not in persistent storage; restoring step %d instead.',
+            step,
+            persistent_step,
+        )
+        step = persistent_step
     logging.info('Restoring step %d from persistent storage.', step)
-    return self._persistent_manager.restore(step, args=args)
+    return step, self._persistent_manager.restore(step, args=args)
 
   def _restore_from_local_or_p2p(
       self, step: int, args: p2p_args_lib.Composite
-  ) -> Any:
-    """Restores from local storage or P2P network."""
+  ) -> p2p_args_lib.Composite | None:
+    """Restores from local storage or P2P network, or returns None on failure."""
     logging.info('Attempting to restore step %d from local or P2P.', step)
-    if step in self._local_manager.all_steps():
-      logging.info('Step %d found in local storage.', step)
-      return self._local_manager.restore(step, args=args)
-    else:
-      logging.info('Step %d not found locally, fetching from P2P.', step)
-      p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
-      try:
+    p2p_restore_dir = self._local_directory / constants.P2P_RESTORE_DIR_NAME
+    try:
+      restore_dir = None
+      if not self._p2p.has_shard_for_step(step):
+        logging.warning('Step %d not available in P2P network.', step)
+      elif step in self._local_manager.all_steps():
+        logging.info('Step %d found in local storage.', step)
+        restore_dir = self._local_directory
+      else:
+        logging.info('Step %d not found locally, fetching from P2P.', step)
         if self._p2p.fetch(step):
-          return self._local_manager.restore(
-              step, args=args, directory=p2p_restore_dir
-          )
+          restore_dir = p2p_restore_dir
         else:
-          raise FileNotFoundError(
-              f'Failed to fetch step {step} from P2P network.'
-          )
-      finally:
-        if p2p_restore_dir.exists():
-          logging.info(
-              'Removing P2P restore directory: %s after restoration is'
-              ' complete',
-              p2p_restore_dir,
-          )
-          try:
-            shutil.rmtree(str(p2p_restore_dir))
-          except OSError as e:
-            logging.exception('Failed to remove P2P restore directory: %s', e)
+          logging.warning('Failed to fetch step %d from P2P network.', step)
+
+      # `_local_manager.restore` blocks on a global barrier across all hosts,
+      # so only enter it if every host has staged `restore_dir`.
+      if multihost.global_max([1 if restore_dir is None else 0])[0]:
+        return None
+
+      if restore_dir == self._local_directory:
+        return self._local_manager.restore(step, args=args)
+      return self._local_manager.restore(
+          step, args=args, directory=restore_dir
+      )
+    except (OSError, ValueError, FileNotFoundError) as e:
+      logging.exception('Local/P2P restore for step %d failed: %s', step, e)
+      return None
+    finally:
+      if p2p_restore_dir.exists():
+        logging.info(
+            'Removing P2P restore directory: %s after restoration is complete',
+            p2p_restore_dir,
+        )
+        try:
+          shutil.rmtree(str(p2p_restore_dir))
+        except OSError as e:
+          logging.exception('Failed to remove P2P restore directory: %s', e)
 
   @override
   def restore(
@@ -414,61 +463,33 @@ class CheckpointManager(
       raise ValueError('The `args` parameter is required for restore.')
 
     start_time = time.time()
-    # 1. Registry Sync: Ensure P2P registry is current.
     logging.info('Registry Sync - ensuring P2P registry is current.')
     self._p2p.sync_registry_if_stale()
 
-    use_persistent = False
-    if step is None:
-      step = self._p2p.get_latest_complete_step()
-      logging.info('P2P latest_step=%s', step)
-
-    if step is None and self._persistent_manager:
-      step = self._persistent_manager.latest_step()
-      logging.info('Persistent latest_step=%s', step)
-      if step is not None:
-        use_persistent = True
-
-    if step is None:
-      raise FileNotFoundError(
-          'No steps found in either local/persistent storage or P2P registry.'
-      )
-
+    step, use_persistent = self._resolve_restore_step(step)
     logging.info('Targeting restore step: %d', step)
 
-    # 2. Try P2P/Local Restore
     restored = None
     restore_source = 'Unknown'
     if not use_persistent:
-      if self._p2p.has_shard_for_step(step):
-        try:
-          restored = self._restore_from_local_or_p2p(step, args)
-          restore_source = 'P2P'
-        except (OSError, ValueError, FileNotFoundError) as e:
-          logging.exception('Local/P2P restore for step %d failed: %s', step, e)
-      else:
-        logging.warning(
-            'Step %d not available in P2P network, falling back to'
-            ' persistent storage.',
-            step,
-        )
+      restored = self._restore_from_local_or_p2p(step, args)
+      if restored is not None:
+        restore_source = 'P2P'
 
-    # 3. Coordinated Fallback to Persistent Storage
-    if self._persistent_manager:
-      # If any host failed local/P2P restore, all hosts must use persistent.
-      fallback_to_persistent = 1 if restored is None else 0
-      any_host_needs_fallback_list = multihost.global_max(
-          [fallback_to_persistent]
-      )
-      if any_host_needs_fallback_list and any_host_needs_fallback_list[0]:
+    if restored is None and self._persistent_manager:
+      if not use_persistent:
         logging.warning(
             'At least one host failed Local/P2P restore or step not available'
             ' in P2P. All hosts falling back to persistent storage.'
         )
-        restored = self._restore_from_persistent_storage(step, args)
-        restore_source = 'Persistent Storage'
+      step, restored = self._restore_from_persistent_storage(
+          step, args, use_latest_step=not use_persistent
+      )
+      restore_source = 'Persistent Storage'
 
     if restored is not None:
+      self._local_manager.prune_steps_after(step)
+      self._p2p.mark_registry_stale()
       logging.info(
           'Restoration finished using %s in %.2fs',
           restore_source,

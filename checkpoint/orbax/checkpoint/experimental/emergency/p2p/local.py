@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import checkpoint_utils
 from orbax.checkpoint import type_handlers
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.path import step as step_lib
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint.experimental.emergency import path as emergency_path
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
@@ -141,6 +142,7 @@ class LocalCheckpointManager:
     self._directory = epath.Path(directory)
     self._global_mesh = global_mesh
     self._process_index = multihost.process_index()
+    self._step_name_format = options.step_name_format
 
     # While forming smaller process groups for synchronization via
     # `active_processes` (e.g., per-replica) might improve barrier
@@ -234,6 +236,18 @@ class LocalCheckpointManager:
     if self._process_index != detected_index:
       return []
     return steps
+
+  def prune_steps_after(self, step: int):
+    """Deletes local steps newer than `step`."""
+    stale = [s for s in self._manager.all_steps() if s > step]
+    for s in stale:
+      path = step_lib.build_step_path(
+          self._directory, self._step_name_format, s
+      )
+      logging.info('Removing stale local step %d at %s.', s, path)
+      path.rmtree()
+    if stale:
+      self._manager.reload()
 
   def save(
       self,
