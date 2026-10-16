@@ -1650,6 +1650,7 @@ class PyTreeHandlerTest(
         min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel,
         enable_pinned_host_transfer,
+        **kwargs,
     ):
       nonlocal true_count, false_count
       if enable_pinned_host_transfer:
@@ -1663,6 +1664,7 @@ class PyTreeHandlerTest(
           min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          **kwargs,
       )
 
     with mock.patch.object(
