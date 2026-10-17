@@ -446,6 +446,8 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     current_operation_id = (
         synchronization.OperationIdGenerator.get_current_operation_id()
     )
+    # Captured synchronously; the callback runs in the background save thread.
+    signals_namespace = future.current_signals_namespace()
 
     def _callback() -> None:
       finalize_start_time = time.time()
@@ -501,9 +503,10 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       # Clean up all awaitable signals for the current operation id as they are
       # no longer needed.
       if self._create_directories_asynchronously:
-        future.AwaitableSignalsContract.remove_all_awaitable_signals(
-            current_operation_id
-        )
+        with future.signals_namespace(signals_namespace):
+          future.AwaitableSignalsContract.remove_all_awaitable_signals(
+              current_operation_id
+          )
 
     return _callback
 
@@ -651,25 +654,26 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     on_commit_callback = self._make_on_commit_callback(
         tmpdir, custom_metadata, checkpoint_start_time
     )
-    commit_ops = asyncio_utils.run_sync(
-        self._save(
-            tmpdir,
-            *args,
-            force=force,
-            **kwargs,
-        )
-    )
-    blocking_end_time = time.time()
-    blocking_duration_secs = blocking_end_time - checkpoint_start_time
-    operation_recorder.record_blocking_completion(
-        blocking_duration_secs,
-        end_time=blocking_end_time,
-    )
-    self._async_manager.start_async_commit(
-        directory,
-        commit_futures=commit_ops,
-        on_commit_callback=on_commit_callback,
-    )
+    with future.defer_background_work():
+      commit_ops = asyncio_utils.run_sync(
+          self._save(
+              tmpdir,
+              *args,
+              force=force,
+              **kwargs,
+          )
+      )
+      blocking_end_time = time.time()
+      blocking_duration_secs = blocking_end_time - checkpoint_start_time
+      operation_recorder.record_blocking_completion(
+          blocking_duration_secs,
+          end_time=blocking_end_time,
+      )
+      self._async_manager.start_async_commit(
+          directory,
+          commit_futures=commit_ops,
+          on_commit_callback=on_commit_callback,
+      )
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""

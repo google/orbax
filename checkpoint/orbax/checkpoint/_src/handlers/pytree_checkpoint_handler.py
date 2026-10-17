@@ -450,12 +450,15 @@ def _get_impl_save_args(
         item=item,
         save_args=save_args,
     )
-  return BasePyTreeSaveArgs(
+  impl_args = BasePyTreeSaveArgs(
       item=args.item,
       save_args=args.save_args,
       ocdbt_target_data_file_size=args.ocdbt_target_data_file_size,
       custom_metadata=args.custom_metadata,
   )
+  if getattr(args, '_is_hbm_copied', False):
+    setattr(impl_args, '_is_hbm_copied', True)
+  return impl_args
 
 
 def _concurrent_bytes(
@@ -521,6 +524,7 @@ class PyTreeCheckpointHandler(
       is_prioritized_key_fn: Optional[
           serialization_types.IsPrioritizedKeyFn
       ] = None,
+      enable_hbm_copy_for_async_d2h: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -575,6 +579,10 @@ class PyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      enable_hbm_copy_for_async_d2h: If True, creates an on-device HBM copy of
+        non-prioritized `jax.Array` leaves on the main thread and offloads their
+        D2H transfer to the background thread. If `is_prioritized_key_fn` is
+        None, defaults it to `lambda _: False` so all arrays use background D2H.
     """
 
     self._aggregate_handler = MsgpackHandler(
@@ -611,6 +619,7 @@ class PyTreeCheckpointHandler(
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         is_prioritized_key_fn=is_prioritized_key_fn,
+        enable_hbm_copy_for_async_d2h=enable_hbm_copy_for_async_d2h,
     )
     self._pytree_metadata_options = pytree_metadata_options
 

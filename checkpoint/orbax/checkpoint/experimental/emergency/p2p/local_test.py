@@ -120,6 +120,84 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     )
     manager.close()
 
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
+  def test_prune_steps_after(self, unused_process_index):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(
+            save_interval_steps=1, max_to_keep=3
+        )
+    )
+    manager = local.LocalCheckpointManager(
+        self.directory, self.mesh, options=options
+    )
+    sharding = jax.sharding.NamedSharding(self.mesh, P('x'))
+    state = {
+        'a': jax.device_put(np.arange(self.mesh.size, dtype=np.int32), sharding)
+    }
+    for step in (1, 2, 3):
+      manager.save(
+          step, args=p2p_args_lib.Composite(state=args_lib.PyTreeSave(state))
+      )
+    manager.wait_until_finished()
+    self.assertEqual(manager.all_steps(), [1, 2, 3])
+
+    manager.prune_steps_after(1)
+
+    self.assertEqual(manager.all_steps(), [1])
+    self.assertEqual(manager.latest_step(), 1)
+    self.assertFalse((self.directory / '2').exists())
+    self.assertFalse((self.directory / '3').exists())
+    self.assertTrue(manager.should_save(2))
+    manager.close()
+
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
+  def test_save_restore_with_hbm_copy_for_async_d2h(self, unused_process_index):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
+        enable_hbm_copy_for_async_d2h=True,
+    )
+    manager = local.LocalCheckpointManager(
+        self.directory, self.mesh, options=options
+    )
+    sharding = jax.sharding.NamedSharding(self.mesh, P('x'))
+    expected_a = np.arange(self.mesh.size, dtype=np.int32)
+    expected_b = np.arange(self.mesh.size, dtype=np.int32) * 10
+    state = {
+        'a': jax.device_put(expected_a, sharding),
+        'b': jax.device_put(expected_b, sharding),
+    }
+    abstract_state = jax.tree.map(
+        lambda x: jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding),
+        state,
+    )
+    with mock.patch.object(
+        jax.numpy, 'copy', wraps=jax.numpy.copy
+    ) as mock_copy:
+      manager.save(
+          1, args=p2p_args_lib.Composite(state=args_lib.PyTreeSave(state))
+      )
+      self.assertEqual(mock_copy.call_count, 2)
+
+    # Mutate/donate `state` immediately before wait_until_finished().
+    state = jax.jit(
+        lambda s: jax.tree.map(lambda x: x + 100, s), donate_argnums=0
+    )(state)
+    manager.wait_until_finished()
+
+    restored = manager.restore(
+        1,
+        args=p2p_args_lib.Composite(
+            state=args_lib.PyTreeRestore(abstract_state)
+        ),
+    )
+    np.testing.assert_array_equal(expected_a, restored['state']['a'])
+    np.testing.assert_array_equal(expected_b, restored['state']['b'])
+    manager.close()
+
 
 if __name__ == '__main__':
   absltest.main()
