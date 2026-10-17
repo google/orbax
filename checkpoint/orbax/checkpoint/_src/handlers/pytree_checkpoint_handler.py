@@ -521,6 +521,7 @@ class PyTreeCheckpointHandler(
       is_prioritized_key_fn: Optional[
           serialization_types.IsPrioritizedKeyFn
       ] = None,
+      enable_hbm_copy_for_async_d2h: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -574,7 +575,16 @@ class PyTreeCheckpointHandler(
         before updating array values (e.g. `apply_gradients`) if some keys are
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
-        them.
+        them. Only applies when `save_device_host_concurrent_gb` is set.
+      enable_hbm_copy_for_async_d2h: If True, `jax.Array` leaves whose D2H
+        transfer is asynchronous (see `is_prioritized_key_fn`) are first copied
+        on device, so that the caller may donate or mutate the original arrays
+        as soon as the blocking part of the save returns, without waiting for
+        the transfer. The copies are released as their transfers complete, so a
+        second copy of those arrays is transiently held in device memory. If
+        `is_prioritized_key_fn` is None, all keys are transferred
+        asynchronously; if `save_device_host_concurrent_gb` is None, the
+        transfers are not batched.
     """
 
     self._aggregate_handler = MsgpackHandler(
@@ -611,6 +621,7 @@ class PyTreeCheckpointHandler(
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         is_prioritized_key_fn=is_prioritized_key_fn,
+        enable_hbm_copy_for_async_d2h=enable_hbm_copy_for_async_d2h,
     )
     self._pytree_metadata_options = pytree_metadata_options
 

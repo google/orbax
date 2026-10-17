@@ -30,6 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.arrays import sharding as arrays_sharding_lib
+from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
@@ -893,6 +894,135 @@ class ArrayHandlerCallbackTest(
             ('on_write_end', ('params', 'a')),
         ],
     )
+
+
+class TransferPriorityTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+  """Tests D2H scheduling driven by `ParamInfo.is_prioritized_key_fn`."""
+
+  def setUp(self):
+    super().setUp()
+    self.pytree, _, _ = test_utils.setup_sharded_pytree()
+    self.directory = epath.Path(self.create_tempdir().full_path)
+
+  async def _serialize_and_record_transfers(
+      self, info: ParamInfo
+  ) -> list[tuple[str, str]]:
+    """Serializes one array and records how its D2H transfer runs.
+
+    Args:
+      info: The `ParamInfo` of the array.
+
+    Returns:
+      One `(thread, array)` tuple per D2H transfer, where `thread` is
+      'main_thread' (synchronous, before `serialize` returns) or 'background',
+      and `array` is 'original' or 'copy' (an on-device copy of the original).
+    """
+    handler = type_handlers.ArrayHandler(use_replica_parallel=False)
+    arr = jax.tree.leaves(self.pytree)[0]
+    transfers = []
+    real_transfer = replica_slices.transfer_arrays_to_host
+
+    def _recording_transfer(arrays, *args, **kwargs):
+      transfers.append((
+          'main_thread'
+          if threading.current_thread() is threading.main_thread()
+          else 'background',
+          'original' if all(a is arr for a in arrays) else 'copy',
+      ))
+      return real_transfer(arrays, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', _recording_transfer
+    ):
+      futures = await handler.serialize([arr], [info])
+      for f in futures:
+        f.result()
+    return transfers
+
+  def _get_param_info(self, **kwargs) -> ParamInfo:
+    return get_param_info('a', self.directory).replace(
+        keypath=(jax.tree_util.DictKey('a'),),
+        device_host_byte_limiter=limits.LimitInFlightBytes(16),
+        **kwargs,
+    )
+
+  @parameterized.named_parameters(
+      ('enum', lambda _: types.TransferPriority.SYNCHRONOUS),
+      ('legacy_bool', lambda _: True),
+  )
+  async def test_synchronous_transfer_runs_on_main_thread(
+      self, is_prioritized_key_fn
+  ):
+    info = self._get_param_info(is_prioritized_key_fn=is_prioritized_key_fn)
+    self.assertEqual(
+        await self._serialize_and_record_transfers(info),
+        [('main_thread', 'original')],
+    )
+
+  @parameterized.named_parameters(
+      ('enum', lambda _: types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED),
+      ('legacy_bool', lambda _: False),
+  )
+  async def test_asynchronous_transfer_runs_in_background(
+      self, is_prioritized_key_fn
+  ):
+    info = self._get_param_info(is_prioritized_key_fn=is_prioritized_key_fn)
+    self.assertEqual(
+        await self._serialize_and_record_transfers(info),
+        [('background', 'original')],
+    )
+
+  async def test_hbm_copy_transfers_a_copy_of_asynchronous_arrays(self):
+    info = self._get_param_info(
+        is_prioritized_key_fn=(
+            lambda _: types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+        ),
+        enable_hbm_copy_for_async_d2h=True,
+    )
+    self.assertEqual(
+        await self._serialize_and_record_transfers(info),
+        [('background', 'copy')],
+    )
+
+  async def test_hbm_copy_does_not_copy_synchronous_arrays(self):
+    info = self._get_param_info(
+        is_prioritized_key_fn=lambda _: types.TransferPriority.SYNCHRONOUS,
+        enable_hbm_copy_for_async_d2h=True,
+    )
+    self.assertEqual(
+        await self._serialize_and_record_transfers(info),
+        [('main_thread', 'original')],
+    )
+
+  async def test_asynchronous_transfer_waits_for_blocking_save_scope(self):
+    info = self._get_param_info(
+        is_prioritized_key_fn=(
+            lambda _: types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+        ),
+    )
+    handler = type_handlers.ArrayHandler(use_replica_parallel=False)
+    arr = jax.tree.leaves(self.pytree)[0]
+    scope_events = []
+    blocking_save_done_at_transfer = []
+    real_transfer = replica_slices.transfer_arrays_to_host
+
+    def _recording_transfer(*args, **kwargs):
+      blocking_save_done_at_transfer.append(scope_events[0].is_set())
+      return real_transfer(*args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', _recording_transfer
+    ):
+      with future.blocking_save_scope():
+        scope_events.append(future.current_blocking_save_done_event())
+        futures = await handler.serialize([arr], [info])
+        # The transfer cannot start until the blocking save scope exits.
+        self.assertEmpty(blocking_save_done_at_transfer)
+      for f in futures:
+        f.result()
+    self.assertEqual(blocking_save_done_at_transfer, [True])
 
 
 class PlaceholderHandlerTest(
