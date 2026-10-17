@@ -16,9 +16,11 @@
 
 import asyncio
 import concurrent.futures
+import contextlib
+import contextvars
 import threading
 import time
-from typing import Any, Callable, Coroutine, Optional, Sequence
+from typing import Any, Callable, Coroutine, Iterator, Optional, Sequence
 
 from absl import logging
 from orbax.checkpoint._src import asyncio_utils
@@ -31,13 +33,62 @@ from typing_extensions import Protocol
 PyTree = Any
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
 
+# Namespace for awaitable-signal keys. Scoped per save via `signals_namespace()`
+# so that managers in the same process do not share keys.
+_SIGNALS_NAMESPACE: contextvars.ContextVar[Optional[str]] = (
+    contextvars.ContextVar('orbax_signals_namespace', default=None)
+)
+
+# Optional in-process gate that defers background D2H transfers until the
+# outermost blocking save phase on the main thread has completed.
+_BLOCKING_SAVE_DONE_EVENT: contextvars.ContextVar[
+    Optional[threading.Event]
+] = contextvars.ContextVar('orbax_blocking_save_done_event', default=None)
+
+
+def current_signals_namespace() -> str:
+  """Returns the active signals namespace, or the default prefix if unset."""
+  namespace = _SIGNALS_NAMESPACE.get()
+  return namespace or AwaitableSignalsContract.awaitable_signals_contract_prefix
+
+
+@contextlib.contextmanager
+def signals_namespace(namespace: str) -> Iterator[None]:
+  """Context manager that scopes awaitable-signal keys to `namespace`."""
+  token = _SIGNALS_NAMESPACE.set(namespace)
+  try:
+    yield
+  finally:
+    _SIGNALS_NAMESPACE.reset(token)
+
+
+def current_blocking_save_done_event() -> Optional[threading.Event]:
+  """Returns the active blocking-save completion event, if any."""
+  return _BLOCKING_SAVE_DONE_EVENT.get()
+
+
+@contextlib.contextmanager
+def defer_background_work() -> Iterator[threading.Event]:
+  """Defers background D2H execution until the outermost blocking save exits."""
+  existing = _BLOCKING_SAVE_DONE_EVENT.get()
+  if existing is not None:
+    yield existing
+    return
+  event = threading.Event()
+  token = _BLOCKING_SAVE_DONE_EVENT.set(event)
+  try:
+    yield event
+  finally:
+    event.set()
+    _BLOCKING_SAVE_DONE_EVENT.reset(token)
+
 
 class AwaitableSignalsContract:
   """A class that represents the awaitable signals contract.
 
   Attributes:
-    awaitable_signals_contract_prefix: The prefix for the awaitable signals
-      contract.
+    awaitable_signals_contract_prefix: Default prefix for the awaitable signals
+      contract when no namespace is set via `signals_namespace()`.
   """
 
   awaitable_signals_contract_prefix: str = 'awaitable_signals_contract'
@@ -48,7 +99,7 @@ class AwaitableSignalsContract:
       signal: synchronization.HandlerAwaitableSignal,
       operation_id: str,
   ) -> str:
-    """Returns a unique barrier key for the signal.
+    """Returns a unique barrier key for the signal in the current namespace.
 
     Args:
       signal: The signal to generate a barrier key for.
@@ -57,9 +108,7 @@ class AwaitableSignalsContract:
     Returns:
       A unique barrier key for the signal with operation id as key directory.
     """
-    return (
-        f'{cls.awaitable_signals_contract_prefix}_{operation_id}/{signal.value}'
-    )
+    return f'{current_signals_namespace()}_{operation_id}/{signal.value}'
 
   @classmethod
   def get_awaitable_signals_from_contract(
@@ -149,9 +198,7 @@ class AwaitableSignalsContract:
         or synchronization.OperationIdGenerator.get_current_operation_id()
     )
     client = signaling_client.get_signaling_client()
-    client.key_value_delete(
-        f'{cls.awaitable_signals_contract_prefix}_{operation_id}/'
-    )
+    client.key_value_delete(f'{current_signals_namespace()}_{operation_id}/')
     logging.vlog(
         1,
         '[process=%s] Removed all awaitable signals for operation id: %s.',
@@ -344,14 +391,18 @@ class _SignalingThread(threading.Thread):
         operation_id
         or synchronization.OperationIdGenerator.get_current_operation_id()
     )
+    # Capture the namespace synchronously; threads do not inherit contextvars.
+    self._namespace = current_signals_namespace()
+    self._blocking_save_done_event = current_blocking_save_done_event()
     logging.vlog(
         1,
         '[process=%d][thread=%s][operation_id=%s] _SignalingThread'
-        ' initialized with timeout: %d secs',
+        ' initialized with timeout: %d secs, namespace: %s',
         multihost.process_index(),
         threading.current_thread().name,
         self._operation_id,
         self._timeout_secs,
+        self._namespace,
     )
 
   def _wait_for_signals(self):
@@ -369,6 +420,11 @@ class _SignalingThread(threading.Thread):
 
   def run(self):
     """Runs the target function after waiting for signals."""
+    with signals_namespace(self._namespace):
+      self._run_with_signals()
+
+  def _run_with_signals(self):
+    """Waits for signals, runs the target function, and sends signals."""
     try:
       if self._cancelled:
         return
@@ -397,6 +453,8 @@ class _SignalingThread(threading.Thread):
   def cancel(self):
     """Cancels the thread's background execution."""
     self._cancelled = True
+    if self._blocking_save_done_event is not None:
+      self._blocking_save_done_event.set()
     if (
         hasattr(self, 'loop')
         and self.loop is not None
@@ -408,6 +466,8 @@ class _SignalingThread(threading.Thread):
   def join(self, timeout: Optional[float] = None):
     """Waits for the target function to complete."""
     if threading.current_thread() is threading.main_thread():
+      if self._blocking_save_done_event is not None:
+        self._blocking_save_done_event.set()
       logging.info(
           '[process=%d][thread=%s][operation_id=%s] _SignalingThread.join()'
           ' waiting for signals (%r) blocking the main thread will slow down'
@@ -551,11 +611,12 @@ class CommitFutureAwaitingContractedSignals(Future):
         1,
         '[process=%d][thread=%s][operation_id=%s]'
         ' CommitFutureAwaitingContractedSignals expecting to recieve signals:'
-        ' %s',
+        ' %s (namespace: %s)',
         multihost.process_index(),
         threading.current_thread().name,
         operation_id,
         receive_signals,
+        current_signals_namespace(),
     )
     self._f = CommitFuture(
         coro,

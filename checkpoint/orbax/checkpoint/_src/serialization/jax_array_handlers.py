@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import dataclasses
 import functools
 import os
@@ -505,30 +506,42 @@ def _get_deprioritized_batches_to_serialize(
       humanize.naturalsize(device_host_max_bytes, binary=True),
   )
   if deprioritized_params:
+    total_arrays = len(deprioritized_params)
+    batches = collections.deque(
+        tuple(zip(*batch))
+        for batch in worker_memory_utils.next_memory_budgeted_batch(
+            deprioritized_params,
+            device_host_max_bytes,
+            replica_id=replica_id,
+            dispatcher=dispatcher,
+        )
+    )
+    if isinstance(deprioritized_params, list):
+      deprioritized_params.clear()
+    del deprioritized_params
     arrays_saved_count = 0
-    for batch in worker_memory_utils.next_memory_budgeted_batch(
-        deprioritized_params,
-        device_host_max_bytes,
-        replica_id=replica_id,
-        dispatcher=dispatcher,
-    ):
-      assert arrays_saved_count < len(deprioritized_params)
+    while batches:
+      assert arrays_saved_count < total_arrays
+      batch_len = len(batches[0][0])
+      batch_keys = [
+          tree_utils.str_keypath(info.keypath) for info in batches[0][1]
+      ]
       logging.info(
           'Scheduling serialization of %d deprioritized arrays. Already'
           ' completed %d / %d arrays. Included keys: %s',
-          len(batch),
+          batch_len,
           arrays_saved_count,
-          len(deprioritized_params),
-          [tree_utils.str_keypath(info.keypath) for _, info, _ in batch],
+          total_arrays,
+          batch_keys,
       )
-      yield zip(*batch)
+      yield batches.popleft()
       logging.info(
           'Serialization of %d deprioritized jax.Array completed.',
-          len(batch),
+          batch_len,
       )
-      arrays_saved_count += len(batch)
+      arrays_saved_count += batch_len
 
-    assert arrays_saved_count == len(deprioritized_params)
+    assert arrays_saved_count == total_arrays
 
 
 def _on_batch_callback(
@@ -575,6 +588,13 @@ def _serialize_arrays_batches_without_dispatcher(
       use_replica_parallel=use_replica_parallel,
       ext_metadata=ext_metadata,
   )
+  info_sample = (
+      prioritized[0][1]
+      if prioritized
+      else (deprioritized[0][1] if deprioritized else None)
+  )
+  deprioritized_list = list(deprioritized)
+  del deprioritized
   prioritized_values_on_host = []
   prioritized_infos = []
   prioritized_args = []
@@ -587,16 +607,21 @@ def _serialize_arrays_batches_without_dispatcher(
     prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
         prioritized_arrays
     )
+    del prioritized_arrays
     _on_batch_callback(prioritized_infos, callback.on_transfer_end)
   else:
     logging.warning(
         'No prioritized params found for saving. D2H for all values will be'
         ' scheduled asynchronously.'
     )
+  del prioritized
+  blocking_save_done_event = future.current_blocking_save_done_event()
 
   async def _serialize_without_dispatcher():
-    if not prioritized and not deprioritized:
+    if info_sample is None:
       return
+    if deprioritized_list and blocking_save_done_event is not None:
+      blocking_save_done_event.wait(timeout=60.0)
     initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
         types.IoDirection.WRITE
     )
@@ -614,14 +639,14 @@ def _serialize_arrays_batches_without_dispatcher(
       if b_metadatas:
         all_array_metadatas.extend(b_metadatas)
       _on_batch_callback(prioritized_infos, callback.on_write_end)
-    if deprioritized:
+    if deprioritized_list:
       assert device_host_max_bytes is not None
       for (
           b_arrays,
           b_infos,
           b_args,
       ) in _get_deprioritized_batches_to_serialize(
-          deprioritized,
+          deprioritized_list,
           device_host_max_bytes=device_host_max_bytes,
           # TODO(b/436858989): We overestimate memory usage for now if replica
           # parallel is enabled, as each host has a non-trivial calculation for
@@ -630,6 +655,7 @@ def _serialize_arrays_batches_without_dispatcher(
           dispatcher=None,
       ):
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        del b_arrays
         _on_batch_callback(b_infos, callback.on_transfer_end)
         logical_bytes += sum(v.nbytes for v in b_arrays_on_host)
         b_metadatas = await async_serialize_replica_slices_batch(
@@ -641,7 +667,6 @@ def _serialize_arrays_batches_without_dispatcher(
           all_array_metadatas.extend(b_metadatas)
         _on_batch_callback(b_infos, callback.on_write_end)
 
-    info_sample = prioritized[0][1] if prioritized else deprioritized[0][1]
     _log_io_metrics(
         direction=types.IoDirection.WRITE,
         logical_bytes=logical_bytes,
@@ -692,6 +717,15 @@ def _serialize_arrays(
   else:
     for info, arg, value in zip(infos, args, arrays):
       prioritization = callback.key_priority(info.keypath)  # pyrefly: ignore[bad-argument-type]
+      if (
+          prioritization == types.TransferPriority.SYNCHRONOUS
+          and info.is_prioritized_key_fn is not None
+      ):
+        key_fn_res = info.is_prioritized_key_fn(info.keypath)  # pyrefly: ignore[bad-argument-type]
+        if isinstance(key_fn_res, types.TransferPriority):
+          prioritization = key_fn_res
+        elif not key_fn_res:
+          prioritization = types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
       if prioritization == types.TransferPriority.SYNCHRONOUS:
         prioritized.append((value, info, arg))
       elif prioritization == types.TransferPriority.ASYNCHRONOUS_PRIORITIZED:

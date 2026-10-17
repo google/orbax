@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import concurrent
+import contextlib
 import dataclasses
 import datetime
 import threading
@@ -712,10 +713,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._options = options or CheckpointManagerOptions()
     self._multiprocessing_options = self._options.multiprocessing_options
 
+    # Per-manager namespace for awaitable-signal keys, applied around save
+    # dispatch so that other managers in the same process are unaffected.
+    self._signals_namespace = (
+        self._multiprocessing_options.barrier_sync_key_prefix
+        or future.AwaitableSignalsContract.awaitable_signals_contract_prefix
+    )
     if self._options.enable_per_process_directory_creation:
-      future.AwaitableSignalsContract.awaitable_signals_contract_prefix += (
-          f'_{multihost.process_index()}'
-      )
+      self._signals_namespace += f'_{multihost.process_index()}'
 
     self._save_decision_policy = (
         self._options.save_decision_policy
@@ -1533,114 +1538,125 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         validation_duration,
     )
     step_stats.checkpointer_blocking_start_time = time.time()
-    if isinstance(self._checkpointer, Checkpointer):
-      skip_sync = bool(
-          isinstance(self._checkpointer, AsyncCheckpointer)
-          and self._options.file_options
-          and self._options.file_options.skip_sync_file_validations
-      )
-      # `Checkpointer.save()` folds these into its own blocking metrics so that
-      # each is recorded once per save and spans the full blocking save.
-      self._checkpointer.save(
-          save_directory,
-          args=args,
-          custom_metadata=custom_metadata,
-          force=not skip_sync,
-          save_context=checkpointer_lib.SaveContext(
-              checkpoint_start_time=(
-                  step_stats.checkpoint_manager_blocking_start_time
+    defer_ctx = (
+        future.defer_background_work()
+        if is_async_checkpointer(self._checkpointer)
+        else contextlib.nullcontext()
+    )
+    with defer_ctx:
+      if isinstance(self._checkpointer, Checkpointer):
+        skip_sync = bool(
+            isinstance(self._checkpointer, AsyncCheckpointer)
+            and self._options.file_options
+            and self._options.file_options.skip_sync_file_validations
+        )
+        # `Checkpointer.save()` folds these into its own blocking metrics so
+        # that each is recorded once per save and spans the full blocking save.
+        with future.signals_namespace(self._signals_namespace):
+          self._checkpointer.save(
+              save_directory,
+              args=args,
+              custom_metadata=custom_metadata,
+              force=not skip_sync,
+              save_context=checkpointer_lib.SaveContext(
+                  checkpoint_start_time=(
+                      step_stats.checkpoint_manager_blocking_start_time
+                  ),
+                  start_sync_duration_secs=cm_start_sync_duration,
+                  wait_prev_duration_secs=step_stats.wait_for_prev_duration_secs,
               ),
-              start_sync_duration_secs=cm_start_sync_duration,
-              wait_prev_duration_secs=step_stats.wait_for_prev_duration_secs,
+          )
+      else:
+        with future.signals_namespace(self._signals_namespace):
+          self._checkpointer.save(
+              save_directory,
+              args=args,
+              custom_metadata=custom_metadata,
+              force=True,
+          )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+            cm_start_sync_duration,
+        )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/blocking_wait_prev_duration_secs',
+            step_stats.wait_for_prev_duration_secs,
+        )
+      step_stats.checkpointer_blocking_duration_secs = (
+          time.time() - step_stats.checkpointer_blocking_start_time
+      )
+
+      self._add_checkpoint_info(step, metrics)
+      step_stats.get_old_steps_start_time = time.time()
+      steps_to_remove = self._get_old_steps_to_remove()
+      step_stats.get_old_steps_duration_secs = (
+          time.time() - step_stats.get_old_steps_start_time
+      )
+
+      jax.monitoring.record_event_duration_secs(
+          '/jax/checkpoint/write/get_old_steps_duration_secs',
+          step_stats.get_old_steps_duration_secs,
+      )
+
+      self._checkpoints.delete_if(lambda info: info.step in steps_to_remove)
+      # Sync needed to ensure that old steps to remove are retrieved before
+      # actually deleting them during finalize, since retrieval can involve
+      # looking at the directory.
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'CheckpointManager:old_steps_to_remove',
+              prefix=self._multiprocessing_options.barrier_sync_key_prefix,
+              # suffix=str(step),
           ),
+          processes=self._multiprocessing_options.active_processes,
       )
-    else:
-      self._checkpointer.save(
-          save_directory, args=args, custom_metadata=custom_metadata, force=True
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/checkpoint_start_sync_duration_secs',
-          cm_start_sync_duration,
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/blocking_wait_prev_duration_secs',
-          step_stats.wait_for_prev_duration_secs,
-      )
-    step_stats.checkpointer_blocking_duration_secs = (
-        time.time() - step_stats.checkpointer_blocking_start_time
-    )
 
-    self._add_checkpoint_info(step, metrics)
-    step_stats.get_old_steps_start_time = time.time()
-    steps_to_remove = self._get_old_steps_to_remove()
-    step_stats.get_old_steps_duration_secs = (
-        time.time() - step_stats.get_old_steps_start_time
-    )
+      current_thread = threading.current_thread()
+      if is_async_checkpointer(self._checkpointer):
 
-    jax.monitoring.record_event_duration_secs(
-        '/jax/checkpoint/write/get_old_steps_duration_secs',
-        step_stats.get_old_steps_duration_secs,
-    )
+        def launch_finalize_thread() -> _FinalizeThread:
+          is_finalize_in_progress = self._finalize_thread.map(
+              lambda t: t is not None and t.is_alive()
+          )
+          assert not is_finalize_in_progress, (
+              'Save finalization already in progress for'
+              f' step={self._finalize_thread.get_not_none().step()}'
+          )
+          finalize_thread_name = 'save_finalize'
+          logging.info(
+              '[process=%s][thread=%s][step=%s] Starting CheckpointManager Save'
+              ' Finalize thread=%s',
+              process_index,
+              current_thread.name,
+              step,
+              finalize_thread_name,
+          )
+          finalize_thread = _FinalizeThread(
+              step=step,
+              name=finalize_thread_name,
+              target=self._finalize,
+              args=(step, steps_to_remove),
+          )
+          finalize_thread.start()
+          return finalize_thread
 
-    self._checkpoints.delete_if(lambda info: info.step in steps_to_remove)
-    # Sync needed to ensure that old steps to remove are retrieved before
-    # actually deleting them during finalize, since retrieval can involve
-    # looking at the directory.
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'CheckpointManager:old_steps_to_remove',
-            prefix=self._multiprocessing_options.barrier_sync_key_prefix,
-            # suffix=str(step),
-        ),
-        processes=self._multiprocessing_options.active_processes,
-    )
+        self._finalize_thread.set_from(launch_finalize_thread)
 
-    current_thread = threading.current_thread()
-    if is_async_checkpointer(self._checkpointer):
-
-      def launch_finalize_thread() -> _FinalizeThread:
-        is_finalize_in_progress = self._finalize_thread.map(
-            lambda t: t is not None and t.is_alive()
-        )
-        assert not is_finalize_in_progress, (
-            'Save finalization already in progress for'
-            f' step={self._finalize_thread.get_not_none().step()}'
-        )
-        finalize_thread_name = 'save_finalize'
+      else:
+        self._finalize(step, steps_to_remove)
         logging.info(
-            '[process=%s][thread=%s][step=%s] Starting CheckpointManager Save'
-            ' Finalize thread=%s',
+            '[process=%s][thread=%s][step=%s] Finished synchronous save.',
             process_index,
             current_thread.name,
             step,
-            finalize_thread_name,
         )
-        finalize_thread = _FinalizeThread(
-            step=step,
-            name=finalize_thread_name,
-            target=self._finalize,
-            args=(step, steps_to_remove),
-        )
-        finalize_thread.start()
-        return finalize_thread
 
-      self._finalize_thread.set_from(launch_finalize_thread)
-
-    else:
-      self._finalize(step, steps_to_remove)
-      logging.info(
-          '[process=%s][thread=%s][step=%s] Finished synchronous save.',
-          process_index,
-          current_thread.name,
-          step,
+      step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
+      step_stats.checkpoint_manager_blocking_duration_secs = (
+          time.time() - step_stats.checkpoint_manager_blocking_start_time
       )
-
-    step_stats.synchronous = not is_async_checkpointer(self._checkpointer)
-    step_stats.checkpoint_manager_blocking_duration_secs = (
-        time.time() - step_stats.checkpoint_manager_blocking_start_time
-    )
-    self._logger.log_entry(dataclasses.asdict(step_stats))
-    return True
+      self._logger.log_entry(dataclasses.asdict(step_stats))
+      return True
 
   def _is_continuous_checkpointing_enabled(self) -> bool:
     """Returns True if continuous checkpointing is enabled."""

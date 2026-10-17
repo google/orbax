@@ -26,6 +26,7 @@ from collections.abc import Set
 import dataclasses
 import functools
 import json
+import sys
 import threading
 import time
 from typing import Any, List, Mapping, Optional, Tuple, Union
@@ -398,6 +399,7 @@ class BasePyTreeCheckpointHandler(
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
+      enable_hbm_copy_for_async_d2h: bool = False,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -442,7 +444,19 @@ class BasePyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      enable_hbm_copy_for_async_d2h: If True, creates an on-device HBM copy of
+        non-prioritized `jax.Array` leaves on the main thread and offloads their
+        D2H transfer to the background thread. If `is_prioritized_key_fn` is
+        None, defaults it to `lambda _: False` so all arrays use background D2H.
     """
+    self._enable_hbm_copy_for_async_d2h = enable_hbm_copy_for_async_d2h
+    if self._enable_hbm_copy_for_async_d2h:
+      if is_prioritized_key_fn is None:
+        is_prioritized_key_fn = (
+            lambda keypath: types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+        )
+      if save_device_host_concurrent_bytes is None:
+        save_device_host_concurrent_bytes = sys.maxsize
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
@@ -682,12 +696,41 @@ class BasePyTreeCheckpointHandler(
           leaf.parent_dir is directory for leaf in jax.tree.leaves(param_infos)
       )
 
+    if self._enable_hbm_copy_for_async_d2h and not getattr(
+        args, '_is_hbm_copied', False
+    ):
+
+      def _maybe_copy_on_device(info: ParamInfo, value: Any) -> Any:
+        if (
+            isinstance(value, jax.Array)
+            and info.is_prioritized_key_fn is not None
+        ):
+          res = info.is_prioritized_key_fn(info.keypath)  # pyrefly: ignore[bad-argument-type]
+          is_sync = (
+              res == types.TransferPriority.SYNCHRONOUS
+              if isinstance(res, types.TransferPriority)
+              else bool(res)
+          )
+          if not is_sync:
+            return jax.numpy.copy(value)
+        return value
+
+      item_for_serialization = jax.tree.map(
+          _maybe_copy_on_device,
+          param_infos,
+          item,
+          is_leaf=utils.is_empty_or_leaf,
+      )
+    else:
+      item_for_serialization = item
+
     batch_requests = batched_serialization_requests(
-        item,
+        item_for_serialization,
         param_infos,
         save_args,
         self._type_handler_registry,
     )
+    del item_for_serialization
 
     batch_requests_ready_time = time.time()
     if args.partial_save_mode:
@@ -697,7 +740,11 @@ class BasePyTreeCheckpointHandler(
     else:
       requests_to_save = batch_requests
 
+    tree_memory_size = async_io_engine.compute_memory_size(
+        [req.values for req in requests_to_save]
+    )
     commit_futures = await self._async_io_engine.execute_save(requests_to_save)
+    del requests_to_save, batch_requests
     # Flatten to List[future.Future].
     commit_futures, _ = jax.tree.flatten(commit_futures)
 
@@ -723,9 +770,6 @@ class BasePyTreeCheckpointHandler(
       )
     save_futures += commit_futures
 
-    tree_memory_size = async_io_engine.compute_memory_size(
-        [req.values for req in requests_to_save]
-    )
     async_io_engine.log_io_metrics(
         tree_memory_size,
         start_time,

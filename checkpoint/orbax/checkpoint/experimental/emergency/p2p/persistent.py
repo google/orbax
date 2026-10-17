@@ -41,6 +41,7 @@ def _create_persistent_handler(
     mp_options: checkpoint_manager.MultiprocessingOptions,
     replica_axis_index: int,
     is_single_slice: bool,
+    enable_hbm_copy_for_async_d2h: bool = False,
 ) -> ocp.PyTreeCheckpointHandler:
   """Creates a PyTreeCheckpointHandler for persistent storage.
 
@@ -48,6 +49,7 @@ def _create_persistent_handler(
     mp_options: Multiprocessing options for the checkpoint handler.
     replica_axis_index: The index of the replica axis in the mesh.
     is_single_slice: Whether the mesh is single-slice.
+    enable_hbm_copy_for_async_d2h: Whether to copy arrays on HBM for async D2H.
 
   Returns:
     A PyTreeCheckpointHandler configured for persistent storage.
@@ -76,6 +78,7 @@ def _create_persistent_handler(
       use_zarr3=True,
       multiprocessing_options=mp_options,
       type_handler_registry=registry,
+      enable_hbm_copy_for_async_d2h=enable_hbm_copy_for_async_d2h,
   )
 
 
@@ -126,6 +129,9 @@ class PersistentCheckpointManager:
                 self._global_mesh, replica_axis_index=self._replica_axis_index
             )
             == 1,
+            enable_hbm_copy_for_async_d2h=(
+                options.enable_hbm_copy_for_async_d2h
+            ),
         )
     )
     if utils.pygrain() is not None:

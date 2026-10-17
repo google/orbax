@@ -83,6 +83,9 @@ class CheckpointManagerOptions:
   step_name_format:
     NameFormat to build or find steps under input root directory. If provided,
     `step_prefix`, `step_format_fixed_length` are ignored.
+  enable_hbm_copy_for_async_d2h:
+    If True, creates an on-device HBM copy of `jax.Array` leaves on the main
+    thread and offloads their D2H transfer to the background thread.
   """
 
   local: LocalCheckpointOptions = dataclasses.field(
@@ -97,3 +100,5 @@ class CheckpointManagerOptions:
   step_name_format: step_lib.NameFormat[step_lib.Metadata] = (
       step_lib.standard_name_format()
   )
+
+  enable_hbm_copy_for_async_d2h: bool = False
