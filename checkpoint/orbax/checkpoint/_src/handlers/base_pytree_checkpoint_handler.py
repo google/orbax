@@ -26,6 +26,7 @@ from collections.abc import Set
 import dataclasses
 import functools
 import json
+import sys
 import threading
 import time
 from typing import Any, List, Mapping, Optional, Tuple, Union
@@ -93,6 +94,14 @@ class PartialSaveError(Exception):
 
 class PartialSaveReplacementError(PartialSaveError):
   """Raised when a replacement is attempted during partial saving."""
+
+
+def _deprioritize_all_keys(
+    keypath: tree_types.PyTreePath,
+) -> types.TransferPriority:
+  """`IsPrioritizedKeyFn` that transfers every key asynchronously."""
+  del keypath
+  return types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
 
 
 def batched_serialization_requests(
@@ -398,6 +407,7 @@ class BasePyTreeCheckpointHandler(
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
+      enable_hbm_copy_for_async_d2h: bool = False,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -442,7 +452,24 @@ class BasePyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      enable_hbm_copy_for_async_d2h: If True, `jax.Array` leaves whose D2H
+        transfer is asynchronous (see `is_prioritized_key_fn`) are first copied
+        on device, so that the caller may donate or mutate the original arrays
+        as soon as `async_save` returns. The copies are released as their
+        transfers complete, so a second copy of those arrays is transiently
+        held in device memory. If `is_prioritized_key_fn` is None, all keys are
+        transferred asynchronously; if `save_device_host_concurrent_bytes` is
+        None, the transfers are not batched.
     """
+    if enable_hbm_copy_for_async_d2h:
+      if is_prioritized_key_fn is None:
+        is_prioritized_key_fn = _deprioritize_all_keys
+      if save_device_host_concurrent_bytes is None:
+        # `ArrayHandler` only transfers asynchronously under a device-host byte
+        # limit. An effectively unlimited one preserves the meaning of `None`
+        # (all arrays are transferred at once, as for synchronous transfers).
+        save_device_host_concurrent_bytes = sys.maxsize
+    self._enable_hbm_copy_for_async_d2h = enable_hbm_copy_for_async_d2h
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
     self._save_device_host_concurrent_bytes = save_device_host_concurrent_bytes
@@ -501,13 +528,14 @@ class BasePyTreeCheckpointHandler(
     logging.info(
         'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
         ' pytree_metadata_options=%s, array_metadata_store=%s,'
-        ' enable_pinned_host_transfer=%s, save_concurrent_bytes: %s,'
-        ' restore_concurrent_bytes: %s',
+        ' enable_pinned_host_transfer=%s, enable_hbm_copy_for_async_d2h=%s,'
+        ' save_concurrent_bytes: %s, restore_concurrent_bytes: %s',
         self._use_ocdbt,
         self._use_zarr3,
         self._pytree_metadata_options,
         self._array_metadata_store,
         self._enable_pinned_host_transfer,
+        self._enable_hbm_copy_for_async_d2h,
         _format_bytes(self._save_concurrent_bytes),
         _format_bytes(self._restore_concurrent_bytes),
     )
@@ -580,6 +608,7 @@ class BasePyTreeCheckpointHandler(
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
           is_prioritized_key_fn=self._is_prioritized_key_fn,
+          enable_hbm_copy_for_async_d2h=self._enable_hbm_copy_for_async_d2h,
       )
 
     return jax.tree.map_with_path(

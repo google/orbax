@@ -120,6 +120,38 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     )
     manager.close()
 
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
+  def test_prune_steps_after(self, unused_process_index):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(
+            save_interval_steps=1, max_to_keep=3
+        )
+    )
+    manager = local.LocalCheckpointManager(
+        self.directory, self.mesh, options=options
+    )
+    sharding = jax.sharding.NamedSharding(self.mesh, P('x'))
+    state = {
+        'a': jax.device_put(np.arange(self.mesh.size, dtype=np.int32), sharding)
+    }
+    for step in (1, 2, 3):
+      manager.save(
+          step, args=p2p_args_lib.Composite(state=args_lib.PyTreeSave(state))
+      )
+    manager.wait_until_finished()
+    self.assertEqual(manager.all_steps(), [1, 2, 3])
+
+    manager.prune_steps_after(1)
+
+    self.assertEqual(manager.all_steps(), [1])
+    self.assertEqual(manager.latest_step(), 1)
+    self.assertFalse((self.directory / '2').exists())
+    self.assertFalse((self.directory / '3').exists())
+    self.assertTrue(manager.should_save(2))
+    manager.close()
+
 
 if __name__ == '__main__':
   absltest.main()

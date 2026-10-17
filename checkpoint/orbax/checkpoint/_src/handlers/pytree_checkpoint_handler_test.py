@@ -62,6 +62,7 @@ from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
+from orbax.checkpoint._src.serialization import types as serialization_types
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -168,6 +169,11 @@ class PyTreeCheckpointHandlerTest(
           ARRAY_METADATA_STORE
       ),
       use_compression: bool = True,
+      save_device_host_concurrent_gb: int | None = None,
+      is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = (
+          None
+      ),
+      enable_hbm_copy_for_async_d2h: bool = False,
   ):
     """Registers handlers with OCDBT support and resets when done."""
     handler_registry = copy.deepcopy(
@@ -184,6 +190,9 @@ class PyTreeCheckpointHandlerTest(
         pytree_metadata_options=pytree_metadata_options,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         use_compression=use_compression,
+        save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        is_prioritized_key_fn=is_prioritized_key_fn,
+        enable_hbm_copy_for_async_d2h=enable_hbm_copy_for_async_d2h,
     )
     try:
       yield handler
