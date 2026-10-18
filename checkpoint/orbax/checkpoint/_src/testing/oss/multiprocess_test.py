@@ -150,7 +150,7 @@ def _main(argv):
       portpicker.pick_unused_port() for _ in range(num_processes)
   ]
   slicebuilder_addresses = ",".join(
-      f"localhost:{port}" for port in slicebuilder_ports
+      f"127.0.0.1:{port}" for port in slicebuilder_ports
   )
   jax_port = portpicker.pick_unused_port()
 
@@ -167,7 +167,7 @@ def _main(argv):
         f"--num_processes={num_processes}",
         f"--jax_num_tasks={num_processes}",
         f"--jax_task_id={i}",
-        f"--jax_controller_address=localhost:{jax_port}",
+        f"--jax_controller_address=127.0.0.1:{jax_port}",
         "--jax_heartbeat_timeout=3s",
         f"--jax_distributed_shutdown_timeout={_WORKER_SHUTDOWN_TIMEOUT.value}s",
         "--vmodule=client=10,service=10",
