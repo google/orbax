@@ -129,6 +129,26 @@ class ComparisonReport:
   missing_in_baseline: list[str]
 
 
+def backend_mismatch(baseline: Baseline, current_backend: str) -> str | None:
+  """Returns why `baseline` must not be compared with this run, if it must not.
+
+  Timings from different backends, e.g. SimDevice and TPU, are not comparable.
+
+  Args:
+    baseline: The stored baseline.
+    current_backend: The backend of this run, from its run manifest.
+
+  Returns:
+    A reason to skip the comparison, or None if the baseline ran on the same
+    backend or records no backend (baselines captured before backends were
+    recorded).
+  """
+  baseline_backend = baseline.manifest.get("backend", "unknown")
+  if baseline_backend in ("unknown", current_backend):
+    return None
+  return f"baseline ran on {baseline_backend}, this run on {current_backend}"
+
+
 class BaselineComparer:
   """Loads a stored baseline and produces deltas against a current run."""
 
