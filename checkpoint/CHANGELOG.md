@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Consolidate GCS `kvstore` spec generation and support `gcs_grpc` with OCDBT
+  `kvstack`.
 - Fix `CheckpointManager.wait_until_finished()` to only accumulate
   `wait_for_prev_duration_secs` when called from the main thread.
 
