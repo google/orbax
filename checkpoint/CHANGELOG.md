@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Add `delete` and `delete_async` free functions and
   `training.Checkpointer.delete` / `delete_async` for deleting an entire
   checkpoint or a single named checkpointable.
+- #v1 Add `regulator_options` (`MemoryOptions.RegulatorOptions`) and
+  `expected_surge_bytes` to `v1.options.MemoryOptions` for dynamic D2H transfer
+  memory regulation.
 
 ### Fixed
 
