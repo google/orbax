@@ -21,6 +21,7 @@ import sys
 import types
 from unittest import mock
 
+from absl import flags
 from absl.testing import absltest
 from absl.testing import flagsaver
 from etils import epath
@@ -41,6 +42,13 @@ _EXIT_WITH_HOST_ID = ('/bin/sh', '-c', 'exit "$SIMDEVICE_PROCESS_ID"')
 # Writes a simulated host's environment to a file named after its host id, in
 # the directory passed as $0.
 _WRITE_HOST_ENV = ('/bin/sh', '-c', 'env > "$0/$SIMDEVICE_PROCESS_ID"')
+
+
+#  JAX defines this flag; OSS JAX does not.
+if 'jax_controller_address' not in flags.FLAGS:
+  flags.DEFINE_string(
+      'jax_controller_address', '', 'Stand-in for the  JAX flag.'
+  )
 
 
 def _read_env_file(path: epath.Path) -> dict[str, str]:
@@ -178,19 +186,45 @@ class CheckProcessCountTest(absltest.TestCase):
 
 class NeedsLocalClusterTest(absltest.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    self.enter_context(mock.patch.dict(os.environ))
+    for name in (
+        'SIMDEVICE_PROCESS_ID',
+        'JAX_PROCESS_ID',
+        'JAX_COORDINATOR_ADDRESS',
+    ):
+      os.environ.pop(name, None)
+    self.enter_context(flagsaver.flagsaver(jax_controller_address=''))
+    self.config = dataclasses.replace(_CONFIG, num_processes=2)
+
   def test_single_process(self):
     self.assertFalse(simdevice_backend.needs_local_cluster(_CONFIG))
 
   def test_multi_process_without_host_id(self):
-    config = dataclasses.replace(_CONFIG, num_processes=2)
-    with mock.patch.dict(os.environ):
-      os.environ.pop('SIMDEVICE_PROCESS_ID', None)
-      self.assertTrue(simdevice_backend.needs_local_cluster(config))
+    self.assertTrue(simdevice_backend.needs_local_cluster(self.config))
 
   def test_multi_process_with_host_id(self):
-    config = dataclasses.replace(_CONFIG, num_processes=2)
-    with mock.patch.dict(os.environ, {'SIMDEVICE_PROCESS_ID': '1'}):
-      self.assertFalse(simdevice_backend.needs_local_cluster(config))
+    os.environ['SIMDEVICE_PROCESS_ID'] = '1'
+
+    self.assertFalse(simdevice_backend.needs_local_cluster(self.config))
+
+  def test_jax_launcher_without_host_id_raises(self):
+    os.environ['JAX_PROCESS_ID'] = '1'
+
+    with self.assertRaisesRegex(RuntimeError, 'SIMDEVICE_PROCESS_ID'):
+      simdevice_backend.needs_local_cluster(self.config)
+
+  @flagsaver.flagsaver(jax_controller_address='host:1234')
+  def test_borg_launcher_without_host_id_raises(self):
+    with self.assertRaisesRegex(RuntimeError, 'SIMDEVICE_PROCESS_ID'):
+      simdevice_backend.needs_local_cluster(self.config)
+
+  def test_jax_launcher_with_host_id(self):
+    os.environ['JAX_PROCESS_ID'] = '1'
+    os.environ['SIMDEVICE_PROCESS_ID'] = '1'
+
+    self.assertFalse(simdevice_backend.needs_local_cluster(self.config))
 
 
 class RunLocalClusterTest(absltest.TestCase):

@@ -26,7 +26,9 @@ single machine, `run_local_cluster` starts them as child processes.
 
 import atexit
 from collections.abc import Sequence
+import contextlib
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -37,10 +39,13 @@ from absl import logging
 import jax
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import configs
-import portpicker
 import yaml
 
 _PROCESS_ID_ENV = 'SIMDEVICE_PROCESS_ID'
+# Multi-process launchers set one of these: the environment variables for
+# `jax.distributed`, or the flag for  JAX on Borg.
+_JAX_PROCESS_ENVS = ('JAX_PROCESS_ID', 'JAX_COORDINATOR_ADDRESS')
+_JAX_CONTROLLER_FLAG = 'jax_controller_address'
 _POLL_INTERVAL_SECONDS = 1.0
 
 _active_config: configs.SimDeviceConfig | None = None
@@ -109,6 +114,15 @@ def activate(config: configs.SimDeviceConfig) -> None:
   )
 
 
+def _started_as_one_of_many() -> bool:
+  """Returns whether a launcher started this process as one of several."""
+  if any(name in os.environ for name in _JAX_PROCESS_ENVS):
+    return True
+  return _JAX_CONTROLLER_FLAG in flags.FLAGS and bool(
+      flags.FLAGS[_JAX_CONTROLLER_FLAG].value
+  )
+
+
 def needs_local_cluster(config: configs.SimDeviceConfig) -> bool:
   """Returns whether this process must start the simulated hosts itself.
 
@@ -117,8 +131,33 @@ def needs_local_cluster(config: configs.SimDeviceConfig) -> bool:
 
   Args:
     config: The simulated cluster.
+
+  Raises:
+    RuntimeError: If a launcher started this process as one of several but did
+      not set `SIMDEVICE_PROCESS_ID`. Each process would otherwise start its
+      own local cluster and pass on its own.
   """
-  return config.num_processes > 1 and _PROCESS_ID_ENV not in os.environ
+  if config.num_processes == 1 or _PROCESS_ID_ENV in os.environ:
+    return False
+  if _started_as_one_of_many():
+    raise RuntimeError(
+        f'This process was started as one of several, but {_PROCESS_ID_ENV}'
+        ' is not set. The launcher must set it to the simulated host id, e.g.'
+        ' %task% on Borg.'
+    )
+  return True
+
+
+def _pick_unused_ports(count: int) -> list[int]:
+  """Returns `count` distinct TCP ports that are free on this machine now."""
+  with contextlib.ExitStack() as stack:
+    sockets = []
+    # Keep every socket open until all ports are read, so they are distinct.
+    for _ in range(count):
+      sock = stack.enter_context(socket.socket(socket.AF_INET))
+      sock.bind(('localhost', 0))
+      sockets.append(sock)
+    return [sock.getsockname()[1] for sock in sockets]
 
 
 def run_local_cluster(
@@ -140,8 +179,8 @@ def run_local_cluster(
   """
   if command is None:
     command = sys.orig_argv
-  coordinator = f'localhost:{portpicker.pick_unused_port()}'
-  barrier_port = portpicker.pick_unused_port()
+  coordinator_port, barrier_port = _pick_unused_ports(2)
+  coordinator = f'localhost:{coordinator_port}'
   children = []
   for process_id in range(config.num_processes):
     env = dict(
