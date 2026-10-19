@@ -84,6 +84,10 @@ class CheckpointConfig:
         used alongside `path`. See above.
       load_with_colocated_python: If True, the checkpoint will be loaded with
         colocated Python.  Only effective in Pathways and `path` is specified.
+      mesh_replicated_axes: If set, a checkpoint loaded from `path` without
+        `sharding_config_path` is restored onto the run's mesh: replicated over
+        these mesh axes, and each other mesh axis shards the largest dimension
+        it divides. Unset, it is spread over all devices.
   """
 
   path: str | None = None
@@ -91,6 +95,7 @@ class CheckpointConfig:
   spec: dict[str, Any] | None = None
   sharding_config_path: str | None = None
   load_with_colocated_python: bool = False
+  mesh_replicated_axes: Sequence[str] | None = None
 
   def __post_init__(self):
     if self.path is not None and self.spec is not None:
@@ -98,6 +103,17 @@ class CheckpointConfig:
     if self.sharding_config_path is not None and self.path is None:
       raise ValueError(
           'If `sharding_config_path` is provided, `path` must also be provided.'
+      )
+    if self.mesh_replicated_axes is not None and (
+        self.path is None or self.sharding_config_path is not None
+    ):
+      raise ValueError(
+          '`mesh_replicated_axes` needs `path` and no `sharding_config_path`.'
+      )
+    if self.mesh_replicated_axes is not None:
+      # Frozen, so convert the YAML list to a tuple to keep the config hashable.
+      object.__setattr__(
+          self, 'mesh_replicated_axes', tuple(self.mesh_replicated_axes)
       )
 
 
