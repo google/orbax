@@ -50,6 +50,7 @@ def save(
 
   Example usage:
     Simple save of a dictionary containing JAX arrays::
+
       state = {
           'params': {
               'w': jnp.ones((8, 8)),
@@ -243,6 +244,7 @@ def save_checkpointables_async(
   Example usage:
     Saving multiple distinct components (e.g. model parameters and dataset
     iterator) asynchronously::
+
       path = '/tmp/my_checkpoint_step_100'
 
       # Setup components
@@ -295,6 +297,31 @@ def save_checkpointables_async(
   )
 
 
+class _RegulatedAsyncCheckpointer(async_checkpointer.AsyncCheckpointer):
+  """AsyncCheckpointer that regulates memory for V1 saves."""
+
+  def __init__(
+      self,
+      *args,
+      context: context_lib.Context,
+      **kwargs,
+  ):
+    super().__init__(*args, **kwargs)
+    self._context = context
+
+  async def _save(self, *args, **kwargs):
+    regulator_options = self._context.memory_options.regulator_options
+    if regulator_options is None:
+      return await super()._save(*args, **kwargs)
+
+    with regulator_options.regulator.regulate(
+        expected_surge_bytes=(
+            self._context.memory_options.expected_surge_bytes
+        )
+    ):
+      return await super()._save(*args, **kwargs)
+
+
 def get_v0_checkpointer_and_args(
     checkpointables: dict[str, Checkpointable],
     *,
@@ -338,11 +365,12 @@ def get_v0_checkpointer_and_args(
       multiprocessing_options=context.multiprocessing_options.v0(),
       atomicity_options=context.atomicity.v0(),
   )
-  ckptr = async_checkpointer.AsyncCheckpointer(
+  ckptr = _RegulatedAsyncCheckpointer(
       composite_checkpoint_handler.CompositeCheckpointHandler(
           handler_registry=handler_registry,
           composite_options=composite_options,
       ),
+      context=context,
       async_options=context.async_options.v0(),
       multiprocessing_options=context.multiprocessing_options.v0(),
       file_options=context.file_options.v0(),

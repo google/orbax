@@ -19,7 +19,7 @@ import dataclasses
 from absl import flags
 from absl import logging
 import jax
-import jax.numpy as jnp
+import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
@@ -103,14 +103,34 @@ class MultisliceBroadcastBenchmark(benchmarks_core.BenchmarksGenerator):
 
     def _fn(expected_arr):
       expected_arr_list.append(expected_arr)
-      if is_source_replica:
-        arr = jax.device_get(expected_arr)
-      else:
-        arr = jnp.zeros(expected_arr.shape, dtype=expected_arr.dtype)
       arr_single_replica_sharding = jax.sharding.NamedSharding(
           local_replica_mesh, expected_arr.sharding.spec
       )
-      arr_single_replica = jax.device_put(arr, arr_single_replica_sharding)
+      if is_source_replica:
+        # Take this host's shards of the source replica from the global array.
+        # `jax.device_get` would need the whole array on this host, which it
+        # does not have when a replica spans hosts. The shards are copied
+        # because the broadcast consumes its input, and `expected_arr` is
+        # compared afterwards.
+        replica_devices = arr_single_replica_sharding.addressable_devices
+        arr_single_replica = jax.make_array_from_single_device_arrays(
+            expected_arr.shape,
+            arr_single_replica_sharding,
+            [
+                shard.data.copy()
+                for shard in expected_arr.addressable_shards
+                if shard.device in replica_devices
+            ],
+        )
+      else:
+        shard_shape = arr_single_replica_sharding.shard_shape(
+            expected_arr.shape
+        )
+        arr_single_replica = jax.make_array_from_callback(
+            expected_arr.shape,
+            arr_single_replica_sharding,
+            lambda _: np.zeros(shard_shape, dtype=expected_arr.dtype),
+        )
       pytree_utils.log_pytree("Single Replica Array", arr_single_replica)
       single_replica_arr_list.append(arr_single_replica)
 

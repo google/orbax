@@ -1,6 +1,7 @@
 load("@rules_license//rules:license.bzl", "license")
 
-package(default_visibility = ["//visibility:public"])
+package(default_applicable_licenses = ["package_license"],
+        default_visibility = ["//visibility:private"])
 
 license(
     name = "package_license",
@@ -9,5 +10,4 @@ license(
 )
 
 licenses(["notice"])
-
 exports_files(["LICENSE"])

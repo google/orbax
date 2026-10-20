@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 
 from absl.testing import absltest
@@ -52,13 +53,25 @@ class DirectoryIndexTest(
     self.assertNotIn("hidden.txt", index.names())
 
   async def test_missing_directory(self):
-    index = await fs_probe.index_directory(self.root / "nope")
+    missing = self.root / "nope"
+    self.assertFalse(missing.exists())
+    index = await fs_probe.index_directory(missing)
 
     self.assertFalse(index.exists())
     self.assertFalse(index.is_directory())
     self.assertFalse(index.listable())
     self.assertEmpty(index.names())
     self.assertFalse(index.has("anything"))
+
+  async def test_permission_denied_raises(self):
+    restricted = self.root / "restricted"
+    target = restricted / "ckpt"
+    target.mkdir(parents=True)
+    os.chmod(restricted, 0o000)
+    self.addCleanup(os.chmod, restricted, 0o700)
+
+    with self.assertRaisesRegex(OSError, "(?i)permission"):
+      await fs_probe.index_directory(target)
 
   async def test_file_as_directory(self):
     file_path = self.root / "a_file.txt"

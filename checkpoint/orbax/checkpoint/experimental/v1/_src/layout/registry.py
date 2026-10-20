@@ -23,6 +23,7 @@ from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.context import options as options_lib
+from orbax.checkpoint.experimental.v1._src.deletion import metadata as deletion_metadata
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_layout
 from orbax.checkpoint.experimental.v1._src.layout import orbax_v0_layout
@@ -134,6 +135,9 @@ async def get_layout_class(
     ValueError: If layout_enum is not recognized.
     ImportError: If the requested layout engine (e.g. Roc) is not linked.
   """
+  if path is not None:
+    ctx = context_lib.get_context()
+    await deletion_metadata.check_read(ctx.file_options.path_class(path), ())
   match layout_enum:
     case CheckpointLayoutEnum.AUTO:
       if path is None:
@@ -289,6 +293,8 @@ class CheckpointLayoutResolver:
       resolved_name = await _resolve_auto_pytree_name(layout, path)
       return cls(path, layout_enum, layout, resolved_name)
 
+    if pytree_name is not None:
+      await deletion_metadata.check_read(path, (pytree_name,))
     await layout.validate(path, pytree_name)
     return cls(path, layout_enum, layout, pytree_name)
 

@@ -47,9 +47,6 @@ def create_sharded_pytree(
     add: int = 0,
     reverse_devices: bool = False,
     include_scalars: bool = True,
-    replicated_arrays: bool = False,
-    devices: list[jax.Device] | None = None,
-    slices: int = 2,
 ) -> tuple[tree_types.PyTree, tree_types.PyTree]:
   """Creates a sharded PyTree from `create_numpy_pytree`.
 
@@ -57,15 +54,11 @@ def create_sharded_pytree(
     add: The value to add to leaf arrays.
     reverse_devices: Whether to reverse the devices in the mesh.
     include_scalars: Whether to include scalars in the pytree.
-    replicated_arrays: Whether to replicate arrays across devices.
-    devices: The devices to use for the mesh.
-    slices: The number of slices to use for the mesh.
 
   Returns:
     A tuple of (pytree, abstract_pytree).
   """
-  if devices is None:
-    devices = jax.devices()
+  devices = jax.devices()
   num_devices = len(devices)
   devices = (
       np.asarray(list(reversed(devices)))  # pyrefly: ignore[bad-assignment]
@@ -74,17 +67,13 @@ def create_sharded_pytree(
   )
 
   mesh_2d = jax.sharding.Mesh(
-      devices.reshape((slices, num_devices // slices)), ('x', 'y')  # pyrefly: ignore[missing-attribute]
+      devices.reshape((2, num_devices // 2)), ('x', 'y')  # pyrefly: ignore[missing-attribute]
   )
   mesh_axes_2d = jax.sharding.PartitionSpec('x', 'y')
-  if replicated_arrays:
-    mesh_axes_2d = jax.sharding.PartitionSpec(None, 'y')
   mesh_1d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_1d = jax.sharding.PartitionSpec(
       'x',
   )
-  if replicated_arrays:
-    mesh_axes_1d = jax.sharding.PartitionSpec(None,)
   mesh_0d = jax.sharding.Mesh(devices, ('x',))  # pyrefly: ignore[bad-argument-type]
   mesh_axes_0d = jax.sharding.PartitionSpec(
       None,

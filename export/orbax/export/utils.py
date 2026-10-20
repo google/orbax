@@ -114,6 +114,21 @@ class TensorSpecWithDefault:
           f' the default value {self.default_val}'
       )
 
+  @property
+  def shape(self) -> tuple[int | None, ...]:
+    """The shape of the underlying tensor specification."""
+    return self.tensor_spec.shape
+
+  @property
+  def dtype(self) -> tf.DType:
+    """The dtype of the underlying tensor specification."""
+    return self.tensor_spec.dtype
+
+  @property
+  def name(self) -> str | None:
+    """The name of the underlying tensor specification."""
+    return self.tensor_spec.name
+
 
 NestedTfTensorSpec = jaxtyping.PyTree[
     Union[tf.TensorSpec, TensorSpecWithDefault]

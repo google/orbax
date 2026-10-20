@@ -16,13 +16,20 @@
 
 from __future__ import annotations
 
+import dataclasses
+import time
 import typing
 from typing import Any, Callable, Iterable, Sequence
 
 from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
+from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import standard_logger
+from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.deletion import execution as deletion_execution
+from orbax.checkpoint.experimental.v1._src.deletion import validation as deletion_validation
 import orbax.checkpoint.experimental.v1._src.handlers.global_registration  # pylint: disable=unused-import
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.loading import loading
@@ -98,6 +105,7 @@ class Checkpointer(epy.ContextManager):
       custom_metadata: tree_types.JsonType | None = None,
       cleanup_tmp_directories: bool = False,
       lightweight_initialize: bool = False,
+      logger: abstract_logger.AbstractLogger | None = None,
   ):
     """Initializes a Checkpointer.
 
@@ -170,8 +178,11 @@ class Checkpointer(epy.ContextManager):
         useful to improve init performance when there are O(1k) or more existing
         checkpoint steps present and checkpoint info properties like `time` and
         `metrics` are not needed.
+      logger: A :py:class:`~orbax.checkpoint.logging.AbstractLogger` used to log
+        checkpointing events (such as save and restore step statistics).
     """
     self._context = context_lib.Context(context or context_lib.get_context())
+    self._logger = logger or standard_logger.StandardLogger()
 
     default_save_decision_policy = save_decision_policies.AnySavePolicy([
         save_decision_policies.InitialSavePolicy(),
@@ -192,6 +203,9 @@ class Checkpointer(epy.ContextManager):
         cleanup_tmp_directories=cleanup_tmp_directories,
         lightweight_initialize=lightweight_initialize,
         max_to_keep=None,  # Unlimited.
+        # The v0 step deleter must block so the v1 deletion response completes
+        # only after files are removed.
+        enable_background_delete=False,
         todelete_full_path=self._context.deletion_options.gcs_deletion_options.todelete_full_path,
         async_options=self._context.async_options.v0(),
         file_options=self._context.file_options.v0(),
@@ -205,7 +219,9 @@ class Checkpointer(epy.ContextManager):
         directory,
         options=options,
         metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
+        logger=self._logger,
     )
+    self._pending_delete: async_types.AsyncResponse[bool] | None = None
 
   @property
   def directory(self) -> path_types.Path:
@@ -564,6 +580,7 @@ class Checkpointer(epy.ContextManager):
       StepAlreadyExistsError: If `overwrite` is False and a checkpoint at the
         target `step` already exists.
     """
+    self._wait_for_deletion()
     context = context_lib.get_context(self._context)
     saving_validation.validate_save_checkpointables(checkpointables)
     if overwrite:
@@ -597,6 +614,7 @@ class Checkpointer(epy.ContextManager):
 
   def cancel(self, step: int | CheckpointMetadata | None = None):
     """Cancels any ongoing background save processes and deletes saved files for the step."""
+    self._wait_for_deletion()
     resolved_step = None
     if step is not None:
       try:
@@ -795,11 +813,29 @@ class Checkpointer(epy.ContextManager):
         keys saved with `save_checkpointables`.
     """
     with context_lib.get_context(self._context):
+      step_stats = step_statistics.RestoreStepStatistics()
+      step_stats.checkpoint_manager_start_time = time.time()
+      step_stats.directory = str(self.directory)
       step = self._resolve_existing_checkpoint(step).step
-      return loading.load_checkpointables(
-          self.directory / self._step_name_format.build_name(step),
+      step_stats.step = step
+      restore_directory = (
+          self.directory / self._step_name_format.build_name(step)
+      )
+      # TODO(b/568044767): Update RestoreStepStatistics field naming for V1 or
+      # replace with trace-level telemetry.
+      step_stats.checkpointer_start_time = time.time()
+      restored = loading.load_checkpointables(
+          restore_directory,
           abstract_checkpointables,
       )
+      step_stats.checkpointer_duration_secs = (
+          time.time() - step_stats.checkpointer_start_time
+      )
+      step_stats.checkpoint_manager_duration_secs = (
+          time.time() - step_stats.checkpoint_manager_start_time
+      )
+      self._logger.log_entry(dataclasses.asdict(step_stats))
+      return restored
 
   def load_async(
       self,
@@ -904,6 +940,12 @@ class Checkpointer(epy.ContextManager):
           directory=self.directory, custom_metadata=metadata.custom_metadata
       )
 
+  def _wait_for_deletion(self) -> None:
+    """Waits for the pending deletion, if any, and reports its failure once."""
+    pending, self._pending_delete = self._pending_delete, None
+    if pending is not None:
+      pending.result()
+
   def delete(
       self,
       step: int | CheckpointMetadata,
@@ -911,25 +953,94 @@ class Checkpointer(epy.ContextManager):
       checkpointable_name: str | None = None,
       missing_ok: bool = False,
   ) -> bool:
-    """Deletes an explicit step or one named checkpointable within that step.
+    """Deletes a checkpoint, or a single checkpointable, at the given step.
 
-    Metadata selects its step within this Checkpointer, not its path or
-    saved generation. None for checkpointable_name selects the whole checkpoint.
-    Completion returns True; an absent target with no cleanup returns False
-    when missing_ok is True.
-    This interface is not implemented yet; calls raise NotImplementedError.
+    This method behaves similarly to the standalone free function
+    :py:func:`~orbax.checkpoint.v1.delete` (see documentation), but performs
+    additional tasks related to managing a sequence of checkpoint steps.
+
+    It consists roughly of the following steps:
+      - Wait for any save or deletion already in progress to finish.
+      - Delete the checkpoint (or checkpointable) in the directory given by
+        `root_directory / <step_format>`.
+      - If the entire checkpoint was deleted, remove the step from
+        :py:attr:`.checkpoints`.
+      - Return whether a deletion occurred.
+
+    The step is always deleted when requested, regardless of the
+    :py:class:`.PreservationPolicy`. The operation blocks until complete. For
+    improved performance, consider using :py:meth:`.delete_async` instead.
+
+    If `checkpointable_name` is None, the entire checkpoint at the step is
+    deleted. Otherwise, only the checkpointable with that name is deleted, and
+    the rest of the checkpoint remains loadable. Deletion is not atomic. If it
+    is interrupted (e.g. by preemption), call this method again with the same
+    arguments to finish the deletion.
+
+    By default, files are permanently removed. To instead move deleted files to
+    a separate location, for cleanup by an external process, configure
+    :py:class:`~orbax.checkpoint.v1.options.DeletionOptions` in the `context`
+    provided to the `Checkpointer`.
+
+    Example usage:
+      1. Basic Usage:
+         Delete the entire checkpoint at a specific step::
+
+           from orbax.checkpoint.v1 import training
+
+           ckptr = training.Checkpointer(directory)
+           ckptr.save(step=0, state=tree)
+
+           deleted = ckptr.delete(step=0)
+
+           ckptr.close()
+
+      2. Deleting a Single Checkpointable:
+         Delete one named checkpointable (e.g. optimizer state) while keeping
+         the rest of the checkpoint loadable::
+
+           from orbax.checkpoint.v1 import training
+
+           ckptr = training.Checkpointer(directory)
+           ckptr.save_checkpointables(
+               step=0,
+               checkpointables={'model': my_model_state, 'optimizer': my_opt},
+           )
+
+           ckptr.delete(step=0, checkpointable_name='optimizer')
+
+           # 'model' can still be loaded.
+           restored_items = ckptr.load_checkpointables(step=0)
+           assert 'model' in restored_items
+           assert 'optimizer' not in restored_items
+
+           ckptr.close()
 
     Args:
       step: The step number or :py:class:`.CheckpointMetadata` to delete.
       checkpointable_name: The name of the checkpointable to delete. If None,
-        the entire checkpoint will be deleted.
-      missing_ok: If True, do not raise an error if the checkpoint or
+        the entire checkpoint is deleted.
+      missing_ok: If True, does not raise an error if the checkpoint or
         checkpointable does not exist.
 
     Returns:
-      True if any deletion occurred, False otherwise.
+      True if a deletion occurred (including finishing an interrupted
+      deletion). False if the target did not exist and `missing_ok` is True.
+
+    Raises:
+      StepNotFoundError: If the step does not exist and `missing_ok` is False.
+      FileNotFoundError: If the checkpointable does not exist and `missing_ok`
+        is False.
+      ValueError: If `checkpointable_name` is invalid, or is the only remaining
+        checkpointable in the checkpoint. Delete the entire step instead.
+      DeletionRecoveryError: If a previously interrupted deletion of this
+        checkpoint conflicts with this request.
     """
-    raise NotImplementedError('Checkpoint deletion is not yet implemented.')
+    response = self.delete_async(
+        step, checkpointable_name=checkpointable_name, missing_ok=missing_ok
+    )
+    self._wait_for_deletion()
+    return response.result()
 
   def delete_async(
       self,
@@ -938,26 +1049,67 @@ class Checkpointer(epy.ContextManager):
       checkpointable_name: str | None = None,
       missing_ok: bool = False,
   ) -> async_types.AsyncResponse[bool]:
-    """Deletes asynchronously with the same scope and arguments as delete.
+    """Deletes a checkpoint, or a single checkpointable, asynchronously.
 
-    The implemented API will return a boolean response tracked by wait() and
-    close(), with the same result as delete().
-    This interface is not implemented yet; calls raise NotImplementedError.
+    This function is the asynchronous equivalent of :py:meth:`~.delete`.
+    Please refer to the documentation of that method for detailed
+    descriptions.
+
+    This method executes mostly in the background, blocking the main thread for
+    as little time as possible. If the entire checkpoint is being deleted, the
+    step is removed from :py:attr:`.checkpoints` immediately. If the deletion
+    fails, call :py:meth:`.reload` to rediscover any remaining files. Later
+    saves and deletions, as well as :py:meth:`.wait` and :py:meth:`.close`,
+    wait for this deletion to finish.
+
+    Example:
+      Delete a checkpoint asynchronously::
+
+        ckptr = training.Checkpointer(directory)
+        ckptr.save(step=0, state=tree)
+
+        async_response = ckptr.delete_async(step=0)
+
+        # Perform other work here...
+
+        deleted = async_response.result()
 
     Args:
       step: The step number or :py:class:`.CheckpointMetadata` to delete.
-      checkpointable_name: The name of the checkpointable to delete. If None,
-        the entire checkpoint will be deleted.
-      missing_ok: If True, do not raise an error if the checkpoint or
-        checkpointable does not exist.
+      checkpointable_name: See `delete`.
+      missing_ok: See `delete`.
 
     Returns:
-      An :py:class:`.AsyncResponse` that resolves to a boolean indicating
-      whether any deletion occurred.
+      An `AsyncResponse`, which can be awaited via `result()`, which returns the
+      same value as `delete`.
     """
-    raise NotImplementedError(
-        'Asynchronous checkpoint deletion is not yet implemented.'
-    )
+    if isinstance(step, (int, CheckpointMetadata)):
+      step = _resolve_integer_step(step)
+    deletion_validation.validate_step(step)
+    deletion_validation.validate_arguments(checkpointable_name, missing_ok)
+    self._wait_for_deletion()
+    with self._context:
+      self._manager.wait_until_finished()
+      path = self.directory / self._step_name_format.build_name(step)
+      if not path.exists() and not missing_ok:
+        raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
+
+      def delete_step():
+        # Reuse v0's configured step deleter and shared physical implementation.
+        self._manager._checkpoint_deleter.delete(step)  # pylint: disable=protected-access
+
+      response = deletion_execution.start(
+          path,
+          checkpointable_name=checkpointable_name,
+          missing_ok=missing_ok,
+          managed=True,
+          whole_delete=delete_step if checkpointable_name is None else None,
+          whole_relocation_name=self._step_name_format.build_name(step),
+      )
+      if checkpointable_name is None:
+        self._manager._checkpoints.delete_if(lambda info: info.step == step)  # pylint: disable=protected-access
+      self._pending_delete = response
+      return response
 
   def reload(self):
     """Reloads internal properties from the root directory.
@@ -966,6 +1118,7 @@ class Checkpointer(epy.ContextManager):
     location. Use this method to sync the checkpointer with the file system
     if checkpoints have been added or removed externally.
     """
+    self._wait_for_deletion()
     self._manager.reload()
 
   def is_saving_in_progress(self) -> bool:
@@ -982,20 +1135,22 @@ class Checkpointer(epy.ContextManager):
   def wait(self):
     """Waits for any outstanding async operations to complete.
 
-    This method blocks until all background tasks, such as asynchronous saves,
-    have finished. Use this method to ensure that all operations are finalized
-    before proceeding with dependent actions.
+    This method blocks until background saves and deletions have finished.
+    Use it before proceeding with dependent actions.
     """
+    self._wait_for_deletion()
     self._manager.wait_until_finished()
 
   def close(self):
     """Waits for pending async operations to complete and releases resources.
 
-    This method blocks until all background tasks, such as asynchronous saves,
-    have finished. It also performs necessary cleanup, such as closing
-    file handles.
+    This method blocks until background saves and deletions have finished.
+    It also performs necessary cleanup, such as closing file handles.
     """
-    self._manager.close()
+    try:
+      self._wait_for_deletion()
+    finally:
+      self._manager.close()
 
   def __contextmanager__(
       self,

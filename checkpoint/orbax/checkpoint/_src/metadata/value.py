@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Optional
+from typing import Any, Optional
 
 from etils import epath
 import jax
@@ -52,11 +52,139 @@ class Metadata:
 
 
 @dataclasses.dataclass(frozen=True)
+class Compression:
+  """A compression codec; repr is `algorithm[:level]`, e.g. `zstd:1`."""
+
+  algorithm: str
+  level: int | None = None
+
+  def __repr__(self) -> str:
+    level = '' if self.level is None else f':{self.level}'
+    return f'{self.algorithm}{level}'
+
+
+def _compression(algorithm: Any, config: Any) -> Compression:
+  """Builds a `Compression` from a codec name and its JSON config."""
+  level = config.get('level') if isinstance(config, dict) else None
+  return Compression(str(algorithm), level)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ZarrMetadata:
+  """Version-independent view of a Zarr array's metadata.
+
+  Attributes:
+    zarr_format: Zarr format version (2 or 3), fixed by the subclass.
+    shape: Array shape.
+    dtype: Zarr dtype string (v2 `"<f4"`, v3 `"float32"` / `"bfloat16"`).
+    chunk_shape: Stored chunk shape (v3: the outer shard).
+    compression: Compression codec, or None if uncompressed.
+  """
+
+  zarr_format: int = dataclasses.field(default=0, init=False)
+  shape: tuple[int, ...]
+  dtype: str
+  chunk_shape: tuple[int, ...]
+  compression: Compression | None
+
+  @classmethod
+  def from_json(cls, meta: dict[str, Any] | None) -> ZarrMetadata | None:
+    """Parses spec JSON into the matching subclass.
+
+    Args:
+      meta: The `metadata` member of a TensorStore Zarr spec JSON, or None.
+
+    Returns:
+      A `Zarr2Metadata` / `Zarr3Metadata`, or None if `zarr_format` is not 2/3.
+    """
+    meta = meta or {}
+    match meta.get('zarr_format'):
+      case 2:
+        return Zarr2Metadata.from_json(meta)
+      case 3:
+        return Zarr3Metadata.from_json(meta)
+    return None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Zarr2Metadata(ZarrMetadata):
+  """Zarr v2 (`.zarray`) metadata.
+
+  Attributes:
+    order: Memory layout of each chunk, 'C' or 'F'.
+    dimension_separator: Separator in chunk keys, '.' or '/'.
+  """
+
+  zarr_format: int = dataclasses.field(default=2, init=False)
+  order: str
+  dimension_separator: str
+
+  @classmethod
+  def from_json(cls, meta: dict[str, Any] | None) -> Zarr2Metadata:
+    """Parses Zarr v2 `.zarray` JSON."""
+    meta = meta or {}
+    compressor = meta.get('compressor')
+    return cls(
+        shape=tuple(meta.get('shape', ())),
+        dtype=str(meta.get('dtype', '')),
+        chunk_shape=tuple(meta.get('chunks', ())),
+        compression=(
+            _compression(compressor.get('id', 'unknown'), compressor)
+            if isinstance(compressor, dict)
+            else None
+        ),
+        order=meta.get('order', 'C'),
+        dimension_separator=meta.get('dimension_separator', '.'),
+    )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Zarr3Metadata(ZarrMetadata):
+  """Zarr v3 (`zarr.json`) metadata.
+
+  Attributes:
+    inner_chunk_shape: Read chunk inside each `sharding_indexed` shard, if any.
+  """
+
+  zarr_format: int = dataclasses.field(default=3, init=False)
+  inner_chunk_shape: tuple[int, ...] | None
+
+  @classmethod
+  def from_json(cls, meta: dict[str, Any] | None) -> Zarr3Metadata:
+    """Parses Zarr v3 `zarr.json`, unwrapping `sharding_indexed` codecs."""
+    meta = meta or {}
+    codecs, inner = meta.get('codecs') or [], None
+    for codec in codecs:
+      if isinstance(codec, dict) and codec.get('name') == 'sharding_indexed':
+        config = codec.get('configuration') or {}
+        inner = tuple(config.get('chunk_shape') or ()) or None
+        codecs = config.get('codecs') or []
+        break
+    compressors = [
+        _compression(c.get('name', ''), c.get('configuration'))
+        for c in codecs
+        if isinstance(c, dict)
+        and c.get('name') not in ('bytes', 'crc32c', 'transpose')
+    ]
+    grid = (meta.get('chunk_grid') or {}).get('configuration') or {}
+    return cls(
+        shape=tuple(meta.get('shape', ())),
+        dtype=str(meta.get('data_type', '')),
+        chunk_shape=tuple(grid.get('chunk_shape', ())),
+        compression=compressors[0] if compressors else None,
+        inner_chunk_shape=inner,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
 class StorageMetadata:
   """Metadata describing how arrays are stored in a checkpoint."""
 
   chunk_shape: arrays_types.Shape | None
   write_shape: arrays_types.Shape | None = None
+  zarr_metadata: ZarrMetadata | None = dataclasses.field(
+      default=None, compare=False, repr=False
+  )
 
 
 @dataclasses.dataclass

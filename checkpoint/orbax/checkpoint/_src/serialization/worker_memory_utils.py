@@ -57,7 +57,7 @@ def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
     return jax.make_array_from_callback(
         device_ids.shape,
         device_ids.sharding,
-        lambda _: np.array(multihost.process_index()).reshape(
+        lambda _: np.array(multihost.process_index(), dtype=np.int32).reshape(
             1,
         ),
         dtype=np.int32,

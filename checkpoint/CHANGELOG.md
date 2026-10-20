@@ -12,6 +12,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow `SingleReplicaArrayHandler` to restore mixed batches of
   `SingleReplicaArrayRestoreArgs` and `ArrayRestoreArgs`, so arrays partitioned
   across the replica axis can use the normal restore path.
+- #v1 Add `logger` parameter to `v1.training.Checkpointer` and log
+  `RestoreStepStatistics` in `load_checkpointables`.
+- #v1 Add `delete` and `delete_async` free functions and
+  `training.Checkpointer.delete` / `delete_async` for deleting an entire
+  checkpoint or a single named checkpointable.
+- #v1 Add `regulator_options` (`MemoryOptions.RegulatorOptions`) and
+  `expected_surge_bytes` to `v1.options.MemoryOptions` for dynamic D2H transfer
+  memory regulation.
+
+### Fixed
+
+- Consolidate GCS `kvstore` spec generation and support `gcs_grpc` with OCDBT
+  `kvstack`.
+- Fix `CheckpointManager.wait_until_finished()` to only accumulate
+  `wait_for_prev_duration_secs` when called from the main thread.
 
 ## [0.12.7] - 2026-10-06
 

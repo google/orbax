@@ -22,10 +22,15 @@ from absl import logging
 import jax
 import jax.numpy as jnp
 import numpy as np
+from orbax.checkpoint._src.testing.benchmarks.core import backends
 
 
 def assert_pytree_equal(pytree_expected: Any, pytree_actual: Any):
   """Asserts that two pytrees are equal, including their dtypes and shapes.
+
+  SimDevice does not promise real array values: anything a compiled program
+  produced is made up, including data a save sliced on device. On SimDevice
+  only the structure, types, dtypes and shapes are compared.
 
   Args:
     pytree_expected: The expected pytree.
@@ -35,6 +40,14 @@ def assert_pytree_equal(pytree_expected: Any, pytree_actual: Any):
     AssertionError: If the pytrees are not equal, or if their leaf types or
     dtypes do not match.
   """
+  compare_array_values = not backends.is_simdevice()
+  if not compare_array_values:
+    logging.log_first_n(
+        logging.WARNING,
+        "SimDevice: comparing pytree structure, dtypes and shapes only; array"
+        " values are not real on SimDevice.",
+        1,
+    )
 
   def _assert_equal(path: str, v_expected: Any, v_actual: Any):
     if not isinstance(v_actual, type(v_expected)):
@@ -48,6 +61,14 @@ def assert_pytree_equal(pytree_expected: Any, pytree_actual: Any):
             f"Dtype mismatch at {path}: Expected {v_expected.dtype} vs Actual"
             f" {v_actual.dtype}"
         )
+    if isinstance(v_expected, (jax.Array, np.ndarray, jnp.ndarray)):
+      if v_expected.shape != v_actual.shape:
+        raise AssertionError(
+            f"Shape mismatch at {path}: Expected {v_expected.shape} vs Actual"
+            f" {v_actual.shape}"
+        )
+      if not compare_array_values:
+        return
     if isinstance(v_expected, jax.Array):
       for shard_expected, shard_actual in zip(
           v_expected.addressable_shards, v_actual.addressable_shards
@@ -181,7 +202,15 @@ def assert_functional_equivalence(
   Raises:
     ValueError: If `reference_inputs` is empty.
     AssertionError: If any input's output diverges beyond `tolerance`.
+    RuntimeError: On SimDevice, which fabricates model outputs, so the
+      comparison would pass regardless of the parameters.
   """
+  if backends.is_simdevice():
+    raise RuntimeError(
+        "assert_functional_equivalence is meaningless on SimDevice: model"
+        " outputs are fabricated, not computed, so any two parameter sets"
+        " compare equal."
+    )
   if not reference_inputs:
     raise ValueError("reference_inputs must be a non-empty sequence")
   for idx, x in enumerate(reference_inputs):

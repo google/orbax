@@ -22,6 +22,7 @@ checkpoint_config:  # See configs.CheckpointConfig
   spec: Dict[str, Any]  # Spec to generate. {"dtype": ..., "shape": ...,
   "sharding": ...}
 mesh_config: Optional[Dict[str, Any]]  # See configs.MeshConfig
+simdevice: Optional[Dict[str, Any]]  # See configs.SimDeviceConfig
 benchmarks: List[Dict[str, Any]]
   - generator: str  # Import path to core.BenchmarksGenerator subclass.
     options: Dict[str, Any]  # Kwargs for generator's options dataclass.
@@ -51,6 +52,9 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs as config_lib
 from orbax.checkpoint._src.testing.benchmarks.core import core
 import yaml
 
+
+# Top-level YAML key that selects the SimDevice backend.
+_SIMDEVICE_KEY = 'simdevice'
 
 
 def _import_class(class_path: str) -> type[Any]:
@@ -110,6 +114,19 @@ def _validate_config(config: dict[str, Any]) -> None:
           f' exclusive in benchmarks entry at index {i}: a run either captures'
           ' digests or compares against them.'
       )
+    if _SIMDEVICE_KEY in config and (
+        options.get('capture_digests_path')
+        or options.get('reference_digests_path')
+    ):
+      raise ValueError(
+          'Correctness digests cannot be captured or compared on SimDevice'
+          f' (benchmarks entry at index {i}): values that pass through a'
+          ' compiled program are fabricated, so the digests do not describe'
+          ' real data.'
+      )
+
+  # Raises if the `simdevice:` block is malformed.
+  _parse_simdevice_config(config)
 
 
 def _parse_checkpoint_configs(
@@ -136,6 +153,21 @@ def _parse_mesh_configs(
   return None
 
 
+def _parse_simdevice_config(
+    config: dict[str, Any],
+) -> config_lib.SimDeviceConfig | None:
+  """Builds the SimDevice config from the YAML, or None if unspecified."""
+  if _SIMDEVICE_KEY not in config:
+    return None
+  block = config[_SIMDEVICE_KEY]
+  if not isinstance(block, dict):
+    raise ValueError(f"'{_SIMDEVICE_KEY}' must be a dict, got {type(block)}.")
+  try:
+    return config_lib.SimDeviceConfig(**block)
+  except (TypeError, ValueError) as e:
+    raise ValueError(f"Invalid '{_SIMDEVICE_KEY}' block: {e}") from e
+
+
 def parse_config(
     config_path: str,
 ) -> tuple[
@@ -155,6 +187,23 @@ def parse_config(
   """
   config = _load_yaml_config(config_path)
   return _parse_checkpoint_configs(config), _parse_mesh_configs(config)
+
+
+def parse_simdevice_config(
+    config_path: str,
+) -> config_lib.SimDeviceConfig | None:
+  """Parses the `simdevice:` block from a benchmark YAML.
+
+  Kept separate from `parse_config` because it must be read before any JAX
+  backend starts, to decide whether to run on SimDevice at all.
+
+  Args:
+    config_path: Path to the YAML configuration file.
+
+  Returns:
+    The SimDevice config, or None if the YAML has no `simdevice:` block.
+  """
+  return _parse_simdevice_config(_load_yaml_config(config_path))
 
 
 def load_config(config_path: str) -> dict[str, Any]:

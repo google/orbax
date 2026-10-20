@@ -140,6 +140,140 @@ class TestValidateConfig(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, "'options' must be a dict"):
       config_parsing._validate_config(config)
 
+  def test_invalid_simdevice_block(self):
+    config = self._get_valid_config()
+    config['simdevice'] = {'device_type': 'v6e', 'topology': [2, 2]}
+
+    with self.assertRaisesRegex(ValueError, "Invalid 'simdevice' block"):
+      config_parsing._validate_config(config)
+
+  @parameterized.parameters('capture_digests_path', 'reference_digests_path')
+  def test_digests_rejected_on_simdevice(self, option):
+    config = self._get_valid_config()
+    config['simdevice'] = {'device_type': 'v6e', 'topology': [2, 2, 1]}
+    config['benchmarks'][0]['options'][option] = 'digests.json'
+
+    with self.assertRaisesRegex(ValueError, 'on SimDevice'):
+      config_parsing._validate_config(config)
+
+
+class TestParseSimDeviceConfig(parameterized.TestCase):
+
+  def _parse(self, config):
+    config_file = self.create_tempfile(
+        'suite.yaml', content=yaml.safe_dump(config)
+    )
+    return config_parsing.parse_simdevice_config(config_file.full_path)
+
+  def test_absent_returns_none(self):
+    self.assertIsNone(self._parse({'suite_name': 'no simdevice'}))
+
+  def test_all_fields(self):
+    config = self._parse({
+        'simdevice': {
+            'device_type': 'v7x',
+            'topology': [4, 4, 1],
+            'num_processes': 2,
+            'fabricated_fill_seed': 7,
+        }
+    })
+
+    self.assertEqual(
+        config,
+        config_lib.SimDeviceConfig(
+            device_type='v7x',
+            topology=(4, 4, 1),
+            num_processes=2,
+            fabricated_fill_seed=7,
+        ),
+    )
+
+  def test_defaults(self):
+    config = self._parse(
+        {'simdevice': {'device_type': 'v6e', 'topology': [2, 2, 1]}}
+    )
+
+    self.assertEqual(config.num_processes, 1)
+    self.assertIsNone(config.fabricated_fill_seed)
+
+  def test_topology_is_a_tuple(self):
+    config = self._parse(
+        {'simdevice': {'device_type': 'v6e', 'topology': [2, 2, 1]}}
+    )
+
+    self.assertEqual(config.topology, (2, 2, 1))
+
+  def test_not_a_dict(self):
+    with self.assertRaisesRegex(ValueError, "'simdevice' must be a dict"):
+      self._parse({'simdevice': ['v6e']})
+
+  def test_unknown_key(self):
+    with self.assertRaisesRegex(ValueError, 'barrier_address'):
+      self._parse({
+          'simdevice': {
+              'device_type': 'v6e',
+              'topology': [2, 2, 1],
+              'barrier_address': 'localhost:1234',
+          }
+      })
+
+  def test_missing_required_key(self):
+    with self.assertRaisesRegex(ValueError, 'topology'):
+      self._parse({'simdevice': {'device_type': 'v6e'}})
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='empty_device_type',
+          block={'device_type': '', 'topology': [2, 2, 1]},
+          error='device_type',
+      ),
+      dict(
+          testcase_name='two_dims',
+          block={'device_type': 'v6e', 'topology': [2, 2]},
+          error='topology',
+      ),
+      dict(
+          testcase_name='zero_dim',
+          block={'device_type': 'v6e', 'topology': [2, 0, 1]},
+          error='topology',
+      ),
+      dict(
+          testcase_name='non_int_dim',
+          block={'device_type': 'v6e', 'topology': [2, '2', 1]},
+          error='topology',
+      ),
+      dict(
+          testcase_name='zero_processes',
+          block={
+              'device_type': 'v6e',
+              'topology': [2, 2, 1],
+              'num_processes': 0,
+          },
+          error='num_processes',
+      ),
+      dict(
+          testcase_name='negative_seed',
+          block={
+              'device_type': 'v6e',
+              'topology': [2, 2, 1],
+              'fabricated_fill_seed': -1,
+          },
+          error='fabricated_fill_seed',
+      ),
+      dict(
+          testcase_name='seed_too_large',
+          block={
+              'device_type': 'v6e',
+              'topology': [2, 2, 1],
+              'fabricated_fill_seed': 2**32,
+          },
+          error='fabricated_fill_seed',
+      ),
+  )
+  def test_invalid_values(self, block, error):
+    with self.assertRaisesRegex(ValueError, error):
+      self._parse({'simdevice': block})
+
 
 class TestCreateTestSuiteFromConfig(parameterized.TestCase):
 

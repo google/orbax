@@ -133,19 +133,15 @@ async def index_directory(path: epath.Path) -> DirectoryIndex:
     return DirectoryIndex(
         path=path, exists=True, is_directory=False, names=_MISSING
     )
-  except Exception:  # pylint: disable=broad-exception-caught
-    # Probing remote/cloud filesystems may raise driver-specific exceptions.
-    try:
-      exists = await async_path.exists(path)
-      is_dir = await async_path.is_dir(path) if exists else False
-      return DirectoryIndex(
-          path=path, exists=exists, is_directory=is_dir, names=_MISSING
-      )
-    except Exception:  # pylint: disable=broad-exception-caught
-      # Fall back to missing index if exists/is_dir probe fails.
-      return DirectoryIndex(
-          path=path, exists=False, is_directory=False, names=_MISSING
-      )
+  except OSError as err:
+    # Remote filesystems may raise generic OSError("No such directory: ...")
+    # for missing paths or regular files; re-raise real permission/IO errors.
+    if "No such directory" not in str(err):
+      raise
+    exists = await async_path.exists(path)
+    return DirectoryIndex(
+        path=path, exists=exists, is_directory=False, names=_MISSING
+    )
 
 
 async def index_directories(
@@ -176,15 +172,7 @@ async def exists_many(
   Returns:
     Booleans positionally aligned with `paths`.
   """
-
-  async def _safe_exists(target_path: epath.Path) -> bool:
-    try:
-      return await async_path.exists(target_path)
-    except Exception:  # pylint: disable=broad-exception-caught
-      # Remote/cloud filesystem driver exceptions treat path as nonexistent.
-      return False
-
-  return tuple(await asyncio.gather(*(_safe_exists(p) for p in paths)))
+  return tuple(await asyncio.gather(*(async_path.exists(p) for p in paths)))
 
 
 async def is_dir_many(
@@ -198,12 +186,4 @@ async def is_dir_many(
   Returns:
     Booleans positionally aligned with `paths`.
   """
-
-  async def _safe_is_dir(target_path: epath.Path) -> bool:
-    try:
-      return await async_path.is_dir(target_path)
-    except Exception:  # pylint: disable=broad-exception-caught
-      # Remote/cloud filesystem driver exceptions treat path as non-directory.
-      return False
-
-  return tuple(await asyncio.gather(*(_safe_is_dir(p) for p in paths)))
+  return tuple(await asyncio.gather(*(async_path.is_dir(p) for p in paths)))

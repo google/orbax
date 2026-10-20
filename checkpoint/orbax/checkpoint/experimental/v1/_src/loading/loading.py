@@ -318,6 +318,11 @@ def load_checkpointables(
       Dictionary keys represent the names of the checkpointables, while the
       values are the abstract checkpointable objects themselves.
 
+  With no requested checkpointables, items pending deletion are excluded with
+  a warning. An explicit request containing such an item raises
+  DeletionInProgressError, even when its files still exist. Reads do not
+  finish deletion or modify its recovery record.
+
   Returns:
     A dictionary of checkpointables. Dictionary keys represent the names of the
     checkpointables, while the values are the checkpointable objects themselves.

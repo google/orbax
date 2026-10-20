@@ -15,6 +15,7 @@
 """Defines `OrbaxLayout`, a class to handle Orbax checkpoint formats."""
 
 import asyncio
+from collections.abc import Collection
 import enum
 from typing import Any, Awaitable
 
@@ -26,6 +27,7 @@ from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import fs_probe
 from orbax.checkpoint._src.path import temporary_paths
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.deletion import metadata as deletion_metadata
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.handlers import resolution as handler_resolution
 from orbax.checkpoint.experimental.v1._src.handlers import types as handler_types
@@ -148,13 +150,18 @@ async def get_valid_pytree_names(path: Path) -> list[str]:
 
 async def _existing_checkpointable_names(
     directory: path_types.Path,
+    *,
+    requested_names: Collection[str] | None = None,
 ) -> list[str]:
+  deleted_name = await deletion_metadata.check_read(directory, requested_names)
   subpaths = await get_subpaths(directory)
   is_dir_checks = await asyncio.gather(
       *[async_path.is_dir(p) for p in subpaths]
   )
   return [
-      subdir.name for subdir, is_dir in zip(subpaths, is_dir_checks) if is_dir
+      subdir.name
+      for subdir, is_dir in zip(subpaths, is_dir_checks)
+      if is_dir and subdir.name != deleted_name
   ]
 
 
@@ -175,6 +182,7 @@ async def read_checkpoint_metadata(
     directory: path_types.Path,
 ) -> InternalCheckpointMetadata:
   """Returns the step metadata for a given path."""
+  await deletion_metadata.check_read(directory, ())
   serialized_metadata = (
       await metadata_serialization.read(
           metadata_serialization.checkpoint_metadata_file_path(directory)
@@ -247,11 +255,29 @@ class OrbaxLayout(CheckpointLayout):
   async def checkpointables_metadata(
       self, path: Path
   ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
-    """Returns the metadata describing the Orbax checkpoint."""
+    """Returns metadata for visible checkpointables.
+
+    Logs a warning if a pending deletion hides a checkpointable.
+
+    Args:
+      path: The path to the checkpoint.
+
+    Returns:
+      The checkpoint metadata, excluding any checkpointable pending deletion.
+    """
+    return await self._checkpointables_metadata(path)
+
+  async def _checkpointables_metadata(
+      self, path: Path, requested_names: Collection[str] | None = None
+  ) -> metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]]:
     checkpoint_metadata = await read_checkpoint_metadata(path)
-    available_checkpointable_names = await _existing_checkpointable_names(path)
+    available_checkpointable_names = await _existing_checkpointable_names(
+        path, requested_names=requested_names
+    )
     abstract_checkpointables = {
-        name: None for name in available_checkpointable_names
+        name: None
+        for name in available_checkpointable_names
+        if requested_names is None or name in requested_names
     }
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,
@@ -282,8 +308,10 @@ class OrbaxLayout(CheckpointLayout):
     """Returns the metadata describing a single checkpointable in the Orbax checkpoint."""
     if checkpointable_name is None:
       raise _none_checkpointable_name_not_supported_error(path)
-    checkpointables_metadata = await self.checkpointables_metadata(path)
     key = checkpointable_name or STATE_CHECKPOINTABLE_KEY
+    checkpointables_metadata = await self._checkpointables_metadata(
+        path, (key,)
+    )
     if key not in checkpointables_metadata.metadata:
       raise checkpoint_layout.InvalidLayoutError(
           f"Checkpointable '{key}' not found in checkpoint metadata."
@@ -436,6 +464,7 @@ class OrbaxLayout(CheckpointLayout):
     """
     if checkpointable_name is None:
       raise _none_checkpointable_name_not_supported_error(path)
+    await deletion_metadata.check_read(path, (checkpointable_name,))
     checkpoint_metadata = await read_checkpoint_metadata(path)
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,
@@ -469,7 +498,12 @@ class OrbaxLayout(CheckpointLayout):
         no valid checkpointables to load from the user passed
         `abstract_checkpointables`.
     """
-    available_checkpointables = await _existing_checkpointable_names(path)
+    available_checkpointables = await _existing_checkpointable_names(
+        path,
+        requested_names=abstract_checkpointables.keys()
+        if abstract_checkpointables
+        else None,
+    )
     if not abstract_checkpointables:
       # Default to loading all checkpointables (subdirectories within current
       # checkpoint directory)

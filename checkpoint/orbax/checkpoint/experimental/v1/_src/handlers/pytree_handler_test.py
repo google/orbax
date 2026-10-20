@@ -50,6 +50,7 @@ from orbax.checkpoint._src.metadata import sharding as sharding_metadata
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import limits
+from orbax.checkpoint._src.serialization import memory_regulator as memory_regulator_lib
 from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint._src.serialization import serialization
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
@@ -2562,6 +2563,47 @@ class PyTreeHandlerLeafTest(
       with self.subTest('load_without_abstract'):
         restored = handler.load(self.directory)
         self.assertEqual(value, restored)
+
+  def test_memory_regulator_fallback_when_cleared(self):
+    regulator_options = options_lib.MemoryOptions.RegulatorOptions(
+        max_memory_limit_gib=80.0,
+        profiler=mock.create_autospec(
+            memory_regulator_lib.MemoryProfiler, instance=True
+        ),
+    )
+    regulated_limit = regulator_options.regulator.current_limit_bytes
+    ctx = context_lib.Context()
+    ctx.memory.regulator_options = regulator_options
+    ctx.memory.transfer_concurrent_bytes = 512
+    test_handler = handler_test_utils.create_test_handler(
+        pytree_handler.PyTreeHandler, context=ctx
+    )
+
+    # The regulated limit takes precedence over transfer_concurrent_bytes.
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      test_handler.save(self.directory / 'step0', {'a': np.ones((2,))})
+      spy_limiter.assert_any_call(regulated_limit)
+      self.assertNotIn(mock.call(512), spy_limiter.call_args_list)
+
+    # When the regulator is removed from the context, the same handler falls
+    # back to transfer_concurrent_bytes.
+    ctx.memory.regulator_options = None
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      test_handler.save(self.directory / 'step1', {'a': np.ones((2,))})
+      spy_limiter.assert_any_call(512)
+      self.assertNotIn(mock.call(regulated_limit), spy_limiter.call_args_list)
+
+    # Re-adding the regulator restores the regulated limit.
+    ctx.memory.regulator_options = regulator_options
+    with mock.patch.object(
+        limits, 'get_byte_limiter', wraps=limits.get_byte_limiter
+    ) as spy_limiter:
+      test_handler.save(self.directory / 'step2', {'a': np.ones((2,))})
+      spy_limiter.assert_any_call(regulated_limit)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextvars
+import copy
 import dataclasses
 import enum
 from typing import Any, Protocol
@@ -27,6 +28,7 @@ import numpy as np
 from orbax.checkpoint import options as v0_options_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.serialization import memory_regulator as memory_regulator_lib
 from orbax.checkpoint._src.serialization import pathways_types
 from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
@@ -151,7 +153,7 @@ class MultiprocessingOptions(_ActiveContextGuard):
   you're doing.
 
   This dataclass defines the configuration parameters for multiprocessing
-  checkpoint saving operations within the Orbax framework.
+  checkpoint saving operations and deletion coordination within Orbax.
 
   Example:
     Configure a multi-host setup where process 1 is designated as the primary
@@ -225,7 +227,8 @@ class FileOptions(_ActiveContextGuard):
       :py:class:`~.v1.path.Path`.
     skip_sync_file_validations:
       If True, bypasses synchronous filesystem existence and validation checks
-      prior to async saving. Default is False.
+      prior to async saving. Default is False. Deletion recovery records are
+      still checked to prevent overwriting an unfinished partial deletion.
   """
 
   path_permission_mode: int | None = None
@@ -599,6 +602,21 @@ class MemoryOptions(_ActiveContextGuard):
       asynchronous with this option enabled, as we have to block on some array
       writes before beginning others. Also see `is_prioritized_key_fn`.
       `None` indicates no limit.
+    regulator_options: Optional :py:class:`MemoryOptions.RegulatorOptions` that
+      dynamically regulates the device-to-host transfer concurrency limit across
+      saves based on memory profiling feedback. When set, its regulated limit
+      takes precedence over `transfer_concurrent_bytes`. The limit applies per
+      PyTree checkpointable, and only to arrays that
+      `serialization_status_callback` schedules asynchronously. Child contexts
+      created with `Context(parent)` share the regulator state; assign a new
+      `RegulatorOptions` to change parameters. Saves that share a regulator must
+      not run concurrently.
+    expected_surge_bytes: Optional anticipated temporary increase in memory
+      consumption (in bytes) for the save operation. When used with
+      `regulator_options`, preemptively reduces the regulated limit for that
+      save by this amount to create headroom during the surge. Typically set on
+      a child `Context` for the affected step. When `None`, falls back to the
+      profiler's expected surge.
     is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
       using jax.tree.map_with_path) that should be scheduled for D2H transfer
       before other keys. The transfer is scheduled before returning to the
@@ -619,9 +637,84 @@ class MemoryOptions(_ActiveContextGuard):
       modification, but can be disabled to avoid excess memory consumption.
   """
 
+  @dataclasses.dataclass(frozen=True, kw_only=True)
+  class RegulatorOptions:
+    """Options for configuring dynamic memory regulation during save.
+
+    Configures a PID controller that, before each save, adjusts the
+    device-to-host transfer concurrency limit based on the peak host memory that
+    `profiler` measured during the previous save.
+
+    Instances are immutable. To change parameters, assign a new instance (e.g.
+    created with `dataclasses.replace`), which starts a new regulator.
+
+    For setting up the PID coefficients, we have the following guidelines:
+
+    | Coefficient | Suggested Range | Effect |
+    | :--- | :--- | :--- |
+    | kp | 0.30-0.60 | Moderately scales the limit based on current headroom. |
+    | ki | <= 0.08 | Kept low to mitigate integral windup. |
+    | kd | 0.10-0.30 | Acts as a brake against rapid memory growth. |
+
+    Attributes:
+      max_memory_limit_gib: The maximum transfer limit in GiB.
+      profiler: A `MemoryProfiler` that measures peak host memory during each
+        save to provide feedback to the regulator.
+      target_ratio: The fraction of total host memory to target for peak memory
+        usage.
+      min_memory_limit_gib: The minimum transfer limit in GiB, which is also the
+        initial limit.
+      kp: Proportional coefficient.
+      ki: Integral coefficient.
+      kd: Derivative coefficient.
+    """
+
+    max_memory_limit_gib: float
+    profiler: memory_regulator_lib.MemoryProfiler
+    target_ratio: float = 0.80
+    min_memory_limit_gib: float = 10.0
+    kp: float = 0.4
+    ki: float = 0.05
+    kd: float = 0.1
+    _regulator: memory_regulator_lib.MemoryRegulator = dataclasses.field(
+        init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self):
+      if self.profiler is None:
+        raise ValueError('RegulatorOptions requires a `profiler`.')
+      object.__setattr__(
+          self,
+          '_regulator',
+          memory_regulator_lib.MemoryRegulator(
+              max_memory_limit_gib=self.max_memory_limit_gib,
+              target_ratio=self.target_ratio,
+              min_memory_limit_gib=self.min_memory_limit_gib,
+              kp=self.kp,
+              ki=self.ki,
+              kd=self.kd,
+              profiler=self.profiler,
+          ),
+      )
+
+    def __deepcopy__(
+        self, memo: dict[int, Any]
+    ) -> MemoryOptions.RegulatorOptions:
+      """Returns a shallow copy that shares the regulator with this instance."""
+      result = copy.copy(self)
+      memo[id(self)] = result
+      return result
+
+    @property
+    def regulator(self) -> memory_regulator_lib.MemoryRegulator:
+      """Returns the underlying `MemoryRegulator` instance."""
+      return self._regulator
+
   write_concurrent_bytes: int | None = None
   read_concurrent_bytes: int | None = None
   transfer_concurrent_bytes: int | None = None
+  regulator_options: RegulatorOptions | None = None
+  expected_surge_bytes: int | float | None = None
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
   serialization_status_callback: (
       serialization_types.SerializationStatusCallback | None

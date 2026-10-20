@@ -141,6 +141,10 @@ def checkpointables_metadata(
     metadata = ocp.checkpointables_metadata(path)
     metadata.metadata  # {'foo': AbstractFoo(), 'bar': AbstractBar()}
 
+  Items pending deletion are excluded with a warning. Reads do not finish
+  deletion or modify its recovery record. An explicit metadata request for a
+  pending item raises DeletionInProgressError.
+
   Args:
     path: The path to the checkpoint.
 

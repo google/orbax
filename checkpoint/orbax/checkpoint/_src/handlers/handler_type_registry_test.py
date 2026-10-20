@@ -136,6 +136,26 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
         registry._registry,
     )
 
+  def test_legacy_src_typestr_fallback(self):
+    class V0TestHandler(checkpoint_handler.CheckpointHandler):
+
+      def save(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+      def restore(self, directory: epath.Path, *args, **kwargs):
+        pass
+
+      @classmethod
+      def typestr(cls) -> str:
+        return 'orbax.checkpoint.v0._src.handlers.V0TestHandler'
+
+    registry = HandlerTypeRegistry()
+    registry.add(V0TestHandler)
+    self.assertEqual(
+        registry.get('orbax.checkpoint._src.handlers.V0TestHandler'),
+        V0TestHandler,
+    )
+
   def test_register_duplicate_handler_type(self):
     registry = HandlerTypeRegistry()
     registry.add(TestHandler)

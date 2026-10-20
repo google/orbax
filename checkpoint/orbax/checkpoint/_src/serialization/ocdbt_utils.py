@@ -15,10 +15,11 @@
 """OCDBT utilities for Orbax checkpointing."""
 
 import asyncio
+import itertools
 import re
 import threading
 import time
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from absl import logging
 from etils import epath
@@ -34,6 +35,9 @@ import tensorstore as ts
 # than `name/.zarray`, `name/0`. Both strip to the empty param name ''.
 _SHARDING_SUFFIX_RE = r'(?:^|/)\d+(\.\d+)*$'
 _ZARRAY_SUFFIX_RE = r'(?:^|/)\.zarray$'
+_ZARR_META_SUFFIX_RE = re.compile(r'(?:^|/)(?:\.zarray|zarr\.json)$')
+_ZARR2_CHUNK_SUFFIX_RE = re.compile(_SHARDING_SUFFIX_RE)
+_ZARR3_CHUNK_SUFFIX_RE = re.compile(r'(?:^|/)c(?:/\d+)*$')
 
 
 async def _validate_params(
@@ -144,6 +148,8 @@ async def merge_ocdbt_per_process_files(
     ts_context: ts.Context,
     use_zarr3: bool,
     enable_validation: bool = True,
+    *,
+    store_ocdbt_metadata_and_values_separately: bool = False,
 ):
   """Merges OCDBT files written to per-process subdirectories.
 
@@ -164,6 +170,8 @@ async def merge_ocdbt_per_process_files(
       validation.
     enable_validation: If True, validate params after merging. May have a
       performance impact.
+    store_ocdbt_metadata_and_values_separately: Whether to store OCDBT metadata
+      and values separately.
   """
   start_time = time.time()
   open_ops = []
@@ -187,7 +195,10 @@ async def merge_ocdbt_per_process_files(
       directory.as_posix(),
       use_ocdbt=True,
       ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
-          mode=ts_utils.OcdbtWriteMode.MERGE
+          mode=ts_utils.OcdbtWriteMode.MERGE,
+          store_ocdbt_metadata_and_values_separately=(
+              store_ocdbt_metadata_and_values_separately
+          ),
       ),
   )
   open_ops.append(ts_utils.open_kv_store(parent_kvstore_tspec, ts_context))
@@ -265,3 +276,88 @@ def get_process_index_for_subdir(
     return override_ocdbt_process_id or multihost.process_index()
   else:
     return None
+
+
+def _decode(raw: bytes | None) -> str:
+  """Decodes an OCDBT key fragment, tolerating missing or non-UTF-8 bytes."""
+  # `ts.ocdbt.dump` returns keys as bytes; decode for str prefix/regex matching.
+  return (raw or b'').decode('utf-8', errors='replace')
+
+
+def _entry_byte_size(entry: dict[str, Any]) -> int:
+  """Returns the byte length of an OCDBT leaf B-tree entry."""
+  if (inline := entry.get('inline_value')) is not None:
+    # Data is stored inline in the B-tree node, return its length.
+    return len(inline)
+  # Indirect values are formatted as `<file_id>:<offset>:<length>`.
+  length = str(entry.get('indirect_value', '')).rsplit(':', 1)[-1]
+  return int(length) if length.isdigit() else 0
+
+
+async def _collect_ocdbt_node_entries(
+    base_kv: ts.KvStore,
+    location: str,
+    context: ts.Context,
+    prefix: str = '',
+) -> list[tuple[str, dict[str, Any]]]:
+  """Recursively collects `(full_key, entry)` from an OCDBT B-tree node."""
+  node = await ts.ocdbt.dump(base_kv, node=location, context=context)
+  entries = node.get('entries') or []
+  if not node.get('height', 0):
+    return [(prefix + _decode(entry.get('key')), entry) for entry in entries]
+  child_lists = await asyncio.gather(*(
+      _collect_ocdbt_node_entries(
+          base_kv,
+          entry['location'],
+          context,
+          prefix + _decode(entry.get('subtree_common_prefix')),
+      )
+      for entry in entries
+      if 'location' in entry
+  ))
+  return list(itertools.chain.from_iterable(child_lists))
+
+
+async def get_tensor_raw_bytes(directory: epath.Path) -> dict[str, int]:
+  """Sums on-disk bytes per tensor from the OCDBT B-tree.
+
+  Parses the OCDBT `manifest.ocdbt` and walks its B-tree index to read the
+  on-disk raw (possibly compressed) size of every key. Chunk and `.zarray` /
+  `zarr.json` key sizes are summed per tensor; metadata contents are not parsed
+  here (see `StorageMetadata.zarr_metadata`).
+
+  Args:
+    directory: Directory containing an OCDBT `manifest.ocdbt`.
+
+  Returns:
+    Mapping from tensor name (`"."`-separated) to raw stored bytes; empty if
+    the B-tree cannot be read.
+  """
+  ctx = ts_utils.get_ts_context(use_ocdbt=True)
+  base_tspec = ts_utils.build_kvstore_tspec(
+      directory.as_posix(), use_ocdbt=False
+  )
+  try:
+    base_kv = await ts_utils.open_kv_store(base_tspec, ctx)
+    manifest = await ts.ocdbt.dump(base_kv, context=ctx)
+    versions = manifest.get('versions') or [{}]
+    if not (root_loc := (versions[-1].get('root') or {}).get('location')):
+      return {}
+    entries = await _collect_ocdbt_node_entries(base_kv, root_loc, ctx)
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.warning('Failed to read OCDBT metadata at %s: %s', directory, e)
+    return {}
+
+  # Determine if it's using zarr2 or zarr3.
+  is_zarr3 = any(key.rsplit('/', 1)[-1] == 'zarr.json' for key, _ in entries)
+  chunk_re = _ZARR3_CHUNK_SUFFIX_RE if is_zarr3 else _ZARR2_CHUNK_SUFFIX_RE
+  result: dict[str, int] = {}
+
+  # Iterate over all entries in the OCDBT B-tree to determine ondisk size.
+  for key, entry in entries:
+    for suffix_re in (_ZARR_META_SUFFIX_RE, chunk_re):
+      if suffix_re.search(key):
+        name = suffix_re.sub('', key)
+        result[name] = result.get(name, 0) + _entry_byte_size(entry)
+        break
+  return result

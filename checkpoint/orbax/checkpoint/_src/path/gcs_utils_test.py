@@ -14,13 +14,109 @@
 
 """Tests for gcs_utils functions."""
 
+import os
 from unittest import mock
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint._src.path import gcs_utils
 
 
-class GcsUtilsTest(absltest.TestCase):
+class GcsUtilsTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='gs_without_trailing_slash_add_true',
+          path='gs://my-bucket/dir/sub',
+          add_trailing_slash=True,
+          expected=('my-bucket', 'dir/sub/'),
+      ),
+      dict(
+          testcase_name='gs_with_trailing_slash_add_true',
+          path='gs://my-bucket/dir/sub/',
+          add_trailing_slash=True,
+          expected=('my-bucket', 'dir/sub/'),
+      ),
+      dict(
+          testcase_name='gs_without_trailing_slash_add_false',
+          path='gs://my-bucket/dir/sub',
+          add_trailing_slash=False,
+          expected=('my-bucket', 'dir/sub'),
+      ),
+      dict(
+          testcase_name='gs_with_trailing_slash_add_false',
+          path='gs://my-bucket/dir/sub/',
+          add_trailing_slash=False,
+          expected=('my-bucket', 'dir/sub/'),
+      ),
+      dict(
+          testcase_name='gs_bucket_only_add_false',
+          path='gs://my-bucket',
+          add_trailing_slash=False,
+          expected=('my-bucket', ''),
+      ),
+      dict(
+          testcase_name='gs_bucket_with_slash_add_false',
+          path='gs://my-bucket/',
+          add_trailing_slash=False,
+          expected=('my-bucket', ''),
+      ),
+  )
+  def test_parse_gcs_path(
+      self,
+      path: str,
+      add_trailing_slash: bool,
+      expected: tuple[str, str],
+  ):
+    self.assertEqual(
+        gcs_utils.parse_gcs_path(path, add_trailing_slash=add_trailing_slash),
+        expected,
+    )
+
+  def test_parse_gcs_path_invalid(self):
+    with self.assertRaisesRegex(AssertionError, 'Unsupported scheme for GCS'):
+      gcs_utils.parse_gcs_path('/tmp/local/path')
+    with self.assertRaisesRegex(
+        ValueError, 'The GCS path should contain the bucket name'
+    ):
+      gcs_utils.parse_gcs_path('gs://')
+
+  @parameterized.product(
+      gcs_backend=[None, 'gcs', 'gcs_grpc'],
+      ckpt_path=[
+          'gs://my-bucket/dir/sub',
+          'gs://my-bucket/dir/sub/',
+          'gs://my-bucket',
+          'gs://my-bucket/',
+      ],
+  )
+  def test_get_kvstore_for_gcs(
+      self,
+      gcs_backend: str | None,
+      ckpt_path: str,
+  ):
+    env_override = (
+        {} if gcs_backend is None else {'TENSORSTORE_GCS_BACKEND': gcs_backend}
+    )
+    expected_driver = gcs_backend or 'gcs'
+    if ckpt_path.endswith(('my-bucket', 'my-bucket/')):
+      expected_path = ''
+    elif ckpt_path.endswith('/'):
+      expected_path = 'dir/sub/'
+    else:
+      expected_path = 'dir/sub'
+
+    with mock.patch.dict(os.environ, env_override, clear=False):
+      if gcs_backend is None:
+        os.environ.pop('TENSORSTORE_GCS_BACKEND', None)
+      self.assertEqual(
+          gcs_utils.get_kvstore_for_gcs(ckpt_path),
+          {
+              'driver': expected_driver,
+              'bucket': 'my-bucket',
+              'path': expected_path,
+          },
+      )
 
   def test_rmtree_non_gcs_path(self):
     local_path = epath.Path('/tmp/some/local/dir')

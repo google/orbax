@@ -20,6 +20,7 @@ from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
 from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
+from orbax.checkpoint.experimental.v1._src.deletion import metadata as deletion_metadata
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
@@ -101,6 +102,7 @@ async def maybe_overwrite_existing(
   Raises:
     ValueError: If the path exists and overwrite is False.
   """
+  await deletion_metadata.ensure_available(path)
   if context.file_options.skip_sync_file_validations:
     if overwrite:
       await remove_existing_path(path, context=context)
