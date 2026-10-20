@@ -15,6 +15,7 @@
 """Basic type definitions for working with arrays and fragments."""
 
 import dataclasses
+from types import EllipsisType as _EllipsisType  # pylint: disable=g-importing-member
 
 from jax import numpy as jnp
 import numpy as np
@@ -28,7 +29,7 @@ DType = jnp.dtype | np.dtype
 # Indexing an np.ndarray with Ellipsis always gives an array of the same shape.
 # For that reason we use Ellipsis instead of an empty tuple, to avoid needing
 # a bunch of special-case code to deal with zero-dimensional arrays.
-NdSlice = tuple[slice, ...] | type(Ellipsis)
+NdSlice = tuple[slice, ...] | _EllipsisType
 
 Index = tuple[slice, ...]
 IndexBounds = tuple[tuple[int, int], ...]

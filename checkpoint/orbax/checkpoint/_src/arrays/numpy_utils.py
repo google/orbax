@@ -14,6 +14,7 @@
 
 """Various utilities for working with NumPy arrays and fragments."""
 
+from types import EllipsisType as _EllipsisType  # pylint: disable=g-importing-member
 from typing import Sequence
 
 from orbax.checkpoint._src.arrays import types
@@ -154,7 +155,7 @@ def _pretty_slice(s: slice) -> str:
   return f'{start}:{stop}{step}'
 
 
-def pretty_nd_slice(idx: Sequence[slice] | type(Ellipsis)) -> str:  # pyrefly: ignore[invalid-annotation]
+def pretty_nd_slice(idx: Sequence[slice] | _EllipsisType) -> str:
   """Returns a pretty-printed string representation of a NdSlice."""
   idx_str = (
       '...'
