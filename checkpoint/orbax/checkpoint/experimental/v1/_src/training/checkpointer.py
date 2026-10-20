@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.logging import abstract_logger
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.deletion import execution as deletion_execution
 from orbax.checkpoint.experimental.v1._src.deletion import validation as deletion_validation
@@ -584,6 +585,22 @@ class Checkpointer(epy.ContextManager):
     context = context_lib.get_context(self._context)
     saving_validation.validate_save_checkpointables(checkpointables)
     if overwrite:
+      if not force:
+        # Decide against the history that would remain after deletion, without
+        # removing the existing checkpoint when its replacement is skipped.
+        previous_steps = checkpoint_info.CheckpointInfos([
+            c
+            for c in self._manager._checkpoints  # pylint: disable=protected-access
+            if c.step != step
+        ])
+        with context:
+          if not self._manager._should_save(  # pylint: disable=protected-access
+              step, previous_steps=previous_steps
+          ):
+            return None
+        # Do not evaluate stateful or time-dependent policies again after
+        # deletion.
+        force = True
       logging.info(
           'Specified `overwrite`: deleting existing checkpoint %d if it'
           ' exists.',
