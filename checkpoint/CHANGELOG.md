@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.8] - 2026-10-20
+
 ### Added
 
 - #v1 Add `logger` parameter to `v1.training.Checkpointer` and log
