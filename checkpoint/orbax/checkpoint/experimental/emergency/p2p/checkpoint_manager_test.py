@@ -109,6 +109,8 @@ class CheckpointManagerTest(absltest.TestCase):
     self.p2p_node_instance.ip = '127.0.0.1'
     self.p2p_node_instance.port = 12345
     self.p2p_subsystem_instance.get_latest_complete_step.return_value = None
+    # Persistent storage holds the step used by most restore tests.
+    self.persistent_manager_instance.latest_step.return_value = 1
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
   def test_init_starts_p2p_and_discovery(self, _):
@@ -220,6 +222,7 @@ class CheckpointManagerTest(absltest.TestCase):
         1, args=self.restore_args
     )
     self.p2p_subsystem_instance.fetch.assert_not_called()
+    self.local_manager_instance.prune_steps_after.assert_called_once_with(1)
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
@@ -280,12 +283,60 @@ class CheckpointManagerTest(absltest.TestCase):
     manager.close()
 
   @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_persistent_fallback_uses_latest_persistent_step(self, _):
+    # P2P knows step 5 but persistent storage only has steps up to 3.
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = False
+    self.persistent_manager_instance.latest_step.return_value = 3
+    self.persistent_manager_instance.restore.return_value = {'a': 3}
+    self.mock_global_max.return_value = [1]
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    result = manager.restore(5, args=self.restore_args)
+    self.assertEqual(result, {'a': 3})
+    self.persistent_manager_instance.restore.assert_called_once_with(
+        3, args=mock.ANY
+    )
+    self.local_manager_instance.prune_steps_after.assert_called_once_with(3)
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
+  def test_restore_persistent_fallback_no_persistent_step(self, _):
+    self.local_manager_instance.scan_stored_steps.return_value = (0, [])
+    self.local_manager_instance.all_steps.return_value = []
+    self.mock_sync_global_data.return_value = []
+    self.p2p_subsystem_instance.has_shard_for_step.return_value = False
+    self.persistent_manager_instance.latest_step.return_value = None
+    self.mock_global_max.return_value = [1]
+
+    manager = p2p_cm.CheckpointManager(
+        self.mesh,
+        self.abstract_state,
+        self.local_dir,
+        persistent_directory=self.persistent_dir,
+    )
+
+    with self.assertRaises(FileNotFoundError):
+      manager.restore(5, args=self.restore_args)
+    self.persistent_manager_instance.restore.assert_not_called()
+    manager.close()
+
+  @mock.patch.object(multihost, 'process_index', return_value=0)
   def test_restore_all_fail(self, _):
     self.local_manager_instance.scan_stored_steps.return_value = (0, [])
     self.local_manager_instance.all_steps.return_value = []
     self.mock_sync_global_data.return_value = []
     # P2P fetch fails
     self.p2p_subsystem_instance.has_shard_for_step.return_value = False
+    self.mock_global_max.return_value = [1]
 
     manager = p2p_cm.CheckpointManager(
         self.mesh,
@@ -326,17 +377,15 @@ class CheckpointManagerTest(absltest.TestCase):
     # Should use persistent result
     self.assertEqual(result, {'a': 999})
 
-    # Local restore WAS attempted
-    self.local_manager_instance.restore.assert_called_once_with(
-        1, args=self.restore_args
-    )
+    # Local restore is skipped when a peer fails staging.
+    self.local_manager_instance.restore.assert_not_called()
 
     # Persistent restore WAS called
     self.persistent_manager_instance.restore.assert_called_once_with(
         1, args=mock.ANY
     )
 
-    # global_max was called with [0] because WE succeeded (my_failure=0)
+    # global_max was called with [0] because WE staged locally (my_failure=0)
     self.mock_global_max.assert_called_once_with([0])
 
     manager.close()
@@ -402,7 +451,7 @@ class CheckpointManagerTest(absltest.TestCase):
     self.persistent_manager_instance.restore.assert_called_once_with(
         100, args=mock.ANY
     )
-    self.mock_global_max.assert_called_once_with([1])
+    self.mock_global_max.assert_not_called()
 
     manager.close()
 
