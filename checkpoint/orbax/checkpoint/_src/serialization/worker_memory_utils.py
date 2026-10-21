@@ -87,6 +87,7 @@ def _estimate_worker_memory_usage(
     *,
     replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
+    transfer_sharding: jax.sharding.Sharding | None = None,
 ) -> dict[int, int]:
   """Estimates memory used by the array on each worker after transfer.
 
@@ -95,11 +96,23 @@ def _estimate_worker_memory_usage(
     replica_id: The replica id to use for estimation. If None, all replicas are
       used.
     device_to_worker_ids_map: A mapping from device ID to worker ID.
+    transfer_sharding: The sharding, without replicas, that `arr` is resharded
+      to on device before its transfer, if any (see
+      `dispatchers.Dispatcher.get_transfer_sharding`). Every device then
+      transfers its shard of `transfer_sharding`.
 
   Returns:
     A mapping from worker ID to estimated memory usage.
   """
   worker_memory_usage = collections.defaultdict(int)
+  if transfer_sharding is not None:
+    shard_memory_size = (
+        np.prod(transfer_sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
+    )
+    for device in transfer_sharding.device_set:
+      worker_id = device_to_worker_ids_map[device.id]
+      worker_memory_usage[worker_id] += shard_memory_size  # pyrefly: ignore[unsupported-operation]
+    return worker_memory_usage
   shard_memory_size = (
       np.prod(arr.sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
   )
@@ -117,12 +130,14 @@ def _increment_worker_memory_usage(
     *,
     replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
+    transfer_sharding: jax.sharding.Sharding | None = None,
 ) -> dict[int, int]:
   """Increments memory used by the array on each worker after transfer."""
   estimate = _estimate_worker_memory_usage(
       arr,
       replica_id=replica_id,
       device_to_worker_ids_map=device_to_worker_ids_map,
+      transfer_sharding=transfer_sharding,
   )
   return {
       worker_id: current_worker_memory_usage[worker_id] + estimate[worker_id]
@@ -177,8 +192,11 @@ def next_memory_budgeted_batch(
     # NOTE: We only transfer save shards with replica_id == replica_id, but we
     # are actually redundantly transferring all shards, thanks to remote python
     # / colcoated python. So we set replica_id to None, to estimate memory usage
-    # for all replicas.
+    # for all replicas, unless the dispatcher reshards them before the transfer.
     replica_id = None
+
+  def _get_transfer_sharding(arr: jax.Array) -> jax.sharding.Sharding | None:
+    return None if dispatcher is None else dispatcher.get_transfer_sharding(arr)
 
   def _no_worker_memory_usage() -> dict[int, int]:
     return {id: 0 for id in set(device_to_worker_ids_map.values())}
@@ -188,14 +206,17 @@ def next_memory_budgeted_batch(
       arrays[0],
       replica_id=replica_id,
       device_to_worker_ids_map=device_to_worker_ids_map,
+      transfer_sharding=_get_transfer_sharding(arrays[0]),
   )
 
   for arr, info, arg in zip(arrays[1:], infos[1:], args[1:]):
+    transfer_sharding = _get_transfer_sharding(arr)
     incremented_worker_memory_usage = _increment_worker_memory_usage(
         arr,
         current_worker_memory_usage,
         replica_id=replica_id,
         device_to_worker_ids_map=device_to_worker_ids_map,
+        transfer_sharding=transfer_sharding,
     )
     if _is_array_under_memory_budget(
         worker_memory_budget, incremented_worker_memory_usage
@@ -222,6 +243,7 @@ def next_memory_budgeted_batch(
           _no_worker_memory_usage(),
           replica_id=replica_id,
           device_to_worker_ids_map=device_to_worker_ids_map,
+          transfer_sharding=transfer_sharding,
       )
 
   if current_batch:

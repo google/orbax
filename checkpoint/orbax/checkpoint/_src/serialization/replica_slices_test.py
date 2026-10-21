@@ -27,6 +27,13 @@ def is_pow_of_two(n):
   return True
 
 
+def _normalize_index(index, shape):
+  """Returns `index` as a hashable tuple of (start, stop) pairs."""
+  return tuple(
+      s.indices(size)[:2] for s, size in zip(index, shape, strict=True)
+  )
+
+
 def make_multi_device_array(shape, partitioned, pinned_host=False):
   """Creates a partially- or fully-replicated array."""
   num_devices = len(jax.devices())
@@ -333,6 +340,148 @@ class ReplicaSlicesTest(parameterized.TestCase):
     else:
       # With single-replica we transfer a single slice for each shard.
       self.assertLen(rslices.replica_slices, num_partitions)
+
+  @parameterized.parameters([
+      ((64, 64), False),
+      ((64, 64), True),
+      ((13, 64), False),
+  ])
+  def test_get_replica_parallel_sharding(self, shape, partitioned):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, _, _ = make_multi_device_array(shape, partitioned=partitioned)
+
+    sharding = replica_slices.get_replica_parallel_sharding(arr, replica_id=0)
+
+    self.assertIsNotNone(sharding)
+    # Each replica holds the slice that it saves with replica-parallel saving.
+    self.assertEqual(
+        sharding.shard_shape(arr.shape),
+        replica_slices.get_replica_slices(
+            arr, replica_id=0, use_replica_parallel=True
+        ).local_shape,
+    )
+    # The sharding has no replicas, and every device's shard is a slice of its
+    # current shard.
+    current_indices = arr.sharding.devices_indices_map(arr.shape)
+    new_indices = sharding.devices_indices_map(arr.shape)
+    self.assertLen(
+        {_normalize_index(index, arr.shape) for index in new_indices.values()},
+        jax.device_count(),
+    )
+    for device, index in new_indices.items():
+      for (start, stop), (current_start, current_stop) in zip(
+          _normalize_index(index, arr.shape),
+          _normalize_index(current_indices[device], arr.shape),
+      ):
+        self.assertBetween(start, current_start, current_stop)
+        self.assertBetween(stop, current_start, current_stop)
+
+  def test_get_replica_parallel_sharding_unsupported(self):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, _, num_replicas = make_multi_device_array((64, 64), partitioned=False)
+    unsupported = {
+        'local_checkpointing': (arr, dict(replica_id=None)),
+        'other_replica_id': (arr, dict(replica_id=1)),
+        'below_min_slice_bytes': (
+            arr,
+            dict(replica_id=0, min_slice_bytes_for_replica_parallel=arr.nbytes),
+        ),
+        'subset_of_replicas': (
+            arr,
+            dict(
+                replica_id=0,
+                max_replicas_for_replica_parallel=num_replicas // 2,
+            ),
+        ),
+        'no_divisible_axis': (
+            make_multi_device_array((13, 11), partitioned=False)[0],
+            dict(replica_id=0),
+        ),
+        'pinned_host': (
+            make_multi_device_array(
+                (64, 1024), partitioned=False, pinned_host=True
+            )[0],
+            dict(replica_id=0),
+        ),
+        'not_replicated': (
+            jax.device_put(
+                np.arange(64 * jax.device_count()),
+                jax.sharding.NamedSharding(
+                    jax.sharding.Mesh(jax.devices(), ('x',)),
+                    jax.sharding.PartitionSpec('x'),
+                ),
+            ),
+            dict(replica_id=0),
+        ),
+    }
+    for name, (unsupported_arr, kwargs) in unsupported.items():
+      with self.subTest(name):
+        self.assertIsNone(
+            replica_slices.get_replica_parallel_sharding(
+                unsupported_arr, **kwargs
+            )
+        )
+
+  @parameterized.parameters([False, True])
+  def test_slice_replicas_on_device(self, partitioned):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        (64, 64), partitioned=partitioned
+    )
+    sharding = replica_slices.get_replica_parallel_sharding(arr, replica_id=0)
+
+    (sliced,) = replica_slices.slice_replicas_on_device([arr], [sharding])
+
+    self.assertEqual(sliced.sharding, sharding)
+    np.testing.assert_array_equal(np.asarray(sliced), np.asarray(arr))
+    # Each device slices its own shard, without communication between devices.
+    compiled_text = (
+        replica_slices._get_reshard_fn(sharding)  # pylint: disable=protected-access
+        .lower(arr)
+        .compile()
+        .as_text()
+    )
+    for collective in (
+        'all-gather',
+        'all-reduce',
+        'all-to-all',
+        'collective-permute',
+        'reduce-scatter',
+    ):
+      self.assertNotIn(collective, compiled_text)
+    # Saving the sliced array with replica id 0 saves the same slices as saving
+    # the original array replica-parallel.
+    expected, actual = (
+        replica_slices.transfer_arrays_to_host(
+            [a], replica_id=0, use_replica_parallel=True
+        )[0]
+        for a in (arr, sliced)
+    )
+    self.assertEqual(actual.local_shape, expected.local_shape)
+    self.assertLen(actual.replica_slices, num_partitions * num_replicas)
+    expected_data = {
+        _normalize_index(rslice.index, arr.shape): rslice.data()
+        for rslice in expected.replica_slices
+    }
+    actual_data = {
+        _normalize_index(rslice.index, arr.shape): rslice.data()
+        for rslice in actual.replica_slices
+    }
+    self.assertCountEqual(actual_data, expected_data)
+    for index, data in actual_data.items():
+      np.testing.assert_array_equal(data, expected_data[index])
+
+  def test_slice_replicas_on_device_keeps_arrays_without_sharding(self):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires multiple devices.')
+    arr, _, _ = make_multi_device_array((64, 64), partitioned=False)
+
+    (result,) = replica_slices.slice_replicas_on_device([arr], [None])
+
+    self.assertIs(result, arr)
 
   def test_nbytes_no_slicing(self):
     rslice = replica_slices.ReplicaSlice(

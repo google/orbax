@@ -148,6 +148,26 @@ class Dispatcher(abc.ABC):
     """
     ...
 
+  def get_transfer_sharding(
+      self, arr: jax.Array
+  ) -> jax.sharding.Sharding | None:
+    """Returns the sharding with which `arr` is transferred to host, if changed.
+
+    By default, `device_to_host` and `dispatch` transfer each array to host with
+    its own sharding. A dispatcher that reshards arrays on device before their
+    transfer returns the sharding that it reshards `arr` to, e.g. to estimate
+    host memory usage.
+
+    Args:
+      arr: An array to transfer to host.
+
+    Returns:
+      The sharding that `arr` is resharded to before its transfer, or None if
+      it is transferred with its own sharding.
+    """
+    del arr
+    return None
+
 
 class ColocatedPythonDispatcher(Dispatcher):
   """Dispatches functions using colocated Python."""
