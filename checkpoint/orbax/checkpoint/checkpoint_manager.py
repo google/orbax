@@ -1514,6 +1514,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ),
       )
     in_save_wait_start_time = time.time()
+    self._maybe_cancel_in_progress_save_for_target_step(step)
     self._wait_until_finished()
     # Only the wait inside this call falls within the blocking save envelope.
     # `_wait_for_prev_save_duration` also accumulates `wait_until_finished()`
@@ -1706,18 +1707,56 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
-  def _is_continuous_checkpointing_enabled(self) -> bool:
-    """Returns True if continuous checkpointing is enabled."""
-    decision_policy = self._options.save_decision_policy
+  def _get_continuous_checkpointing_policy(
+      self,
+  ) -> save_decision_policy_lib.ContinuousCheckpointingPolicy | None:
+    """Returns the configured ContinuousCheckpointingPolicy, if any."""
+    decision_policy = self._save_decision_policy
     policies = (
         decision_policy.policies
         if isinstance(decision_policy, save_decision_policy_lib.AnySavePolicy)
         else [decision_policy]
     )
-    return any(
-        isinstance(p, save_decision_policy_lib.ContinuousCheckpointingPolicy)
-        for p in policies
+    for p in policies:
+      if isinstance(p, save_decision_policy_lib.ContinuousCheckpointingPolicy):
+        return p
+    return None
+
+  def _is_continuous_checkpointing_enabled(self) -> bool:
+    """Returns True if continuous checkpointing is enabled."""
+    return self._get_continuous_checkpointing_policy() is not None
+
+  def _maybe_cancel_in_progress_save_for_target_step(self, step: int) -> None:
+    """Cancels an in-progress non-target continuous save when saving a target step."""
+    policy = self._get_continuous_checkpointing_policy()
+    if (
+        policy is None
+        or policy.target_interval_steps is None
+        or step % policy.target_interval_steps != 0
+    ):
+      return
+    if not self.is_saving_in_progress():
+      return
+    finalize_thread = self._finalize_thread.get()
+    if finalize_thread is None or not finalize_thread.is_alive():
+      return
+    in_flight_step = finalize_thread.step()
+    if in_flight_step % policy.target_interval_steps == 0:
+      return
+    logging.info(
+        '[process=%s] Cancelling in-progress continuous checkpoint at step %d'
+        ' to prioritize target interval step %d (target_interval_steps=%d).',
+        multihost.process_index(),
+        in_flight_step,
+        step,
+        policy.target_interval_steps,
     )
+    if hasattr(self._checkpointer, 'cancel'):
+      self._checkpointer.cancel()
+    self._wait_until_finished()
+    self._checkpoint_deleter.delete(in_flight_step)
+    self._checkpoints.delete_if(lambda info: info.step == in_flight_step)
+    self._latest_checkpoint_time = self._prior_checkpoint_time
 
   def _maybe_get_default_item(
       self, composite_result: args_lib.Composite
