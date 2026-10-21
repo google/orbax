@@ -35,6 +35,14 @@ PathLike = types.PathLike
 TemporaryPath = atomicity_types.TemporaryPath
 
 
+def _resolve_signals_namespace(context: context_lib.Context) -> str:
+  if future.has_active_signals_namespace():
+    return future.current_signals_namespace()
+  return future.get_signals_namespace(
+      context.multiprocessing_options.v0()
+  )
+
+
 async def _create_paths(
     tmp_path: TemporaryPath,
     *,
@@ -43,6 +51,7 @@ async def _create_paths(
     operation_id: str,
     completion_signals: Sequence[synchronization.HandlerAwaitableSignal],
     blocking_creation: bool = False,
+    signals_namespace: str | None = None,
 ):
   """Creates :py:class:`.`TemporaryPath` and subdirectories."""
   active_processes = context.multiprocessing_options.active_processes
@@ -80,7 +89,10 @@ async def _create_paths(
         'Asynchronous directory creation took %s seconds',
         directory_creation_secs,
     )
-    future.set_signals(completion_signals, operation_id=operation_id)
+    with future.signals_namespace(
+        signals_namespace or future.current_signals_namespace()
+    ):
+      future.set_signals(completion_signals, operation_id=operation_id)
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'create_directory:post',
@@ -238,15 +250,19 @@ class PathAwaitingCreation(types.PathAwaitingCreation):
         synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION,
         synchronization.HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION,
     ]
-    future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
-        completion_signals
-    )
+    context = context_lib.get_context()
+    signals_namespace = _resolve_signals_namespace(context)
+    with future.signals_namespace(signals_namespace):
+      future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
+          completion_signals
+      )
     awaitable = _create_paths(
         path,
         subdirectories=subdirectories,
-        context=context_lib.get_context(),
+        context=context,
         operation_id=synchronization.get_operation_id(),
         completion_signals=completion_signals,
         blocking_creation=blocking_creation,
+        signals_namespace=signals_namespace,
     )
     return cls(path.get(), awaitable)

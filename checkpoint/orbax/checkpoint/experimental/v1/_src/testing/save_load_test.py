@@ -1143,6 +1143,56 @@ class SaveLoadTestSuite:
       ):
         ocp.save(directory, self.pytree)
 
+    def test_save_async_per_process_isolates_signals(self):
+      proc_idx = multihost.process_index()
+      proc_dir = self.directory / f'proc_{proc_idx}'
+
+      async def _asymmetric_create_paths(*args, **kwargs):
+        if multihost.process_index() != 0:
+          await asyncio.sleep(1.5)
+        return await _original_create_paths(*args, **kwargs)
+
+      registry = ocp.handlers.local_registry()
+      registry.add(handler_utils.FooHandler)
+      ctx = ocp.Context(
+          multiprocessing_options=ocp.options.MultiprocessingOptions(
+              primary_host=None,
+              active_processes={proc_idx},
+          ),
+          array_options=ocp.options.ArrayOptions(
+              saving=ocp.options.ArrayOptions.Saving(use_replica_parallel=False)
+          ),
+          checkpointables_options=ocp.options.CheckpointablesOptions(
+              registry=registry
+          ),
+      )
+      with (
+          ctx,
+          mock.patch.object(
+              async_utils, '_create_paths', _asymmetric_create_paths
+          ),
+      ):
+        response = ocp.save_checkpointables_async(
+            proc_dir,
+            {
+                'pytree': self.pytree,
+                'foo': Foo(123 + proc_idx, f'proc_{proc_idx}'),
+            },
+        )
+        response.result()
+        loaded = ocp.load_checkpointables(
+            proc_dir,
+            {
+                'pytree': self.abstract_pytree,
+                'foo': AbstractFoo(),
+            },
+        )
+      test_utils.assert_tree_equal(self, self.pytree, loaded['pytree'])
+      self.assertEqual(
+          Foo(123 + proc_idx, f'proc_{proc_idx}'),
+          loaded['foo'],
+      )
+
     def test_load_and_broadcast(self):
       replica_count = 2
       partition_count = jax.device_count() // replica_count

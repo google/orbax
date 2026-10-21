@@ -34,19 +34,32 @@ from orbax.checkpoint.experimental.v1._src.synchronization import synchronizatio
 class _PathAwaitingCreation(path_types.PathAwaitingCreation):
   """Implementation of :py:class:`~.v1.path.PathAwaitingCreation` that awaits contracted signals."""
 
-  def __init__(self, path: path_types.Path, operation_id: str):
+  def __init__(
+      self,
+      path: path_types.Path,
+      operation_id: str,
+      signals_namespace: str | None = None,
+  ):
     self._path = path
     self._operation_id = operation_id
+    self._signals_namespace = (
+        signals_namespace or future.current_signals_namespace()
+    )
 
   def __truediv__(
       self, other: path_types.PathAwaitingCreation | path_types.PathLike
   ) -> path_types.PathAwaitingCreation:
     if not isinstance(other, path_types.PathLike):
       raise TypeError(f'Expected PathLike, got {type(other)}.')
-    return _PathAwaitingCreation(self._path / other, self._operation_id)
+    return _PathAwaitingCreation(
+        self._path / other,
+        self._operation_id,
+        signals_namespace=self._signals_namespace,
+    )
 
   async def await_creation(self) -> path_types.Path:
-    await synchronization.await_contracted_signals(self._operation_id)
+    with future.signals_namespace(self._signals_namespace):
+      await synchronization.await_contracted_signals(self._operation_id)
     return self._path
 
   @property

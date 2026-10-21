@@ -425,6 +425,73 @@ class AsyncCheckpointerTest(
     self.assertTrue(self.directory.exists())
     self.assertTrue((self.directory / 'state').exists())
 
+  def test_async_save_with_async_directory_creation_per_process(self):
+    """Tests per-process async directory creation isolates signal keys."""
+
+    async def _asymmetric_mkdir_with_delay(path: epath.Path, *args, **kwargs):
+      if multihost.process_index() != 0:
+        await asyncio.sleep(1.0)
+      return await asyncio.to_thread(path.mkdir, *args, **kwargs)
+
+    proc_idx = multihost.process_index()
+    proc_dir = self.directory / f'proc_{proc_idx}'
+    async_options = options_lib.AsyncOptions(
+        create_directories_asynchronously=True
+    )
+    mp_options = options_lib.MultiprocessingOptions(
+        primary_host=None,
+        active_processes={proc_idx},
+    )
+    composite_options = CompositeOptions(
+        async_options=async_options,
+        multiprocessing_options=mp_options,
+    )
+    fn = lambda ty: issubclass(ty, jax.Array)
+    with test_utils.register_type_handler(
+        jax.Array,
+        checkpointer_test_utils.type_handlers.ArrayHandler(
+            primary_host=None,
+            replica_id=None,
+            use_replica_parallel=False,
+        ),
+        fn,
+    ):
+      handler = CompositeCheckpointHandler(
+          composite_options=composite_options,
+          state=PyTreeCheckpointHandler(multiprocessing_options=mp_options),
+      )
+      checkpointer = AsyncCheckpointer(
+          handler,
+          async_options=async_options,
+          multiprocessing_options=mp_options,
+      )
+      self.assertEqual(
+          checkpointer._signals_namespace,
+          f'awaitable_signals_contract_process_{proc_idx}',
+      )
+
+      with mock.patch.object(
+          async_path, 'mkdir', new=_asymmetric_mkdir_with_delay
+      ):
+        checkpointer.save(
+            proc_dir,
+            CompositeArgs(
+                state=args_lib.PyTreeSave(self.pytree),
+            ),
+        )
+        checkpointer.wait_until_finished()
+
+      self.assertTrue(proc_dir.exists())
+      self.assertTrue((proc_dir / 'state').exists())
+      restored = checkpointer.restore(
+          proc_dir,
+          args=CompositeArgs(
+              state=args_lib.PyTreeRestore(),
+          ),
+      )
+      test_utils.assert_tree_equal(self, self.pytree, restored.state)
+      checkpointer.close()
+
   @parameterized.parameters((3,), (8,))
   def test_primary_host_background_error(self, timeout):
     def _assert_false(*args, **kwargs):
