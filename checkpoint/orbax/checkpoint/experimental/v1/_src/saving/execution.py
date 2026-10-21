@@ -110,6 +110,7 @@ class _SaveResponse(AsyncResponse[None]):
     self._context = context
     self._async_origin = async_origin
     self._partial_save = partial_save
+    self._signals_namespace = future.current_signals_namespace()
     self._thread_runner = thread_utils.BackgroundThreadRunner[None](
         self._finalize_save()
     )
@@ -158,79 +159,80 @@ class _SaveResponse(AsyncResponse[None]):
     )
 
   async def _finalize_save(self):
-    logging.info(
-        '[process=%s] Creating directories on %s',
-        multihost.process_index(),
-        self._temporary_path.temporary_path.get(),
-    )
-    await self._temporary_path.path_awaiting_creation.create()
-    logging.info(
-        '[process=%s] Waiting for background save operations',
-        multihost.process_index(),
-    )
-    await self._background_awaitable
-    logging.vlog(
-        1,
-        '[process=%s] Finished waiting for background save operations.',
-        multihost.process_index(),
-    )
-    logging.info(
-        '[process=%s] Finalizing checkpoint on %s',
-        multihost.process_index(),
-        self._temporary_path.temporary_path.get(),
-    )
-
-    if multihost.is_primary_host(
-        self._context.multiprocessing_options.primary_host
-    ):
-      logging.vlog(
-          1,
-          '[process=%s] Writing checkpoint metadata.',
+    with future.signals_namespace(self._signals_namespace):
+      logging.info(
+          '[process=%s] Creating directories on %s',
+          multihost.process_index(),
+          self._temporary_path.temporary_path.get(),
+      )
+      await self._temporary_path.path_awaiting_creation.create()
+      logging.info(
+          '[process=%s] Waiting for background save operations',
           multihost.process_index(),
       )
-      internal_metadata = InternalCheckpointMetadata.create(
-          handler_typestrs=self._handler_typestrs,
-          init_timestamp_nsecs=int(self._start_time * 1e9),
-          commit_timestamp_nsecs=time.time_ns(),
-          custom_metadata=self._custom_metadata,  # pyrefly: ignore[bad-argument-type]
+      await self._background_awaitable
+      logging.vlog(
+          1,
+          '[process=%s] Finished waiting for background save operations.',
+          multihost.process_index(),
       )
-      await metadata_serialization.write(
-          metadata_serialization.checkpoint_metadata_file_path(
-              self._temporary_path.temporary_path.get()
+      logging.info(
+          '[process=%s] Finalizing checkpoint on %s',
+          multihost.process_index(),
+          self._temporary_path.temporary_path.get(),
+      )
+
+      if multihost.is_primary_host(
+          self._context.multiprocessing_options.primary_host
+      ):
+        logging.vlog(
+            1,
+            '[process=%s] Writing checkpoint metadata.',
+            multihost.process_index(),
+        )
+        internal_metadata = InternalCheckpointMetadata.create(
+            handler_typestrs=self._handler_typestrs,
+            init_timestamp_nsecs=int(self._start_time * 1e9),
+            commit_timestamp_nsecs=time.time_ns(),
+            custom_metadata=self._custom_metadata,  # pyrefly: ignore[bad-argument-type]
+        )
+        await metadata_serialization.write(
+            metadata_serialization.checkpoint_metadata_file_path(
+                self._temporary_path.temporary_path.get()
+            ),
+            internal_metadata.serialize(),
+        )
+        logging.vlog(
+            1,
+            '[process=%s] Finished writing checkpoint metadata.',
+            multihost.process_index(),
+        )
+        await atomicity.on_commit_callback(
+            self._temporary_path.temporary_path,
+            checkpoint_start_time=self._start_time,
+        )
+
+      # Clean up all awaitable signals for the current operation id as they are
+      # no longer needed.
+      if self._context.async_options.create_directories_asynchronously:
+        future.AwaitableSignalsContract.remove_all_awaitable_signals(
+            self._operation_id
+        )
+
+      await multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'save_checkpointables_async:finalize',
+              prefix=self._context.multiprocessing_options.barrier_sync_key_prefix,
           ),
-          internal_metadata.serialize(),
+          operation_id=self._operation_id,
+          processes=self._context.multiprocessing_options.active_processes,
       )
-      logging.vlog(
-          1,
-          '[process=%s] Finished writing checkpoint metadata.',
-          multihost.process_index(),
-      )
-      await atomicity.on_commit_callback(
-          self._temporary_path.temporary_path,
-          checkpoint_start_time=self._start_time,
-      )
-
-    # Clean up all awaitable signals for the current operation id as they are
-    # no longer needed.
-    if self._context.async_options.create_directories_asynchronously:
-      future.AwaitableSignalsContract.remove_all_awaitable_signals(
-          self._operation_id
-      )
-
-    await multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'save_checkpointables_async:finalize',
-            prefix=self._context.multiprocessing_options.barrier_sync_key_prefix,
-        ),
-        operation_id=self._operation_id,
-        processes=self._context.multiprocessing_options.active_processes,
-    )
-    total_duration_secs = time.time() - self._start_time
-    event_tracking.OperationRecorder(
-        self._temporary_path.temporary_path.get_final(),
-        operation_type=event_tracking.OperationType.SAVE,
-        async_origin=self._async_origin,
-    ).record_completion(total_duration_secs)
+      total_duration_secs = time.time() - self._start_time
+      event_tracking.OperationRecorder(
+          self._temporary_path.temporary_path.get_final(),
+          operation_type=event_tracking.OperationType.SAVE,
+          async_origin=self._async_origin,
+      ).record_completion(total_duration_secs)
 
   def result(self, timeout: float | None = None) -> None:
     return self._thread_runner.result(timeout=timeout)
@@ -305,16 +307,27 @@ async def _run_blocking_save(
     )
 
 
-def _check_directory_consistency(directory: path_types.PathLike):
+def _check_directory_consistency(
+    directory: path_types.PathLike,
+    *,
+    context: context_lib.Context | None = None,
+):
   """Raises error if directory paths are not consistent across processes.
 
   Args:
     directory: The directory path to check.
+    context: Optional context to check multiprocessing options.
 
   Raises:
     ValueError: If the directory paths are not consistent across processes.
   """
-  if multihost.process_count() <= 1:
+  context = context or context_lib.get_context()
+  mp_options = context.multiprocessing_options
+  if (
+      multihost.process_count() <= 1
+      or mp_options.primary_host is None
+      or mp_options.active_processes is not None
+  ):
     return
 
   path_str = str(directory)
@@ -398,6 +411,9 @@ def save_checkpointables_impl(
       async_origin=async_origin,
   ).record_start(start_time)
   context = context_lib.get_context()
+  signals_namespace = future.get_signals_namespace(
+      context.multiprocessing_options.v0()
+  )
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each save operation.
   asyncio_utils.run_sync(
@@ -408,37 +424,38 @@ def save_checkpointables_impl(
   )
 
   path = context.file_options.path_class(path)
-  _check_directory_consistency(path)
+  _check_directory_consistency(path, context=context)
   # Prevent internal mutation from affecting the caller.
   checkpointables = dict(checkpointables)
   checkpointables = add_internal_checkpointables(
       checkpointables, context=context
   )
   snapshot_type = snapshot_lib.SnapshotType.EMPTY if partial_save else None
-  temporary_path = _TemporaryPathAwaitingCreation(
-      path,
-      subdirectories=checkpointables.keys(),
-      snapshot_type=snapshot_type,
-      blocking_creation=_should_create_directories_synchronously(
-          context, partial_save
-      ),
-  )
-  background_awaitable = asyncio_utils.run_sync(
-      _run_blocking_save(
-          temporary_path,
-          checkpointables,
-          overwrite=overwrite,
-          context=context,
-          partial_save=partial_save,
-      )
-  )
-  return _SaveResponse.create(
-      background_awaitable,
-      checkpointables,
-      temporary_path,
-      start_time,
-      context=context,
-      custom_metadata=custom_metadata,
-      async_origin=async_origin,
-      partial_save=partial_save,
-  )
+  with future.signals_namespace(signals_namespace):
+    temporary_path = _TemporaryPathAwaitingCreation(
+        path,
+        subdirectories=checkpointables.keys(),
+        snapshot_type=snapshot_type,
+        blocking_creation=_should_create_directories_synchronously(
+            context, partial_save
+        ),
+    )
+    background_awaitable = asyncio_utils.run_sync(
+        _run_blocking_save(
+            temporary_path,
+            checkpointables,
+            overwrite=overwrite,
+            context=context,
+            partial_save=partial_save,
+        )
+    )
+    return _SaveResponse.create(
+        background_awaitable,
+        checkpointables,
+        temporary_path,
+        start_time,
+        context=context,
+        custom_metadata=custom_metadata,
+        async_origin=async_origin,
+        partial_save=partial_save,
+    )

@@ -23,6 +23,7 @@ import time
 from typing import Any, Callable, Coroutine, Iterator, Optional, Sequence
 
 from absl import logging
+from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.futures import synchronization
@@ -40,10 +41,40 @@ _SIGNALS_NAMESPACE: contextvars.ContextVar[Optional[str]] = (
 )
 
 
+def has_active_signals_namespace() -> bool:
+  """Returns True if an explicit signals namespace is active in context."""
+  return _SIGNALS_NAMESPACE.get() is not None
+
+
 def current_signals_namespace() -> str:
   """Returns the active signals namespace, or the default prefix if unset."""
   namespace = _SIGNALS_NAMESPACE.get()
   return namespace or AwaitableSignalsContract.awaitable_signals_contract_prefix
+
+
+def get_signals_namespace(
+    multiprocessing_options: Optional[
+        options_lib.MultiprocessingOptions
+    ] = None,
+    *,
+    enable_per_process_directory_creation: bool = False,
+) -> str:
+  """Builds a signals namespace isolated by barrier prefix and process."""
+  mp_opts = multiprocessing_options or options_lib.MultiprocessingOptions()
+  parts = [AwaitableSignalsContract.awaitable_signals_contract_prefix]
+  if mp_opts.barrier_sync_key_prefix is not None:
+    parts.insert(0, mp_opts.barrier_sync_key_prefix)
+  if (
+      enable_per_process_directory_creation
+      or mp_opts.primary_host is None
+  ):
+    parts.append(f'process_{multihost.process_index()}')
+  elif mp_opts.active_processes is not None:
+    sorted_procs = '_'.join(
+        str(p) for p in sorted(mp_opts.active_processes)
+    )
+    parts.append(f'processes_{sorted_procs}')
+  return '_'.join(parts)
 
 
 @contextlib.contextmanager

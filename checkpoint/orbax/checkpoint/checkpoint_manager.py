@@ -714,12 +714,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     # Per-manager namespace for awaitable-signal keys, applied around save
     # dispatch so that other managers in the same process are unaffected.
-    self._signals_namespace = (
-        self._multiprocessing_options.barrier_sync_key_prefix
-        or future.AwaitableSignalsContract.awaitable_signals_contract_prefix
+    self._signals_namespace = future.get_signals_namespace(
+        self._multiprocessing_options,
+        enable_per_process_directory_creation=(
+            self._options.enable_per_process_directory_creation
+        ),
     )
-    if self._options.enable_per_process_directory_creation:
-      self._signals_namespace += f'_{multihost.process_index()}'
 
     self._save_decision_policy = (
         self._options.save_decision_policy

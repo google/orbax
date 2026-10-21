@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import ast
+import asyncio
 from concurrent import futures
 import datetime
 import os
@@ -2342,6 +2343,74 @@ class CheckpointManagerTest(
         self.assertDictEqual(json_data, restored['json'])
         test_utils.assert_tree_equal(
             self, self.doubled_pytree, restored['standard']
+        )
+
+  def test_save_restore_local_fs_async_directory_creation(self):
+    """Tests primary_host=None with async directory creation isolates signals."""
+    proc_idx = multihost.process_index()
+    test_dir = self.directory / f'proc_{proc_idx}'
+    test_dir.mkdir(parents=True)
+    orig_create_paths = atomicity._create_paths
+
+    async def _asymmetric_create_paths(*pos_args, **kwargs):
+      if multihost.process_index() != 0:
+        await asyncio.sleep(1.0)
+      return await orig_create_paths(*pos_args, **kwargs)
+
+    fn = lambda ty: issubclass(ty, jax.Array)
+    with test_utils.register_type_handler(
+        jax.Array,
+        type_handlers.ArrayHandler(
+            primary_host=None,
+            replica_id=None,
+            use_replica_parallel=False,
+        ),
+        fn,
+    ):
+      options = CheckpointManagerOptions(
+          enable_async_checkpointing=True,
+          async_options=checkpoint_manager.AsyncOptions(
+              create_directories_asynchronously=True
+          ),
+          multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+              primary_host=None,
+              active_processes={proc_idx},
+          ),
+          create=False,
+      )
+      with CheckpointManager(
+          test_dir,
+          options=options,
+          item_handlers={
+              'state': StandardCheckpointHandler(
+                  multiprocessing_options=options.multiprocessing_options
+              ),
+          },
+      ) as manager:
+        self.assertEqual(
+            manager._signals_namespace,
+            f'awaitable_signals_contract_process_{proc_idx}',
+        )
+        with mock.patch.object(
+            atomicity, '_create_paths', new=_asymmetric_create_paths
+        ):
+          self.assertTrue(
+              manager.save(
+                  0,
+                  args=args.Composite(
+                      state=args.StandardSave(self.doubled_pytree),
+                  ),
+              )
+          )
+          self.wait_if_async(manager)
+        restored = manager.restore(
+            0,
+            args=args.Composite(
+                state=args.StandardRestore(),
+            ),
+        )
+        test_utils.assert_tree_equal(
+            self, self.doubled_pytree, restored['state']
         )
 
   def test_save_and_restore_composite_logger(self):
