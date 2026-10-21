@@ -325,6 +325,171 @@ class ManagedDeletionTest(parameterized.TestCase):
     self.ckptr.delete(2)
     self.assert_latest_step(1)
 
+  @parameterized.parameters(
+      'save',
+      'save_async',
+      'save_checkpointables',
+      'save_checkpointables_async',
+  )
+  def test_overwrite_skipped_by_policy_preserves_checkpoint(self, method):
+    self.ckptr.close()
+    policy: Any = ocp.training.save_decision_policies.FixedIntervalPolicy(10)
+    self.ckptr = ocp.training.Checkpointer(
+        self.directory,
+        save_decision_policy=policy,
+    )
+    new_state: Any = {'weights': np.ones(8)}
+    if method in ('save', 'save_async'):
+      self.assertTrue(
+          self.ckptr.save(
+              5,
+              self.state,
+              force=True,
+              metrics={'loss': 0.5},
+              custom_metadata={'model': 'initial'},
+          )
+      )
+      if method == 'save':
+        self.assertFalse(
+            self.ckptr.save(
+                5,
+                new_state,
+                overwrite=True,
+                metrics={'loss': 0.1},
+                custom_metadata={'model': 'overwritten'},
+            )
+        )
+      else:
+        self.assertIsNone(
+            self.ckptr.save_async(
+                5,
+                new_state,
+                overwrite=True,
+                metrics={'loss': 0.1},
+                custom_metadata={'model': 'overwritten'},
+            )
+        )
+      self.assertTrue((self.directory / '5').exists())
+      self.assertEqual([c.step for c in self.ckptr.checkpoints], [5])
+      np.testing.assert_array_equal(
+          typing.cast(dict[str, Any], self.ckptr.load(5))['weights'],
+          self.state['weights'],
+      )
+      meta = self.ckptr.metadata(5)
+      self.assertEqual(meta.metrics, {'loss': 0.5})
+      self.assertEqual(meta.custom_metadata, {'model': 'initial'})
+    else:
+      self.save(5)
+      if method == 'save_checkpointables':
+        self.assertFalse(
+            self.ckptr.save_checkpointables(
+                5,
+                {'state': new_state},
+                overwrite=True,
+                metrics={'loss': 0.1},
+                custom_metadata={'model': 'overwritten'},
+            )
+        )
+      else:
+        self.assertIsNone(
+            self.ckptr.save_checkpointables_async(
+                5,
+                {'state': new_state},
+                overwrite=True,
+                metrics={'loss': 0.1},
+                custom_metadata={'model': 'overwritten'},
+            )
+        )
+      self.assertTrue((self.directory / '5').exists())
+      self.assertEqual([c.step for c in self.ckptr.checkpoints], [5])
+      loaded = self.ckptr.load_checkpointables(5)
+      self.assertEqual(set(loaded), {'state', 'optimizer'})
+      np.testing.assert_array_equal(
+          loaded['state']['weights'], self.state['weights']
+      )
+      meta = self.ckptr.checkpointables_metadata(5)
+      self.assertEqual(meta.metrics, {'loss': 0.5})
+      self.assertEqual(meta.custom_metadata, {'model': 'test'})
+
+  def test_overwrite_allowed_by_policy_and_evaluated_once(self):
+    calls: list[tuple[int, list[int]]] = []
+    inner_policy = ocp.training.save_decision_policies.AnySavePolicy([
+        ocp.training.save_decision_policies.InitialSavePolicy(),
+        ocp.training.save_decision_policies.FixedIntervalPolicy(10),
+    ])
+
+    class RecordingPolicy(
+        ocp.training.save_decision_policies.SaveDecisionPolicy
+    ):
+
+      def should_save(self, step, previous_steps, *, context):
+        calls.append((step.step, [p.step for p in previous_steps]))
+        return inner_policy.should_save(step, previous_steps, context=context)
+
+    self.ckptr.close()
+    self.ckptr = ocp.training.Checkpointer(
+        self.directory, save_decision_policy=RecordingPolicy()
+    )
+    self.assertTrue(self.ckptr.save(0, self.state, metrics={'loss': 0.5}))
+    calls.clear()
+
+    new_state_0: Any = {'weights': np.ones(8)}
+    # Overwriting the only existing checkpoint should evaluate policy once with
+    # empty previous_steps and succeed.
+    self.assertTrue(
+        self.ckptr.save(
+            0, new_state_0, overwrite=True, metrics={'loss': 0.2}
+        )
+    )
+    self.assertEqual(calls, [(0, [])])
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(0))['weights'], np.ones(8)
+    )
+    self.assertEqual(self.ckptr.metadata(0).metrics, {'loss': 0.2})
+
+    self.assertTrue(self.ckptr.save(10, self.state))
+    calls.clear()
+    new_state_10: Any = {'weights': np.full(8, 2)}
+    self.assertTrue(
+        self.ckptr.save(10, new_state_10, overwrite=True)
+    )
+    self.assertEqual(calls, [(10, [0])])
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(10))['weights'],
+        np.full(8, 2),
+    )
+
+  def test_overwrite_older_step_when_newer_step_exists(self):
+    self.ckptr.close()
+    policy: Any = ocp.training.save_decision_policies.FixedIntervalPolicy(10)
+    self.ckptr = ocp.training.Checkpointer(
+        self.directory,
+        save_decision_policy=policy,
+    )
+    self.assertTrue(self.ckptr.save(0, self.state))
+    self.assertTrue(self.ckptr.save(10, self.state))
+
+    new_state: Any = {'weights': np.ones(8)}
+    # Without force=True, overwriting an older step is rejected and preserves
+    # the existing checkpoint at step 0.
+    self.assertFalse(
+        self.ckptr.save(0, new_state, overwrite=True)
+    )
+    self.assertEqual([c.step for c in self.ckptr.checkpoints], [0, 10])
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(0))['weights'],
+        self.state['weights'],
+    )
+
+    # With force=True, overwriting an older step succeeds.
+    self.assertTrue(
+        self.ckptr.save(0, new_state, overwrite=True, force=True)
+    )
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(0))['weights'],
+        np.ones(8),
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

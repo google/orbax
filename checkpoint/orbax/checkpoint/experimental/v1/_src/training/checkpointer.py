@@ -27,6 +27,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.logging import abstract_logger
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.deletion import execution as deletion_execution
 from orbax.checkpoint.experimental.v1._src.deletion import validation as deletion_validation
@@ -583,20 +584,29 @@ class Checkpointer(epy.ContextManager):
     self._wait_for_deletion()
     context = context_lib.get_context(self._context)
     saving_validation.validate_save_checkpointables(checkpointables)
-    if overwrite:
-      logging.info(
-          'Specified `overwrite`: deleting existing checkpoint %d if it'
-          ' exists.',
-          step,
-      )
-      try:
-        self._manager.delete(step)
-      except FileNotFoundError:
-        pass
-    elif any(c.step == step for c in self.checkpoints):
+    if not overwrite and any(c.step == step for c in self.checkpoints):
       raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
 
     with context:
+      if overwrite:
+        if not force:
+          previous_steps = checkpoint_info.CheckpointInfos(
+              [c for c in self._manager._checkpoints if c.step != step]  # pylint: disable=protected-access
+          )
+          if not self._manager._should_save(  # pylint: disable=protected-access
+              step, previous_steps=previous_steps
+          ):
+            return None
+          force = True
+        logging.info(
+            'Specified `overwrite`: deleting existing checkpoint %d if it'
+            ' exists.',
+            step,
+        )
+        try:
+          self._manager.delete(step)
+        except FileNotFoundError:
+          pass
       checkpointer, args = saving.get_v0_checkpointer_and_args(
           checkpointables, metrics=metrics
       )
