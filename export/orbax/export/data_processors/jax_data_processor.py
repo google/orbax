@@ -202,6 +202,8 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
       shapes_specs = ('...', jax_input_shapes_specs)
 
       ckp_path = self._options.checkpoint_path or 'processor_checkpoint'
+      ckpt_weights_name = self._options.weights_name or f'params_{self.name}'
+      weights_name: str | None = ckpt_weights_name
 
       def _save_checkpoint(
           model_path: str,
@@ -209,9 +211,8 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
         checkpoint_path = pathlib.Path(model_path) / ckp_path / self.name
         jax2obm.save_checkpoint(self._params, checkpoint_path)
 
-        weight_name = self._options.weights_name or f'params_{self.name}'
         return {
-            weight_name: jax2obm.convert_path_to_value(
+            ckpt_weights_name: jax2obm.convert_path_to_value(
                 str(pathlib.Path(ckp_path) / self.name),
                 constants.ORBAX_CHECKPOINT_MIME_TYPE,
             )
@@ -219,6 +220,7 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
 
       self._save_fn = _save_checkpoint
     else:
+      weights_name = None
       args = (jax_input_args,)
       shapes_specs = (jax_input_shapes_specs,)
 
@@ -253,6 +255,7 @@ class JaxDataProcessor(data_processor_base.DataProcessor):
         platforms=platforms,
         native_serialization_disabled_checks=self._options.native_serialization_disabled_checks,
         model_param_names=jax.tree.leaves(param_names_tree),
+        weights_name=weights_name,
         # TODO: b/485622993 - Add other options if needed.
     )
 
