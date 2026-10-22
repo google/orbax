@@ -61,6 +61,8 @@ RUN pip install -U --no-cache-dir \
     "requests>=2.33.0"
 
 ARG JAX_VERSION=newest
+# tpu, gpu, cpu, or simdevice. simdevice builds on a SimDevice base image
+# (see build_image.sh), which already has JAX and the SimDevice plugin.
 ARG DEVICE=tpu
 
 # Install GCSFS, Portpicker, and safetensors-loader dependencies
@@ -78,7 +80,9 @@ RUN if [ "$DEVICE" = "gpu" ]; then \
 RUN if [ -f "requirements.txt" ]; then pip install --no-cache-dir -r requirements.txt; fi
 
 # Install JAX (Flexible Versions)
-RUN if [ "$JAX_VERSION" = "newest" ]; then \
+RUN if [ "$DEVICE" = "simdevice" ]; then \
+      echo "Keeping the SimDevice base image's JAX."; \
+    elif [ "$JAX_VERSION" = "newest" ]; then \
       if [ "$DEVICE" = "gpu" ]; then \
         pip install --no-cache-dir -U "jax[k8s,cuda12]" jaxlib; \
       elif [ "$DEVICE" = "tpu" ]; then \
@@ -111,11 +115,15 @@ RUN pip install --no-cache-dir .
 RUN pip install pathwaysutils tensorboard cloudpickle
 
 # 5. Environment Setup
-# Set PYTHONPATH so 'import orbax' works from the correctly mapped directory
-ENV PYTHONPATH=/app/orbax_repo/checkpoint
+# Set PYTHONPATH so 'import orbax' works from the correctly mapped directory.
+# Keeps the base image's PYTHONPATH, e.g. /app for the SimDevice plugin.
+ENV PYTHONPATH=/app/orbax_repo/checkpoint${PYTHONPATH:+:${PYTHONPATH}}
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"
+RUN if [ "$DEVICE" = "simdevice" ]; then \
+      python3 -c "import simdevice; print('SimDevice installed:', simdevice.__file__)"; \
+    fi
 
 # 6. Entrypoint
 # We point to the benchmark script relative to the repo root structure
