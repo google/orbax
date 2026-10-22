@@ -427,11 +427,21 @@ def sync_global_processes(
   )
 
 
+_last_logged_preemption_step: Optional[int] = None
+
+
 def _maybe_log_reached_preemption(
     step: int, preemption_sync_point_reached: bool
 ):
+  """Logs and records a preemption event once per preemption step."""
+  global _last_logged_preemption_step
   if not preemption_sync_point_reached:
+    if _last_logged_preemption_step == step:
+      _last_logged_preemption_step = None
     return
+  if _last_logged_preemption_step == step:
+    return
+  _last_logged_preemption_step = step
   jax.monitoring.record_event('/jax/orbax/write/preemption')
   logging.warning(
       '[process=%s][thread=%s] Reached preemption sync point, step=%s',
