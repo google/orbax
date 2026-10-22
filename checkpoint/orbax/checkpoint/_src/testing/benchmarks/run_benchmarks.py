@@ -31,6 +31,7 @@ import jax
 from orbax.checkpoint._src.testing.benchmarks.core import checkpoint_generation
 from orbax.checkpoint._src.testing.benchmarks.core import config_parsing
 from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
+from orbax.checkpoint._src.testing.benchmarks.core import launch_env
 from orbax.checkpoint._src.testing.benchmarks.core import simdevice_backend
 
 try:
@@ -93,6 +94,16 @@ def _init_jax_distributed():
       jax_process_id = os.environ.get('JAX_PROCESS_ID')
       jax_num_processes = os.environ.get('JAX_NUM_PROCESSES')
       jax_coordinator_port = os.environ.get('JAX_COORDINATOR_PORT')
+      if jax_process_id is None and (jax_platforms or '').startswith('cpu'):
+        # CPU runs on several machines (e.g. XPK CPU pods) take their place in
+        # the launch from the platform's environment. TPU and GPU runs rely on
+        # JAX's own cluster detection.
+        launch = launch_env.resolve_multi_task()
+        if launch is not None:
+          logging.info('Launch environment: %s', launch)
+          jax_coordinator_address = launch.coordinator_address
+          jax_process_id = str(launch.task_id)
+          jax_num_processes = str(launch.num_tasks)
       logging.info('JAX_PLATFORMS: %s', jax_platforms)
       logging.info(
           'JAX_COORDINATOR_ADDRESS: %s',

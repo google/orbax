@@ -21,9 +21,9 @@ before any JAX backend starts, i.e. before the first `jax.devices()`.
 
 With `num_processes > 1`, each simulated host is its own process.
 `run_local_cluster` starts them as child processes: all of them on a single
-machine, or an even share of them on each task of a multi-task launch (e.g.
-Borg), which sets `SIMDEVICE_TASK_ID` and `SIMDEVICE_NUM_TASKS`. A launcher
-can also start every simulated host itself and set `SIMDEVICE_PROCESS_ID`.
+machine, or an even share of them on each task of a multi-task launch (Borg,
+GKE, GCE VMs; see `launch_env`). A launcher can also start every simulated
+host itself and set `SIMDEVICE_PROCESS_ID`.
 """
 
 import atexit
@@ -41,17 +41,10 @@ from absl import logging
 import jax
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.testing.benchmarks.core import configs
+from orbax.checkpoint._src.testing.benchmarks.core import launch_env
 import yaml
 
 _PROCESS_ID_ENV = 'SIMDEVICE_PROCESS_ID'
-# Set by a multi-task launcher: this task's index and the number of tasks. The
-# launcher also sets the barrier and JAX coordinator addresses (task 0).
-_TASK_ID_ENV = 'SIMDEVICE_TASK_ID'
-_NUM_TASKS_ENV = 'SIMDEVICE_NUM_TASKS'
-_LAUNCHER_ADDRESS_ENVS = (
-    'SIMDEVICE_BARRIER_ADDRESS',
-    'JAX_COORDINATOR_ADDRESS',
-)
 # Multi-process launchers set one of these: the environment variables for
 # `jax.distributed`, or the flag for  JAX on Borg.
 _JAX_PROCESS_ENVS = ('JAX_PROCESS_ID', 'JAX_COORDINATOR_ADDRESS')
@@ -143,17 +136,19 @@ def needs_local_cluster(config: configs.SimDeviceConfig) -> bool:
     config: The simulated cluster.
 
   Raises:
-    RuntimeError: If a launcher started this process as one of several but set
-      neither `SIMDEVICE_PROCESS_ID` nor `SIMDEVICE_TASK_ID`. Each process
-      would otherwise start its own local cluster and pass on its own.
+    RuntimeError: If a launcher started this process as one of several but
+      neither set `SIMDEVICE_PROCESS_ID` nor said which task this is (see
+      `launch_env`). Each process would otherwise start its own local cluster
+      and pass on its own.
+    ValueError: If the launch environment is incomplete.
   """
   if config.num_processes == 1 or _PROCESS_ID_ENV in os.environ:
     return False
-  if _TASK_ID_ENV not in os.environ and _started_as_one_of_many():
+  if launch_env.resolve_multi_task() is None and _started_as_one_of_many():
     raise RuntimeError(
         'This process was started as one of several, but neither'
-        f' {_PROCESS_ID_ENV} nor {_TASK_ID_ENV} is set. The launcher must set'
-        ' one of them, e.g. to %task% on Borg.'
+        f' {_PROCESS_ID_ENV} nor {launch_env.TASK_ID_ENV} is set. The launcher'
+        ' must set one of them, e.g. to %task% on Borg.'
     )
   return True
 
@@ -170,45 +165,47 @@ def _pick_unused_ports(count: int) -> list[int]:
     return [sock.getsockname()[1] for sock in sockets]
 
 
-def _local_process_ids(config: configs.SimDeviceConfig) -> range:
+def _local_process_ids(
+    config: configs.SimDeviceConfig, launch: launch_env.LaunchEnv | None
+) -> range:
   """Returns the ids of the simulated hosts this process starts.
 
   Args:
     config: The simulated cluster.
+    launch: This task's place in a multi-task launch, or None.
 
   Raises:
     ValueError: If the simulated hosts do not split evenly across the
       launcher's tasks.
   """
-  if _TASK_ID_ENV not in os.environ:
+  if launch is None:
     return range(config.num_processes)
-  task_id = int(os.environ[_TASK_ID_ENV])
-  num_tasks = int(os.environ[_NUM_TASKS_ENV])
-  if config.num_processes % num_tasks:
+  if config.num_processes % launch.num_tasks:
     raise ValueError(
         f'simdevice.num_processes ({config.num_processes}) must be a multiple'
-        f' of the number of launcher tasks ({num_tasks}).'
+        f' of the number of launcher tasks ({launch.num_tasks}).'
     )
-  per_task = config.num_processes // num_tasks
-  return range(task_id * per_task, (task_id + 1) * per_task)
+  per_task = config.num_processes // launch.num_tasks
+  return range(launch.task_id * per_task, (launch.task_id + 1) * per_task)
 
 
-def _cluster_env() -> dict[str, str]:
+def _cluster_env(launch: launch_env.LaunchEnv | None) -> dict[str, str]:
   """Returns the barrier and JAX coordinator settings for the children.
 
-  A multi-task launcher provides them (they point at task 0); on a single
-  machine this process picks free local ports.
+  On a multi-task launch they point at task 0; on a single machine this
+  process picks free local ports.
 
-  Raises:
-    ValueError: If a multi-task launcher did not provide them.
+  Args:
+    launch: This task's place in a multi-task launch, or None.
   """
-  if _TASK_ID_ENV in os.environ:
-    missing = [
-        name for name in _LAUNCHER_ADDRESS_ENVS if name not in os.environ
-    ]
-    if missing:
-      raise ValueError(f'{_TASK_ID_ENV} is set, but {missing} are not.')
-    return {}
+  if launch is not None:
+    env = {
+        'SIMDEVICE_BARRIER_ADDRESS': launch.barrier_address,
+        'JAX_COORDINATOR_ADDRESS': launch.coordinator_address,
+    }
+    if launch.barrier_port is not None:
+      env['SIMDEVICE_BARRIER_PORT'] = str(launch.barrier_port)
+    return env
   coordinator_port, barrier_port = _pick_unused_ports(2)
   return {
       'SIMDEVICE_BARRIER_ADDRESS': f'localhost:{barrier_port}',
@@ -234,11 +231,16 @@ def run_local_cluster(
 
   Raises:
     RuntimeError: If any simulated host fails.
+    ValueError: If the launch environment is incomplete, or the simulated hosts
+      do not split evenly across the launcher's tasks.
   """
   if command is None:
     command = sys.orig_argv
-  process_ids = _local_process_ids(config)
-  cluster_env = dict(os.environ, **_cluster_env())
+  launch = launch_env.resolve_multi_task()
+  if launch is not None:
+    logging.info('Launch environment: %s', launch)
+  process_ids = _local_process_ids(config, launch)
+  cluster_env = dict(os.environ, **_cluster_env(launch))
   children = []
   for process_id in process_ids:
     env = dict(

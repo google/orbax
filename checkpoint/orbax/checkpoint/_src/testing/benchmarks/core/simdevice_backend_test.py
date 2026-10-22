@@ -60,7 +60,19 @@ _LAUNCH_ENVS = (
     'SIMDEVICE_BARRIER_PORT',
     'JAX_PROCESS_ID',
     'JAX_COORDINATOR_ADDRESS',
+    'JOBSET_NAME',
 )
+
+# What XPK sets on the second pod of a two-pod CPU JobSet.
+_XPK_POD_1 = {
+    'JOBSET_NAME': 'bench',
+    'REPLICATED_JOB_NAME': 'slice-job',
+    'JOB_INDEX': '0',
+    'JOB_COMPLETION_INDEX': '1',
+    'PROCESSES_IN_JOB': '2',
+    'JAX_PROCESS_COUNT': '2',
+    'JAX_COORDINATOR_ADDRESS': 'bench-slice-job-0-0.bench',
+}
 
 
 def _read_env_file(path: epath.Path) -> dict[str, str]:
@@ -229,8 +241,23 @@ class NeedsLocalClusterTest(absltest.TestCase):
       simdevice_backend.needs_local_cluster(self.config)
 
   def test_launcher_task_without_host_id(self):
-    os.environ['JAX_COORDINATOR_ADDRESS'] = 'task0:jax'
+    os.environ.update(
+        SIMDEVICE_TASK_ID='1',
+        SIMDEVICE_NUM_TASKS='2',
+        SIMDEVICE_BARRIER_ADDRESS='task0:barrier',
+        JAX_COORDINATOR_ADDRESS='task0:jax',
+    )
+
+    self.assertTrue(simdevice_backend.needs_local_cluster(self.config))
+
+  def test_incomplete_launcher_task_raises(self):
     os.environ['SIMDEVICE_TASK_ID'] = '1'
+
+    with self.assertRaisesRegex(ValueError, 'SIMDEVICE_NUM_TASKS'):
+      simdevice_backend.needs_local_cluster(self.config)
+
+  def test_xpk_pod_without_host_id(self):
+    os.environ.update(_XPK_POD_1)
 
     self.assertTrue(simdevice_backend.needs_local_cluster(self.config))
 
@@ -302,6 +329,27 @@ class RunLocalClusterTest(absltest.TestCase):
         self.assertEqual(host_env['JAX_NUM_PROCESSES'], '4')
         self.assertEqual(host_env['JAX_COORDINATOR_ADDRESS'], 'task0:jax')
         self.assertEqual(host_env['SIMDEVICE_BARRIER_ADDRESS'], 'task0:barrier')
+
+  def test_xpk_pod_runs_its_share(self):
+    os.environ.update(_XPK_POD_1)
+    output_dir = epath.Path(self.create_tempdir().full_path)
+    config = dataclasses.replace(_CONFIG, num_processes=4)
+
+    simdevice_backend.run_local_cluster(
+        config, command=[*_WRITE_HOST_ENV, str(output_dir)]
+    )
+
+    self.assertCountEqual(
+        [path.name for path in output_dir.iterdir()], ['2', '3']
+    )
+    host_env = _read_env_file(output_dir / '2')
+    self.assertEqual(
+        host_env['JAX_COORDINATOR_ADDRESS'], 'bench-slice-job-0-0.bench:1234'
+    )
+    self.assertEqual(
+        host_env['SIMDEVICE_BARRIER_ADDRESS'], 'bench-slice-job-0-0.bench:50051'
+    )
+    self.assertEqual(host_env['SIMDEVICE_BARRIER_PORT'], '50051')
 
   def test_uneven_split_raises(self):
     os.environ.update(
