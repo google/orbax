@@ -19,9 +19,11 @@ allocating device memory or doing math. A benchmark YAML opts in with a
 `simdevice:` block (see `configs.SimDeviceConfig`); `activate` must then run
 before any JAX backend starts, i.e. before the first `jax.devices()`.
 
-With `num_processes > 1`, each simulated host is its own process. A launcher
-that starts them (e.g. on Borg) sets `SIMDEVICE_PROCESS_ID` for each one; on a
-single machine, `run_local_cluster` starts them as child processes.
+With `num_processes > 1`, each simulated host is its own process.
+`run_local_cluster` starts them as child processes: all of them on a single
+machine, or an even share of them on each task of a multi-task launch (e.g.
+Borg), which sets `SIMDEVICE_TASK_ID` and `SIMDEVICE_NUM_TASKS`. A launcher
+can also start every simulated host itself and set `SIMDEVICE_PROCESS_ID`.
 """
 
 import atexit
@@ -42,6 +44,14 @@ from orbax.checkpoint._src.testing.benchmarks.core import configs
 import yaml
 
 _PROCESS_ID_ENV = 'SIMDEVICE_PROCESS_ID'
+# Set by a multi-task launcher: this task's index and the number of tasks. The
+# launcher also sets the barrier and JAX coordinator addresses (task 0).
+_TASK_ID_ENV = 'SIMDEVICE_TASK_ID'
+_NUM_TASKS_ENV = 'SIMDEVICE_NUM_TASKS'
+_LAUNCHER_ADDRESS_ENVS = (
+    'SIMDEVICE_BARRIER_ADDRESS',
+    'JAX_COORDINATOR_ADDRESS',
+)
 # Multi-process launchers set one of these: the environment variables for
 # `jax.distributed`, or the flag for  JAX on Borg.
 _JAX_PROCESS_ENVS = ('JAX_PROCESS_ID', 'JAX_COORDINATOR_ADDRESS')
@@ -133,17 +143,17 @@ def needs_local_cluster(config: configs.SimDeviceConfig) -> bool:
     config: The simulated cluster.
 
   Raises:
-    RuntimeError: If a launcher started this process as one of several but did
-      not set `SIMDEVICE_PROCESS_ID`. Each process would otherwise start its
-      own local cluster and pass on its own.
+    RuntimeError: If a launcher started this process as one of several but set
+      neither `SIMDEVICE_PROCESS_ID` nor `SIMDEVICE_TASK_ID`. Each process
+      would otherwise start its own local cluster and pass on its own.
   """
   if config.num_processes == 1 or _PROCESS_ID_ENV in os.environ:
     return False
-  if _started_as_one_of_many():
+  if _TASK_ID_ENV not in os.environ and _started_as_one_of_many():
     raise RuntimeError(
-        f'This process was started as one of several, but {_PROCESS_ID_ENV}'
-        ' is not set. The launcher must set it to the simulated host id, e.g.'
-        ' %task% on Borg.'
+        'This process was started as one of several, but neither'
+        f' {_PROCESS_ID_ENV} nor {_TASK_ID_ENV} is set. The launcher must set'
+        ' one of them, e.g. to %task% on Borg.'
     )
   return True
 
@@ -160,11 +170,59 @@ def _pick_unused_ports(count: int) -> list[int]:
     return [sock.getsockname()[1] for sock in sockets]
 
 
+def _local_process_ids(config: configs.SimDeviceConfig) -> range:
+  """Returns the ids of the simulated hosts this process starts.
+
+  Args:
+    config: The simulated cluster.
+
+  Raises:
+    ValueError: If the simulated hosts do not split evenly across the
+      launcher's tasks.
+  """
+  if _TASK_ID_ENV not in os.environ:
+    return range(config.num_processes)
+  task_id = int(os.environ[_TASK_ID_ENV])
+  num_tasks = int(os.environ[_NUM_TASKS_ENV])
+  if config.num_processes % num_tasks:
+    raise ValueError(
+        f'simdevice.num_processes ({config.num_processes}) must be a multiple'
+        f' of the number of launcher tasks ({num_tasks}).'
+    )
+  per_task = config.num_processes // num_tasks
+  return range(task_id * per_task, (task_id + 1) * per_task)
+
+
+def _cluster_env() -> dict[str, str]:
+  """Returns the barrier and JAX coordinator settings for the children.
+
+  A multi-task launcher provides them (they point at task 0); on a single
+  machine this process picks free local ports.
+
+  Raises:
+    ValueError: If a multi-task launcher did not provide them.
+  """
+  if _TASK_ID_ENV in os.environ:
+    missing = [
+        name for name in _LAUNCHER_ADDRESS_ENVS if name not in os.environ
+    ]
+    if missing:
+      raise ValueError(f'{_TASK_ID_ENV} is set, but {missing} are not.')
+    return {}
+  coordinator_port, barrier_port = _pick_unused_ports(2)
+  return {
+      'SIMDEVICE_BARRIER_ADDRESS': f'localhost:{barrier_port}',
+      'SIMDEVICE_BARRIER_PORT': str(barrier_port),
+      'JAX_COORDINATOR_ADDRESS': f'localhost:{coordinator_port}',
+  }
+
+
 def run_local_cluster(
     config: configs.SimDeviceConfig, command: Sequence[str] | None = None
 ) -> None:
   """Runs one local child process per simulated host and waits for them.
 
+  On a multi-task launch, this task runs its share of the simulated hosts.
   Each child gets its simulated host id, the SimDevice barrier address and the
   JAX coordinator address through the environment. If any child fails, the
   others are stopped rather than left waiting at a barrier.
@@ -179,25 +237,23 @@ def run_local_cluster(
   """
   if command is None:
     command = sys.orig_argv
-  coordinator_port, barrier_port = _pick_unused_ports(2)
-  coordinator = f'localhost:{coordinator_port}'
+  process_ids = _local_process_ids(config)
+  cluster_env = dict(os.environ, **_cluster_env())
   children = []
-  for process_id in range(config.num_processes):
+  for process_id in process_ids:
     env = dict(
-        os.environ,
+        cluster_env,
         SIMDEVICE_PROCESS_ID=str(process_id),
-        SIMDEVICE_BARRIER_ADDRESS=f'localhost:{barrier_port}',
-        SIMDEVICE_BARRIER_PORT=str(barrier_port),
-        JAX_COORDINATOR_ADDRESS=coordinator,
         JAX_PROCESS_ID=str(process_id),
         JAX_NUM_PROCESSES=str(config.num_processes),
     )
     children.append(subprocess.Popen(command, env=env))
   logging.info(
-      'Started %d simulated hosts (coordinator %s, barrier port %d).',
+      'Started simulated hosts %s of %d (coordinator %s, barrier %s).',
+      list(process_ids),
       config.num_processes,
-      coordinator,
-      barrier_port,
+      cluster_env['JAX_COORDINATOR_ADDRESS'],
+      cluster_env['SIMDEVICE_BARRIER_ADDRESS'],
   )
 
   try:
@@ -205,7 +261,7 @@ def run_local_cluster(
       exit_codes = [child.poll() for child in children]
       failures = {
           process_id: code
-          for process_id, code in enumerate(exit_codes)
+          for process_id, code in zip(process_ids, exit_codes)
           if code not in (None, 0)
       }
       if failures:
