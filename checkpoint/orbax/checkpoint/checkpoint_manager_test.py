@@ -263,6 +263,38 @@ class CheckpointManagerTest(
               manager._checkpointer._async_manager._timeout_secs, 500
           )
 
+  @parameterized.parameters((None,), (1,))
+  def test_save_restore_with_copy_device_arrays_for_async_transfer(
+      self, save_device_host_concurrent_gb
+  ):
+    if multihost.is_pathways_backend():
+      self.skipTest(
+          'Disabled on Pathways because local variables cannot updated by'
+          ' reference outside remote Python.'
+      )
+    expected = jax.tree.map(lambda x: x + 0, self.pytree)
+    num_leaves = len(jax.tree.leaves(expected))
+    handler = PyTreeCheckpointHandler(
+        save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        copy_device_arrays_for_async_transfer=True,
+    )
+    with CheckpointManager(
+        self.directory, {'params': AsyncCheckpointer(handler)}
+    ) as manager:
+      with mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+        self.assertTrue(self.save_params(0, manager, self.pytree))
+        # Donating `self.pytree` reuses its device buffers while the background
+        # transfer of the on-device copies may still be pending.
+        self.pytree = jax.jit(
+            lambda t: jax.tree.map(lambda x: x + 100, t), donate_argnums=0
+        )(self.pytree)
+        manager.wait_until_finished()
+      # Every leaf is copied on device, and the checkpoint holds the values
+      # from before the donation.
+      self.assertEqual(mock_copy.call_count, num_leaves)
+      restored = self.restore_params(0, manager)
+      test_utils.assert_tree_equal(self, expected, restored)
+
   @parameterized.parameters((False,), (True,))
   def test_save_restore_with_concurrent_wait_until_finished(self, enable_async):
     """Tests no deadlocks when calling wait_until_finished concurrently."""

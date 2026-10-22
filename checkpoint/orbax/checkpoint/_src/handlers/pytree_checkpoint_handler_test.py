@@ -168,6 +168,8 @@ class PyTreeCheckpointHandlerTest(
           ARRAY_METADATA_STORE
       ),
       use_compression: bool = True,
+      save_device_host_concurrent_gb: int | None = None,
+      copy_device_arrays_for_async_transfer: bool = False,
   ):
     """Registers handlers with OCDBT support and resets when done."""
     handler_registry = copy.deepcopy(
@@ -184,6 +186,10 @@ class PyTreeCheckpointHandlerTest(
         pytree_metadata_options=pytree_metadata_options,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         use_compression=use_compression,
+        save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+        copy_device_arrays_for_async_transfer=(
+            copy_device_arrays_for_async_transfer
+        ),
     )
     try:
       yield handler

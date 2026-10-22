@@ -240,6 +240,9 @@ class ParamInfo:
     raise_array_data_missing_error: Only used for restoring.
     write_shape: Shape of the array shard. Used in the subchunking context.
     is_prioritized_key_fn: See ``IsPrioritizedKeyFn`` definition.
+    copy_device_arrays_for_async_transfer: If True, device arrays are copied on
+      device and the copies are transferred to host in the background, so that
+      the caller may donate or mutate the originals before the transfer runs.
     keypath: Tuple of keys identifying the parameter's position in the PyTree.
   """
 
@@ -263,6 +266,7 @@ class ParamInfo:
       raise_array_data_missing_error: bool = True,
       write_shape: arrays_types.Shape | None = None,
       is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
+      copy_device_arrays_for_async_transfer: bool = False,
   ):
     self.name = name
     self._parent_dir = parent_dir
@@ -288,6 +292,9 @@ class ParamInfo:
     self.raise_array_data_missing_error = raise_array_data_missing_error
     self.write_shape = write_shape
     self.is_prioritized_key_fn = is_prioritized_key_fn
+    self.copy_device_arrays_for_async_transfer = (
+        copy_device_arrays_for_async_transfer
+    )
 
   @property
   def parent_dir(self) -> epath.Path:

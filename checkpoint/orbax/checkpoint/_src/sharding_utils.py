@@ -24,3 +24,8 @@ def make_single_device_sharding(device, *, memory_kind=None):
 make_single_device_sharding = getattr(
     jax.sharding, 'make_single_device_sharding', make_single_device_sharding
 )
+
+
+def is_in_device_memory(arr: jax.Array) -> bool:
+  """Returns whether `arr` resides in device memory rather than host memory."""
+  return arr.sharding.memory_kind in (None, 'device')

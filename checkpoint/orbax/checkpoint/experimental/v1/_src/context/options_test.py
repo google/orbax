@@ -101,6 +101,7 @@ class MemoryOptionsTest(parameterized.TestCase):
     ctx.memory.read_concurrent_bytes = 2048
     ctx.memory.transfer_concurrent_bytes = 512
     ctx.memory.is_prioritized_key_fn = is_prioritized_key_fn  # pyrefly: ignore[bad-assignment]
+    ctx.memory.copy_device_arrays_for_async_transfer = True
     with ctx:
       with mock.patch(
           'orbax.checkpoint._src.handlers.base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler',
@@ -132,6 +133,7 @@ class MemoryOptionsTest(parameterized.TestCase):
               and kwargs.get('restore_concurrent_bytes') == 2048
               and kwargs.get('save_device_host_concurrent_bytes') == 512
               and kwargs.get('is_prioritized_key_fn') == is_prioritized_key_fn  # pylint: disable=comparison-with-callable
+              and kwargs.get('copy_device_arrays_for_async_transfer')
           ):
             found = True
             break
