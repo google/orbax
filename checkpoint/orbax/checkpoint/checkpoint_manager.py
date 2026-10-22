@@ -1460,7 +1460,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
               self._is_continuous_checkpointing_enabled()
           ),
       )
+    in_save_wait_start_time = time.time()
     self.wait_until_finished()
+    # Only the wait inside this call falls within the blocking save envelope.
+    # `_wait_for_prev_save_duration` also accumulates `wait_until_finished()`
+    # calls made outside of `save()` (e.g. before eval or restore), which are
+    # kept in step statistics but must not be attributed to this save's
+    # blocking phase metrics.
+    in_save_wait_duration_secs = time.time() - in_save_wait_start_time
     step_stats.wait_for_prev_duration_secs = self._wait_for_prev_save_duration
     self._wait_for_prev_save_duration = 0.0
     if (
@@ -1556,7 +1563,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                     step_stats.checkpoint_manager_blocking_start_time
                 ),
                 start_sync_duration_secs=cm_start_sync_duration,
-                wait_prev_duration_secs=step_stats.wait_for_prev_duration_secs,
+                wait_prev_duration_secs=in_save_wait_duration_secs,
             ),
         )
     else:
@@ -1573,7 +1580,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       )
       jax.monitoring.record_event_duration_secs(
           '/jax/orbax/write/blocking_wait_prev_duration_secs',
-          step_stats.wait_for_prev_duration_secs,
+          in_save_wait_duration_secs,
       )
     step_stats.checkpointer_blocking_duration_secs = (
         time.time() - step_stats.checkpointer_blocking_start_time
