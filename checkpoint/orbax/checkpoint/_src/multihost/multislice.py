@@ -32,6 +32,11 @@ ArrayOrAbstract = jax.Array | jax.ShapeDtypeStruct
 # are stored in memory.
 MEMORY_FACTOR = 3
 
+# Across slices, each broadcast round is also staged in MegaScale's DCN transfer
+# arena, shared by the host's devices. This is libtpu's default size
+# (--megascale_grpc_premap_memory_bytes).
+DEFAULT_DCN_ARENA_BYTES_PER_HOST = 16 * 1024**3
+
 
 def process_replica_id(
     process_index: int,
@@ -172,7 +177,9 @@ def tree_memory_per_device(
 
 
 def get_available_memory(
-    in_tree: tuple[ArrayOrAbstract, ...], scaling_factor: float
+    in_tree: tuple[ArrayOrAbstract, ...],
+    scaling_factor: float,
+    dcn_arena_bytes_per_host: int = DEFAULT_DCN_ARENA_BYTES_PER_HOST,
 ) -> int:
   """Returns estimated available memory for broadcasting (in bytes).
 
@@ -184,12 +191,18 @@ def get_available_memory(
     in_tree: pytree that occupies the memory.
     scaling_factor: indicates the frunction of the estimated available memory to
       be used when broadcustind data.
+    dcn_arena_bytes_per_host: size of the host's DCN transfer arena, which also
+      bounds rounds when there are several slices.
   """
   if scaling_factor > 1:
     raise ValueError('scaling_factorshould be less than 1.')
   total_device_memory = get_device_memory()
   used_device_memory = tree_memory_per_device(in_tree)
   available_memory = total_device_memory - used_device_memory
+  if slice_count() > 1:
+    available_memory = min(
+        available_memory, dcn_arena_bytes_per_host // jax.local_device_count()
+    )
   return int(available_memory * scaling_factor / MEMORY_FACTOR)
 
 
@@ -342,11 +355,14 @@ def _chunk_by_memory(
     in_tree: tuple[ArrayOrAbstract, ...],
     memory_limit_bytes: int | None,
     memory_scaling_factor: float | None,
+    dcn_arena_bytes_per_host: int,
 ) -> list[tuple[int, int]]:
   """Splits leaf indices into contiguous ranges that fit the memory limit."""
   if memory_limit_bytes is None:
     memory_limit_bytes = get_available_memory(
-        in_tree, memory_scaling_factor  # pyrefly: ignore[bad-argument-type]
+        in_tree,
+        memory_scaling_factor,  # pyrefly: ignore[bad-argument-type]
+        dcn_arena_bytes_per_host,
     )
     logging.info('Using available memory of %d bytes.', memory_limit_bytes)
   tree_len = len(in_tree)
@@ -381,6 +397,7 @@ def precompile_broadcast(
     replica_axis_index: int,
     memory_limit_bytes: int | None = None,
     memory_scaling_factor: float | None = 0.75,
+    dcn_arena_bytes_per_host: int = DEFAULT_DCN_ARENA_BYTES_PER_HOST,
 ) -> None:
   """Compiles every merge program `broadcast_one_replica_to_all` will run.
 
@@ -397,9 +414,14 @@ def precompile_broadcast(
     memory_limit_bytes: memory limit for broadcasting in bytes.
     memory_scaling_factor: indicates the fraction of the estimated available
       memory to be used when broadcasting data.
+    dcn_arena_bytes_per_host: size of the host's DCN transfer arena
+      (--megascale_grpc_premap_memory_bytes).
   """
   for start, end in _chunk_by_memory(
-      in_tree, memory_limit_bytes, memory_scaling_factor
+      in_tree,
+      memory_limit_bytes,
+      memory_scaling_factor,
+      dcn_arena_bytes_per_host,
   ):
     globalized = tuple(
         _globalized_abstract_array(x, replica_axis_index, global_mesh)
@@ -415,6 +437,7 @@ def broadcast_one_replica_to_all(
     is_source: bool,
     memory_limit_bytes: Optional[Union[int, None]] = None,
     memory_scaling_factor: Optional[float] = 0.75,
+    dcn_arena_bytes_per_host: int = DEFAULT_DCN_ARENA_BYTES_PER_HOST,
 ) -> tuple[tuple[jax.Array, ...], int]:
   """One replica reads the data and broadcasts to others.
 
@@ -428,13 +451,20 @@ def broadcast_one_replica_to_all(
     memory_limit_bytes: memory limit for broadcasting in bytes.
     memory_scaling_factor: indicates the fraction of the estimated available
       memory to be used when broadcasting data.
+    dcn_arena_bytes_per_host: size of the host's DCN transfer arena
+      (--megascale_grpc_premap_memory_bytes).
 
   Returns:
      Tuple containing:
       - pytree with broadcasted data
       - number of broadcasts performed.
   """
-  chunks = _chunk_by_memory(in_tree, memory_limit_bytes, memory_scaling_factor)
+  chunks = _chunk_by_memory(
+      in_tree,
+      memory_limit_bytes,
+      memory_scaling_factor,
+      dcn_arena_bytes_per_host,
+  )
   out_tree = []
   for start, end in chunks:
     subtree = tuple(in_tree[start:end])

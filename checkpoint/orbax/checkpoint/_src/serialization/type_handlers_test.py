@@ -17,7 +17,7 @@ import collections
 import dataclasses
 import threading
 import tracemalloc
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 import unittest
 
 from absl import flags
@@ -891,6 +891,141 @@ class ArrayHandlerCallbackTest(
             ('on_transfer_end', ('params', 'a')),
             ('on_write_end', ('params', 'a')),
         ],
+    )
+
+
+class CopyDeviceArraysForAsyncTransferTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+  """Tests `ParamInfo.copy_device_arrays_for_async_transfer`."""
+
+  def setUp(self):
+    super().setUp()
+    self.pytree, _, _ = test_utils.setup_sharded_pytree()
+    self.directory = epath.Path(self.create_tempdir().full_path)
+
+  def _get_param_info(
+      self, name: str, device_host_max_bytes: int | None = None, **kwargs
+  ) -> ParamInfo:
+    return get_param_info(name, self.directory).replace(
+        keypath=(jax.tree_util.DictKey(name),),
+        device_host_byte_limiter=(
+            None
+            if device_host_max_bytes is None
+            else limits.LimitInFlightBytes(device_host_max_bytes)
+        ),
+        **kwargs,
+    )
+
+  async def _serialize_and_record_transfers(
+      self, arrays: Sequence[jax.Array] | None = None, **info_kwargs
+  ) -> list[tuple[str, str]]:
+    """Serializes `arrays` and records how their D2H transfers run.
+
+    Args:
+      arrays: The arrays to serialize; defaults to the first leaf of
+        `self.pytree`.
+      **info_kwargs: Passed to `_get_param_info` for every array.
+
+    Returns:
+      One `(thread, arrays)` tuple per D2H transfer, where `thread` is
+      'main_thread' (synchronous, before `serialize` returns) or 'background',
+      and `arrays` is 'original' or 'copy' (on-device copies of the originals).
+    """
+    handler = type_handlers.ArrayHandler(use_replica_parallel=False)
+    if arrays is None:
+      arrays = [jax.tree.leaves(self.pytree)[0]]
+    infos = [
+        self._get_param_info(f'a{i}', **info_kwargs) for i in range(len(arrays))
+    ]
+    transfers = []
+    real_transfer = replica_slices.transfer_arrays_to_host
+
+    def _recording_transfer(transferred, *args, **kwargs):
+      transfers.append((
+          'main_thread'
+          if threading.current_thread() is threading.main_thread()
+          else 'background',
+          'original'
+          if all(any(a is arr for arr in arrays) for a in transferred)
+          else 'copy',
+      ))
+      return real_transfer(transferred, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', _recording_transfer
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+    return transfers
+
+  async def test_transfers_originals_synchronously_by_default(self):
+    self.assertEqual(
+        await self._serialize_and_record_transfers(),
+        [('main_thread', 'original')],
+    )
+
+  async def test_transfers_copies_in_background(self):
+    self.assertEqual(
+        await self._serialize_and_record_transfers(
+            copy_device_arrays_for_async_transfer=True
+        ),
+        [('background', 'copy')],
+    )
+
+  async def test_transfers_copies_in_background_under_byte_limit(self):
+    arrays = jax.tree.leaves(self.pytree)[:2]
+    # Each array exceeds the limit on its own, so they form two batches.
+    self.assertEqual(
+        await self._serialize_and_record_transfers(
+            arrays,
+            device_host_max_bytes=16,
+            copy_device_arrays_for_async_transfer=True,
+        ),
+        [('background', 'copy'), ('background', 'copy')],
+    )
+
+  async def test_skips_host_arrays(self):
+    arr = jax.tree.leaves(self.pytree)[0]
+    arr = jax.device_put(arr, arr.sharding.with_memory_kind('pinned_host'))
+    # Copying an array that already resides in host memory would not free any
+    # device memory, so it keeps its synchronous transfer.
+    self.assertEqual(
+        await self._serialize_and_record_transfers(
+            [arr], copy_device_arrays_for_async_transfer=True
+        ),
+        [('main_thread', 'original')],
+    )
+
+  async def test_dispatcher_transfers_background_arrays_before_the_write(
+      self,
+  ):
+    info = self._get_param_info(
+        'a', copy_device_arrays_for_async_transfer=True
+    )
+    arr = jax.tree.leaves(self.pytree)[0]
+    arrays_on_host = [jnp.array([1.0])]
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.return_value = arrays_on_host
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+
+    handler = type_handlers.ArrayHandler(dispatcher=mock_dispatcher)
+    with mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+      futures = await handler.serialize([arr], [info])
+      for f in futures:
+        f.result()
+
+    # The on-device copy is transferred explicitly, so that it can be released
+    # before the write completes; only the host arrays are dispatched.
+    self.assertEqual(mock_copy.call_count, 1)
+    self.assertEqual(mock_dispatcher.device_to_host.call_count, 1)
+    (transferred,), _ = mock_dispatcher.device_to_host.call_args
+    self.assertLen(transferred, 1)
+    self.assertIsNot(transferred[0], arr)
+    self.assertIs(
+        mock_dispatcher.dispatch.call_args.kwargs['input_arrays'],
+        arrays_on_host,
     )
 
 

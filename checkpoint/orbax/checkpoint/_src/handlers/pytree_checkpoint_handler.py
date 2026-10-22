@@ -521,6 +521,7 @@ class PyTreeCheckpointHandler(
       is_prioritized_key_fn: Optional[
           serialization_types.IsPrioritizedKeyFn
       ] = None,
+      copy_device_arrays_for_async_transfer: bool = False,
   ):
     """Creates PyTreeCheckpointHandler.
 
@@ -575,6 +576,17 @@ class PyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      copy_device_arrays_for_async_transfer: Whether to copy `jax.Array` leaves
+        on device, instead of transferring them to host, before the blocking
+        part of the save returns. The copies are transferred to host in the
+        background (in batches of at most `save_device_host_concurrent_gb`, if
+        set) and released as their transfers complete, so the caller may donate
+        or mutate the originals without waiting for the transfer. Defaults to
+        False. Warning: this can double peak device memory usage, since a
+        second copy of every array may be held until its transfer completes.
+        Arrays that already reside in host memory (e.g. `pinned_host`) are
+        never copied, so the caller must not donate or mutate them until the
+        save finishes, or the checkpoint may fail or be corrupted.
     """
 
     self._aggregate_handler = MsgpackHandler(
@@ -611,6 +623,9 @@ class PyTreeCheckpointHandler(
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         is_prioritized_key_fn=is_prioritized_key_fn,
+        copy_device_arrays_for_async_transfer=(
+            copy_device_arrays_for_async_transfer
+        ),
     )
     self._pytree_metadata_options = pytree_metadata_options
 

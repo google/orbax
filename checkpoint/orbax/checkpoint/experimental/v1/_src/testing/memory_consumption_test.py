@@ -15,10 +15,13 @@
 """Tests for memory consumption during checkpoint saving in V1."""
 
 import tracemalloc
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+import jax
+import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint.experimental.v1 as ocp
 
@@ -58,6 +61,45 @@ class MemoryConsumptionTest(parameterized.TestCase):
 
     self.assertGreater(peak_true, peak_false)
     self.assertGreaterEqual(peak_true - peak_false, int(value.nbytes * 0.9))
+
+  def test_copy_device_arrays_for_async_transfer_default(self):
+    ctx = ocp.Context()
+    self.assertFalse(ctx.memory.copy_device_arrays_for_async_transfer)
+
+  @parameterized.named_parameters(
+      ('unbatched', None),
+      ('batched', 1024),
+  )
+  def test_copy_device_arrays_for_async_transfer(
+      self, transfer_concurrent_bytes
+  ):
+    mesh = jax.sharding.Mesh(np.array(jax.devices()), ('x',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    values = {
+        'a': np.arange(16 * mesh.size, dtype=np.float32),
+        'b': np.arange(16 * mesh.size, dtype=np.float32) * 10,
+    }
+    pytree = jax.tree.map(lambda v: jax.device_put(v, sharding), values)
+    path = self.directory / f'copy_device_arrays_{transfer_concurrent_bytes}'
+
+    ctx = ocp.Context()
+    ctx.memory.copy_device_arrays_for_async_transfer = True
+    ctx.memory.transfer_concurrent_bytes = transfer_concurrent_bytes
+    with ctx, mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+      response = ocp.save_pytree_async(path, pytree)
+      # Donating `pytree` reuses its device buffers while the background
+      # transfer of the on-device copies may still be pending.
+      pytree = jax.jit(
+          lambda t: jax.tree.map(lambda x: x + 100, t), donate_argnums=0
+      )(pytree)
+      response.result()
+
+    # Every leaf is copied on device, and the checkpoint holds the values from
+    # before the donation.
+    self.assertEqual(mock_copy.call_count, 2)
+    restored = ocp.load_pytree(path)
+    for key, value in values.items():
+      np.testing.assert_array_equal(restored[key], value)
 
 
 if __name__ == '__main__':

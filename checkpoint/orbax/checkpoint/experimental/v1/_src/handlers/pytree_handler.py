@@ -126,6 +126,7 @@ def _create_v0_handler(
       array_metadata_validator=array_metadata_validator,
       enable_pinned_host_transfer=context.array_options.saving.enable_pinned_host_transfer,
       is_prioritized_key_fn=context.memory_options.is_prioritized_key_fn,
+      copy_device_arrays_for_async_transfer=context.memory_options.copy_device_arrays_for_async_transfer,
   )
 
 

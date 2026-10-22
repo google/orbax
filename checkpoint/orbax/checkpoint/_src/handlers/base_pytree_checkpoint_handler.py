@@ -398,6 +398,7 @@ class BasePyTreeCheckpointHandler(
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
+      copy_device_arrays_for_async_transfer: bool = False,
   ):
     """Creates BasePyTreeCheckpointHandler.
 
@@ -442,6 +443,17 @@ class BasePyTreeCheckpointHandler(
         not prioritized. Note that any "prioritized" keys are assumed to be
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
+      copy_device_arrays_for_async_transfer: Whether to copy `jax.Array` leaves
+        on device, instead of transferring them to host, before returning to
+        the caller. The copies are transferred to host in the background (in
+        batches of at most `save_device_host_concurrent_bytes`, if set) and
+        released as their transfers complete, so the caller may donate or
+        mutate the originals without waiting for the transfer. Defaults to
+        False. Warning: this can double peak device memory usage, since a
+        second copy of every array may be held until its transfer completes.
+        Arrays that already reside in host memory (e.g. `pinned_host`) are
+        never copied, so the caller must not donate or mutate them until the
+        save finishes, or the checkpoint may fail or be corrupted.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -494,6 +506,9 @@ class BasePyTreeCheckpointHandler(
       jax.monitoring.record_event(
           '/jax/orbax/pytree_checkpoint_handler/init/prioritized_key_fn'
       )
+    self._copy_device_arrays_for_async_transfer = (
+        copy_device_arrays_for_async_transfer
+    )
 
     jax.monitoring.record_event(
         '/jax/orbax/pytree_checkpoint_handler/init/ocdbt'
@@ -501,13 +516,15 @@ class BasePyTreeCheckpointHandler(
     logging.info(
         'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
         ' pytree_metadata_options=%s, array_metadata_store=%s,'
-        ' enable_pinned_host_transfer=%s, save_concurrent_bytes: %s,'
-        ' restore_concurrent_bytes: %s',
+        ' enable_pinned_host_transfer=%s,'
+        ' copy_device_arrays_for_async_transfer=%s,'
+        ' save_concurrent_bytes: %s, restore_concurrent_bytes: %s',
         self._use_ocdbt,
         self._use_zarr3,
         self._pytree_metadata_options,
         self._array_metadata_store,
         self._enable_pinned_host_transfer,
+        self._copy_device_arrays_for_async_transfer,
         _format_bytes(self._save_concurrent_bytes),
         _format_bytes(self._restore_concurrent_bytes),
     )
@@ -580,6 +597,9 @@ class BasePyTreeCheckpointHandler(
           ),
           raise_array_data_missing_error=raise_array_data_missing_error,
           is_prioritized_key_fn=self._is_prioritized_key_fn,
+          copy_device_arrays_for_async_transfer=(
+              self._copy_device_arrays_for_async_transfer
+          ),
       )
 
     return jax.tree.map_with_path(

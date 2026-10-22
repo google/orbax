@@ -313,6 +313,12 @@ Server (TPU Manager).*
 > cluster doesn't exist, `launch_xpk` will automatically create a
 > Pathways-compatible cluster. If you are reusing an existing cluster, ensure it
 > was created as a Pathways cluster.
+
+#### 🧪 SimDevice Mode
+
+| Flag | Default | Description |
+| :--- | :--- | :--- |
+| `--enable_simdevice` | `False` | Run on SimDevice (simulated TPUs) on CPU nodes. Needs a CPU `--device_type` (e.g. `n2-standard-32-2`), no `--tpu_type`, and an `orbax-benchmarks:simdevice-<tag>` `--docker_image` (`build_image.sh --device simdevice`). The config's `simdevice:` block sets the topology. |
 <!-- LINT.ThenChange(launch_xpk.py:launch_xpk_flags) -->
 
 ### Pathways Launch Example

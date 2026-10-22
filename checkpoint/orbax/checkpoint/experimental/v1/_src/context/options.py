@@ -635,6 +635,17 @@ class MemoryOptions(_ActiveContextGuard):
     deepcopy_host_arrays: Whether to deepcopy host arrays before serialization.
       Defaults to True as a safety measure to guard against concurrent
       modification, but can be disabled to avoid excess memory consumption.
+    copy_device_arrays_for_async_transfer: Whether to copy device arrays on
+      device, instead of transferring them to host, before returning to the
+      caller. The copies are transferred to host in the background (in batches
+      of at most `transfer_concurrent_bytes`, if set) and released as their
+      transfers complete, so the caller may donate or mutate the originals
+      without waiting for the transfer. Defaults to False. Warning: this can
+      double peak device memory usage, since a second copy of every array may
+      be held until its transfer completes. Arrays that already reside in host
+      memory (e.g. `pinned_host`) are never copied, so the caller must not
+      donate or mutate them until the save finishes, or the checkpoint may fail
+      or be corrupted.
   """
 
   @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -720,6 +731,7 @@ class MemoryOptions(_ActiveContextGuard):
       serialization_types.SerializationStatusCallback | None
   ) = None
   deepcopy_host_arrays: bool = True
+  copy_device_arrays_for_async_transfer: bool = False
 
 
 @dataclasses.dataclass(kw_only=True)

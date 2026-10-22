@@ -83,6 +83,20 @@ class CheckpointManagerOptions:
   step_name_format:
     NameFormat to build or find steps under input root directory. If provided,
     `step_prefix`, `step_format_fixed_length` are ignored.
+  save_device_host_concurrent_gb:
+    Max concurrent GB transferred from device to host memory at once when
+    saving the local and persistent checkpoints. See
+    `ocp.PyTreeCheckpointHandler`.
+  copy_device_arrays_for_async_transfer:
+    Whether to copy the state arrays on device, instead of transferring them
+    to host, before `CheckpointManager.save` returns, so that the caller may
+    donate or mutate the state right away. See `ocp.PyTreeCheckpointHandler`.
+    Each of the local and persistent checkpoints takes its own copy, so use
+    `save_interval_offset_steps` to keep them on different steps. Set
+    `save_device_host_concurrent_gb` as well: device-to-host reads issued
+    while the copies are transferred in the background (including the
+    post-save barrier) wait behind the bytes in flight, and the budget bounds
+    that wait to one batch.
   """
 
   local: LocalCheckpointOptions = dataclasses.field(
@@ -97,3 +111,8 @@ class CheckpointManagerOptions:
   step_name_format: step_lib.NameFormat[step_lib.Metadata] = (
       step_lib.standard_name_format()
   )
+
+  # `ocp.PyTreeCheckpointHandler` options, forwarded to the handlers of the
+  # local and persistent checkpoints, which `CheckpointManager` creates itself.
+  save_device_host_concurrent_gb: int | str | None = None
+  copy_device_arrays_for_async_transfer: bool = False

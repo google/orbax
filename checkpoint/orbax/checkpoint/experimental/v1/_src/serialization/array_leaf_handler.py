@@ -106,6 +106,7 @@ def _create_v0_saving_paraminfo(
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
       enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,  # pyrefly: ignore[bad-argument-type]
+      copy_device_arrays_for_async_transfer=context.memory_options.copy_device_arrays_for_async_transfer,
       keypath=param.keypath,
   )
 

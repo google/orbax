@@ -17,20 +17,24 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import collections.abc
 import dataclasses
 import functools
+import itertools
 import os
 import time
-from typing import Any, Callable, cast, Dict, Sequence, Set, TypeAlias, Union
+from typing import Any, Callable, Dict, Iterator, Sequence, Set, TypeAlias, Union, cast
 import warnings
 
 from absl import logging
 from etils import epath
 import humanize
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src import asyncio_utils
+from orbax.checkpoint._src import sharding_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.metadata import array_metadata as array_metadata_lib
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
@@ -57,6 +61,10 @@ ArrayRestoreArgs = jax_array_restore_args.ArrayRestoreArgs
 SingleReplicaArrayRestoreArgs = (
     jax_array_restore_args.SingleReplicaArrayRestoreArgs
 )
+# An array to serialize, with its `ParamInfo` and `SaveArgs`.
+_ArrayToSerialize: TypeAlias = tuple[
+    jax.Array, types.ParamInfo, types.SaveArgs
+]
 
 
 _SHARDING_FILE_NAME = '_sharding'
@@ -491,45 +499,74 @@ def _worker_serialize_arrays(
 
 
 def _get_deprioritized_batches_to_serialize(
-    deprioritized_params: Sequence[
-        tuple[jax.Array, types.ParamInfo, types.SaveArgs]
-    ],
+    deprioritized_params: Sequence[_ArrayToSerialize],
     *,
-    device_host_max_bytes: int,
+    device_host_max_bytes: int | None,
     replica_id: int | None,
     dispatcher: dispatchers.Dispatcher | None,
-):
-  """Yields batches of info, args, and arrays that fit within the memory budget."""
-  logging.info(
-      'Option `device_host_max_bytes` was set to %s. Using memory-limited'
-      ' saving. Note that this feature may impact saving speed.',
-      humanize.naturalsize(device_host_max_bytes, binary=True),
-  )
-  if deprioritized_params:
-    arrays_saved_count = 0
-    for batch in worker_memory_utils.next_memory_budgeted_batch(
-        deprioritized_params,
-        device_host_max_bytes,
-        replica_id=replica_id,
-        dispatcher=dispatcher,
-    ):
-      assert arrays_saved_count < len(deprioritized_params)
-      logging.info(
-          'Scheduling serialization of %d deprioritized arrays. Already'
-          ' completed %d / %d arrays. Included keys: %s',
-          len(batch),
-          arrays_saved_count,
-          len(deprioritized_params),
-          [tree_utils.str_keypath(info.keypath) for _, info, _ in batch],
-      )
-      yield zip(*batch)
-      logging.info(
-          'Serialization of %d deprioritized jax.Array completed.',
-          len(batch),
-      )
-      arrays_saved_count += len(batch)
+) -> Iterator[
+    tuple[
+        Sequence[jax.Array], Sequence[types.ParamInfo], Sequence[types.SaveArgs]
+    ]
+]:
+  """Yields batches of arrays, infos, and args within the memory budget.
 
-    assert arrays_saved_count == len(deprioritized_params)
+  Without a budget, all params form a single batch.
+
+  Batches are planned eagerly, and this generator drops its references to the
+  arrays of a batch when yielding it. Callers that also drop their references
+  (to `deprioritized_params` and to each yielded batch once it has been
+  transferred to host) thereby allow the device buffers of completed batches to
+  be freed while later batches are still pending.
+
+  Args:
+    deprioritized_params: The (array, info, args) tuples to batch.
+    device_host_max_bytes: Per-worker budget for in-flight D2H bytes, if any.
+    replica_id: See `worker_memory_utils.next_memory_budgeted_batch`.
+    dispatcher: See `worker_memory_utils.next_memory_budgeted_batch`.
+  """
+  if device_host_max_bytes is not None:
+    logging.info(
+        'Option `device_host_max_bytes` was set to %s. Using memory-limited'
+        ' saving. Note that this feature may impact saving speed.',
+        humanize.naturalsize(device_host_max_bytes, binary=True),
+    )
+  if not deprioritized_params:
+    return
+  total_arrays = len(deprioritized_params)
+  if device_host_max_bytes is None:
+    batches = collections.deque([tuple(zip(*deprioritized_params))])
+  else:
+    batches = collections.deque(
+        tuple(zip(*batch))
+        for batch in worker_memory_utils.next_memory_budgeted_batch(
+            deprioritized_params,
+            device_host_max_bytes,
+            replica_id=replica_id,
+            dispatcher=dispatcher,
+        )
+    )
+  del deprioritized_params
+  arrays_saved_count = 0
+  while batches:
+    batch_infos = batches[0][1]
+    logging.info(
+        'Scheduling serialization of %d deprioritized arrays. Already'
+        ' completed %d / %d arrays. Included keys: %s',
+        len(batch_infos),
+        arrays_saved_count,
+        total_arrays,
+        [tree_utils.str_keypath(info.keypath) for info in batch_infos],
+    )
+    # Pop before yielding so that this frame does not keep the batch alive.
+    yield batches.popleft()
+    logging.info(
+        'Serialization of %d deprioritized jax.Array completed.',
+        len(batch_infos),
+    )
+    arrays_saved_count += len(batch_infos)
+
+  assert arrays_saved_count == total_arrays
 
 
 def _on_batch_callback(
@@ -541,9 +578,27 @@ def _on_batch_callback(
     callback_fn(info.keypath)
 
 
+def _log_no_prioritized_params(
+    deprioritized: Sequence[_ArrayToSerialize],
+) -> None:
+  """Logs that no array is transferred to host before returning."""
+  if any(
+      info.copy_device_arrays_for_async_transfer for _, info, _ in deprioritized
+  ):
+    logging.info(
+        'Device arrays were copied on device. D2H for all values will be'
+        ' scheduled asynchronously.'
+    )
+  else:
+    logging.warning(
+        'No prioritized params found for saving. D2H for all values will be'
+        ' scheduled asynchronously.'
+    )
+
+
 def _serialize_arrays_batches_without_dispatcher(
-    prioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
-    deprioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
+    prioritized: Sequence[_ArrayToSerialize],
+    deprioritized: Sequence[_ArrayToSerialize],
     device_host_max_bytes: int | None,
     replica_id: int | None,
     use_replica_parallel: bool,
@@ -590,13 +645,18 @@ def _serialize_arrays_batches_without_dispatcher(
     )
     _on_batch_callback(prioritized_infos, callback.on_transfer_end)
   else:
-    logging.warning(
-        'No prioritized params found for saving. D2H for all values will be'
-        ' scheduled asynchronously.'
-    )
+    _log_no_prioritized_params(deprioritized)
+  info_sample = next(
+      (info for _, info, _ in itertools.chain(prioritized, deprioritized)), None
+  )
 
-  async def _serialize_without_dispatcher():
-    if not prioritized and not deprioritized:
+  # `deprioritized_params` is passed as an argument rather than captured, so
+  # that the coroutine frame is the only owner of the device arrays and can
+  # release each batch as soon as it has been transferred to host.
+  async def _serialize_without_dispatcher(
+      deprioritized_params: Sequence[_ArrayToSerialize],
+  ):
+    if info_sample is None:
       return
     initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
         types.IoDirection.WRITE
@@ -615,22 +675,21 @@ def _serialize_arrays_batches_without_dispatcher(
       if b_metadatas:
         all_array_metadatas.extend(b_metadatas)
       _on_batch_callback(prioritized_infos, callback.on_write_end)
-    if deprioritized:
-      assert device_host_max_bytes is not None
-      for (
-          b_arrays,
-          b_infos,
-          b_args,
-      ) in _get_deprioritized_batches_to_serialize(
-          deprioritized,
+    if deprioritized_params:
+      batches = _get_deprioritized_batches_to_serialize(
+          deprioritized_params,
           device_host_max_bytes=device_host_max_bytes,
           # TODO(b/436858989): We overestimate memory usage for now if replica
           # parallel is enabled, as each host has a non-trivial calculation for
           # bytes transferred to host.
           replica_id=None if use_replica_parallel else replica_id,
           dispatcher=None,
-      ):
+      )
+      del deprioritized_params
+      for b_arrays, b_infos, b_args in batches:
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        # Release the device buffers before awaiting the (slower) write.
+        del b_arrays
         _on_batch_callback(b_infos, callback.on_transfer_end)
         logical_bytes += sum(v.nbytes for v in b_arrays_on_host)
         b_metadatas = await async_serialize_replica_slices_batch(
@@ -642,7 +701,6 @@ def _serialize_arrays_batches_without_dispatcher(
           all_array_metadatas.extend(b_metadatas)
         _on_batch_callback(b_infos, callback.on_write_end)
 
-    info_sample = prioritized[0][1] if prioritized else deprioritized[0][1]
     _log_io_metrics(
         direction=types.IoDirection.WRITE,
         logical_bytes=logical_bytes,
@@ -653,9 +711,31 @@ def _serialize_arrays_batches_without_dispatcher(
     )
 
   return future.CommitFutureAwaitingContractedSignals(
-      _serialize_without_dispatcher(),
+      _serialize_without_dispatcher(deprioritized),
       name='array_type_handler',
   )
+
+
+def _copy_device_arrays(
+    params: Sequence[_ArrayToSerialize],
+) -> tuple[list[_ArrayToSerialize], list[_ArrayToSerialize]]:
+  """Copies the device-resident arrays of `params` on device.
+
+  Args:
+    params: The arrays to copy, with their infos and args.
+
+  Returns:
+    The params whose arrays were replaced by on-device copies, and the params
+    that already reside in host memory (copying those would not free any device
+    memory) and are left unchanged.
+  """
+  copied, on_host = [], []
+  for value, info, arg in params:
+    if sharding_utils.is_in_device_memory(value):
+      copied.append((jnp.copy(value), info, arg))
+    else:
+      on_host.append((value, info, arg))
+  return copied, on_host
 
 
 def _serialize_arrays(
@@ -681,11 +761,9 @@ def _serialize_arrays(
     if isinstance(byte_limiter, limits.LimitInFlightBytes):
       device_host_max_bytes = byte_limiter.max_bytes
 
-  prioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
-  prioritized_async: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = (
-      []
-  )
-  deprioritized: list[tuple[jax.Array, types.ParamInfo, types.SaveArgs]] = []
+  prioritized: list[_ArrayToSerialize] = []
+  prioritized_async: list[_ArrayToSerialize] = []
+  deprioritized: list[_ArrayToSerialize] = []
 
   if device_host_max_bytes is None:
     for info, arg, value in zip(infos, args, arrays):
@@ -705,6 +783,19 @@ def _serialize_arrays(
         )
 
   deprioritized = prioritized_async + deprioritized
+  if infos[0].copy_device_arrays_for_async_transfer:
+    # Instead of transferring device arrays to host before returning, copy them
+    # on device now and transfer the copies in the background, so that the
+    # caller may donate or mutate the originals as soon as we return. Arrays
+    # that already reside in host memory keep their scheduling.
+    copied_prioritized, prioritized_on_host = _copy_device_arrays(prioritized)
+    copied_deprioritized, deprioritized_on_host = _copy_device_arrays(
+        deprioritized
+    )
+    prioritized = prioritized_on_host
+    deprioritized = (
+        copied_prioritized + copied_deprioritized + deprioritized_on_host
+    )
 
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
@@ -789,35 +880,37 @@ def _serialize_arrays(
           )
       ]
     else:
-      logging.warning(
-          'No prioritized params found for saving. D2H for all values will be'
-          ' scheduled asynchronously.'
-      )
+      _log_no_prioritized_params(deprioritized)
 
     all_infos = infos
 
-    async def _serialize():
+    # See `_serialize_arrays_batches_without_dispatcher` for why
+    # `deprioritized_params` is an argument rather than a captured variable.
+    async def _serialize(deprioritized_params: Sequence[_ArrayToSerialize]):
       for info in all_infos:
         await info.await_path_creation()
       if prioritized:
         arrays, infos, args = zip(*prioritized)
         await _serialize_batch(infos, args, arrays, d2h_start_time)
-      if deprioritized:
-        assert device_host_max_bytes is not None
-        for (
-            b_arrays,
-            b_infos,
-            b_args,
-        ) in _get_deprioritized_batches_to_serialize(
-            deprioritized,
+      if deprioritized_params:
+        batches = _get_deprioritized_batches_to_serialize(
+            deprioritized_params,
             device_host_max_bytes=device_host_max_bytes,
             replica_id=replica_id,
             dispatcher=dispatcher,
-        ):
-          await _serialize_batch(b_infos, b_args, b_arrays)
+        )
+        del deprioritized_params
+        for b_arrays, b_infos, b_args in batches:
+          b_d2h_start_time = time.time()
+          b_arrays_on_host = dispatcher.device_to_host(b_arrays)
+          # Release the device buffers before awaiting the (slower) write.
+          del b_arrays
+          await _serialize_batch(
+              b_infos, b_args, b_arrays_on_host, b_d2h_start_time
+          )
 
     return future.CommitFutureAwaitingContractedSignals(
-        _serialize(),
+        _serialize(deprioritized),
         name='array_type_handler',
     )
 
@@ -1757,6 +1850,7 @@ async def _single_replica_deserialize_and_broadcast(
     metadata_key: str | None,
     broadcast_memory_limit_bytes: int | None,
     broadcast_memory_scaling_factor: float | None,
+    broadcast_dcn_arena_bytes_per_host: int,
 ) -> Sequence[jax.Array]:
   """Deserializes and broadcasts a single replica."""
   primary_replica_pids = _validate_sharding_and_get_primary_replica_processes(
@@ -1781,6 +1875,7 @@ async def _single_replica_deserialize_and_broadcast(
             replica_axis_index,
             memory_limit_bytes=broadcast_memory_limit_bytes,
             memory_scaling_factor=broadcast_memory_scaling_factor,
+            dcn_arena_bytes_per_host=broadcast_dcn_arena_bytes_per_host,
         )
     )
   if _is_host_for_primary_replica(primary_replica_pids):
@@ -1824,6 +1919,7 @@ async def _single_replica_deserialize_and_broadcast(
       _is_host_for_primary_replica(primary_replica_pids),
       memory_limit_bytes=broadcast_memory_limit_bytes,
       memory_scaling_factor=broadcast_memory_scaling_factor,
+      dcn_arena_bytes_per_host=broadcast_dcn_arena_bytes_per_host,
   )
   broadcast_elapsed_s = time.time() - start_broadcast
   jax.monitoring.record_event_duration_secs(
@@ -1894,6 +1990,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
       primary_replica_id: int | None = 0,
       broadcast_memory_limit_bytes: int | None = None,
       broadcast_memory_scaling_factor: float | None = 0.75,
+      broadcast_dcn_arena_bytes_per_host: int = (
+          multislice.DEFAULT_DCN_ARENA_BYTES_PER_HOST
+      ),
       **kwargs,
   ):
     """Constructor.
@@ -1908,6 +2007,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
         for broadcasting data.
       broadcast_memory_scaling_factor: Specifies the fraction of available
         memory to use for broadcasting data.
+      broadcast_dcn_arena_bytes_per_host: Size of the host's DCN transfer arena
+        (--megascale_grpc_premap_memory_bytes), which also bounds broadcast
+        rounds across slices.
       **kwargs: Look at `ArrayHandler` for documentation of other arguments.
     """
 
@@ -1918,6 +2020,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
+    self.broadcast_dcn_arena_bytes_per_host = broadcast_dcn_arena_bytes_per_host
 
   def _construct_single_replica_sharding(
       self, sharding: jax.sharding.Sharding
@@ -2030,6 +2133,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
           self._metadata_key,
           self.broadcast_memory_limit_bytes,
           self.broadcast_memory_scaling_factor,
+          self.broadcast_dcn_arena_bytes_per_host,
       )
     else:
       primary_replica_devices = multislice.replica_devices(

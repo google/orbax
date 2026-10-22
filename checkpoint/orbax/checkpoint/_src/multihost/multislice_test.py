@@ -152,6 +152,22 @@ class UtilsTest(parameterized.TestCase):
       self.assertIsInstance(memory, int)
       self.assertEqual(memory, 16624107520)
 
+  @parameterized.parameters((1, 96 * 2**30), (2, 16 * 2**30 // 8))
+  def test_get_available_memory(self, num_slices, expected_memory):
+    with mock.patch.object(
+        multislice, 'slice_count', return_value=num_slices
+    ), mock.patch.object(
+        multislice, 'get_device_memory', return_value=96 * 2**30
+    ), mock.patch.object(
+        multislice, 'tree_memory_per_device', return_value=0
+    ), mock.patch.object(
+        jax, 'local_device_count', return_value=8
+    ):
+      self.assertEqual(
+          multislice.get_available_memory((), 0.75),
+          int(expected_memory * 0.75 / multislice.MEMORY_FACTOR),
+      )
+
   def test_number_of_broadcasts(self):
     array_size = 16000
     arr = [

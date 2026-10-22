@@ -51,6 +51,30 @@ if 'jax_controller_address' not in flags.FLAGS:
   )
 
 
+# Environment variables a launcher sets; cleared before each cluster test.
+_LAUNCH_ENVS = (
+    'SIMDEVICE_PROCESS_ID',
+    'SIMDEVICE_TASK_ID',
+    'SIMDEVICE_NUM_TASKS',
+    'SIMDEVICE_BARRIER_ADDRESS',
+    'SIMDEVICE_BARRIER_PORT',
+    'JAX_PROCESS_ID',
+    'JAX_COORDINATOR_ADDRESS',
+    'JOBSET_NAME',
+)
+
+# What XPK sets on the second pod of a two-pod CPU JobSet.
+_XPK_POD_1 = {
+    'JOBSET_NAME': 'bench',
+    'REPLICATED_JOB_NAME': 'slice-job',
+    'JOB_INDEX': '0',
+    'JOB_COMPLETION_INDEX': '1',
+    'PROCESSES_IN_JOB': '2',
+    'JAX_PROCESS_COUNT': '2',
+    'JAX_COORDINATOR_ADDRESS': 'bench-slice-job-0-0.bench',
+}
+
+
 def _read_env_file(path: epath.Path) -> dict[str, str]:
   lines = path.read_text().splitlines()
   return dict(line.split('=', 1) for line in lines if '=' in line)
@@ -189,11 +213,7 @@ class NeedsLocalClusterTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.enter_context(mock.patch.dict(os.environ))
-    for name in (
-        'SIMDEVICE_PROCESS_ID',
-        'JAX_PROCESS_ID',
-        'JAX_COORDINATOR_ADDRESS',
-    ):
+    for name in _LAUNCH_ENVS:
       os.environ.pop(name, None)
     self.enter_context(flagsaver.flagsaver(jax_controller_address=''))
     self.config = dataclasses.replace(_CONFIG, num_processes=2)
@@ -220,6 +240,27 @@ class NeedsLocalClusterTest(absltest.TestCase):
     with self.assertRaisesRegex(RuntimeError, 'SIMDEVICE_PROCESS_ID'):
       simdevice_backend.needs_local_cluster(self.config)
 
+  def test_launcher_task_without_host_id(self):
+    os.environ.update(
+        SIMDEVICE_TASK_ID='1',
+        SIMDEVICE_NUM_TASKS='2',
+        SIMDEVICE_BARRIER_ADDRESS='task0:barrier',
+        JAX_COORDINATOR_ADDRESS='task0:jax',
+    )
+
+    self.assertTrue(simdevice_backend.needs_local_cluster(self.config))
+
+  def test_incomplete_launcher_task_raises(self):
+    os.environ['SIMDEVICE_TASK_ID'] = '1'
+
+    with self.assertRaisesRegex(ValueError, 'SIMDEVICE_NUM_TASKS'):
+      simdevice_backend.needs_local_cluster(self.config)
+
+  def test_xpk_pod_without_host_id(self):
+    os.environ.update(_XPK_POD_1)
+
+    self.assertTrue(simdevice_backend.needs_local_cluster(self.config))
+
   def test_jax_launcher_with_host_id(self):
     os.environ['JAX_PROCESS_ID'] = '1'
     os.environ['SIMDEVICE_PROCESS_ID'] = '1'
@@ -228,6 +269,12 @@ class NeedsLocalClusterTest(absltest.TestCase):
 
 
 class RunLocalClusterTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.enter_context(mock.patch.dict(os.environ))
+    for name in _LAUNCH_ENVS:
+      os.environ.pop(name, None)
 
   def test_hosts_get_their_identity(self):
     output_dir = epath.Path(self.create_tempdir().full_path)
@@ -256,6 +303,71 @@ class RunLocalClusterTest(absltest.TestCase):
     config = dataclasses.replace(_CONFIG, num_processes=2)
 
     with self.assertRaisesRegex(RuntimeError, r'\{1: 1\}'):
+      simdevice_backend.run_local_cluster(config, command=_EXIT_WITH_HOST_ID)
+
+  def test_launcher_task_runs_its_share(self):
+    os.environ.update(
+        SIMDEVICE_TASK_ID='1',
+        SIMDEVICE_NUM_TASKS='2',
+        SIMDEVICE_BARRIER_ADDRESS='task0:barrier',
+        JAX_COORDINATOR_ADDRESS='task0:jax',
+    )
+    output_dir = epath.Path(self.create_tempdir().full_path)
+    config = dataclasses.replace(_CONFIG, num_processes=4)
+
+    simdevice_backend.run_local_cluster(
+        config, command=[*_WRITE_HOST_ENV, str(output_dir)]
+    )
+
+    self.assertCountEqual(
+        [path.name for path in output_dir.iterdir()], ['2', '3']
+    )
+    for host_id in (2, 3):
+      host_env = _read_env_file(output_dir / str(host_id))
+      with self.subTest(host_id=host_id):
+        self.assertEqual(host_env['JAX_PROCESS_ID'], str(host_id))
+        self.assertEqual(host_env['JAX_NUM_PROCESSES'], '4')
+        self.assertEqual(host_env['JAX_COORDINATOR_ADDRESS'], 'task0:jax')
+        self.assertEqual(host_env['SIMDEVICE_BARRIER_ADDRESS'], 'task0:barrier')
+
+  def test_xpk_pod_runs_its_share(self):
+    os.environ.update(_XPK_POD_1)
+    output_dir = epath.Path(self.create_tempdir().full_path)
+    config = dataclasses.replace(_CONFIG, num_processes=4)
+
+    simdevice_backend.run_local_cluster(
+        config, command=[*_WRITE_HOST_ENV, str(output_dir)]
+    )
+
+    self.assertCountEqual(
+        [path.name for path in output_dir.iterdir()], ['2', '3']
+    )
+    host_env = _read_env_file(output_dir / '2')
+    self.assertEqual(
+        host_env['JAX_COORDINATOR_ADDRESS'], 'bench-slice-job-0-0.bench:1234'
+    )
+    self.assertEqual(
+        host_env['SIMDEVICE_BARRIER_ADDRESS'], 'bench-slice-job-0-0.bench:50051'
+    )
+    self.assertEqual(host_env['SIMDEVICE_BARRIER_PORT'], '50051')
+
+  def test_uneven_split_raises(self):
+    os.environ.update(
+        SIMDEVICE_TASK_ID='0',
+        SIMDEVICE_NUM_TASKS='2',
+        SIMDEVICE_BARRIER_ADDRESS='task0:barrier',
+        JAX_COORDINATOR_ADDRESS='task0:jax',
+    )
+    config = dataclasses.replace(_CONFIG, num_processes=3)
+
+    with self.assertRaisesRegex(ValueError, 'multiple'):
+      simdevice_backend.run_local_cluster(config, command=_EXIT_WITH_HOST_ID)
+
+  def test_launcher_task_without_addresses_raises(self):
+    os.environ.update(SIMDEVICE_TASK_ID='0', SIMDEVICE_NUM_TASKS='2')
+    config = dataclasses.replace(_CONFIG, num_processes=4)
+
+    with self.assertRaisesRegex(ValueError, 'JAX_COORDINATOR_ADDRESS'):
       simdevice_backend.run_local_cluster(config, command=_EXIT_WITH_HOST_ID)
 
 

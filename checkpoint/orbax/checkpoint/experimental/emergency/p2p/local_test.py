@@ -58,6 +58,31 @@ class LocalCheckpointManagerTest(absltest.TestCase):
   @mock.patch(
       'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
   )
+  def test_init_forwards_transfer_options_to_handler(
+      self, unused_process_index
+  ):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
+        save_device_host_concurrent_gb=1,
+        copy_device_arrays_for_async_transfer=True,
+    )
+    with mock.patch.object(
+        local.ocp,
+        'PyTreeCheckpointHandler',
+        wraps=local.ocp.PyTreeCheckpointHandler,
+    ) as mock_handler:
+      manager = local.LocalCheckpointManager(
+          self.directory, self.mesh, options=options
+      )
+    mock_handler.assert_called_once()
+    kwargs = mock_handler.call_args.kwargs
+    self.assertEqual(kwargs['save_device_host_concurrent_gb'], 1)
+    self.assertTrue(kwargs['copy_device_arrays_for_async_transfer'])
+    manager.close()
+
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
   def test_scan_stored_steps_empty(self, unused_process_index):
     manager = local.LocalCheckpointManager(
         self.directory, self.mesh, options=self.options
@@ -118,6 +143,38 @@ class LocalCheckpointManagerTest(absltest.TestCase):
     jax.tree_util.tree_map(
         np.testing.assert_array_equal, state, restored['state']
     )
+    manager.close()
+
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
+  def test_prune_steps_after(self, unused_process_index):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(
+            save_interval_steps=1, max_to_keep=3
+        )
+    )
+    manager = local.LocalCheckpointManager(
+        self.directory, self.mesh, options=options
+    )
+    sharding = jax.sharding.NamedSharding(self.mesh, P('x'))
+    state = {
+        'a': jax.device_put(np.arange(self.mesh.size, dtype=np.int32), sharding)
+    }
+    for step in (1, 2, 3):
+      manager.save(
+          step, args=p2p_args_lib.Composite(state=args_lib.PyTreeSave(state))
+      )
+    manager.wait_until_finished()
+    self.assertEqual(manager.all_steps(), [1, 2, 3])
+
+    manager.prune_steps_after(1)
+
+    self.assertEqual(manager.all_steps(), [1])
+    self.assertEqual(manager.latest_step(), 1)
+    self.assertFalse((self.directory / '2').exists())
+    self.assertFalse((self.directory / '3').exists())
+    self.assertTrue(manager.should_save(2))
     manager.close()
 
 
