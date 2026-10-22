@@ -600,15 +600,15 @@ def merge_trees(
   """Merges trees into a single tree using a comprehensive recursive strategy.
 
   This implementation handles standard Python containers (dicts, lists, tuples),
-  named tuples, and custom JAX PyTree nodes, mirroring the robustness of
-  utilities like `tree_trim`.
+  named tuples, and custom JAX PyTree nodes.
 
   - Mappings (dict, etc.) are merged by key.
   - Sequences (list, tuple) are merged element-wise if they have the same
-    length; otherwise, a ValueError is raised.
-  - Dataclasses (dataclass, etc.) are merged by field name, where non-None
-    values overwrite None values.
-  - If `overwrite` is False, a ValueError is raised for mismatched types.
+    length; otherwise, a ``ValueError`` is raised.
+  - Dataclasses (dataclass, etc.) are merged by field name, where non-``None``
+    values overwrite ``None`` values.
+  - If ``overwrite`` is ``False``, a ``ValueError`` is raised for mismatched
+    types.
 
   Example:
     Merge two PyTrees without overlapping leaf paths::
@@ -619,7 +619,7 @@ def merge_trees(
       merged_tree = merge(tree1, tree2)
       # Result: {"a": 1, "b": {"c": 2, "e": 4}, "d": 3}
 
-    Merge PyTrees with overlapping leaf paths using `overwrite=True`::
+    Merge PyTrees with overlapping leaf paths using ``overwrite=True``::
 
       tree3 = {"a": 100}
       overwritten_tree = merge(tree1, tree3, overwrite=True)
@@ -627,19 +627,19 @@ def merge_trees(
 
   Args:
     *trees: The trees to merge.
-    overwrite: If True, later values from `trees` will overwrite earlier values
-      where leaf paths conflict. If False, a ValueError is raised for
-      conflicting leaves.
+    overwrite: If ``True``, later values from ``trees`` will overwrite earlier
+      values where leaf paths conflict. If ``False``, a ``ValueError`` is raised
+      for conflicting leaves.
     is_leaf: Optional function to determine if a node is a leaf. Defaults to
-      `jax.tree_util.all_leaves`.
+      treating ``None`` and standard JAX leaves as leaf nodes.
 
   Returns:
-    A new PyTree representing the merged content of `trees`.
+    A new PyTree representing the merged content of ``trees``.
 
   Raises:
-    ValueError: If `overwrite` is False and there are common leaf key paths
-      between `trees`. Or if `overwrite` is False and the types of nodes do not
-      match.
+    ValueError: If ``overwrite`` is ``False`` and there are common leaf key
+      paths between ``trees``. Or if ``overwrite`` is ``False`` and the types of
+      nodes do not match.
   """
   is_leaf_fn = is_leaf or utils.is_leaf_node_or_none
   trees = list(trees)  # pyrefly: ignore[bad-assignment]

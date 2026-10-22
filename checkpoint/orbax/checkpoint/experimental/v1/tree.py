@@ -19,31 +19,64 @@ See
 https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/checkpointing_pytrees.html#standard-leaf-types
 for more information.
 
-| `Leaf` Type | `AbstractLeaf` Type | Properties |
-:------- | :-------- | :-------- |
-|`jax.Array`|`ocp.arrays.AbstractShardedArray` (`jax.ShapeDtypeStruct`)
-|`shape`, `dtype`,
-`sharding`|
-|`np.ndarray`|`ocp.arrays.AbstractArray` (`np.ndarray`) |`shape`, `dtype`|
-|`int`|`int`|  |
-|`float`|`float`| |
-|`bytes`|`bytes`| |
-|`str`|`str`| |
+.. list-table::
+   :header-rows: 1
+
+   * - ``Leaf`` Type
+     - ``AbstractLeaf`` Type
+     - Properties
+   * - ``jax.Array``
+     - ``ocp.v1.arrays.AbstractShardedArray`` (``jax.ShapeDtypeStruct``)
+     - ``shape``, ``dtype``, ``sharding``
+   * - ``np.ndarray``
+     - ``ocp.v1.arrays.AbstractArray`` (``np.ndarray``)
+     - ``shape``, ``dtype``
+   * - ``int``
+     - ``int``
+     -
+   * - ``float``
+     - ``float``
+     -
+   * - ``np.number``
+     - ``np.number``
+     -
+   * - ``bytes``
+     - ``bytes``
+     -
+   * - ``bool``
+     - ``bool``
+     -
+   * - ``str``
+     - ``str``
+     -
 """
 
 # pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
 
+from orbax.checkpoint.experimental.v1._src.tree import types as _tree_types
 from orbax.checkpoint.experimental.v1._src.tree.structure_utils import (
     merge_trees as merge,
 )
 from orbax.checkpoint.experimental.v1._src.tree.types import (
     PyTree,
     PyTreeOf,
-    PyTreeKey,
-    PyTreeKeyPath,
-    JsonType,
 )
-from orbax.checkpoint.experimental.v1._src.tree.types import (
-    Leaf,
-    AbstractLeaf,
-)
+
+#: A single key entry within a JAX PyTree path (sequence index, dict key,
+#: attribute name, or flattened index).
+PyTreeKey = _tree_types.PyTreeKey
+
+#: A tuple of :py:data:`PyTreeKey` entries identifying a path from the root of a
+#: PyTree to a leaf node.
+PyTreeKeyPath = _tree_types.PyTreeKeyPath
+
+#: Union of standard concrete leaf types supported in a checkpointed PyTree.
+Leaf = _tree_types.Leaf
+
+#: Union of abstract leaf descriptors (shapes/dtypes/shardings or scalar types)
+#: used as targets when loading a PyTree checkpoint.
+AbstractLeaf = _tree_types.AbstractLeaf
+
+#: Recursive JSON-serializable container type (lists and string-keyed dicts of
+#: JSON primitives ``str | int | float | bool | None`` or nested containers).
+JsonType = _tree_types.JsonType
