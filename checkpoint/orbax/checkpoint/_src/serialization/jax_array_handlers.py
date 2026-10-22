@@ -1849,6 +1849,7 @@ async def _single_replica_deserialize_and_broadcast(
     metadata_key: str | None,
     broadcast_memory_limit_bytes: int | None,
     broadcast_memory_scaling_factor: float | None,
+    broadcast_dcn_arena_bytes_per_host: int,
 ) -> Sequence[jax.Array]:
   """Deserializes and broadcasts a single replica."""
   primary_replica_pids = _validate_sharding_and_get_primary_replica_processes(
@@ -1873,6 +1874,7 @@ async def _single_replica_deserialize_and_broadcast(
             replica_axis_index,
             memory_limit_bytes=broadcast_memory_limit_bytes,
             memory_scaling_factor=broadcast_memory_scaling_factor,
+            dcn_arena_bytes_per_host=broadcast_dcn_arena_bytes_per_host,
         )
     )
   if _is_host_for_primary_replica(primary_replica_pids):
@@ -1916,6 +1918,7 @@ async def _single_replica_deserialize_and_broadcast(
       _is_host_for_primary_replica(primary_replica_pids),
       memory_limit_bytes=broadcast_memory_limit_bytes,
       memory_scaling_factor=broadcast_memory_scaling_factor,
+      dcn_arena_bytes_per_host=broadcast_dcn_arena_bytes_per_host,
   )
   broadcast_elapsed_s = time.time() - start_broadcast
   jax.monitoring.record_event_duration_secs(
@@ -1986,6 +1989,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
       primary_replica_id: int | None = 0,
       broadcast_memory_limit_bytes: int | None = None,
       broadcast_memory_scaling_factor: float | None = 0.75,
+      broadcast_dcn_arena_bytes_per_host: int = (
+          multislice.DEFAULT_DCN_ARENA_BYTES_PER_HOST
+      ),
       **kwargs,
   ):
     """Constructor.
@@ -2000,6 +2006,9 @@ class SingleReplicaArrayHandler(ArrayHandler):
         for broadcasting data.
       broadcast_memory_scaling_factor: Specifies the fraction of available
         memory to use for broadcasting data.
+      broadcast_dcn_arena_bytes_per_host: Size of the host's DCN transfer arena
+        (--megascale_grpc_premap_memory_bytes), which also bounds broadcast
+        rounds across slices.
       **kwargs: Look at `ArrayHandler` for documentation of other arguments.
     """
 
@@ -2010,6 +2019,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
     self.primary_replica_id = primary_replica_id
     self.broadcast_memory_limit_bytes = broadcast_memory_limit_bytes
     self.broadcast_memory_scaling_factor = broadcast_memory_scaling_factor
+    self.broadcast_dcn_arena_bytes_per_host = broadcast_dcn_arena_bytes_per_host
 
   def _construct_single_replica_sharding(
       self, sharding: jax.sharding.Sharding
@@ -2084,6 +2094,7 @@ class SingleReplicaArrayHandler(ArrayHandler):
           self._metadata_key,
           self.broadcast_memory_limit_bytes,
           self.broadcast_memory_scaling_factor,
+          self.broadcast_dcn_arena_bytes_per_host,
       )
     else:
       primary_replica_devices = multislice.replica_devices(
