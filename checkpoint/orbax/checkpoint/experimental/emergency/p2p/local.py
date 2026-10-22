@@ -186,6 +186,10 @@ class LocalCheckpointManager:
         use_zarr3=True,
         multiprocessing_options=mp_options,
         type_handler_registry=local_registry,
+        save_device_host_concurrent_gb=options.save_device_host_concurrent_gb,
+        copy_device_arrays_for_async_transfer=(
+            options.copy_device_arrays_for_async_transfer
+        ),
     )
 
     item_handlers = dict(state=handler)

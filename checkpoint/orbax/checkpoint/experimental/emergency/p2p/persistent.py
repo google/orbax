@@ -41,6 +41,8 @@ def _create_persistent_handler(
     mp_options: checkpoint_manager.MultiprocessingOptions,
     replica_axis_index: int,
     is_single_slice: bool,
+    save_device_host_concurrent_gb: int | str | None,
+    copy_device_arrays_for_async_transfer: bool,
 ) -> ocp.PyTreeCheckpointHandler:
   """Creates a PyTreeCheckpointHandler for persistent storage.
 
@@ -48,6 +50,8 @@ def _create_persistent_handler(
     mp_options: Multiprocessing options for the checkpoint handler.
     replica_axis_index: The index of the replica axis in the mesh.
     is_single_slice: Whether the mesh is single-slice.
+    save_device_host_concurrent_gb: See `ocp.PyTreeCheckpointHandler`.
+    copy_device_arrays_for_async_transfer: See `ocp.PyTreeCheckpointHandler`.
 
   Returns:
     A PyTreeCheckpointHandler configured for persistent storage.
@@ -76,6 +80,10 @@ def _create_persistent_handler(
       use_zarr3=True,
       multiprocessing_options=mp_options,
       type_handler_registry=registry,
+      save_device_host_concurrent_gb=save_device_host_concurrent_gb,
+      copy_device_arrays_for_async_transfer=(
+          copy_device_arrays_for_async_transfer
+      ),
   )
 
 
@@ -126,6 +134,12 @@ class PersistentCheckpointManager:
                 self._global_mesh, replica_axis_index=self._replica_axis_index
             )
             == 1,
+            save_device_host_concurrent_gb=(
+                options.save_device_host_concurrent_gb
+            ),
+            copy_device_arrays_for_async_transfer=(
+                options.copy_device_arrays_for_async_transfer
+            ),
         )
     )
     if utils.pygrain() is not None:

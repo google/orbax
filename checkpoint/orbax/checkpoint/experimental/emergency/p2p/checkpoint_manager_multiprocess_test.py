@@ -30,6 +30,7 @@ import numpy as np
 from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.serialization import replica_slices
 from orbax.checkpoint.experimental.emergency.p2p import args as p2p_args_lib
 from orbax.checkpoint.experimental.emergency.p2p import checkpoint_manager as p2p_cm
 from orbax.checkpoint.experimental.emergency.p2p import local
@@ -109,6 +110,130 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
     test_utils.assert_tree_equal(self, restored.state, state)
 
     manager.close()
+
+  def test_save_restore_with_copy_device_arrays_for_async_transfer(self):
+    device_array = np.array(jax.devices()).reshape((2, jax.device_count() // 2))
+    mesh = Mesh(device_array, axis_names=('replica', 'partition'))
+    state, abstract_state = self.initial_state(mesh)
+    expected = jax.tree.map(lambda x: x + 0, state)
+    process_id = jax.process_index()
+    local_dir = self.root_dir.full_path + '/' + str(process_id)
+    persistent_dir = epath.Path(self.root_dir.full_path) / 'persistent'
+    if process_id == 0:
+      persistent_dir.mkdir(parents=True, exist_ok=True)
+    multihost_utils.sync_global_devices('persistent_dir_created')
+
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
+        persistent=options_lib.PersistentCheckpointOptions(
+            save_interval_steps=1
+        ),
+        save_device_host_concurrent_gb=1,
+        copy_device_arrays_for_async_transfer=True,
+    )
+    manager = p2p_cm.CheckpointManager(
+        mesh,
+        abstract_state,
+        local_dir,
+        persistent_directory=persistent_dir,
+        options=options,
+    )
+
+    # Both the local and the persistent handler copy the state on device and
+    # transfer the copies in the background, in 1 GiB batches.
+    manager.save(1, args=Composite(state=args_lib.PyTreeSave(state)))
+    # Donating `state` reuses its device buffers while the background D2H
+    # transfers may still be pending.
+    state = jax.jit(
+        lambda s: jax.tree.map(lambda x: x + 100, s), donate_argnums=0
+    )(state)
+    manager.wait_until_finished()
+    self.assertEqual(manager.latest_step(), 1)
+
+    restored = manager.restore(
+        1, args=Composite(state=args_lib.PyTreeRestore(abstract_state))
+    )
+    self.assertIsNotNone(restored)
+    test_utils.assert_tree_equal(self, restored.state, expected)
+
+    manager.close()
+
+  def _save_with_held_transfers(self, copy_device_arrays: bool):
+    """Saves step 1 while holding back every background D2H transfer.
+
+    Transfers issued on the calling thread run immediately (that thread is the
+    one that releases the hold); transfers issued on any other thread wait for
+    the release, so anything in `save()` or in the training loop that waited
+    for them would time out instead of passing.
+
+    Args:
+      copy_device_arrays: Value of `copy_device_arrays_for_async_transfer`.
+
+    Returns:
+      The ident of the calling thread and the idents of the threads that
+      transferred arrays before `save()` returned.
+    """
+    device_array = np.array(jax.devices()).reshape((2, jax.device_count() // 2))
+    mesh = Mesh(device_array, axis_names=('replica', 'partition'))
+    state, abstract_state = self.initial_state(mesh)
+    expected = jax.tree.map(lambda x: x + 0, state)
+    local_dir = self.root_dir.full_path + '/' + str(jax.process_index())
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
+        save_device_host_concurrent_gb=1,
+        copy_device_arrays_for_async_transfer=copy_device_arrays,
+    )
+    manager = p2p_cm.CheckpointManager(
+        mesh, abstract_state, local_dir, options=options
+    )
+
+    caller = threading.get_ident()
+    release = threading.Event()
+    transfer_threads = []
+    held_too_long = []
+    transfer_arrays_to_host = replica_slices.transfer_arrays_to_host
+
+    def held_transfer(arrays, *args, **kwargs):
+      transfer_threads.append(threading.get_ident())
+      if threading.get_ident() != caller and not release.wait(timeout=120):
+        held_too_long.append(True)
+      return transfer_arrays_to_host(arrays, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', held_transfer
+    ):
+      manager.save(1, args=Composite(state=args_lib.PyTreeSave(state)))
+      threads_before_return = list(transfer_threads)
+      # Training continues while the transfers are held: donate the saved
+      # state, run a step on it and read a value back.
+      state = jax.jit(
+          lambda s: jax.tree.map(lambda x: x + 100, s), donate_argnums=0
+      )(state)
+      np.asarray(state['a'].addressable_data(0))
+      release.set()
+      manager.wait_until_finished()
+    self.assertEmpty(held_too_long, 'save() or the step waited for the D2H.')
+    self.assertNotEmpty(transfer_threads)
+
+    restored = manager.restore(
+        1, args=Composite(state=args_lib.PyTreeRestore(abstract_state))
+    )
+    self.assertIsNotNone(restored)
+    test_utils.assert_tree_equal(self, restored.state, expected)
+    manager.close()
+    return caller, threads_before_return
+
+  def test_save_transfers_to_host_before_returning_by_default(self):
+    caller, threads_before_return = self._save_with_held_transfers(
+        copy_device_arrays=False
+    )
+    self.assertIn(caller, threads_before_return)
+
+  def test_save_does_not_wait_for_transfers_with_copy_device_arrays(self):
+    caller, threads_before_return = self._save_with_held_transfers(
+        copy_device_arrays=True
+    )
+    self.assertNotIn(caller, threads_before_return)
 
   def test_restore_via_p2p(self):
     device_array = np.array(jax.devices()).reshape((1, jax.device_count()))

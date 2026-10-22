@@ -159,6 +159,29 @@ class PersistentCheckpointManagerTest(absltest.TestCase):
     self.assertIsNotNone(manager._manager)
     manager.close()
 
+  def test_init_forwards_transfer_options_to_handler(self):
+    self._patch_process_index(process_index=0)
+    options = options_lib.CheckpointManagerOptions(
+        persistent=options_lib.PersistentCheckpointOptions(
+            save_interval_steps=1
+        ),
+        save_device_host_concurrent_gb=1,
+        copy_device_arrays_for_async_transfer=True,
+    )
+    with mock.patch.object(
+        persistent.ocp,
+        'PyTreeCheckpointHandler',
+        wraps=persistent.ocp.PyTreeCheckpointHandler,
+    ) as mock_handler:
+      manager = persistent.PersistentCheckpointManager(
+          self.directory, self.mesh, replica_axis_index=0, options=options
+      )
+    mock_handler.assert_called_once()
+    kwargs = mock_handler.call_args.kwargs
+    self.assertEqual(kwargs['save_device_host_concurrent_gb'], 1)
+    self.assertTrue(kwargs['copy_device_arrays_for_async_transfer'])
+    manager.close()
+
   def test_init_not_in_primary_slice(self):
     self._patch_process_index(
         process_index=2, in_primary_slice=False, replica_id=1

@@ -58,6 +58,31 @@ class LocalCheckpointManagerTest(absltest.TestCase):
   @mock.patch(
       'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
   )
+  def test_init_forwards_transfer_options_to_handler(
+      self, unused_process_index
+  ):
+    options = options_lib.CheckpointManagerOptions(
+        local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
+        save_device_host_concurrent_gb=1,
+        copy_device_arrays_for_async_transfer=True,
+    )
+    with mock.patch.object(
+        local.ocp,
+        'PyTreeCheckpointHandler',
+        wraps=local.ocp.PyTreeCheckpointHandler,
+    ) as mock_handler:
+      manager = local.LocalCheckpointManager(
+          self.directory, self.mesh, options=options
+      )
+    mock_handler.assert_called_once()
+    kwargs = mock_handler.call_args.kwargs
+    self.assertEqual(kwargs['save_device_host_concurrent_gb'], 1)
+    self.assertTrue(kwargs['copy_device_arrays_for_async_transfer'])
+    manager.close()
+
+  @mock.patch(
+      'orbax.checkpoint._src.multihost.multihost.process_index', return_value=0
+  )
   def test_scan_stored_steps_empty(self, unused_process_index):
     manager = local.LocalCheckpointManager(
         self.directory, self.mesh, options=self.options
