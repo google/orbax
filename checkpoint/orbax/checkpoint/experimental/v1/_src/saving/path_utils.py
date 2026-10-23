@@ -73,9 +73,7 @@ async def remove_existing_path(
         '[process=%s] Specified `overwrite`: removing existing path.',
         multihost.process_index(),
     )
-    await async_path.rmtree(
-        path, missing_ok=context.file_options.skip_sync_file_validations
-    )
+    await async_path.rmtree(path)
   await multihost.sync_global_processes(
       multihost.unique_barrier_key(
           'save_checkpointables_async:rmtree',
@@ -103,10 +101,6 @@ async def maybe_overwrite_existing(
     ValueError: If the path exists and overwrite is False.
   """
   await deletion_metadata.ensure_available(path)
-  if context.file_options.skip_sync_file_validations:
-    if overwrite:
-      await remove_existing_path(path, context=context)
-    return
   # Sync before and after existence check, since otherwise the processes may
   # not agree and it is possible for one process to run ahead and create the
   # directory before another has checked for its existence.
@@ -131,3 +125,36 @@ async def maybe_overwrite_existing(
       operation_id=synchronization.get_operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )
+
+
+async def prepare_destination_pre_creation(
+    path: path_types.Path,
+    *,
+    overwrite: bool,
+) -> None:
+  """Barrier-free `maybe_overwrite_existing`, run as `pre_create_fn`.
+
+  Runs on the primary host only, right before `tmp_path.create()`; other hosts
+  wait on the directory-creation signals instead of barriers.
+
+  Args:
+    path: The final checkpoint path.
+    overwrite: Whether to remove the path if it exists.
+
+  Raises:
+    ValueError: If the path exists and overwrite is False.
+    deletion_metadata.DeletionInProgressError: If the path has an unfinished
+      deletion.
+    deletion_metadata.DeletionRecoveryError: If the path has an invalid
+      deletion record.
+  """
+  await deletion_metadata.ensure_available(path)
+  if not await async_path.exists(path):
+    return
+  if not overwrite:
+    raise ValueError(f'Destination {path} already exists.')
+  logging.info(
+      '[process=%s] Specified `overwrite`: removing existing path.',
+      multihost.process_index(),
+  )
+  await async_path.rmtree(path)

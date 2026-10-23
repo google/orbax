@@ -21,6 +21,7 @@ paths, which allow other implementations.
 from __future__ import annotations
 
 import abc
+from collections.abc import Awaitable, Callable
 
 from etils import epath
 from orbax.checkpoint import options as options_lib
@@ -29,6 +30,10 @@ from orbax.checkpoint._src.path.snapshot import snapshot as snapshot_lib
 
 TMP_DIR_SUFFIX = '.orbax-checkpoint-tmp'
 COMMIT_SUCCESS_FILE = 'commit_success.txt'
+
+# Async callable run on the primary host right before temporary paths are
+# created, e.g. to check for or remove an existing destination.
+PreCreateFn = Callable[[], Awaitable[None]]
 
 
 class ValidationError(ValueError):

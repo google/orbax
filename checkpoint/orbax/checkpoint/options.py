@@ -100,10 +100,12 @@ class FileOptions:
       metadata files. e.g. 0o750. Please check
       https://github.com/google/etils/blob/main/etils/epath/backend.py if your
         path is supported. default=None.
-    skip_sync_file_validations: If True, bypasses synchronous filesystem
-      existence and validation checks prior to async saving in
-      AsyncCheckpointer. Default is False. This is experimental and should only
-      be used if you are certain of the effects.
+    skip_sync_file_validations: If True and
+      `AsyncOptions.create_directories_asynchronously=True`, AsyncCheckpointer
+      checks for and removes an existing destination in the background
+      directory-creation thread instead of before `save()` returns. With
+      `force=False`, an existing destination then raises when the save is
+      awaited (e.g. `wait_until_finished()`). Default is False.
   """
 # pyformat: enable
 
