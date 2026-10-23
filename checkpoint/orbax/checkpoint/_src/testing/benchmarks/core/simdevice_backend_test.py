@@ -98,6 +98,18 @@ class RenderTopologyYamlTest(absltest.TestCase):
         },
     )
 
+  def test_render_slices(self):
+    rendered = simdevice_backend.render_topology_yaml(
+        configs.SimDeviceConfig(
+            device_type='v6e', topology=[2, 2, 1], num_processes=4, num_slices=2
+        )
+    )
+
+    self.assertEqual(
+        yaml.safe_load(rendered)['topology'],
+        {'mesh_dimensions': [2, 2, 1], 'num_slices': 2},
+    )
+
 
 class ActivateTest(absltest.TestCase):
 

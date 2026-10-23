@@ -64,9 +64,14 @@ def render_topology_yaml(config: configs.SimDeviceConfig) -> str:
   Args:
     config: The simulated cluster.
   """
+  topology: dict[str, list[int] | int] = {
+      'mesh_dimensions': list(config.topology)
+  }
+  if config.num_slices is not None:
+    topology['num_slices'] = config.num_slices
   return yaml.safe_dump({
       'device': {'type': config.device_type},
-      'topology': {'mesh_dimensions': list(config.topology)},
+      'topology': topology,
       'orchestration': {'num_processes': config.num_processes},
   })
 

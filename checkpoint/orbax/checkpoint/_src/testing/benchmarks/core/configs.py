@@ -149,12 +149,17 @@ class SimDeviceConfig:
       fabricated_fill_seed: If set, host reads of buffers SimDevice never
         computed return random values seeded with it instead of zeros, so
         checkpoints have a realistic size on disk. Must fit in 32 bits.
+      num_slices: If set, the cluster has this many slices, each with chip mesh
+        `topology`, and devices report their `slice_index`. Each simulated host
+        belongs to one slice, so `num_processes` must be a multiple. Unset,
+        every simulated host stands in for a slice.
   """
 
   device_type: str
   topology: Sequence[int]
   num_processes: int = 1
   fabricated_fill_seed: int | None = None
+  num_slices: int | None = None
 
   def __post_init__(self):
     if not isinstance(self.device_type, str) or not self.device_type:
@@ -183,4 +188,13 @@ class SimDeviceConfig:
       raise ValueError(
           'fabricated_fill_seed must be an integer in [0, 2**32), got'
           f' {self.fabricated_fill_seed!r}.'
+      )
+    if self.num_slices is not None and (
+        not isinstance(self.num_slices, int)
+        or self.num_slices < 1
+        or self.num_processes % self.num_slices
+    ):
+      raise ValueError(
+          'num_slices must be a positive integer that divides num_processes,'
+          f' got {self.num_slices!r} for {self.num_processes} processes.'
       )

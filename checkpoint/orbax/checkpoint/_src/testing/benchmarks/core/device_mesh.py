@@ -32,15 +32,16 @@ def _num_slices() -> int:
 def _process_is_dcn_granule(config: configs.MeshConfig) -> bool:
   """Returns whether processes, rather than slices, are the DCN granule.
 
-  SimDevice devices have no `slice_index`, so on SimDevice each simulated host
-  stands in for one slice and a multislice config runs unchanged.
+  SimDevice devices report no `slice_index` unless the config's `simdevice:`
+  block sets `num_slices`. Without it, each simulated host stands in for one
+  slice so a multislice config runs unchanged.
 
   Args:
     config: The mesh config.
   """
   if config.process_is_granule:
     return True
-  if backends.is_simdevice():
+  if backends.is_simdevice() and not hasattr(jax.devices()[0], 'slice_index'):
     logging.info('SimDevice: using simulated hosts as the DCN granule.')
     return True
   return False
