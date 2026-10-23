@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
@@ -53,6 +55,20 @@ def make_multi_device_array(shape, partitioned, pinned_host=False):
   data = jax.device_put(x, sharding)
 
   return data, num_partitions, num_replicas
+
+
+def make_replicated_array(shape, num_replicas):
+  """Returns an array sharded within, and replicated across, replicas."""
+  num_data = jax.device_count() // num_replicas
+  devices = np.asarray(jax.devices()[: num_replicas * num_data])
+  mesh = jax.sharding.Mesh(
+      devices.reshape(num_replicas, num_data), ('replica', 'data')
+  )
+  sharding = jax.sharding.NamedSharding(
+      mesh, jax.sharding.PartitionSpec('data')
+  )
+  x = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+  return jax.device_put(x, sharding)
 
 
 class ReplicaSlicesTest(parameterized.TestCase):
@@ -437,6 +453,72 @@ class ReplicaSlicesTest(parameterized.TestCase):
         4 * 2 * np.dtype(np.int16).itemsize
     )
     self.assertEqual(rslices.nbytes, expected_nbytes)
+
+  @parameterized.parameters((2, 7), (3, 5), (4, 4))
+  def test_get_balanced_replica_ids(self, num_replicas, expected_max):
+    if jax.device_count() < num_replicas:
+      self.skipTest(f'Test requires at least {num_replicas} devices.')
+    num_data = jax.device_count() // num_replicas
+    sizes = (4, 4, 2, 2, 1, 1)
+    arrays = [
+        make_replicated_array((num_data * size, 8), num_replicas)
+        for size in sizes
+    ]
+
+    replica_ids = replica_slices.get_balanced_replica_ids(arrays, False)
+
+    group_sizes = [0] * num_replicas
+    for size, replica_id in zip(sizes, replica_ids):
+      group_sizes[replica_id] += size
+    # The largest group is as small as possible.
+    self.assertEqual(max(group_sizes), expected_max)
+
+  def test_get_balanced_replica_ids_with_replica_parallel(self):
+    if jax.device_count() < 3:
+      self.skipTest('Test requires at least 3 devices.')
+    num_data = jax.device_count() // 3
+    arrays = [
+        # Shards of shape (8, 8) are saved replica-parallel by replicas 0, 1.
+        make_replicated_array((num_data * 8, 8), 3),
+        # Shards of shape (1, 3) cannot be split, so go to replica 2.
+        make_replicated_array((num_data, 3), 3),
+        make_replicated_array((num_data, 3), 3),
+    ]
+    self.assertEqual(
+        replica_slices.get_balanced_replica_ids(
+            arrays, True, max_replicas_for_replica_parallel=2
+        ),
+        [0, 2, 2],
+    )
+
+  @parameterized.product(
+      num_replicas=[2, 3], use_replica_parallel=[False, True]
+  )
+  def test_transfer_balanced(self, num_replicas, use_replica_parallel):
+    if jax.device_count() < num_replicas:
+      self.skipTest(f'Test requires at least {num_replicas} devices.')
+    num_data = jax.device_count() // num_replicas
+    arrays = [
+        make_replicated_array((num_data * size, 8), num_replicas)
+        for size in (4, 3, 2, 1)
+    ]
+
+    # `replica_id` is ignored when balancing; on its own, -1 saves nothing.
+    rslices_per_array = replica_slices.transfer_arrays_to_host(
+        arrays,
+        replica_id=-1,
+        use_replica_parallel=use_replica_parallel,
+        balance_arrays_across_replicas=True,
+    )
+
+    # Every array is still saved exactly once.
+    for arr, rslices in zip(arrays, rslices_per_array):
+      combined = np.full(arr.shape, np.nan)
+      for rslice in rslices.replica_slices:
+        self.assertTrue(np.all(np.isnan(combined[rslice.index])))
+        combined[rslice.index] = rslice.data()
+      np.testing.assert_array_equal(combined, arr)
+
 
 if __name__ == '__main__':
   absltest.main()
