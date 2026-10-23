@@ -226,8 +226,9 @@ def run_local_cluster(
 
   On a multi-task launch, this task runs its share of the simulated hosts.
   Each child gets its simulated host id, the SimDevice barrier address and the
-  JAX coordinator address through the environment. If any child fails, the
-  others are stopped rather than left waiting at a barrier.
+  JAX coordinator address through the environment. If any child fails, or the
+  run passes `config.timeout_seconds`, the others are stopped rather than left
+  waiting at a barrier.
 
   Args:
     config: The simulated cluster.
@@ -235,7 +236,8 @@ def run_local_cluster(
       line, so each child reruns the same benchmark as one simulated host.
 
   Raises:
-    RuntimeError: If any simulated host fails.
+    RuntimeError: If any simulated host fails, or they do not all finish
+      within `config.timeout_seconds`.
     ValueError: If the launch environment is incomplete, or the simulated hosts
       do not split evenly across the launcher's tasks.
   """
@@ -263,6 +265,11 @@ def run_local_cluster(
       cluster_env['SIMDEVICE_BARRIER_ADDRESS'],
   )
 
+  deadline = (
+      None
+      if config.timeout_seconds is None
+      else time.monotonic() + config.timeout_seconds
+  )
   try:
     while True:
       exit_codes = [child.poll() for child in children]
@@ -277,6 +284,16 @@ def run_local_cluster(
         )
       if all(code == 0 for code in exit_codes):
         return
+      if deadline is not None and time.monotonic() > deadline:
+        running = [
+            process_id
+            for process_id, code in zip(process_ids, exit_codes)
+            if code is None
+        ]
+        raise RuntimeError(
+            f'Simulated hosts {running} did not finish within'
+            f' {config.timeout_seconds} s (simdevice.timeout_seconds).'
+        )
       time.sleep(_POLL_INTERVAL_SECONDS)
   finally:
     for child in children:

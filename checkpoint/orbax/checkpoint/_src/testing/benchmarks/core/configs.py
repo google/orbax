@@ -153,6 +153,9 @@ class SimDeviceConfig:
         `topology`, and devices report their `slice_index`. Each simulated host
         belongs to one slice, so `num_processes` must be a multiple. Unset,
         every simulated host stands in for a slice.
+      timeout_seconds: If set, a run with several simulated hosts fails once it
+        takes longer than this, and every host still running is stopped. Catches
+        a host that hangs instead of exiting.
   """
 
   device_type: str
@@ -160,6 +163,7 @@ class SimDeviceConfig:
   num_processes: int = 1
   fabricated_fill_seed: int | None = None
   num_slices: int | None = None
+  timeout_seconds: int | None = None
 
   def __post_init__(self):
     if not isinstance(self.device_type, str) or not self.device_type:
@@ -197,4 +201,11 @@ class SimDeviceConfig:
       raise ValueError(
           'num_slices must be a positive integer that divides num_processes,'
           f' got {self.num_slices!r} for {self.num_processes} processes.'
+      )
+    if self.timeout_seconds is not None and (
+        not isinstance(self.timeout_seconds, int) or self.timeout_seconds < 1
+    ):
+      raise ValueError(
+          'timeout_seconds must be a positive integer, got'
+          f' {self.timeout_seconds!r}.'
       )

@@ -311,6 +311,14 @@ class RunLocalClusterTest(absltest.TestCase):
         host_envs[1]['SIMDEVICE_BARRIER_ADDRESS'],
     )
 
+  def test_host_that_never_exits_times_out(self):
+    config = dataclasses.replace(_CONFIG, num_processes=2, timeout_seconds=1)
+    # Host 0 exits at once; host 1 hangs.
+    command = ('/bin/sh', '-c', '[ "$SIMDEVICE_PROCESS_ID" = 0 ] || sleep 600')
+
+    with self.assertRaisesRegex(RuntimeError, r'\[1\] did not finish'):
+      simdevice_backend.run_local_cluster(config, command=command)
+
   def test_failed_host_raises(self):
     config = dataclasses.replace(_CONFIG, num_processes=2)
 

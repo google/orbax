@@ -176,6 +176,7 @@ class TestParseSimDeviceConfig(parameterized.TestCase):
             'num_processes': 2,
             'fabricated_fill_seed': 7,
             'num_slices': 2,
+            'timeout_seconds': 600,
         }
     })
 
@@ -187,6 +188,7 @@ class TestParseSimDeviceConfig(parameterized.TestCase):
             num_processes=2,
             fabricated_fill_seed=7,
             num_slices=2,
+            timeout_seconds=600,
         ),
     )
 
@@ -198,6 +200,7 @@ class TestParseSimDeviceConfig(parameterized.TestCase):
     self.assertEqual(config.num_processes, 1)
     self.assertIsNone(config.fabricated_fill_seed)
     self.assertIsNone(config.num_slices)
+    self.assertIsNone(config.timeout_seconds)
 
   def test_topology_is_a_tuple(self):
     config = self._parse(
@@ -262,6 +265,15 @@ class TestParseSimDeviceConfig(parameterized.TestCase):
               'fabricated_fill_seed': -1,
           },
           error='fabricated_fill_seed',
+      ),
+      dict(
+          testcase_name='zero_timeout',
+          block={
+              'device_type': 'v6e',
+              'topology': [2, 2, 1],
+              'timeout_seconds': 0,
+          },
+          error='timeout_seconds',
       ),
       dict(
           testcase_name='zero_slices',
