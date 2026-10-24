@@ -476,12 +476,36 @@ def _worker_serialize_arrays(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     replica_ids: Sequence[int] | None = None,
+    elect_primary_host: bool = False,
 ):
   """Worker function to serialize arrays."""
   initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
       types.IoDirection.WRITE
   )
   total_start_time = time.time()
+  # Single-replica restricted dispatches may run on a subset of workers that
+  # excludes `primary_host`; elect the worker hosting the group's first device.
+  if (
+      primary_host is not None
+      and elect_primary_host
+      and arrays
+      and isinstance(arrays[0].sharding, jax.sharding.Sharding)
+  ):
+    sharding = arrays[0].sharding
+    if isinstance(sharding, jax.sharding.NamedSharding) and isinstance(
+        sharding.mesh, jax.sharding.Mesh
+    ):
+      first_device = sharding.mesh.devices.flat[0]
+    elif sharding.device_set:
+      first_device = min(sharding.device_set, key=lambda d: d.id)
+    else:
+      first_device = None
+    if first_device is not None and any(
+        s.device == first_device for s in arrays[0].addressable_shards
+    ):
+      primary_host = multihost.process_index()
+    else:
+      primary_host = -1
   # `replica_ids` is only dispatched when balancing arrays across replicas; see
   # `_serialize_arrays`.
   if replica_ids is None:
@@ -815,6 +839,8 @@ def _serialize_arrays_batches_without_dispatcher(
 def _copy_device_arrays(
     params: Sequence[_ArrayToSerialize],
     replica_ids: Sequence[int | None],
+    *,
+    use_array_mesh: bool = False,
 ) -> tuple[
     list[_ArrayToSerialize],
     list[int | None],
@@ -826,6 +852,9 @@ def _copy_device_arrays(
   Args:
     params: The arrays to copy, with their infos and args.
     replica_ids: The replica id corresponding to each element of `params`.
+    use_array_mesh: Whether to copy `NamedSharding` arrays under their own
+      mesh context, avoiding device-assignment mismatches when arrays were
+      restricted to replica sub-meshes while a different context mesh is active.
 
   Returns:
     `(copied, copied_ids, on_host, on_host_ids)`: the params whose arrays were
@@ -839,12 +868,83 @@ def _copy_device_arrays(
   on_host_ids: list[int | None] = []
   for (value, info, arg), r_id in zip(params, replica_ids, strict=True):
     if sharding_utils.is_in_device_memory(value):
-      copied.append((jnp.copy(value), info, arg))
+      if (
+          use_array_mesh
+          and isinstance(value.sharding, jax.sharding.NamedSharding)
+          and isinstance(value.sharding.mesh, jax.sharding.Mesh)
+      ):
+        # A sub-mesh array cannot be copied under a full-mesh context mesh.
+        with jax.sharding.set_mesh(value.sharding.mesh):
+          value = jnp.copy(value)
+      else:
+        value = jnp.copy(value)
+      copied.append((value, info, arg))
       copied_ids.append(r_id)
     else:
       on_host.append((value, info, arg))
       on_host_ids.append(r_id)
   return copied, copied_ids, on_host, on_host_ids
+
+
+_BatchGroup: TypeAlias = tuple[
+    Sequence[types.ParamInfo],
+    Sequence[types.SaveArgs],
+    Sequence[jax.Array],
+    Sequence[int | None],
+]
+_MutableBatchGroup: TypeAlias = tuple[
+    list[types.ParamInfo],
+    list[types.SaveArgs],
+    list[jax.Array],
+    list[int | None],
+]
+
+
+def _group_by_device_list(
+    batch_infos: Sequence[types.ParamInfo],
+    batch_args: Sequence[types.SaveArgs],
+    batch_arrays: Sequence[jax.Array],
+    batch_replica_ids: Sequence[int | None],
+) -> list[_BatchGroup]:
+  """Groups a batch by device list so each dispatch uses one device list."""
+  groups: dict[tuple[jax.Device, ...], _MutableBatchGroup] = (
+      collections.defaultdict(lambda: ([], [], [], []))
+  )
+  groups_by_mesh: dict[
+      jax.sharding.Mesh | jax.sharding.AbstractMesh, _MutableBatchGroup
+  ] = {}
+  groups_by_sharding: dict[jax.sharding.Sharding, _MutableBatchGroup] = {}
+  for idx, (info, arg, arr) in enumerate(
+      zip(batch_infos, batch_args, batch_arrays)
+  ):
+    sharding = arr.sharding
+    if isinstance(sharding, jax.sharding.NamedSharding):
+      mesh = sharding.mesh
+      group = groups_by_mesh.get(mesh)
+      if group is None:
+        device_key = (
+            tuple(mesh.devices.flatten())
+            if isinstance(mesh, jax.sharding.Mesh)
+            else ()
+        )
+        group = groups[device_key]
+        groups_by_mesh[mesh] = group
+    elif isinstance(sharding, jax.sharding.Sharding):
+      group = groups_by_sharding.get(sharding)
+      if group is None:
+        device_key = tuple(sorted(sharding.device_set, key=lambda d: d.id))
+        group = groups[device_key]
+        groups_by_sharding[sharding] = group
+    else:
+      group = groups[()]
+    group_infos, group_args, group_arrays, group_replica_ids = group
+    group_infos.append(info)
+    group_args.append(arg)
+    group_arrays.append(arr)
+    group_replica_ids.append(batch_replica_ids[idx])
+  if len(groups) <= 1:
+    return [(batch_infos, batch_args, batch_arrays, batch_replica_ids)]
+  return list(groups.values())
 
 
 def _serialize_arrays(
@@ -885,6 +985,56 @@ def _serialize_arrays(
   )
 
 
+  # Per-device-list dispatch grouping, worker primary-host election, and
+  # controller `ArrayMetadata` persistence activate only when on-device
+  # single-replica restriction runs (`any_single_replica_selected=True`, i.e. at
+  # least one replicated array is restricted to one replica's sub-mesh). Saves
+  # with no restricted arrays (such as `num_replicas=1`-only PyTrees) preserve
+  # single-dispatch behavior unchanged.
+  any_single_replica_selected = False
+  if balance_arrays_across_replicas and dispatcher is not None:
+    all_arrays = [v for v, _, _ in prioritized] + [
+        v for v, _, _ in deprioritized
+    ]
+    all_replica_ids = prioritized_replica_ids + deprioritized_replica_ids
+    single_replica_shardings = [
+        replica_slices.get_single_replica_sharding(
+            arr,
+            replica_id=arr_replica_id,
+            use_replica_parallel=use_replica_parallel,
+            min_slice_bytes_for_replica_parallel=(
+                min_slice_bytes_for_replica_parallel
+            ),
+            max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+        )
+        for arr, arr_replica_id in zip(all_arrays, all_replica_ids)
+    ]
+    if any(s is not None for s in single_replica_shardings):
+      any_single_replica_selected = True
+      selected_arrays = replica_slices.select_single_replicas_on_device(
+          all_arrays, single_replica_shardings
+      )
+      prioritized = [
+          (v, info, arg)
+          for v, (_, info, arg) in zip(
+              selected_arrays[: len(prioritized)], prioritized
+          )
+      ]
+      deprioritized = [
+          (v, info, arg)
+          for v, (_, info, arg) in zip(
+              selected_arrays[len(prioritized) :], deprioritized
+          )
+      ]
+      # Each restricted array is now the sole replica (replica 0) on its
+      # sub-mesh; unselected arrays keep their balanced replica assignment.
+      all_replica_ids = [
+          0 if s is not None else r
+          for s, r in zip(single_replica_shardings, all_replica_ids)
+      ]
+      prioritized_replica_ids = all_replica_ids[: len(prioritized)]
+      deprioritized_replica_ids = all_replica_ids[len(prioritized) :]
+
   if infos[0].copy_device_arrays_for_async_transfer:
     # Instead of transferring device arrays to host before returning, copy them
     # on device now and transfer the copies in the background, so that the
@@ -899,6 +1049,7 @@ def _serialize_arrays(
         deprioritized,
         prioritized_replica_ids,
         deprioritized_replica_ids,
+        use_array_mesh=any_single_replica_selected,
     )
 
   if dispatcher is None:
@@ -922,7 +1073,9 @@ def _serialize_arrays(
   return _serialize_arrays_with_dispatcher(
       prioritized,
       deprioritized,
+      arrays,
       infos,
+      args,
       dispatcher=dispatcher,
       device_host_max_bytes=device_host_max_bytes,
       replica_id=replica_id,
@@ -938,6 +1091,7 @@ def _serialize_arrays(
       ext_metadata=ext_metadata,
       callback=callback,
       balance_arrays_across_replicas=balance_arrays_across_replicas,
+      any_single_replica_selected=any_single_replica_selected,
       prioritized_replica_ids=prioritized_replica_ids,
       deprioritized_replica_ids=deprioritized_replica_ids,
   )
@@ -961,39 +1115,64 @@ def _dispatch_serialize_batch(
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
     balance_arrays_across_replicas: bool,
+    any_single_replica_selected: bool = False,
     d2h_start_time: float | None = None,
 ) -> None:
   """Dispatches one host-staged batch to workers and awaits completion."""
-  func_kwargs: dict[str, Any] = {
-      'infos': batch_infos,
-      'args': batch_args,
-      'replica_id': replica_id,
-      'use_replica_parallel': use_replica_parallel,
-      'min_slice_bytes_for_replica_parallel': (
-          min_slice_bytes_for_replica_parallel
-      ),
-      'max_replicas_for_replica_parallel': (
-          max_replicas_for_replica_parallel
-      ),
-      'primary_host': primary_host,
-      'metadata_key': metadata_key,
-      'array_metadata_store': array_metadata_store,
-      'enable_replica_parallel_separate_folder': (
-          enable_replica_parallel_separate_folder
-      ),
-      'ext_metadata': ext_metadata,
-  }
-  # Per-array replica ids are only dispatched when balancing, keeping the
-  # kwargs unchanged otherwise for users who wrap the dispatcher to split
-  # these calls into smaller batches by slicing the per-array kwargs they
-  # know of. The worker defaults to saving every array with `replica_id`.
-  if balance_arrays_across_replicas:
-    func_kwargs['replica_ids'] = batch_replica_ids
-  ret = dispatcher.dispatch(
-      _worker_serialize_arrays,
-      input_arrays=batch_arrays,
-      func_kwargs=func_kwargs,
-  )
+  # On-device restriction places arrays onto different replica sub-meshes,
+  # whereas colocated Python requires a single device list per dispatch.
+  if any_single_replica_selected:
+    grouped_batches = _group_by_device_list(
+        batch_infos, batch_args, batch_arrays, batch_replica_ids
+    )
+  else:
+    grouped_batches = [
+        (batch_infos, batch_args, batch_arrays, batch_replica_ids)
+    ]
+
+  rets = []
+  for (
+      group_infos,
+      group_args,
+      group_arrays,
+      group_replica_ids,
+  ) in grouped_batches:
+    func_kwargs: dict[str, Any] = {
+        'infos': group_infos,
+        'args': group_args,
+        'replica_id': replica_id,
+        'use_replica_parallel': use_replica_parallel,
+        'min_slice_bytes_for_replica_parallel': (
+            min_slice_bytes_for_replica_parallel
+        ),
+        'max_replicas_for_replica_parallel': (
+            max_replicas_for_replica_parallel
+        ),
+        'primary_host': primary_host,
+        'metadata_key': metadata_key,
+        'array_metadata_store': (
+            None if any_single_replica_selected else array_metadata_store
+        ),
+        'enable_replica_parallel_separate_folder': (
+            enable_replica_parallel_separate_folder
+        ),
+        'ext_metadata': ext_metadata,
+    }
+    # Per-array replica ids are only dispatched when balancing, keeping the
+    # kwargs unchanged otherwise for users who wrap the dispatcher to split
+    # these calls into smaller batches by slicing the per-array kwargs they
+    # know of. The worker defaults to saving every array with `replica_id`.
+    if balance_arrays_across_replicas:
+      func_kwargs['replica_ids'] = group_replica_ids
+    if any_single_replica_selected:
+      func_kwargs['elect_primary_host'] = True
+    rets.append(
+        dispatcher.dispatch(
+            _worker_serialize_arrays,
+            input_arrays=group_arrays,
+            func_kwargs=func_kwargs,
+        )
+    )
   if d2h_start_time is not None:
     jax.block_until_ready(batch_arrays)
     _log_io_metrics(
@@ -1006,7 +1185,7 @@ def _dispatch_serialize_batch(
 
   _on_batch_callback(batch_infos, callback.on_transfer_end)
 
-  jax.block_until_ready(ret)
+  jax.block_until_ready(rets)
 
   _on_batch_callback(batch_infos, callback.on_write_end)
 
@@ -1014,7 +1193,9 @@ def _dispatch_serialize_batch(
 def _serialize_arrays_with_dispatcher(
     prioritized: Sequence[_ArrayToSerialize],
     deprioritized: Sequence[_ArrayToSerialize],
+    all_arrays: Sequence[jax.Array],
     all_infos: Sequence[types.ParamInfo],
+    all_args: Sequence[types.SaveArgs],
     *,
     dispatcher: dispatchers.Dispatcher,
     device_host_max_bytes: int | None,
@@ -1029,6 +1210,7 @@ def _serialize_arrays_with_dispatcher(
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
     balance_arrays_across_replicas: bool,
+    any_single_replica_selected: bool = False,
     prioritized_replica_ids: Sequence[int | None],
     deprioritized_replica_ids: Sequence[int | None],
 ) -> future.Future:
@@ -1051,6 +1233,26 @@ def _serialize_arrays_with_dispatcher(
   else:
     _log_no_prioritized_params(deprioritized)
 
+  all_arrays_meta = []
+  if any_single_replica_selected and array_metadata_store is not None:
+    all_arrays_meta = [
+        (
+            arr.shape,
+            replica_slices.get_local_shape(
+                arr,
+                use_replica_parallel=use_replica_parallel,
+                min_slice_bytes_for_replica_parallel=(
+                    min_slice_bytes_for_replica_parallel
+                ),
+                max_replicas_for_replica_parallel=(
+                    max_replicas_for_replica_parallel
+                ),
+            ),
+            arr.dtype,
+        )
+        for arr in all_arrays
+    ]
+
   dispatch_batch = functools.partial(
       _dispatch_serialize_batch,
       replica_id=replica_id,
@@ -1066,6 +1268,7 @@ def _serialize_arrays_with_dispatcher(
       ext_metadata=ext_metadata,
       callback=callback,
       balance_arrays_across_replicas=balance_arrays_across_replicas,
+      any_single_replica_selected=any_single_replica_selected,
   )
 
   # See `_serialize_arrays_batches_without_dispatcher` for why
@@ -1073,6 +1276,43 @@ def _serialize_arrays_with_dispatcher(
   async def _serialize(deprioritized_params: Sequence[_ArrayToSerialize]):
     for info in all_infos:
       await info.await_path_creation()
+    # Restricted dispatches run only on each replica's sub-mesh workers, which
+    # would leave per-worker metadata files incomplete; write all
+    # ArrayMetadata entries once from the controller instead.
+    if any_single_replica_selected and array_metadata_store is not None:
+      array_metadatas = [
+          ts_utils.build_array_write_spec(
+              info=info,
+              arg=arg,
+              global_shape=global_shape,
+              local_shape=local_shape,
+              dtype=dtype,
+              use_ocdbt=bool(info.is_ocdbt_checkpoint),
+              process_index=ocdbt_utils.get_process_index_for_subdir(
+                  bool(info.is_ocdbt_checkpoint)
+              ),
+              replica_separate_folder=False,
+              metadata_key=metadata_key,
+              ext_metadata=ext_metadata.get(info.name),
+          ).metadata
+          for (global_shape, local_shape, dtype), info, arg in zip(
+              all_arrays_meta, all_infos, all_args
+          )
+      ]
+      controller_process_index = multihost.process_index()
+      path_resolver = getattr(array_metadata_store, '_path_resolver', None)
+      if isinstance(path_resolver, array_metadata_store_lib.PathResolver):
+        # Workers receive `array_metadata_store=None` and will not create the
+        # metadata subdirectory when `primary_host != 0`.
+        metadata_dir = path_resolver.get_write_file_path(
+            all_infos[0].parent_dir, controller_process_index
+        ).parent
+        await async_path.mkdir(metadata_dir, parents=True, exist_ok=True)
+      await array_metadata_store.write(
+          checkpoint_dir=all_infos[0].parent_dir,
+          array_metadatas=array_metadatas,
+          process_index=controller_process_index,
+      )
     if prioritized_infos:
       dispatch_batch(
           dispatcher,
@@ -1183,6 +1423,8 @@ def _offload_device_arrays(
     deprioritized: Sequence[_ArrayToSerialize],
     prioritized_replica_ids: Sequence[int | None],
     deprioritized_replica_ids: Sequence[int | None],
+    *,
+    use_array_mesh: bool = False,
 ) -> tuple[
     list[_ArrayToSerialize],
     list[_ArrayToSerialize],
@@ -1198,16 +1440,22 @@ def _offload_device_arrays(
     deprioritized: Asynchronous arrays to serialize.
     prioritized_replica_ids: Per-array replica IDs for `prioritized`.
     deprioritized_replica_ids: Per-array replica IDs for `deprioritized`.
+    use_array_mesh: Whether to copy `NamedSharding` arrays under their own
+      mesh context.
 
   Returns:
     Updated `(prioritized, deprioritized, prioritized_replica_ids,
     deprioritized_replica_ids)`.
   """
   copied_prio, copied_prio_ids, prio_host, prio_host_ids = _copy_device_arrays(
-      prioritized, prioritized_replica_ids
+      prioritized, prioritized_replica_ids, use_array_mesh=use_array_mesh
   )
   copied_deprio, copied_deprio_ids, deprio_host, deprio_host_ids = (
-      _copy_device_arrays(deprioritized, deprioritized_replica_ids)
+      _copy_device_arrays(
+          deprioritized,
+          deprioritized_replica_ids,
+          use_array_mesh=use_array_mesh,
+      )
   )
   return (
       prio_host,
@@ -1736,7 +1984,9 @@ class ArrayHandler(types.TypeHandler):
         slice. Only uses replica-parallel when the amount of data written per
         replica is greater than or equal to this number.
       max_replicas_for_replica_parallel: Maximum number of replicas over which
-        saving will be parallelized if use_replica_parallel is True.
+        saving will be parallelized if `use_replica_parallel` is True, or
+        across which whole-array saves will be balanced if
+        `balance_arrays_across_replicas` is True.
       enable_write_sharding_file: whether to write sharding file, defaults to
         True.
       array_metadata_store: Store to manage per host ArrayMetadata. To disable
