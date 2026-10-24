@@ -495,6 +495,35 @@ class SerializationTest(
     )
     test_utils.assert_tree_equal(self, arrays, restored)
 
+  @parameterized.parameters(False, True)
+  def test_get_replica_slices_without_addressable_shards(
+      self, use_replica_parallel: bool
+  ):
+    if jax.process_count() < 2:
+      self.skipTest('Test requires at least 2 processes.')
+    other_devices = [d for d in jax.devices() if d.process_index == 1]
+    mesh = jax.sharding.Mesh(np.asarray(other_devices), ('x',))
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec('x')
+    )
+    local_shards = [
+        jax.device_put(np.arange(4, dtype=np.float32) + d.id, d)
+        for d in other_devices
+        if d.process_index == multihost.process_index()
+    ]
+    arr = jax.make_array_from_single_device_arrays(
+        (4 * len(other_devices),), sharding, local_shards, dtype=np.float32
+    )
+    rslices = replica_slices.get_replica_slices(
+        arr, replica_id=0, use_replica_parallel=use_replica_parallel
+    )
+    self.assertEqual(rslices.local_shape, (4,))
+    if multihost.process_index() == 0:
+      self.assertEmpty(arr.addressable_shards)
+      self.assertEmpty(rslices.replica_slices)
+    else:
+      self.assertLen(rslices.replica_slices, len(other_devices))
+
   async def test_array_deserialization_with_custom_layout(self):
     handler = type_handlers.ArrayHandler()
     mesh = jax.sharding.Mesh(
@@ -1177,7 +1206,13 @@ class ArrayHandlerCallbackTest(
         leaves[0].sharding, leaves[0].shape
     )
     self.assertGreaterEqual(num_replicas, 4)
-    arrays = [leaves[0] for _ in range(4)]
+    host_arr = jax.device_put(
+        leaves[0], leaves[0].sharding.with_memory_kind('pinned_host')
+    )
+    # Mix device arrays (restricted on device to their single replica, so worker
+    # replica_id becomes 0 on the 1-replica sub-mesh) and pinned_host arrays
+    # (kept on the full mesh with their balanced replica_id).
+    arrays = [leaves[0], host_arr, leaves[0], host_arr]
     infos = [
         get_param_info(f'a_{i}', directory).replace(
             keypath=(
@@ -1198,9 +1233,14 @@ class ArrayHandlerCallbackTest(
       for f in futures:
         f.result()
 
-    # The 2 prioritized arrays are dispatched together with replica_ids [0, 1],
-    # followed by the 2 deprioritized batches with [2] and [3].
-    self.assertEqual(dispatched_replica_ids, [[0, 1], [2], [3]])
+    # Balanced replica assignments before on-device restriction are
+    # [0, 1, 2, 3]. a_0 and a_2 (device) are restricted to 1-replica sub-meshes
+    # (worker replica_ids [0]), while a_1 and a_3 (pinned_host) retain
+    # replica_ids [1] and [3] on the full mesh. Because a_0 (1-device sub-mesh)
+    # and a_1 (full mesh) have different device sets, the prioritized batch is
+    # dispatched in 2 groups ([0] and [1]), followed by the 2 deprioritized
+    # batches ([0] and [3]).
+    self.assertEqual(dispatched_replica_ids, [[0], [1], [0], [3]])
 
   async def test_balance_arrays_across_batches_replica_parallel(self):
     cb = self.TestCallback(types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED)
@@ -1579,6 +1619,426 @@ class CopyDeviceArraysForAsyncTransferTest(
         mock_dispatcher.dispatch.call_args.kwargs['input_arrays'],
         arrays_on_host,
     )
+
+  @parameterized.parameters(False, True)
+  async def test_dispatcher_selects_single_replicas_when_balanced(
+      self, copy_device_arrays_for_async_transfer: bool
+  ):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape((2, num_data)),
+        ('replica', 'data'),
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec(None, 'data')
+    )
+    shape = (4, num_data)
+    arrays = [
+        test_utils.create_sharded_array(
+            np.arange(4 * num_data, dtype=np.float32).reshape(shape),
+            mesh,
+            sharding.spec,
+        ),
+        test_utils.create_sharded_array(
+            np.arange(4 * num_data, dtype=np.float32).reshape(shape) + 100,
+            mesh,
+            sharding.spec,
+        ),
+    ]
+    infos = [
+        self._get_param_info(
+            f'a{i}',
+            copy_device_arrays_for_async_transfer=(
+                copy_device_arrays_for_async_transfer
+            ),
+        )
+        for i in range(len(arrays))
+    ]
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+    )
+    with mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    self.assertEqual(
+        mock_copy.call_count,
+        len(arrays) if copy_device_arrays_for_async_transfer else 0,
+    )
+    if copy_device_arrays_for_async_transfer:
+      for call in mock_copy.call_args_list:
+        copied_arr = call.args[0]
+        self.assertLen(copied_arr.sharding.device_set, num_data)
+
+    self.assertEqual(mock_dispatcher.device_to_host.call_count, 1)
+    (transferred,), _ = mock_dispatcher.device_to_host.call_args
+    self.assertLen(transferred, 2)
+    self.assertEqual(
+        transferred[0].sharding.device_set,
+        set(mesh.devices[0].flatten()),
+    )
+    self.assertEqual(
+        transferred[1].sharding.device_set,
+        set(mesh.devices[1].flatten()),
+    )
+    # The two arrays are on disjoint replica device sets, so they are
+    # dispatched in two separate groups.
+    self.assertEqual(mock_dispatcher.dispatch.call_count, 2)
+    for call in mock_dispatcher.dispatch.call_args_list:
+      self.assertTrue(call.kwargs['func_kwargs']['elect_primary_host'])
+
+  @parameterized.parameters(
+      jax.sharding.AxisType.Auto,
+      jax.sharding.AxisType.Explicit,
+  )
+  async def test_dispatcher_selects_single_replicas_when_balanced_with_active_mesh(
+      self, axis_type: jax.sharding.AxisType
+  ):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape((2, num_data)),
+        ('replica', 'data'),
+        axis_types=(axis_type, axis_type),
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec(None, 'data')
+    )
+    shape = (4, num_data)
+    arrays = [
+        test_utils.create_sharded_array(
+            np.arange(4 * num_data, dtype=np.float32).reshape(shape),
+            mesh,
+            sharding.spec,
+        ),
+        test_utils.create_sharded_array(
+            np.arange(4 * num_data, dtype=np.float32).reshape(shape) + 100,
+            mesh,
+            sharding.spec,
+        ),
+    ]
+    infos = [
+        self._get_param_info(
+            f'a{i}', copy_device_arrays_for_async_transfer=True
+        )
+        for i in range(len(arrays))
+    ]
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+    )
+    with jax.set_mesh(mesh):
+      with mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+        futures = await handler.serialize(arrays, infos)
+        for f in futures:
+          f.result()
+      self.assertEqual(jax.sharding.get_mesh(), mesh)
+
+    self.assertLen(mock_copy.call_args_list, len(arrays))
+    for call in mock_copy.call_args_list:
+      self.assertLen(call.args[0].sharding.device_set, num_data)
+    self.assertEqual(mock_dispatcher.device_to_host.call_count, 1)
+    self.assertEqual(mock_dispatcher.dispatch.call_count, 2)
+
+  async def test_dispatcher_writes_array_metadata_on_controller_when_balanced(
+      self,
+  ):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape((2, num_data)),
+        ('replica', 'data'),
+    )
+    sharded_spec = jax.sharding.PartitionSpec(None, 'data')
+    replicated_sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec()
+    )
+    dev_arr_0 = test_utils.create_sharded_array(
+        np.arange(4 * num_data, dtype=np.float32).reshape((4, num_data)),
+        mesh,
+        sharded_spec,
+    )
+    dev_arr_1 = test_utils.create_sharded_array(
+        np.arange(2 * num_data, dtype=np.float32).reshape((2, num_data)) + 10,
+        mesh,
+        sharded_spec,
+    )
+    prng_key = jax.random.key(jnp.array(7, device=replicated_sharding))
+    pinned_arr = jax.device_put(
+        dev_arr_0, dev_arr_0.sharding.with_memory_kind('pinned_host')
+    )
+    values = [dev_arr_0, dev_arr_1, prng_key, pinned_arr]
+
+    bal_dir = self.directory / 'balanced_with_store'
+    ref_dir = self.directory / 'reference_with_store'
+    bal_dir.mkdir(parents=True, exist_ok=True)
+    ref_dir.mkdir(parents=True, exist_ok=True)
+    bal_infos = [
+        get_param_info(f'p{i}', bal_dir).replace(
+            keypath=(jax.tree_util.DictKey(f'p{i}'),)
+        )
+        for i in range(len(values))
+    ]
+    ref_infos = [
+        get_param_info(f'p{i}', ref_dir).replace(
+            keypath=(jax.tree_util.DictKey(f'p{i}'),)
+        )
+        for i in range(len(values))
+    ]
+    for info in [*bal_infos, *ref_infos]:
+      (info.parent_dir / info.name).mkdir(parents=True, exist_ok=True)
+
+    # `self.directory` is per-process in this test class, so let each process
+    # create its own `array_metadatas` directory without waiting on process 0.
+    store = array_metadata_store_lib.Store(primary_host=None)
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+
+    bal_handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        array_metadata_store=store,
+    )
+    futures = await bal_handler.serialize(values, bal_infos)
+    for f in futures:
+      f.result()
+
+    self.assertGreaterEqual(mock_dispatcher.dispatch.call_count, 2)
+    for call in mock_dispatcher.dispatch.call_args_list:
+      self.assertIsNone(call.kwargs['func_kwargs']['array_metadata_store'])
+
+    ref_handler = type_handlers.ArrayHandler(
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=False,
+        array_metadata_store=store,
+    )
+    ref_futures = await ref_handler.serialize(values, ref_infos)
+    for f in ref_futures:
+      f.result()
+
+    proc_idx = multihost.process_index()
+    bal_metadatas = await store.read(bal_dir, process_index=proc_idx)
+    ref_metadatas = await store.read(ref_dir, process_index=proc_idx)
+    self.assertIsNotNone(bal_metadatas)
+    self.assertIsNotNone(ref_metadatas)
+    assert isinstance(bal_metadatas, list)
+    assert isinstance(ref_metadatas, list)
+    self.assertLen(bal_metadatas, len(values))
+    self.assertIsNotNone(bal_metadatas[2].ext_metadata)
+    self.assertEqual(
+        [
+            (m.param_name, m.write_shape, m.chunk_shape, m.ext_metadata)
+            for m in bal_metadatas
+        ],
+        [
+            (m.param_name, m.write_shape, m.chunk_shape, m.ext_metadata)
+            for m in ref_metadatas
+        ],
+    )
+
+  def test_worker_serialize_arrays_preserves_primary_host_unless_balanced(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    devices = list(jax.devices())
+    permuted_devices = list(reversed(devices))
+    mesh = jax.sharding.Mesh(np.asarray(permuted_devices), ('x',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    arr = jax.device_put(np.arange(len(devices), dtype=np.float32), sharding)
+    info = self._get_param_info('a0')
+
+    # Default path (`replica_ids=None`): configured `primary_host=1` is passed
+    # through unchanged.
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', new=mock.AsyncMock()
+    ) as mock_serialize:
+      jax_array_handlers._worker_serialize_arrays(
+          arrays=[arr],
+          infos=[info],
+          args=[SaveArgs()],
+          replica_id=0,
+          use_replica_parallel=False,
+          min_slice_bytes_for_replica_parallel=None,
+          max_replicas_for_replica_parallel=None,
+          primary_host=1,
+          metadata_key=None,
+          array_metadata_store=None,
+          enable_replica_parallel_separate_folder=False,
+          ext_metadata={},
+          replica_ids=None,
+      )
+      self.assertEqual(mock_serialize.call_count, 1)
+      self.assertEqual(mock_serialize.call_args.kwargs['primary_host'], 1)
+
+    # Balanced path (`elect_primary_host=True`): elects the worker hosting mesh
+    # position 0 (`permuted_devices[0]`), not the lowest `device.id`. Passing
+    # `replica_ids=[0]` without `elect_primary_host=True` keeps `primary_host`.
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', new=mock.AsyncMock()
+    ) as mock_serialize:
+      jax_array_handlers._worker_serialize_arrays(
+          arrays=[arr],
+          infos=[info],
+          args=[SaveArgs()],
+          replica_id=0,
+          use_replica_parallel=False,
+          min_slice_bytes_for_replica_parallel=None,
+          max_replicas_for_replica_parallel=None,
+          primary_host=1,
+          metadata_key=None,
+          array_metadata_store=None,
+          enable_replica_parallel_separate_folder=False,
+          ext_metadata={},
+          replica_ids=[0],
+      )
+      self.assertEqual(mock_serialize.call_count, 1)
+      self.assertEqual(mock_serialize.call_args.kwargs['primary_host'], 1)
+
+    owns_first_mesh_device = any(
+        s.device == permuted_devices[0] for s in arr.addressable_shards
+    )
+    expected_primary = (
+        multihost.process_index() if owns_first_mesh_device else -1
+    )
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', new=mock.AsyncMock()
+    ) as mock_serialize:
+      jax_array_handlers._worker_serialize_arrays(
+          arrays=[arr],
+          infos=[info],
+          args=[SaveArgs()],
+          replica_id=0,
+          use_replica_parallel=False,
+          min_slice_bytes_for_replica_parallel=None,
+          max_replicas_for_replica_parallel=None,
+          primary_host=1,
+          metadata_key=None,
+          array_metadata_store=None,
+          enable_replica_parallel_separate_folder=False,
+          ext_metadata={},
+          replica_ids=[0],
+          elect_primary_host=True,
+      )
+      self.assertEqual(mock_serialize.call_count, 1)
+      self.assertEqual(
+          mock_serialize.call_args.kwargs['primary_host'], expected_primary
+      )
+
+  def test_worker_serialize_arrays_without_addressable_shards_elects_minus_one(
+      self,
+  ):
+    if jax.process_count() < 2:
+      self.skipTest('Test requires at least 2 processes.')
+    other_devices = [d for d in jax.devices() if d.process_index == 1]
+    mesh = jax.sharding.Mesh(np.asarray(other_devices), ('x',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    local_shards = [
+        jax.device_put(np.arange(4, dtype=np.float32) + d.id, d)
+        for d in other_devices
+        if d.process_index == multihost.process_index()
+    ]
+    arr = jax.make_array_from_single_device_arrays(
+        (4 * len(other_devices),), sharding, local_shards, dtype=np.float32
+    )
+    info = self._get_param_info('a0')
+
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', new=mock.AsyncMock()
+    ) as mock_serialize:
+      jax_array_handlers._worker_serialize_arrays(
+          arrays=[arr],
+          infos=[info],
+          args=[SaveArgs()],
+          replica_id=0,
+          use_replica_parallel=False,
+          min_slice_bytes_for_replica_parallel=None,
+          max_replicas_for_replica_parallel=None,
+          primary_host=0,
+          metadata_key=None,
+          array_metadata_store=None,
+          enable_replica_parallel_separate_folder=False,
+          ext_metadata={},
+          replica_ids=[0],
+          elect_primary_host=True,
+      )
+      self.assertEqual(mock_serialize.call_count, 1)
+      expected_primary = 1 if multihost.process_index() == 1 else -1
+      self.assertEqual(
+          mock_serialize.call_args.kwargs['primary_host'], expected_primary
+      )
+
+  def test_group_by_device_list(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    devices = jax.devices()[:2]
+    d0 = devices[0]
+    mesh_fwd = jax.sharding.Mesh(np.asarray(devices), ('x',))
+    mesh_rev = jax.sharding.Mesh(np.asarray(list(reversed(devices))), ('x',))
+    mesh_single = jax.sharding.Mesh(np.asarray([d0]), ('x',))
+    arr_fwd = jax.device_put(
+        np.arange(4, dtype=np.float32),
+        jax.sharding.NamedSharding(mesh_fwd, jax.sharding.PartitionSpec('x')),
+    )
+    arr_rev = jax.device_put(
+        np.arange(4, dtype=np.float32),
+        jax.sharding.NamedSharding(mesh_rev, jax.sharding.PartitionSpec('x')),
+    )
+    arr_mesh_d0 = jax.device_put(
+        np.arange(4, dtype=np.float32),
+        jax.sharding.NamedSharding(
+            mesh_single, jax.sharding.PartitionSpec('x')
+        ),
+    )
+    arr_single_d0 = jax.device_put(
+        np.arange(4, dtype=np.float32), make_single_device_sharding(d0)
+    )
+
+    infos = tuple(self._get_param_info(f'p{i}') for i in range(2))
+    args = (SaveArgs(), SaveArgs())
+
+    # Single group returns the original sequences without copying.
+    single_arrays = (arr_fwd, arr_fwd)
+    single_rids = (0, 0)
+    single_groups = jax_array_handlers._group_by_device_list(
+        infos, args, single_arrays, single_rids
+    )
+    self.assertLen(single_groups, 1)
+    self.assertIs(single_groups[0][0], infos)
+    self.assertIs(single_groups[0][1], args)
+    self.assertIs(single_groups[0][2], single_arrays)
+    self.assertIs(single_groups[0][3], single_rids)
+
+    # Same device set in different mesh orders splits into separate groups.
+    split_groups = jax_array_handlers._group_by_device_list(
+        infos, args, [arr_fwd, arr_rev], [0, 1]
+    )
+    self.assertLen(split_groups, 2)
+    self.assertEqual([g[3] for g in split_groups], [[0], [1]])
+
+    # SingleDeviceSharding and a 1-device Mesh over the same device share a
+    # group.
+    merged_groups = jax_array_handlers._group_by_device_list(
+        infos, args, [arr_mesh_d0, arr_single_d0], [0, 0]
+    )
+    self.assertLen(merged_groups, 1)
+    self.assertLen(merged_groups[0][2], 2)
 
 
 class PlaceholderHandlerTest(
