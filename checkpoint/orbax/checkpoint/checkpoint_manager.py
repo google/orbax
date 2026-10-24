@@ -22,7 +22,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union, overload
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, overload, Sequence, Tuple, Type, Union
 
 from absl import logging
 from etils import epath
@@ -1225,10 +1225,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       True if the checkpoint should be saved.
     """
+    return self._should_save(step, previous_steps=self._checkpoints)
+
+  def _should_save(
+      self,
+      step: int,
+      *,
+      previous_steps: checkpoint_info.CheckpointInfos,
+  ) -> bool:
+    """Evaluates the save decision against the provided checkpoint history."""
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
       return False
-    last_checkpoint_step = self.latest_step()
+    last_checkpoint = previous_steps.latest()
+    last_checkpoint_step = last_checkpoint.step if last_checkpoint else None
     # Ensure current step is between the last step and next step (accounting for
     # save interval).
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
@@ -1250,7 +1260,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multiprocessing_options=self._multiprocessing_options,
     )
     return self._save_decision_policy.should_save(
-        current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
+        current_step_info,
+        previous_steps=previous_steps,  # pyrefly: ignore[bad-argument-type]
+        context=context,
     )
 
   def _get_save_directory(
