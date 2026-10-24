@@ -229,40 +229,40 @@ class Snapshotter:
         return replicas[0]
       unwrapped_replicas = [_unwrap_if_prng_key(rep) for rep in replicas]
       mesh_axis_name = abs_x.sharding.mesh.axis_names[self.replica_axis_index]
-      reconstructed = (
-          self._concatenate_by_mesh_axis.concatenate_by_mesh_axis(
-              unwrapped_replicas,
-              mesh_axis_name,
-          )
+      reconstructed = self._concatenate_by_mesh_axis.concatenate_by_mesh_axis(
+          unwrapped_replicas,
+          mesh_axis_name,
       )
       return _wrap_if_prng_key(reconstructed, replicas[0])
 
-    pinned_state = jax.tree.map(get_active_leaf, *active_trees, abstract_state)
+    def _put_to_sharding(state, target_state, memory_kind):
+      def _put_leaf(x, abs_x):
+        if is_shardable_array(x):
+          data = _unwrap_if_prng_key(x)
+          put_x = jax.device_put(
+              data, abs_x.sharding.with_memory_kind(memory_kind)
+          )
+          return _wrap_if_prng_key(put_x, x)
+        return x
 
-    def _put_to_sharding(x, abs_x, memory_kind):
-      if is_shardable_array(x):
-        data = _unwrap_if_prng_key(x)
-        put_x = jax.device_put(
-            data, abs_x.sharding.with_memory_kind(memory_kind)
-        )
-        return _wrap_if_prng_key(put_x, x)
-      return x
+      return jax.tree.map(_put_leaf, state, target_state)
 
-    host_target_state = jax.tree.map(
-        lambda x, abs_x: _put_to_sharding(x, abs_x, "pinned_host"),
-        pinned_state,
-        abstract_state,
-    )
-    restored_state = jax.tree.map(
-        lambda x, abs_x: _put_to_sharding(x, abs_x, None),
-        host_target_state,
-        abstract_state,
-    )
+    # TODO(b/574655289): Pathways on Cloud workers crash on cross-slice
+    # transfers of pinned_host buffers over RpcTransport ("Attempting to
+    # decrease reference on a buffer with zero reference count") until their
+    # images include the PJRT C API fix. Until then, copy each replica to device
+    # memory on its own devices, then concatenate the copies and reshard them in
+    # device memory. In either memory, concatenate copies rather than the
+    # snapshot's replicas: concatenating donates its inputs, and the snapshot
+    # must survive a failed load (e.g. a slice going down) for it to be retried.
+    device_trees = [_put_to_sharding(tree, tree, None) for tree in active_trees]
+    device_state = jax.tree.map(get_active_leaf, *device_trees, abstract_state)
+    restored_state = _put_to_sharding(device_state, abstract_state, None)
     unwrapped_restored = jax.tree.map(_unwrap_if_prng_key, restored_state)
     jax.block_until_ready(unwrapped_restored)
 
     if reset_snapshot_state:
-      new_snapshot_state = self._to_snapshot_state(host_target_state)
+      new_snapshot_state = self._to_snapshot_state(restored_state)
       with self._lock:
         self._latest_snapshot = (new_snapshot_state, step)
 
