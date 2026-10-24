@@ -246,10 +246,14 @@ def get_replica_slices(
 
   Args:
     arr: The jax.Array to get replica slices for.
-    replica_id: Configured replica_id. Omitting the replica id just picks the
-      first addressable shard's replica id so that the process writes each of
-      its addressable shards exactly once. (This is the desired behavior for
-      local checkpointing.)
+    replica_id: The replica that saves `arr` whole if it is not saved
+      replica-parallel: the configured replica_id, or the replica from
+      `get_balanced_replica_ids` when balancing arrays across replicas. Ignored
+      if `arr` is saved replica-parallel, in which case multiple replicas each
+      save a slice of every shard. Omitting the replica id just picks the first
+      addressable shard's replica id so that the process writes each of its
+      addressable shards exactly once. (This is the desired behavior for local
+      checkpointing.)
     use_replica_parallel: Whether to use replica-parallel serialization to allow
       arrays with replicated shards to be written cooperatively by different
       hosts.
@@ -389,6 +393,109 @@ def get_replica_slices(
   )
 
 
+def partition_into_k_groups(
+    values: Sequence[float],
+    k: int,
+    initial_sums: Optional[Sequence[float]] = None,
+) -> tuple[list[list[int]], list[float]]:
+  """Partitions values into k subsets with nearly equal sums.
+
+  Args:
+    values: Non-negative numbers to partition.
+    k: Number of subsets.
+    initial_sums: Optional sums the k subsets start with. If given, subset `j`
+      of the result is the one that starts with `initial_sums[j]`.
+
+  Returns:
+    k lists of indices into values, and the k sums of the subsets, including
+    their initial sums.
+  """
+  if k < 1:
+    raise ValueError(f'k must be at least 1, got {k}')
+  if initial_sums is not None and len(initial_sums) != k:
+    raise ValueError(f'Expected {k} initial sums, got {len(initial_sums)}')
+  sums: list[float] = [0] * k if initial_sums is None else list(initial_sums)
+  subsets = [[] for _ in range(k)]
+  for i in sorted(range(len(values)), key=lambda i: (-values[i], i)):
+    j = min(range(k), key=sums.__getitem__)
+    sums[j] += values[i]
+    subsets[j].append(i)
+  return subsets, sums
+
+
+def get_balanced_replica_ids(
+    arrays: Sequence[jax.Array],
+    use_replica_parallel: bool,
+    min_slice_bytes_for_replica_parallel: Optional[int] = None,
+    max_replicas_for_replica_parallel: Optional[int] = None,
+) -> list[int]:
+  """Returns the replica that saves each array, balancing bytes per replica.
+
+  Used instead of the configured `replica_id` when balancing arrays across
+  replicas. Arrays saved replica-parallel are split across replicas as usual,
+  and count towards the bytes of the replicas that save them. Every other
+  replicated array is saved whole by one replica, chosen so that groups of
+  replicas (e.g. slices) save nearly equal numbers of bytes.
+
+  Args:
+    arrays: The jax.Arrays to save, in the same order on every process.
+    use_replica_parallel: See `get_replica_slices`.
+    min_slice_bytes_for_replica_parallel: See `get_replica_slices`.
+    max_replicas_for_replica_parallel: See `get_replica_slices`.
+
+  Returns:
+    For each array, the id of the replica that saves it whole. Unused for arrays
+    saved replica-parallel.
+  """
+  replica_counts = [
+      _sharding_num_replicas(arr.sharding, arr.shape) for arr in arrays
+  ]
+  replica_ids = [0] * len(arrays)
+  initial_nbytes_by_k = {}
+  unassigned_by_k = {}
+  for i, (arr, num_replicas) in enumerate(zip(arrays, replica_counts)):
+    if num_replicas <= 1:
+      continue
+    initial_nbytes = initial_nbytes_by_k.setdefault(
+        num_replicas, [0] * num_replicas
+    )
+    unassigned = unassigned_by_k.setdefault(num_replicas, [])
+    num_writers = None
+    if use_replica_parallel:
+      _, local_shape, replica_count = (
+          calculate_replica_parallel_axis_and_local_shape(
+              arr, max_replicas_for_replica_parallel
+          )
+      )
+      min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
+      if (
+          local_shape is not None
+          and math.prod(local_shape) * arr.itemsize >= min_slice_bytes
+      ):
+        num_writers = replica_count
+    if num_writers is None:
+      unassigned.append(i)
+      continue
+    for r in range(num_writers):
+      initial_nbytes[r] += arr.nbytes // num_writers
+
+  replica_nbytes = []
+  for k in sorted(initial_nbytes_by_k, reverse=True):
+    initial_nbytes = initial_nbytes_by_k[k]
+    for r, nbytes in enumerate(replica_nbytes):
+      initial_nbytes[r * k // len(replica_nbytes)] += nbytes
+    unassigned = unassigned_by_k[k]
+    subsets, replica_nbytes = partition_into_k_groups(
+        [arrays[i].nbytes for i in unassigned],
+        k,
+        initial_sums=initial_nbytes,
+    )
+    for r, subset in enumerate(subsets):
+      for j in subset:
+        replica_ids[unassigned[j]] = r
+  return replica_ids
+
+
 def transfer_arrays_to_host(
     arrays: Sequence[jax.Array],
     replica_id: Optional[int],
@@ -397,6 +504,7 @@ def transfer_arrays_to_host(
     max_replicas_for_replica_parallel: Optional[int] = None,
     *,
     enable_pinned_host_transfer: bool = False,
+    balance_arrays_across_replicas: bool = False,
 ) -> Sequence[ReplicaSlices]:
   """Transfers arrays to host memory.
 
@@ -406,7 +514,10 @@ def transfer_arrays_to_host(
 
   Args:
     arrays: The jax.Arrays to transfer.
-    replica_id: Configured replica_id.
+    replica_id: The configured replica that saves each array whole by default.
+      Ignored for arrays saved replica-parallel, and replaced per array by the
+      replica from `get_balanced_replica_ids` if
+      `balance_arrays_across_replicas` is True. See `get_replica_slices`.
     use_replica_parallel: Whether to use replica-parallel serialization to allow
       arrays with replicated shards to be written cooperatively by different
       hosts.
@@ -418,6 +529,8 @@ def transfer_arrays_to_host(
       True.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
+    balance_arrays_across_replicas: If True, each array is saved by the replica
+      from `get_balanced_replica_ids` instead of by `replica_id`.
 
   Returns:
     ReplicaSlices objects, in host memory.
@@ -457,15 +570,28 @@ def transfer_arrays_to_host(
     return rslice, data
 
   # Gather the replica slices to be saved for each array.
+  replica_ids = [replica_id] * len(arrays)
+  if balance_arrays_across_replicas:
+    if replica_id is None:
+      raise ValueError(
+          '`balance_arrays_across_replicas` is incompatible with local'
+          ' checkpointing'
+      )
+    replica_ids = get_balanced_replica_ids(
+        arrays,
+        use_replica_parallel,
+        min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel,
+    )
   rslices_per_array = [
       get_replica_slices(
           arr,
-          replica_id,
+          arr_replica_id,
           use_replica_parallel,
           min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel,
       )
-      for arr in arrays
+      for arr, arr_replica_id in zip(arrays, replica_ids)
   ]
   # Kick off transfers for all replica slices to be saved.
   transfers_per_array = [

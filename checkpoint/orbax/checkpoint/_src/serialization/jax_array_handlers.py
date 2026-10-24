@@ -233,21 +233,36 @@ async def _async_serialize_shardings(
 
 def _get_replica_slices(
     arrays: Sequence[jax.Array],
-    replica_id: int,
+    replica_id: int | None,
     use_replica_parallel: bool,
     min_slice_bytes_for_replica_parallel: int | None = None,
     max_replicas_for_replica_parallel: int | None = None,
+    balance_arrays_across_replicas: bool = False,
 ) -> Sequence[replica_slices.ReplicaSlices]:
   """Returns ReplicaSlices for arrays."""
+  replica_ids = [replica_id] * len(arrays)
+  if balance_arrays_across_replicas:
+    if replica_id is None:
+      raise ValueError(
+          '`balance_arrays_across_replicas` is incompatible with local'
+          ' checkpointing'
+      )
+    replica_ids = replica_slices.get_balanced_replica_ids(
+        arrays,
+        use_replica_parallel,
+        min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel,
+    )
+
   rslices_per_array = [
       replica_slices.get_replica_slices(
           arr,
-          replica_id,
+          arr_replica_id,
           use_replica_parallel,
           min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel,
       )
-      for arr in arrays
+      for arr, arr_replica_id in zip(arrays, replica_ids)
   ]
   # D2H copy is performed automatically as part of dispatcher call, but
   # we must set properties correctly to pass later consistency checks.
@@ -458,6 +473,7 @@ def _worker_serialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
+    balance_arrays_across_replicas: bool = False,
 ):
   """Worker function to serialize arrays."""
   initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
@@ -470,6 +486,7 @@ def _worker_serialize_arrays(
       use_replica_parallel,
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
+      balance_arrays_across_replicas,
   )
 
   array_metadatas = asyncio_utils.run_sync(
@@ -610,6 +627,7 @@ def _serialize_arrays_batches_without_dispatcher(
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
     callback: types.SerializationStatusCallback,
+    balance_arrays_across_replicas: bool = False,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
@@ -620,6 +638,7 @@ def _serialize_arrays_batches_without_dispatcher(
       enable_pinned_host_transfer=enable_pinned_host_transfer,
       min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+      balance_arrays_across_replicas=balance_arrays_across_replicas,
   )
   async_serialize_replica_slices_batch = functools.partial(
       _async_serialize_replica_slices,
@@ -681,7 +700,11 @@ def _serialize_arrays_batches_without_dispatcher(
           # TODO(b/436858989): We overestimate memory usage for now if replica
           # parallel is enabled, as each host has a non-trivial calculation for
           # bytes transferred to host.
-          replica_id=None if use_replica_parallel else replica_id,
+          replica_id=(
+              None
+              if use_replica_parallel or balance_arrays_across_replicas
+              else replica_id
+          ),
           dispatcher=None,
       )
       del deprioritized_params
@@ -752,6 +775,7 @@ def _serialize_arrays(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
+    balance_arrays_across_replicas: bool = False,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
 
@@ -812,6 +836,7 @@ def _serialize_arrays(
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
         callback,
+        balance_arrays_across_replicas=balance_arrays_across_replicas,
     )
   else:
 
@@ -842,6 +867,7 @@ def _serialize_arrays(
                   enable_replica_parallel_separate_folder
               ),
               'ext_metadata': ext_metadata,
+              'balance_arrays_across_replicas': balance_arrays_across_replicas,
           },
       )
       if d2h_start_time is not None:
@@ -1388,6 +1414,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
       callback: types.SerializationStatusCallback | None = None,
+      balance_arrays_across_replicas: bool = False,
   ):
     """Constructor.
 
@@ -1396,9 +1423,16 @@ class ArrayHandler(types.TypeHandler):
       primary_host: the host id of the primary host.  Default to 0.  If it's set
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
-      replica_id: the replica id to be used for saving.  Default to 0.  If it's
-        set to None, each shards will pick first replica_id to be used. It's
-        useful in the case that all hosts are only working with local storage.
+      replica_id: The replica that saves each array by default. Defaults to 0.
+        Orbax may override this per array: with `use_replica_parallel`, an
+        array may instead be split across multiple replicas that save it
+        concurrently; with `balance_arrays_across_replicas`, an array that is
+        not saved replica-parallel may instead be saved whole by a replica
+        other than `replica_id`, chosen to balance the bytes saved per replica.
+        If None, each process uses the replica id of its first addressable
+        shard, which is useful when all hosts only work with local storage;
+        this is incompatible with both `use_replica_parallel` and
+        `balance_arrays_across_replicas`.
       use_replica_parallel: Whether to parallelize saving across replicas.
       min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
         slice. Only uses replica-parallel when the amount of data written per
@@ -1413,6 +1447,10 @@ class ArrayHandler(types.TypeHandler):
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
       callback: The callback to use for executing operations in handlers.
+      balance_arrays_across_replicas: If True, each array that is not saved
+        replica-parallel is saved whole by one replica, chosen to balance the
+        bytes saved per replica (e.g. per slice), instead of by `replica_id`,
+        which must not be None.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -1427,6 +1465,12 @@ class ArrayHandler(types.TypeHandler):
         min_slice_bytes_for_replica_parallel
     )
     self._max_replicas_for_replica_parallel = max_replicas_for_replica_parallel
+    self._balance_arrays_across_replicas = balance_arrays_across_replicas
+    if self._balance_arrays_across_replicas and self._replica_id is None:
+      raise ValueError(
+          '`balance_arrays_across_replicas` is incompatible with local'
+          ' checkpointing'
+      )
     self._array_metadata_store = array_metadata_store
     self._enable_replica_parallel_separate_folder = (
         enable_replica_parallel_separate_folder
@@ -1646,6 +1690,7 @@ class ArrayHandler(types.TypeHandler):
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
             callback=self._callback,
+            balance_arrays_across_replicas=self._balance_arrays_across_replicas,
         )
     )
 
