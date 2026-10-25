@@ -18,7 +18,7 @@ import collections
 import dataclasses
 import functools
 import math
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from absl import logging
 import jax
@@ -212,24 +212,73 @@ def calculate_replica_parallel_axis_and_local_shape(
     arr: jax.Array, max_replicas_for_replica_parallel: Optional[int]
 ) -> OptionalAxisAndShapeAndReplicaCount:
   """Calculates a local shape for replica-parallel serialization."""
-  shard0 = arr.addressable_shards[0]
+  shard_shape = arr.sharding.shard_shape(arr.shape)
   replica_count = _sharding_num_replicas(arr.sharding, arr.shape)
   if max_replicas_for_replica_parallel is not None:
     replica_count = min(replica_count, max_replicas_for_replica_parallel)
-  if shard0.data.size == 0 or replica_count <= 1:
+  if math.prod(shard_shape) == 0 or replica_count <= 1:
     return None, None, None
   try:
     axis = next(
         axis_index
-        for axis_index, axis_size in enumerate(shard0.data.shape)
+        for axis_index, axis_size in enumerate(shard_shape)
         if axis_size % replica_count == 0
     )
   except StopIteration:
     return None, None, None
   local_shape = tuple(
       axis_size // (replica_count if axis_index == axis else 1)
-      for axis_index, axis_size in enumerate(shard0.data.shape)
+      for axis_index, axis_size in enumerate(shard_shape)
   )
+  return axis, local_shape, replica_count
+
+
+def _is_safe_to_slice(arr: jax.Array) -> bool:
+  """Returns whether the shards of `arr` can be sliced."""
+  # Small pinned host arrays have layout requirements so slicing them might hang
+  # this is a temporary workaround to avoid this. TODO: b/417243451
+  if arr.sharding.memory_kind != 'pinned_host':
+    return True
+  shard_shape = arr.sharding.shard_shape(arr.shape)
+  return (
+      arr.ndim >= 2
+      and math.prod(shard_shape) % 1024 == 0
+      and shard_shape[-1] % 128 == 0
+  )
+
+
+def _get_replica_parallel_axis_and_local_shape(
+    arr: jax.Array,
+    min_slice_bytes_for_replica_parallel: Optional[int],
+    max_replicas_for_replica_parallel: Optional[int],
+) -> OptionalAxisAndShapeAndReplicaCount:
+  """Returns how `arr` is split across replicas if it is saved replica-parallel.
+
+  Args:
+    arr: The array to save.
+    min_slice_bytes_for_replica_parallel: See `get_replica_slices`.
+    max_replicas_for_replica_parallel: See `get_replica_slices`.
+
+  Returns:
+    The axis along which each shard is split, the shape of each replica's slice
+    of a shard, and the number of replicas that save a slice; or `None`s if
+    `arr` is not saved replica-parallel.
+  """
+  # Check whether replica-parallel applies: we are dealing with non-empty
+  # shards that are safe to slice, we have more than one replica, and some
+  # dimension of the shards is evenly divisible across replicas.
+  if not _is_safe_to_slice(arr):
+    return None, None, None
+  axis, local_shape, replica_count = (
+      calculate_replica_parallel_axis_and_local_shape(
+          arr, max_replicas_for_replica_parallel
+      )
+  )
+  if axis is None or local_shape is None or replica_count is None:
+    return None, None, None
+  min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
+  if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
+    return None, None, None
   return axis, local_shape, replica_count
 
 
@@ -291,19 +340,14 @@ def get_replica_slices(
           '`use_replica_parallel` is incompatible with local checkpointing'
       )
 
-    # Check whether replica-parallel applies: we are dealing with non-empty
-    # shards, we have more than one replica, and some dimension of the shards
-    # is evenly divisible across replicas.
     axis, local_shape, replica_count = (
-        calculate_replica_parallel_axis_and_local_shape(
-            arr, max_replicas_for_replica_parallel
+        _get_replica_parallel_axis_and_local_shape(
+            arr,
+            min_slice_bytes_for_replica_parallel,
+            max_replicas_for_replica_parallel,
         )
     )
     if axis is None or local_shape is None or replica_count is None:
-      return None
-
-    min_slice_bytes = min_slice_bytes_for_replica_parallel or 0
-    if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
       return None
 
     rslices: list[ReplicaSlice] = []
@@ -347,19 +391,11 @@ def get_replica_slices(
         ]),
     )
 
-  # Small pinned host arrays have layout requirements so slicing them might hang
-  # this is a temporary workaround to avoid this. TODO: b/417243451
-  is_safe_to_slice = (
-      arr.sharding.memory_kind != 'pinned_host'
-      or arr.ndim >= 2
-      and arr.addressable_shards[0].data.size % 1024 == 0
-      and arr.addressable_shards[0].data.shape[-1] % 128 == 0
-  )
   # In order for all processes to agree on the right serialization metadata
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
   candidate_slices = None
-  if use_replica_parallel and is_safe_to_slice:
+  if use_replica_parallel and _is_safe_to_slice(arr):
     candidate_slices = maybe_pick_replica_parallel()
   if candidate_slices is None:
     candidate_slices = pick_single_replica()
@@ -488,4 +524,162 @@ def transfer_arrays_to_host(
           ],
       )
       for rslices, transfers in zip(rslices_per_array, transfers_per_array)
+  ]
+
+
+def get_replica_parallel_sharding(
+    arr: jax.Array,
+    *,
+    replica_id: Optional[int],
+    min_slice_bytes_for_replica_parallel: Optional[int] = None,
+    max_replicas_for_replica_parallel: Optional[int] = None,
+) -> Optional[jax.sharding.NamedSharding]:
+  """Returns a sharding of `arr` in which each replica holds only its slice.
+
+  With replica-parallel saving, `get_replica_slices` splits each shard of a
+  replicated array into one slice per replica, and each replica saves its slice.
+  The returned sharding splits the shards in the same way, on the same mesh, by
+  appending the replicated mesh axes to the mesh axes of the split array axis.
+  Every device's shard of the returned sharding is therefore a slice of its
+  current shard: resharding `arr` to it on device (see
+  `slice_replicas_on_device`) only slices locally, without communication
+  between devices. The resharded array has a single replica, so saving it with
+  replica id 0 writes the same data, with the same local shape, as saving `arr`
+  replica-parallel, while each replica transfers only its slice to host.
+
+  Args:
+    arr: The array to save replica-parallel.
+    replica_id: Configured replica id. Must be 0, the replica id of every shard
+      of the resharded array.
+    min_slice_bytes_for_replica_parallel: See `get_replica_slices`.
+    max_replicas_for_replica_parallel: See `get_replica_slices`.
+
+  Returns:
+    The sharding, or None if `arr` is not saved replica-parallel, does not have
+    a `NamedSharding` or does not reside in device memory, if its elements have
+    64 bits (TPUs cannot compile the resharding), if `replica_id` is not 0, or
+    if a sharding cannot express the split that `get_replica_slices` uses (e.g.
+    if `max_replicas_for_replica_parallel` limits the replicas that save to a
+    subset).
+  """
+  if (
+      replica_id != 0
+      or not isinstance(arr.sharding, jax.sharding.NamedSharding)
+      or arr.sharding.memory_kind not in (None, 'device')
+      or arr.dtype.itemsize > 4
+  ):
+    return None
+  axis, local_shape, replica_count = (
+      _get_replica_parallel_axis_and_local_shape(
+          arr,
+          min_slice_bytes_for_replica_parallel,
+          max_replicas_for_replica_parallel,
+      )
+  )
+  if axis is None or local_shape is None or replica_count is None:
+    return None
+  return _get_replica_parallel_sharding(
+      arr.sharding, arr.shape, axis, local_shape, replica_count
+  )
+
+
+def _index_contains(outer: Index, inner: Index, shape: Shape) -> bool:
+  """Returns whether the `inner` index selects a subset of `outer`."""
+  for outer_slice, inner_slice, size in zip(outer, inner, shape, strict=True):
+    outer_start, outer_stop, _ = outer_slice.indices(size)
+    inner_start, inner_stop, _ = inner_slice.indices(size)
+    if not outer_start <= inner_start <= inner_stop <= outer_stop:
+      return False
+  return True
+
+
+@functools.lru_cache(maxsize=4096)
+def _get_replica_parallel_sharding(
+    sharding: jax.sharding.NamedSharding,
+    global_shape: Shape,
+    axis: int,
+    local_shape: Shape,
+    replica_count: int,
+) -> Optional[jax.sharding.NamedSharding]:
+  """Implements `get_replica_parallel_sharding` (cached)."""
+  mesh = sharding.mesh
+  spec = list(sharding.spec)
+  if any(entry is jax.sharding.PartitionSpec.UNCONSTRAINED for entry in spec):
+    return None
+  spec += [None] * (len(global_shape) - len(spec))
+  used_mesh_axes = set()
+  for entry in spec:
+    if isinstance(entry, tuple):
+      used_mesh_axes.update(entry)
+    elif entry is not None:
+      used_mesh_axes.add(entry)
+  replicated_mesh_axes = tuple(
+      name
+      for name in mesh.axis_names
+      if name not in used_mesh_axes and mesh.shape[name] > 1
+  )
+  if math.prod(mesh.shape[name] for name in replicated_mesh_axes) != (
+      replica_count
+  ):
+    # E.g. `max_replicas_for_replica_parallel` limits the replicas that save.
+    return None
+  axis_entry = spec[axis]
+  if axis_entry is None:
+    axis_entry = ()
+  elif not isinstance(axis_entry, tuple):
+    axis_entry = (axis_entry,)
+  # Appending (rather than prepending) the replicated mesh axes keeps each new
+  # shard within the current shard of the same device.
+  spec[axis] = axis_entry + replicated_mesh_axes
+  replica_parallel_sharding = jax.sharding.NamedSharding(
+      mesh,
+      jax.sharding.PartitionSpec(*spec),
+      memory_kind=sharding.memory_kind,
+  )
+  # Only use the sharding if it matches the replica slices exactly and
+  # resharding to it slices locally on every device.
+  if replica_parallel_sharding.shard_shape(global_shape) != local_shape:
+    return None
+  current_indices = sharding.devices_indices_map(global_shape)
+  for device, index in replica_parallel_sharding.devices_indices_map(
+      global_shape
+  ).items():
+    if not _index_contains(current_indices[device], index, global_shape):
+      return None
+  return replica_parallel_sharding
+
+
+def _identity(x: jax.Array) -> jax.Array:
+  return x
+
+
+@functools.lru_cache(maxsize=4096)
+def _get_reshard_fn(
+    sharding: jax.sharding.Sharding,
+) -> Callable[[jax.Array], jax.Array]:
+  return jax.jit(_identity, out_shardings=sharding)
+
+
+def slice_replicas_on_device(
+    arrays: Sequence[jax.Array],
+    shardings: Sequence[Optional[jax.sharding.Sharding]],
+) -> list[jax.Array]:
+  """Reshards arrays on device to their replica-parallel shardings.
+
+  The shardings come from `get_replica_parallel_sharding`, so resharding slices
+  each device's shard locally, without communication between devices. The
+  resharded arrays are new arrays, so the input arrays may be donated or
+  modified afterwards.
+
+  Args:
+    arrays: The arrays to reshard.
+    shardings: For each array, the sharding to reshard it to, or None to return
+      the array unchanged.
+
+  Returns:
+    The resharded arrays.
+  """
+  return [
+      arr if sharding is None else _get_reshard_fn(sharding)(arr)
+      for arr, sharding in zip(arrays, shardings, strict=True)
   ]

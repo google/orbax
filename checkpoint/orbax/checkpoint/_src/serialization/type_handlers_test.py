@@ -15,6 +15,7 @@
 import asyncio
 import collections
 import dataclasses
+import functools
 import threading
 import tracemalloc
 from typing import Any, Optional, Sequence
@@ -117,6 +118,17 @@ def get_replica_pids(rep_id: int, mesh: jax.sharding.Mesh):
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids
+
+
+def _make_replicated_array(dtype: np.dtype) -> jax.Array:
+  """Returns an array that is replicated across all devices."""
+  return jax.device_put(
+      np.arange(2 * jax.device_count(), dtype=dtype),
+      jax.sharding.NamedSharding(
+          jax.sharding.Mesh(jax.devices(), ('x',)),
+          jax.sharding.PartitionSpec(),
+      ),
+  )
 
 
 class SerializationTest(
@@ -742,6 +754,86 @@ class ArrayHandlerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.pytree, _, _ = test_utils.setup_sharded_pytree()
+
+
+class ReplicaParallelDeviceSlicingTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+  """Tests `ArrayHandler(enable_replica_parallel_device_slicing=...)`."""
+
+  @parameterized.parameters(False, True)
+  async def test_transfers_replica_parallel_slices(
+      self, enable_replica_parallel_device_slicing
+  ):
+    arr = _make_replicated_array(np.float32)
+    replica_parallel_sharding = replica_slices.get_replica_parallel_sharding(
+        arr, replica_id=0
+    )
+    self.assertIsNotNone(replica_parallel_sharding)
+
+    transferred = await self._serialize_and_get_transferred_array(
+        arr, enable_replica_parallel_device_slicing
+    )
+
+    if enable_replica_parallel_device_slicing:
+      self.assertEqual(transferred.sharding, replica_parallel_sharding)
+    else:
+      self.assertIs(transferred, arr)
+
+  async def test_transfers_64_bit_arrays_whole(self):
+    # TPUs cannot compile the on-device slicing of 64-bit element types.
+    arr = _make_replicated_array(np.int64)
+
+    transferred = await self._serialize_and_get_transferred_array(
+        arr, enable_replica_parallel_device_slicing=True
+    )
+
+    self.assertIs(transferred, arr)
+
+  def test_dispatch_transfers_replica_parallel_slices(self):
+    arr = _make_replicated_array(np.float32)
+    replica_parallel_sharding = replica_slices.get_replica_parallel_sharding(
+        arr, replica_id=0
+    )
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    dispatcher = jax_array_handlers._ReplicaParallelSlicingDispatcher(
+        mock_dispatcher,
+        functools.partial(
+            replica_slices.get_replica_parallel_sharding, replica_id=0
+        ),
+    )
+
+    self.assertEqual(
+        dispatcher.get_transfer_sharding(arr), replica_parallel_sharding
+    )
+    dispatcher.dispatch(print, input_arrays=[arr])
+
+    (dispatched,) = mock_dispatcher.dispatch.call_args.kwargs['input_arrays']
+    self.assertEqual(dispatched.sharding, replica_parallel_sharding)
+
+  async def _serialize_and_get_transferred_array(
+      self, arr: jax.Array, enable_replica_parallel_device_slicing: bool
+  ) -> jax.Array:
+    """Serializes `arr` with a mock dispatcher; returns what it transferred."""
+    info = get_param_info('a', epath.Path(self.create_tempdir().full_path))
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda arrays: arrays
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        use_replica_parallel=True,
+        enable_replica_parallel_device_slicing=(
+            enable_replica_parallel_device_slicing
+        ),
+    )
+
+    futures = await handler.serialize([arr], [info])
+    for f in futures:
+      f.result()
+
+    (transferred,), _ = mock_dispatcher.device_to_host.call_args
+    self.assertLen(transferred, 1)
+    return transferred[0]
 
 
 class ArrayHandlerCallbackTest(

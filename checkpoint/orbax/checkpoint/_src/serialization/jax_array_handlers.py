@@ -1372,6 +1372,81 @@ def _get_default_use_replica_parallel():
   return True
 
 
+class _ReplicaParallelSlicingDispatcher(dispatchers.Dispatcher):
+  """Slices replica-parallel arrays on device before transferring them to host.
+
+  Wraps a dispatcher, whose `device_to_host` and `dispatch` otherwise transfer
+  each replica's whole shard of a replicated array to host, where the shard is
+  sliced for replica-parallel saving. Instead, each array that
+  `get_replica_parallel_sharding` returns a sharding for is first resharded to
+  it on device (see `replica_slices.slice_replicas_on_device`), so that each
+  replica transfers only the slice that it saves.
+  """
+
+  def __init__(
+      self,
+      dispatcher: dispatchers.Dispatcher,
+      get_replica_parallel_sharding: Callable[
+          [jax.Array], jax.sharding.Sharding | None
+      ],
+  ):
+    self._dispatcher = dispatcher
+    self._get_replica_parallel_sharding = get_replica_parallel_sharding
+
+  def name(self) -> str:
+    return self._dispatcher.name()
+
+  def get_transfer_sharding(
+      self, arr: jax.Array
+  ) -> jax.sharding.Sharding | None:
+    # Arrays on CPU devices have already been transferred to host.
+    if any(device.platform == 'cpu' for device in arr.sharding.device_set):
+      return None
+    return self._get_replica_parallel_sharding(arr)
+
+  def _slice_replicas(self, arrays: Any) -> Any:
+    leaves, treedef = jax.tree.flatten(arrays)
+    shardings = [
+        self.get_transfer_sharding(leaf)
+        if isinstance(leaf, jax.Array)
+        else None
+        for leaf in leaves
+    ]
+    num_sliced = sum(sharding is not None for sharding in shardings)
+    if not num_sliced:
+      return arrays
+    logging.info(
+        'Slicing %d of %d jax.Array across replicas on device before D2H.',
+        num_sliced,
+        len(leaves),
+    )
+    return jax.tree.unflatten(
+        treedef, replica_slices.slice_replicas_on_device(leaves, shardings)
+    )
+
+  def device_to_host(self, arrays: Any) -> Any:
+    return self._dispatcher.device_to_host(self._slice_replicas(arrays))
+
+  def dispatch(
+      self,
+      func: Callable[..., Any],
+      *,
+      input_arrays: Any = None,
+      result_specs: Any = None,
+      func_args: tuple[Any, ...] = (),
+      func_kwargs: dict[str, Any] | None = None,
+  ) -> Any:
+    if input_arrays is not None:
+      input_arrays = self._slice_replicas(input_arrays)
+    return self._dispatcher.dispatch(
+        func,
+        input_arrays=input_arrays,
+        result_specs=result_specs,
+        func_args=func_args,
+        func_kwargs=func_kwargs,
+    )
+
+
 class ArrayHandler(types.TypeHandler):
   """An implementation of TypeHandler for jax.Array."""
 
@@ -1388,6 +1463,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
       callback: types.SerializationStatusCallback | None = None,
+      enable_replica_parallel_device_slicing: bool = False,
   ):
     """Constructor.
 
@@ -1413,6 +1489,17 @@ class ArrayHandler(types.TypeHandler):
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
       callback: The callback to use for executing operations in handlers.
+      enable_replica_parallel_device_slicing: If True, with a `dispatcher`,
+        each replica transfers to host only the slice of a replica-parallel
+        array that it saves, by slicing the array on device first (see
+        `replica_slices.get_replica_parallel_sharding`). Otherwise, every
+        replica transfers its whole shard, and the shard is sliced on host. With
+        `R` replicas, slicing on device divides host transfers and host memory
+        by `R`, but takes up to `1/R` of the array's size in additional device
+        memory until the transfer completes. Has no effect without
+        `use_replica_parallel`, if `replica_id` is not 0, with
+        `enable_replica_parallel_separate_folder`, or for arrays with 64-bit
+        elements.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -1433,6 +1520,26 @@ class ArrayHandler(types.TypeHandler):
     )
     self._ext_metadata = dict()
     self._dispatcher = dispatcher
+    # The dispatcher for saving, which may slice arrays across replicas on
+    # device before transferring them to host.
+    self._save_dispatcher = dispatcher
+    if (
+        dispatcher is not None
+        and enable_replica_parallel_device_slicing
+        and self._use_replica_parallel
+        # TODO(justinpan): Support `enable_replica_parallel_separate_folder`,
+        # which derives the folder from the sharding of the transferred array.
+        and not enable_replica_parallel_separate_folder
+    ):
+      self._save_dispatcher = _ReplicaParallelSlicingDispatcher(
+          dispatcher,
+          functools.partial(
+              replica_slices.get_replica_parallel_sharding,
+              replica_id=replica_id,
+              min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
+              max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+          ),
+      )
     self._callback = (
         callback
         if callback is not None
@@ -1635,7 +1742,7 @@ class ArrayHandler(types.TypeHandler):
             arrays=arrays,
             infos=infos,
             args=args,
-            dispatcher=self._dispatcher,
+            dispatcher=self._save_dispatcher,
             primary_host=self._primary_host,
             replica_id=self._replica_id,
             use_replica_parallel=self._use_replica_parallel,
