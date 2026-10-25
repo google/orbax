@@ -1214,24 +1214,17 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Returns True if a preemption sync point has been reached."""
     return utils.reached_preemption(step)
 
-  def should_save(self, step: int) -> bool:
-    """Returns True if a checkpoint should be saved for the current step.
-
-    This depends the previous step and SaveDecisionPolicy.
-
-    Args:
-      step: int
-
-    Returns:
-      True if the checkpoint should be saved.
-    """
+  def _should_save(
+      self, step: int, *, previous_steps: checkpoint_info.CheckpointInfos
+  ) -> bool:
+    """Returns True if a checkpoint should be saved for the current step."""
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
       return False
-    last_checkpoint_step = self.latest_step()
+    last_checkpoint = previous_steps.latest()
     # Ensure current step is between the last step and next step (accounting for
     # save interval).
-    if last_checkpoint_step is not None and last_checkpoint_step >= step:
+    if last_checkpoint is not None and last_checkpoint.step >= step:
       return False
 
     if self._options.enable_should_save_is_saving_in_progress_check:
@@ -1250,8 +1243,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         multiprocessing_options=self._multiprocessing_options,
     )
     return self._save_decision_policy.should_save(
-        current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
+        current_step_info, previous_steps=previous_steps, context=context  # pyrefly: ignore[bad-argument-type]
     )
+
+  def should_save(self, step: int) -> bool:
+    """Returns True if a checkpoint should be saved for the current step.
+
+    This depends the previous step and SaveDecisionPolicy.
+
+    Args:
+      step: int
+
+    Returns:
+      True if the checkpoint should be saved.
+    """
+    return self._should_save(step, previous_steps=self._checkpoints)
 
   def _get_save_directory(
       self,

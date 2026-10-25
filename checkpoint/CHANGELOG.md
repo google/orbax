@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- #v1 Preserve existing checkpoints when an overwrite is skipped by the save
+  decision policy.
+
 ## [0.12.8] - 2026-10-20
 
 ### Added

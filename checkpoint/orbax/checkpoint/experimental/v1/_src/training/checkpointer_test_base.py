@@ -187,6 +187,24 @@ class CheckpointerTestBase:
       checkpointer.save(0, plus_one_pytree, overwrite=True)
       test_utils.assert_tree_equal(self, plus_one_pytree, checkpointer.load(0))
 
+    def test_overwrite_skipped_by_policy_preserves_checkpoint(self):
+      plus_one_pytree, _ = array_test_utils.create_numpy_pytree(add=1)
+      checkpointer = Checkpointer(
+          self.directory,
+          save_decision_policy=save_decision_policies.FixedIntervalPolicy(2),
+      )
+      self.enter_context(checkpointer)
+      self.assertTrue(checkpointer.save(1, self.pytree, force=True))
+      self.assertFalse(
+          checkpointer.save(1, plus_one_pytree, overwrite=True)
+      )
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [1]
+      )
+      test_utils.assert_tree_equal(
+          self, self.pytree, checkpointer.load(1, self.abstract_pytree)
+      )
+
     def test_step_already_exists(self):
       plus_one_pytree, _ = array_test_utils.create_numpy_pytree(add=1)
       checkpointer = Checkpointer(self.directory)
