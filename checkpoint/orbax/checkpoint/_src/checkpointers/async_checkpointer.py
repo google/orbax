@@ -434,6 +434,9 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         barrier_sync_key_prefix=barrier_sync_key_prefix,
     )
     self._multiprocessing_options = multiprocessing_options
+    self._signals_namespace = future.get_signals_namespace(
+        multiprocessing_options
+    )
 
   def _make_on_commit_callback(
       self,
@@ -612,67 +615,73 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     Raises:
       ValueError if the provided directory already exists.
     """
-    checkpoint_start_time = (
-        save_context.checkpoint_start_time
-        if save_context is not None
-        else time.time()
+    namespace = (
+        future.current_signals_namespace()
+        if future.has_active_signals_namespace()
+        else self._signals_namespace
     )
-    start_sync_start_time = time.time()
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:save_start',
-            prefix=self._barrier_sync_key_prefix,
-        ),
-        processes=self._active_processes,
-    )
-    start_sync_duration_secs = time.time() - start_sync_start_time
-    if save_context is not None:
-      start_sync_duration_secs += save_context.start_sync_duration_secs
-    jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/checkpoint_start_sync_duration_secs',
-        start_sync_duration_secs,
-    )
-    directory = epath.Path(directory)
-    operation_recorder = event_tracking.OperationRecorder(
-        directory,
-        operation_type=event_tracking.OperationType.SAVE,
-        async_origin=True,
-        primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
-    )
-    operation_recorder.record_start(start_time=checkpoint_start_time)
-    tmpdir = self.get_temporary_path(directory)
-    wait_prev_start_time = time.perf_counter()
-    self.wait_until_finished()
-    wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
-    if save_context is not None:
-      wait_prev_duration_secs += save_context.wait_prev_duration_secs
-    jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/blocking_wait_prev_duration_secs',
-        wait_prev_duration_secs,
-    )
-    self.synchronize_next_awaitable_signal_operation_id()
-    on_commit_callback = self._make_on_commit_callback(
-        tmpdir, custom_metadata, checkpoint_start_time
-    )
-    commit_ops = asyncio_utils.run_sync(
-        self._save(
-            tmpdir,
-            *args,
-            force=force,
-            **kwargs,
-        )
-    )
-    blocking_end_time = time.time()
-    blocking_duration_secs = blocking_end_time - checkpoint_start_time
-    operation_recorder.record_blocking_completion(
-        blocking_duration_secs,
-        end_time=blocking_end_time,
-    )
-    self._async_manager.start_async_commit(
-        directory,
-        commit_futures=commit_ops,
-        on_commit_callback=on_commit_callback,
-    )
+    with future.signals_namespace(namespace):
+      checkpoint_start_time = (
+          save_context.checkpoint_start_time
+          if save_context is not None
+          else time.time()
+      )
+      start_sync_start_time = time.time()
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'Checkpointer:save_start',
+              prefix=self._barrier_sync_key_prefix,
+          ),
+          processes=self._active_processes,
+      )
+      start_sync_duration_secs = time.time() - start_sync_start_time
+      if save_context is not None:
+        start_sync_duration_secs += save_context.start_sync_duration_secs
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+          start_sync_duration_secs,
+      )
+      directory = epath.Path(directory)
+      operation_recorder = event_tracking.OperationRecorder(
+          directory,
+          operation_type=event_tracking.OperationType.SAVE,
+          async_origin=True,
+          primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
+      )
+      operation_recorder.record_start(start_time=checkpoint_start_time)
+      tmpdir = self.get_temporary_path(directory)
+      wait_prev_start_time = time.perf_counter()
+      self.wait_until_finished()
+      wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
+      if save_context is not None:
+        wait_prev_duration_secs += save_context.wait_prev_duration_secs
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/blocking_wait_prev_duration_secs',
+          wait_prev_duration_secs,
+      )
+      self.synchronize_next_awaitable_signal_operation_id()
+      on_commit_callback = self._make_on_commit_callback(
+          tmpdir, custom_metadata, checkpoint_start_time
+      )
+      commit_ops = asyncio_utils.run_sync(
+          self._save(
+              tmpdir,
+              *args,
+              force=force,
+              **kwargs,
+          )
+      )
+      blocking_end_time = time.time()
+      blocking_duration_secs = blocking_end_time - checkpoint_start_time
+      operation_recorder.record_blocking_completion(
+          blocking_duration_secs,
+          end_time=blocking_end_time,
+      )
+      self._async_manager.start_async_commit(
+          directory,
+          commit_futures=commit_ops,
+          on_commit_callback=on_commit_callback,
+      )
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""

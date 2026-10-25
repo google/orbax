@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Isolate awaitable-signal keys per process or process subgroup across both V0
+  (`CheckpointManager`, `AsyncCheckpointer`) and V1 (`save`, `save_async`,
+  `save_checkpointables`, `save_checkpointables_async`,
+  `training.Checkpointer`) when saving with `primary_host=None` or
+  `active_processes` to prevent cross-process signal key collisions.
+
 ## [0.12.8] - 2026-10-20
 
 ### Added

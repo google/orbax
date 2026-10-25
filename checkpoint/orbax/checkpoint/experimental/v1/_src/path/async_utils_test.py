@@ -218,6 +218,47 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
     await self.assertExists(self.directory / 'tmp')
     await t
 
+  async def test_signals_with_custom_namespace(self):
+    await synchronization.synchronize_next_operation_id()
+    operation_id = synchronization.get_operation_id()
+    tmpdir = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_ns', self.directory / 'final_ns'
+    )
+    expected_signals = [
+        synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION,
+        synchronization.HandlerAwaitableSignal.ITEM_DIRECTORY_CREATION,
+    ]
+    with future.signals_namespace('custom_ns'):
+      p = async_utils.PathAwaitingCreation.build(
+          tmpdir,
+          [],
+      )
+      actual_signals = (
+          AwaitableSignalsContract.get_awaitable_signals_from_contract(
+              operation_id
+          )
+      )
+      self.assertSameElements(actual_signals, expected_signals)
+    # Default namespace should not see the contract.
+    self.assertEmpty(
+        AwaitableSignalsContract.get_awaitable_signals_from_contract(
+            operation_id
+        )
+    )
+    await p.await_creation()
+    with future.signals_namespace('custom_ns'):
+      future.wait_for_signals(
+          expected_signals,
+          timeout_secs=0,
+          operation_id=operation_id,
+      )
+    with self.assertRaises(TimeoutError):
+      future.wait_for_signals(
+          expected_signals,
+          timeout_secs=0,
+          operation_id=operation_id,
+      )
+
   async def test_await_creation_without_create(self):
     await synchronization.synchronize_next_operation_id()
     tmpdir = atomicity.AtomicRenameTemporaryPath(
