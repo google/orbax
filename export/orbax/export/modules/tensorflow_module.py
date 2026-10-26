@@ -302,13 +302,34 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
           ' context.'
       )
 
+    def _is_host_pinned(x, pspec) -> bool:
+      if (
+          isinstance(x, jax.Array)
+          and isinstance(x.sharding, jax.sharding.Sharding)
+          and x.sharding.memory_kind == 'pinned_host'
+      ):
+        return True
+      if (
+          isinstance(pspec, jax.sharding.Sharding)
+          and pspec.memory_kind == 'pinned_host'
+      ):
+        return True
+      return False
+
     def _to_tf_variable(x, name, trainable, pspec):
+      is_pinned = _is_host_pinned(x, pspec)
+      actual_pspec = (
+          pspec.spec if isinstance(pspec, jax.sharding.NamedSharding) else pspec
+      )
       if mesh is not None:
+        target_dmesh = (
+            mesh.dtensor_mesh.host_mesh() if is_pinned else mesh.dtensor_mesh
+        )
         return dtensor.DVariable(
             dtensor_utils.jax_array_to_dtensor(
                 x,
-                pspec,
-                mesh.dtensor_mesh,
+                actual_pspec,
+                target_dmesh,
                 mesh.jax_mesh,
                 allow_multi_axis_sharding_consolidation,  # pyrefly: ignore[bad-argument-type]
             ),
@@ -318,7 +339,8 @@ class TensorFlowModule(tf.Module, orbax_module_base.OrbaxModuleBase):
             name=name,
         )
 
-      with tf.device(default_cpu_device):
+      target_device = '/device:CPU:0' if is_pinned else default_cpu_device
+      with tf.device(target_device):
         return tf.Variable(
             x, trainable=trainable, shape=x.shape, dtype=x.dtype, name=name
         )
