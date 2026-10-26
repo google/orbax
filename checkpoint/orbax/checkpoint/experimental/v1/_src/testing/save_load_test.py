@@ -37,6 +37,7 @@ import numpy as np
 import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost as multihost_v0
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization as serialization_v0
 from orbax.checkpoint._src.testing import multiprocess_test
@@ -46,7 +47,6 @@ from orbax.checkpoint.experimental.v1._src.handlers import registration
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.path import async_utils
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
-
 from orbax.checkpoint.experimental.v1._src.synchronization import multihost
 from orbax.checkpoint.experimental.v1._src.synchronization import synchronization
 from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_test_utils
@@ -86,6 +86,17 @@ async def _sleep_and_create_paths(*args, **kwargs):
   return await _original_create_paths(*args, **kwargs)
 
 
+def _trace(events: list[tuple[str, str, str]], op: str):
+  """Patches `async_path.<op>` to record (op, path, thread name)."""
+  orig = getattr(async_path, op)
+
+  async def traced(path, *args, **kwargs):
+    events.append((op, str(path), threading.current_thread().name))
+    return await orig(path, *args, **kwargs)
+
+  return mock.patch.object(async_path, op, side_effect=traced)
+
+
 class SaveLoadTestSuite:
 
   class _TestSetup(parameterized.TestCase):
@@ -120,9 +131,17 @@ class SaveLoadTestSuite:
       del use_async
       return ocp.load(*args, **kwargs)
 
-    @parameterized.parameters((True,), (False,))
-    def test_save_load(self, use_async):
-      self.save_and_wait(self.directory, self.pytree, use_async=use_async)
+    @parameterized.product(use_async=[True, False], skip_sync=[False, True])
+    def test_save_load(self, use_async, skip_sync):
+      ctx = ocp.Context()
+      ctx.file.skip_sync_file_validations = skip_sync
+      events = []
+      with ctx, _trace(events, 'exists'):
+        self.save_and_wait(self.directory, self.pytree, use_async=use_async)
+      exists_threads = [th for _, p, th in events if p == str(self.directory)]
+      self.assertEqual('MainThread' in exists_threads, not skip_sync)
+      if multihost.is_primary_host(0):
+        self.assertNotEmpty(exists_threads)
       loaded = self.load_and_wait(
           self.directory, self.abstract_pytree, use_async=use_async
       )
@@ -593,15 +612,35 @@ class SaveLoadTestSuite:
         with self.assertRaisesRegex(ValueError, 'User-provided restore item'):
           ocp.load(self.directory, abstract_pytree)  # pyrefly: ignore[bad-argument-type]
 
-    def test_overwrites(self):
+    @parameterized.parameters((False,), (True,))
+    def test_overwrites(self, skip_sync):
       ocp.save(self.directory, self.pytree)
-      with self.assertLogs(level='INFO') as cm:
+      ctx = ocp.Context()
+      ctx.file.skip_sync_file_validations = skip_sync
+      events = []
+      with (
+          ctx,
+          _trace(events, 'exists'),
+          _trace(events, 'rmtree'),
+          self.assertLogs(level='INFO') as cm,
+      ):
         ocp.save(self.directory, self.numpy_pytree, overwrite=True)
         found_log = any(
             'Specified `overwrite`: removing existing path.' in log
             for log in cm.output
         )
         self.assertEqual(found_log, multihost.is_primary_host(0))
+      # Only the primary removes the old checkpoint. With skip_sync, the check
+      # and removal run in background directory creation, off MainThread.
+      threads = [(op, th) for op, p, th in events if p == str(self.directory)]
+      rmtree_threads = [th for op, th in threads if op == 'rmtree']
+      if multihost.is_primary_host(0):
+        self.assertLen(rmtree_threads, 1)
+        self.assertEqual(rmtree_threads[0] == 'MainThread', not skip_sync)
+      else:
+        self.assertEmpty(rmtree_threads)
+      if skip_sync:
+        self.assertNotIn('MainThread', [th for _, th in threads])
       test_utils.assert_tree_equal(
           self, self.numpy_pytree, ocp.load(self.directory)
       )
@@ -1128,7 +1167,9 @@ class SaveLoadTestSuite:
         else:
           with self.assertRaises(BaseException):
             r.result()
-          self.assertGreaterEqual(time.time() - start, timeout)
+          # The primary's error is signaled to other hosts, so they also fail
+          # fast instead of waiting for the coordination timeout.
+          self.assertLessEqual(time.time() - start, timeout - 1)
 
     def test_save_checkpointables_directory_consistency_failure(self):
       if jax.process_count() <= 1:

@@ -181,7 +181,7 @@ class CheckpointerTestBase:
         self.wait_if_async(checkpointer)
         with self.assertRaises(ValueError):
           checkpointer.save(self.directory, self.doubled_pytree)
-        self.wait_if_async(checkpointer)
+          self.wait_if_async(checkpointer)
         restored = checkpointer.restore(
             self.directory, restore_args=self.pytree_restore_args
         )

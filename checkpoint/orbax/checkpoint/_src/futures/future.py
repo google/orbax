@@ -32,6 +32,7 @@ from typing_extensions import Protocol
 
 PyTree = Any
 _SIGNAL_ACTION_SUCCESS = 'signal_action_success'
+_SIGNAL_ACTION_ERROR = 'signal_action_error'
 
 # Namespace for awaitable-signal keys. Scoped per save via `signals_namespace()`
 # so that managers in the same process do not share keys.
@@ -281,15 +282,34 @@ def wait_for_signals(
         signal, operation_id
     )
     client = signaling_client.get_signaling_client()
-    client.blocking_key_value_get(barrier_key, timeout_secs)
+    raise_if_error_signal(
+        client.blocking_key_value_get(barrier_key, timeout_secs)
+    )
+
+
+def raise_if_error_signal(signal_value: str) -> None:
+  """Raises `ValueError` if `signal_value` was set by `set_signals(error=)`."""
+  if signal_value.startswith(_SIGNAL_ACTION_ERROR):
+    raise ValueError(signal_value.removeprefix(f'{_SIGNAL_ACTION_ERROR}:'))
 
 
 def set_signals(
     send_signals: Sequence[synchronization.HandlerAwaitableSignal],
     *,
     operation_id: str,
-):
-  """Sets the barrier keys for the signals using send_signals."""
+    error: BaseException | None = None,
+) -> None:
+  """Sets the barrier keys for the signals using send_signals.
+
+  Args:
+    send_signals: Signals to set.
+    operation_id: The operation id to use for the barrier keys.
+    error: If set, records this error instead of success, which makes
+      `wait_for_signals` raise.
+  """
+  value = _SIGNAL_ACTION_SUCCESS
+  if error is not None:
+    value = f'{_SIGNAL_ACTION_ERROR}:{error}'
   for signal in send_signals:
     logging.vlog(
         1,
@@ -304,9 +324,7 @@ def set_signals(
         signal, operation_id
     )
     client = signaling_client.get_signaling_client()
-    client.key_value_set(
-        barrier_key, _SIGNAL_ACTION_SUCCESS, allow_overwrite=True
-    )
+    client.key_value_set(barrier_key, value, allow_overwrite=True)
 
 
 class _SignalingThread(threading.Thread):
@@ -329,6 +347,7 @@ class _SignalingThread(threading.Thread):
       receive_signals: Sequence[synchronization.HandlerAwaitableSignal],
       timeout_secs: int | None = None,
       operation_id: str | None = None,
+      on_exit: Callable[[], Any] | None = None,
       **kwargs,
   ):
     """Constructor.
@@ -342,6 +361,7 @@ class _SignalingThread(threading.Thread):
       timeout_secs: Timeout in seconds for waiting for signals.
       operation_id: The operation id to use for the barrier keys. If None, the
         current operation id is used.
+      on_exit: Called when the thread finishes, whether or not `target` ran.
       **kwargs: Keyword arguments passed to the base class.
     """
     timeout_secs = timeout_secs or multihost.coordination_timeout()
@@ -359,6 +379,7 @@ class _SignalingThread(threading.Thread):
     self._send_signals = send_signals
     self._receive_signals = receive_signals
     self._timeout_secs = timeout_secs
+    self._on_exit = on_exit
     # Capture the current operation id synchronously.
     self._operation_id = (
         operation_id
@@ -393,7 +414,11 @@ class _SignalingThread(threading.Thread):
   def run(self):
     """Runs the target function after waiting for signals."""
     with signals_namespace(self._namespace):
-      self._run_with_signals()
+      try:
+        self._run_with_signals()
+      finally:
+        if self._on_exit is not None:
+          self._on_exit()
 
   def _run_with_signals(self):
     """Waits for signals, runs the target function, and sends signals."""
@@ -421,6 +446,9 @@ class _SignalingThread(threading.Thread):
             e,
         )
         self._exception = e
+        set_signals(
+            self._send_signals, operation_id=self._operation_id, error=e
+        )
 
   def cancel(self):
     """Cancels the thread's background execution."""
@@ -516,6 +544,8 @@ class CommitFuture(Future):
         timeout_secs=timeout_secs,
         operation_id=operation_id,
         target=lambda: asyncio_utils.run_sync(coro),
+        # No-op if `coro` ran; else avoids a "never awaited" RuntimeWarning.
+        on_exit=coro.close,
         name=name,
     )
     self._t.start()
