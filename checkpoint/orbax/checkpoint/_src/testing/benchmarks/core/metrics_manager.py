@@ -15,6 +15,7 @@
 """MetricsManager — aggregates benchmark metrics and writes the TB summary."""
 
 import collections
+from concurrent import futures
 import dataclasses
 import json
 from typing import Any
@@ -33,6 +34,13 @@ MetricStats = dict[
     str, float
 ]  # stat_name -> value (e.g. {"mean": 1.5, "max": 2.0})
 BenchmarkSummary = dict[str, MetricStats]  # metric_key -> MetricStats
+# Host directory name (host_<index>) -> metric -> mean, from the sidecars.
+PerHostMeans = dict[str, dict[str, float]]
+
+# Threads that read the per-host sidecars. At hundreds of hosts on a remote
+# filesystem, reading them one by one outlasts the barrier the other hosts wait
+# at.
+_SIDECAR_READ_THREADS = 64
 
 
 def _summary_aggregates(
@@ -430,10 +438,11 @@ class MetricsManager:
     self._write_per_host_means_sidecar(benchmark_name, results)
     multihost.sync_global_processes(f"metrics:summary:{benchmark_name}")
     if multihost.get_process_index() == 0:
-      aggregates = self._gather_cross_host_aggregates(benchmark_name)
+      per_host_means = self._read_per_host_means(benchmark_name)
+      aggregates = self._gather_cross_host_aggregates(per_host_means)
       if aggregates:
         self._cross_host_aggregates[benchmark_name] = aggregates
-        per_host_values = self._gather_per_host_values(benchmark_name)
+        per_host_values = self._gather_per_host_values(per_host_means)
         self._write_summary_cards(
             benchmark_name, results, aggregates, per_host_values
         )
@@ -490,26 +499,53 @@ class MetricsManager:
     except OSError as e:
       logging.warning("Failed to write per-host means sidecar: %s", e)
 
+  def _read_per_host_means(self, benchmark_name: str) -> PerHostMeans:
+    """Reads every host's means sidecar, in parallel.
+
+    Args:
+      benchmark_name: The benchmark whose sidecars are read.
+
+    Returns:
+      Host directory name -> metric -> mean, in sorted directory order, for
+      every host_* directory that has a sidecar.
+    """
+    sidecars = [
+        host_dir / "_per_host_means.json"
+        for host_dir in sorted(
+            self._sidecar_gather_root(benchmark_name).iterdir()
+        )
+        if host_dir.name.startswith("host_")
+    ]
+
+    def read(sidecar: epath.Path) -> dict[str, float] | None:
+      if not sidecar.exists():
+        return None
+      data = json.loads(sidecar.read_text())
+      return dict(zip(data["keys"], data["means"]))
+
+    with futures.ThreadPoolExecutor(_SIDECAR_READ_THREADS) as pool:
+      means = list(pool.map(read, sidecars))
+    return {
+        sidecar.parent.name: m
+        for sidecar, m in zip(sidecars, means)
+        if m is not None
+    }
+
   def _gather_cross_host_aggregates(
-      self, benchmark_name: str
+      self, per_host_means: PerHostMeans
   ) -> BenchmarkSummary:
-    """Reads every host's sidecar and aggregates the values across hosts.
+    """Aggregates the hosts' means across hosts.
 
     Keys absent on some hosts become NaN, so primary-only events (e.g.
     metadata_write_s) still aggregate from the hosts that reported them.
 
     Args:
-      benchmark_name: The benchmark whose sidecars are gathered.
+      per_host_means: The hosts' means, from `_read_per_host_means`.
 
     Returns:
       Metric key -> aggregate stats, or empty if no sidecars were found.
     """
-    per_host: list[dict[str, float]] = []
-    for host_dir in sorted(self._sidecar_gather_root(benchmark_name).iterdir()):
-      sidecar = host_dir / "_per_host_means.json"
-      if host_dir.name.startswith("host_") and sidecar.exists():
-        data = json.loads(sidecar.read_text())
-        per_host.append(dict(zip(data["keys"], data["means"])))
+    per_host = list(per_host_means.values())
     if not per_host:
       return {}
     union_keys = sorted(set().union(*(d.keys() for d in per_host)))
@@ -521,30 +557,26 @@ class MetricsManager:
     return _summary_aggregates(matrix, union_keys)
 
   def _gather_per_host_values(
-      self, benchmark_name: str
+      self, per_host_means: PerHostMeans
   ) -> list[tuple[int, dict[str, float]]]:
-    """Reads each host's means sidecar as (host_index, metric->mean) pairs.
+    """Returns the hosts' means as (host_index, metric->mean) pairs.
 
-    Mirrors `_gather_cross_host_aggregates`' read but keeps the per-host values
-    for the at-a-glance card instead of collapsing them across hosts.
+    Keeps the per-host values for the at-a-glance card instead of collapsing
+    them across hosts.
 
     Args:
-      benchmark_name: The benchmark whose sidecars are read.
+      per_host_means: The hosts' means, from `_read_per_host_means`.
 
     Returns:
       (host_index, metric->mean) per host, sorted by host index.
     """
     out: list[tuple[int, dict[str, float]]] = []
-    for host_dir in sorted(self._sidecar_gather_root(benchmark_name).iterdir()):
-      sidecar = host_dir / "_per_host_means.json"
-      if not (host_dir.name.startswith("host_") and sidecar.exists()):
-        continue
+    for name, means in per_host_means.items():
       try:
-        idx = int(host_dir.name.split("_", 1)[1])
+        idx = int(name.split("_", 1)[1])
       except ValueError:
         continue
-      data = json.loads(sidecar.read_text())
-      out.append((idx, dict(zip(data["keys"], data["means"]))))
+      out.append((idx, means))
     out.sort(key=lambda item: item[0])
     return out
 
