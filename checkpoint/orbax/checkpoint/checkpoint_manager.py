@@ -1628,6 +1628,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         time.time() - step_stats.checkpointer_blocking_start_time
     )
 
+    previous_checkpoint_infos = list(self._checkpoints)
     self._add_checkpoint_info(step, metrics)
     step_stats.get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
@@ -1677,7 +1678,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             step=step,
             name=finalize_thread_name,
             target=self._finalize,
-            args=(step, steps_to_remove),
+            args=(step, steps_to_remove, previous_checkpoint_infos),
         )
         finalize_thread.start()
         return finalize_thread
@@ -1685,7 +1686,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._finalize_thread.set_from(launch_finalize_thread)
 
     else:
-      self._finalize(step, steps_to_remove)
+      self._finalize(step, steps_to_remove, previous_checkpoint_infos)
       logging.info(
           '[process=%s][thread=%s][step=%s] Finished synchronous save.',
           process_index,
@@ -2263,16 +2264,26 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             ),
         )
 
-  def _finalize(self, step: int, steps_to_remove: List[int]):
+  def _finalize(
+      self,
+      step: int,
+      steps_to_remove: list[int],
+      previous_checkpoint_infos: list[CheckpointInfo],
+  ):
     """Finalizes individual items and starts garbage collection."""
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
     try:
-      self._non_blocking_metadata_store.wait_until_finished()
-      self._wait_for_checkpointers()
+      try:
+        self._non_blocking_metadata_store.wait_until_finished()
+        self._wait_for_checkpointers()
+        self._finalize_checkpoint(step)
+      except BaseException:  # pylint: disable=broad-exception-caught
+        # Retention has only pruned the cache; no old checkpoint was deleted.
+        self._checkpoints.set(previous_checkpoint_infos)
+        raise
       # If an error is encountered while waiting for commit futures to complete,
       # we will not proceed past this point.
-      self._finalize_checkpoint(step)
       remove_steps_start_time = time.time()
       self._checkpoint_deleter.delete_steps(steps_to_remove)
       jax.monitoring.record_event_duration_secs(

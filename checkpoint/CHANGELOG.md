@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve checkpoint history when an asynchronous save fails, so
+  `CheckpointManager` can still find and restore earlier checkpoints.
+
 ### Changed
 
 - `FileOptions.skip_sync_file_validations=True` (V0 and #v1) now checks for and
