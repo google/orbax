@@ -65,8 +65,6 @@ from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 
-
-
 FLAGS = flags.FLAGS
 register_with_handler = args.register_with_handler
 TrainState = train_state.TrainState

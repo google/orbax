@@ -22,7 +22,7 @@ import datetime
 import threading
 import time
 import typing
-from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union, overload
+from typing import Any, Callable, Container, Iterable, List, Mapping, Optional, overload, Sequence, Tuple, Type, Union
 
 from absl import logging
 from etils import epath
