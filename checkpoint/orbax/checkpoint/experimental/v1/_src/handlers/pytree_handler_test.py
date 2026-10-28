@@ -1840,31 +1840,43 @@ class PyTreeHandlerTest(
               param_name='a',
               write_shape=test_utils.get_expected_chunk_shape(self.pytree['a']),
               chunk_shape=test_utils.get_expected_chunk_shape(self.pytree['a']),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
           array_metadata.SerializedArrayMetadata(
               param_name='b',
               write_shape=(2,),
               chunk_shape=(2,),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
           array_metadata.SerializedArrayMetadata(
               param_name='c.a',
               write_shape=(1, 1),
               chunk_shape=(1, 1),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
           array_metadata.SerializedArrayMetadata(
               param_name='c.e',
               write_shape=(2, 1),
               chunk_shape=(2, 1),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
           array_metadata.SerializedArrayMetadata(
               param_name='x',
               write_shape=(),
               chunk_shape=(),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
           array_metadata.SerializedArrayMetadata(
               param_name='y',
               write_shape=(),
               chunk_shape=(),
+              compression_algorithm='zstd',
+              compression_level=1,
           ),
       ]
       processes = range(multihost.process_count())

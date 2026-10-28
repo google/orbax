@@ -94,6 +94,8 @@ class Serializer:
             'write_shape': array_metadata.write_shape,
             'chunk_shape': array_metadata.chunk_shape,
             'ext_metadata': array_metadata.ext_metadata,
+            'compression_algorithm': array_metadata.compression_algorithm,
+            'compression_level': array_metadata.compression_level,
         }
     }
 
@@ -106,6 +108,10 @@ class Serializer:
           write_shape=tuple(array_metadata['write_shape']),
           chunk_shape=tuple(array_metadata['chunk_shape']),
           ext_metadata=array_metadata.get('ext_metadata'),
+          compression_algorithm=array_metadata.get(
+              'compression_algorithm', 'none'
+          ),
+          compression_level=array_metadata.get('compression_level'),
       )
     return obj
 

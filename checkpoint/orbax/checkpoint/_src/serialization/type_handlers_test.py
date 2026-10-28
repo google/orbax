@@ -1704,6 +1704,41 @@ class RecordCompressionMetricsTest(parameterized.TestCase):
       self.assertEqual(read_raw_kwargs.get('compression_algorithm'), 'none')
       self.assertEqual(read_raw_kwargs.get('compression_level'), 'None')
 
+      # Read direction with metadata
+      recorded_scalars.clear()
+      recorded_kwargs.clear()
+      read_metadatas = [
+          ts_utils.SerializedArrayMetadata(
+              param_name='p',
+              write_shape=(1,),
+              chunk_shape=(1,),
+              compression_algorithm='zstd',
+              compression_level=1,
+          )
+      ]
+      jax_array_handlers._log_io_metrics(
+          direction=types.IoDirection.READ,
+          logical_bytes=2 * (1024**3),
+          start_time=0.0,
+          parent_dir=epath.Path('gs://bucket/test'),
+          initial_raw_bytes=0,
+          metadatas=read_metadatas,
+      )
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/read/worker/io/raw/gbytes'], 1.0
+      )
+      read_kwargs = recorded_kwargs['/jax/orbax/read/worker/io/raw/gbytes'][0]
+      self.assertEqual(read_kwargs.get('compression_algorithm'), 'zstd')
+      self.assertEqual(read_kwargs.get('compression_level'), '1')
+      self.assertEqual(
+          recorded_scalars['/jax/orbax/read/worker/io/compression_ratio'], 2.0
+      )
+      ratio_kwargs = recorded_kwargs[
+          '/jax/orbax/read/worker/io/compression_ratio'
+      ][0]
+      self.assertEqual(ratio_kwargs.get('compression_algorithm'), 'zstd')
+      self.assertEqual(ratio_kwargs.get('compression_level'), '1')
+
 
 if __name__ == '__main__':
   multiprocess_test.main()

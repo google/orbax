@@ -320,7 +320,10 @@ def _record_compression_metrics(
     raw_bytes: int,
     storage_type: str,
     custom_prefix: str = '',
-    metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
+    metadatas: (
+        Sequence[ts_utils.ArrayMetadata | ts_utils.SerializedArrayMetadata]
+        | None
+    ) = None,
 ) -> None:
   """Logs and records compression ratio and metrics."""
   if logical_bytes <= 0 or raw_bytes <= 0:
@@ -357,7 +360,10 @@ def _record_raw_metrics(
     storage_type: str,
     initial_raw_bytes: int | None = None,
     custom_prefix: str = '',
-    metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
+    metadatas: (
+        Sequence[ts_utils.ArrayMetadata | ts_utils.SerializedArrayMetadata]
+        | None
+    ) = None,
 ):
   """Records raw metrics collected from TensorStore."""
   if initial_raw_bytes is None:
@@ -421,7 +427,10 @@ def _log_io_metrics(
     parent_dir: epath.Path,
     initial_raw_bytes: int | None = None,
     custom_prefix: str = '',
-    metadatas: Sequence[ts_utils.ArrayMetadata] | None = None,
+    metadatas: (
+        Sequence[ts_utils.ArrayMetadata | ts_utils.SerializedArrayMetadata]
+        | None
+    ) = None,
 ):
   """Logs and records IO telemetry metrics for array serialization/deserialization."""
   duration = time.time() - start_time
@@ -1217,6 +1226,7 @@ async def _deserialize_arrays(
       total_io_bytes += io_bytes
     return deserialized_arrays, total_io_bytes
 
+  array_metadatas = None
   if array_metadata_store is not None:
     (ret, logical_bytes), array_metadatas = await asyncio.gather(
         _async_deserialize(
@@ -1239,6 +1249,23 @@ async def _deserialize_arrays(
         metadata_key=metadata_key,
     )
 
+  flat_metadatas = None
+  if array_metadatas:
+    if isinstance(array_metadatas, dict):
+      all_metadatas = list(
+          itertools.chain.from_iterable(array_metadatas.values())
+      )
+    elif isinstance(array_metadatas, (list, tuple)):
+      all_metadatas = list(array_metadatas)
+    else:
+      all_metadatas = []
+    param_names = {info.name for info in infos if info.name}
+    flat_metadatas = [
+        metadata
+        for metadata in all_metadatas
+        if metadata.param_name in param_names
+    ]
+
   if infos:
     _log_io_metrics(
         direction=types.IoDirection.READ,
@@ -1246,6 +1273,7 @@ async def _deserialize_arrays(
         start_time=total_start_time,
         parent_dir=infos[0].parent_dir,
         initial_raw_bytes=initial_raw_bytes,
+        metadatas=flat_metadatas,
     )
   return ret
 

@@ -47,6 +47,7 @@ Shape: TypeAlias = arrays_types.Shape
 DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
+SerializedArrayMetadata: TypeAlias = array_metadata.SerializedArrayMetadata
 
 OcdbtProcessSpec: TypeAlias = ocdbt_process_spec_lib.OcdbtProcessSpec
 
@@ -1209,7 +1210,7 @@ def get_tensorstore_raw_bytes(
 
 
 def resolve_compression_settings(
-    metadatas: Sequence[ArrayMetadata],
+    metadatas: Sequence[ArrayMetadata | SerializedArrayMetadata],
 ) -> tuple[str, str]:
   """Extracts (algo, level) across array metadata."""
   if not metadatas:
