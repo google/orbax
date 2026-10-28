@@ -15,8 +15,10 @@
 """Handles replica slices of jax.Arrays and host transfers."""
 
 import collections
+import concurrent.futures
 import dataclasses
 import functools
+import itertools
 import math
 from typing import Optional, Sequence
 
@@ -73,13 +75,16 @@ class ReplicaSlice:
   index: Index
   unsliced_data: jax.Array | np.ndarray
   slice_args: Optional[SliceArgs]
+  _is_on_host: bool | None = None
 
   def __post_init__(self):
     if self.is_on_host:
       assert not self.slice_args, f'On-host {self!r} must not have slice args'
 
   @property
-  def is_on_host(self):
+  def is_on_host(self) -> bool:
+    if self._is_on_host is not None:
+      return self._is_on_host
     return isinstance(self.unsliced_data, np.ndarray)
 
   def data(self):
@@ -397,6 +402,7 @@ def transfer_arrays_to_host(
     max_replicas_for_replica_parallel: Optional[int] = None,
     *,
     enable_pinned_host_transfer: bool = False,
+    async_host_untile: bool = False,
 ) -> Sequence[ReplicaSlices]:
   """Transfers arrays to host memory.
 
@@ -418,6 +424,9 @@ def transfer_arrays_to_host(
       True.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
+      enable faster device to host transfer.
+    async_host_untile: Whether to defer untiling to background threads. When
+      True, blocks only until PCIe DMA to host memory finishes.
 
   Returns:
     ReplicaSlices objects, in host memory.
@@ -425,11 +434,13 @@ def transfer_arrays_to_host(
   logging.info(
       'Transferring arrays to host memory with options:'
       ' use_replica_parallel=%s, min_slice_bytes_for_replica_parallel=%s,'
-      ' max_replicas_for_replica_parallel=%s, enable_pinned_host_transfer=%s',
+      ' max_replicas_for_replica_parallel=%s, enable_pinned_host_transfer=%s,'
+      ' async_host_untile=%s',
       use_replica_parallel,
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
       enable_pinned_host_transfer,
+      async_host_untile,
   )
 
   def use_pinned_host_transfer(device: jax.Device):
@@ -440,7 +451,7 @@ def transfer_arrays_to_host(
 
   def async_transfer_slice(
       rslice: ReplicaSlice,
-  ) -> tuple[ReplicaSlice, jax.Array]:
+  ) -> tuple[ReplicaSlice, jax.Array | np.ndarray]:
     assert not rslice.is_on_host
     data = rslice.data()
     assert isinstance(data, jax.Array)
@@ -452,6 +463,9 @@ def transfer_arrays_to_host(
           data,
           make_single_device_sharding(device, memory_kind='pinned_host'),
       )
+    elif async_host_untile:
+      # Pinned host unsupported on device; fall back to sync numpy transfer.
+      data = np.asarray(data)
     else:
       data.copy_to_host_async()
     return rslice, data
@@ -472,6 +486,30 @@ def transfer_arrays_to_host(
       [async_transfer_slice(rslice) for rslice in rslices.replica_slices]
       for rslices in rslices_per_array
   ]
+  if async_host_untile:
+    # Wait only for hardware PCIe DMA to pinned_host / host DRAM.
+    transferred = [
+        data for _, data in itertools.chain.from_iterable(transfers_per_array)
+    ]
+    jax.block_until_ready(transferred)
+    return [
+        dataclasses.replace(
+            rslices,
+            is_on_host=True,
+            replica_slices=[
+                dataclasses.replace(
+                    rslice_on_device,
+                    unsliced_data=data,
+                    slice_args=None,
+                    _is_on_host=True,
+                )
+                for rslice_on_device, data in transfers
+            ],
+        )
+        for rslices, transfers in zip(
+            rslices_per_array, transfers_per_array, strict=True
+        )
+    ]
   # Wait for all the transferred data to be ready.
   return [
       dataclasses.replace(
@@ -487,5 +525,68 @@ def transfer_arrays_to_host(
               for rslice_on_device, data in transfers
           ],
       )
-      for rslices, transfers in zip(rslices_per_array, transfers_per_array)
+      for rslices, transfers in zip(
+          rslices_per_array, transfers_per_array, strict=True
+      )
   ]
+
+
+def _untile_slice(rslice: ReplicaSlice) -> ReplicaSlice:
+  """Converts a single slice to numpy and deletes on-device buffer."""
+  data = rslice.unsliced_data
+  if isinstance(data, np.ndarray):
+    return rslice
+  host_array = np.asarray(data)
+  if getattr(host_array, 'base', None) is None:
+    sharding = getattr(data, 'sharding', None)
+    if getattr(sharding, 'memory_kind', None) == 'pinned_host':
+      if hasattr(data, 'delete'):
+        data.delete()
+  return dataclasses.replace(
+      rslice,
+      unsliced_data=host_array,
+      slice_args=None,
+      _is_on_host=True,
+  )
+
+
+def untile_pinned_slices_to_numpy(
+    rslices_list: Sequence[ReplicaSlices],
+    max_workers: int = 16,
+) -> list[ReplicaSlices]:
+  """Converts pinned_host jax.Arrays in ReplicaSlices to numpy in parallel.
+
+  Args:
+    rslices_list: Sequence of ReplicaSlices holding pinned_host jax.Arrays.
+    max_workers: Maximum number of worker threads for parallel CPU untiling.
+
+  Returns:
+    List of updated ReplicaSlices holding untiled np.ndarrays.
+  """
+  all_slices = []
+  for rslices in rslices_list:
+    all_slices.extend(rslices.replica_slices)
+  if not all_slices:
+    return list(rslices_list)
+
+  worker_count = min(max_workers, len(all_slices))
+  if worker_count <= 1:
+    untiled_slices = [_untile_slice(slice_) for slice_ in all_slices]
+  else:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=worker_count
+    ) as executor:
+      untiled_slices = list(executor.map(_untile_slice, all_slices))
+
+  slice_iter = iter(untiled_slices)
+  result = []
+  for rslices in rslices_list:
+    new_slices = [next(slice_iter) for _ in rslices.replica_slices]
+    result.append(
+        dataclasses.replace(
+            rslices,
+            is_on_host=True,
+            replica_slices=new_slices,
+        )
+    )
+  return result

@@ -518,6 +518,7 @@ class PyTreeCheckpointHandler(
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      enable_async_host_untile: bool = False,
       is_prioritized_key_fn: Optional[
           serialization_types.IsPrioritizedKeyFn
       ] = None,
@@ -564,6 +565,8 @@ class PyTreeCheckpointHandler(
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      enable_async_host_untile: Whether to defer untiling to background threads.
+        When True, blocks only until PCIe DMA to host memory finishes.
       is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
         using jax.tree.map_with_path) that should be scheduled for D2H transfer
         before other keys. The transfer is scheduled before returning to the
@@ -582,11 +585,11 @@ class PyTreeCheckpointHandler(
         background (in batches of at most `save_device_host_concurrent_gb`, if
         set) and released as their transfers complete, so the caller may donate
         or mutate the originals without waiting for the transfer. Defaults to
-        False. Warning: this can double peak device memory usage, since a
-        second copy of every array may be held until its transfer completes.
-        Arrays that already reside in host memory (e.g. `pinned_host`) are
-        never copied, so the caller must not donate or mutate them until the
-        save finishes, or the checkpoint may fail or be corrupted.
+        False. Warning: this can double peak device memory usage, since a second
+        copy of every array may be held until its transfer completes. Arrays
+        that already reside in host memory (e.g. `pinned_host`) are never
+        copied, so the caller must not donate or mutate them until the save
+        finishes, or the checkpoint may fail or be corrupted.
     """
 
     self._aggregate_handler = MsgpackHandler(
@@ -622,6 +625,7 @@ class PyTreeCheckpointHandler(
         pytree_metadata_options=pytree_metadata_options,
         array_metadata_validator=array_metadata_validator,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
+        enable_async_host_untile=enable_async_host_untile,
         is_prioritized_key_fn=is_prioritized_key_fn,
         copy_device_arrays_for_async_transfer=(
             copy_device_arrays_for_async_transfer

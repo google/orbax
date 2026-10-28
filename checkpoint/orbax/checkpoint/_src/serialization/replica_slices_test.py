@@ -334,6 +334,46 @@ class ReplicaSlicesTest(parameterized.TestCase):
       # With single-replica we transfer a single slice for each shard.
       self.assertLen(rslices.replica_slices, num_partitions)
 
+  @parameterized.product(
+      partitioned=[False, True],
+      use_replica_parallel=[False, True],
+  )
+  def test_transfer_async_host_untile(self, partitioned, use_replica_parallel):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, _, _ = make_multi_device_array(
+        (64, 64),
+        partitioned=partitioned,
+    )
+
+    expected_np = np.asarray(arr)
+    rslices_list = replica_slices.transfer_arrays_to_host(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=use_replica_parallel,
+        enable_pinned_host_transfer=True,
+        async_host_untile=True,
+    )
+    rslices = rslices_list[0]
+    self.assertTrue(rslices.is_on_host)
+    for rslice in rslices.replica_slices:
+      self.assertTrue(rslice.is_on_host)
+
+    untiled_rslices = replica_slices.untile_pinned_slices_to_numpy(
+        rslices_list, max_workers=4
+    )[0]
+    self.assertTrue(untiled_rslices.is_on_host)
+
+    combined_rslices = np.zeros(arr.shape) * np.nan
+    for rslice in untiled_rslices.replica_slices:
+      self.assertTrue(rslice.is_on_host)
+      self.assertIsInstance(rslice.unsliced_data, np.ndarray)
+      self.assertTrue(np.all(np.isnan(combined_rslices[rslice.index])))
+      combined_rslices[rslice.index] = rslice.data()
+    self.assertFalse(np.any(np.isnan(expected_np)))
+    self.assertFalse(np.any(np.isnan(combined_rslices)))
+    np.testing.assert_array_equal(combined_rslices, expected_np)
+
   def test_nbytes_no_slicing(self):
     rslice = replica_slices.ReplicaSlice(
         index=(slice(None),),
