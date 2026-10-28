@@ -17,6 +17,7 @@
 import asyncio
 import collections
 from collections.abc import Mapping
+import ctypes
 from typing import Any, Dict, Optional, Sequence, Union
 
 import jax
@@ -185,23 +186,51 @@ async def async_serialize_from_host(
       transaction=transaction,
   )
 
-  async def write_fragment(fragment: fragments.ConcreteFragment):
+  async def write_fragment(
+      fragment: fragments.ConcreteFragment,
+      rslice: Any = None,
+  ):
     """Writes a single fragment using TensorStore. No copy is performed."""
     assert isinstance(fragment.value, np.ndarray)
     requested_bytes = estimate_write_memory_footprint(fragment.value)
     async with limits.reserved_bytes(byte_limiter, requested_bytes):
-      await t[fragment.index].write(
+      write_future = t[fragment.index].write(
           fragment.value,
           # Avoid additional copy of input array into the TensorStore chunk
           # cache. The data array of a shard is guaranteed to be immutable and
           # therefore it is safe to retain a reference indefinitely.
           can_reference_source_data_indefinitely=True,
       )
+      if (
+          rslice is not None
+          and getattr(rslice, 'is_temporary_copy', False)
+          and getattr(rslice, 'raw_device_array', None) is not None
+      ):
+        dev_arr = rslice.raw_device_array
+        c_buf = getattr(rslice, 'raw_c_buf', None)
+        if hasattr(write_future, 'copy'):
 
-  write_coros = [
-      write_fragment(fragment)
-      for fragment in rslices_on_host.to_fragments().fragments
-  ]
+          def _on_copy_done(_):
+            if hasattr(dev_arr, 'delete') and not dev_arr.is_deleted():
+              dev_arr.delete()
+            _ = c_buf
+
+          write_future.copy.add_done_callback(_on_copy_done)
+      try:
+        await write_future
+      finally:
+        if (
+            rslice is not None
+            and getattr(rslice, 'is_temporary_copy', False)
+            and getattr(rslice, 'raw_device_array', None) is not None
+        ):
+          dev_arr = rslice.raw_device_array
+          if hasattr(dev_arr, 'delete') and not dev_arr.is_deleted():
+            dev_arr.delete()
+
+  frags = rslices_on_host.to_fragments().fragments
+  slices = rslices_on_host.replica_slices
+  write_coros = [write_fragment(f, s) for f, s in zip(frags, slices)]
   await asyncio.gather(*write_coros)
 
 
@@ -391,6 +420,71 @@ async def _read_and_create_array(
   )
 
 
+async def _restore_raw_tiled_array(
+    t: ts.TensorStore,
+    *,
+    sharding: jax.sharding.Sharding,
+    global_shape: Shape,
+    dtype: np.dtype | jnp.dtype,
+    byte_limiter: limits.ByteLimiter,
+) -> DeserializationResult:
+  """Restores raw tiled bytes directly into pinned_host and HBM."""
+  has_pinned = any(
+      any(m.kind == 'pinned_host' for m in d.addressable_memories())
+      for d in sharding.device_set
+  )
+  total_bytes_read = 0
+  shard_bytes = t.shape[1]
+
+  if has_pinned:
+    pinned_sharding = sharding.with_memory_kind('pinned_host')
+    pinned_target = jax.device_put(
+        jnp.empty(global_shape, dtype=dtype), pinned_sharding
+    )
+    pinned_target.block_until_ready()
+
+    for i, shard in enumerate(pinned_target.addressable_shards):
+      ptr = shard.data.unsafe_buffer_pointer()
+      size = shard.data.on_device_size_in_bytes()
+      c_buf = (ctypes.c_uint8 * size).from_address(ptr)
+      raw_np = np.frombuffer(c_buf, dtype=np.uint8)
+      async with limits.reserved_bytes(byte_limiter, shard_bytes):
+        raw_chunk = np.asarray(await t[i, :shard_bytes].read())
+        total_bytes_read += shard_bytes
+      copy_len = min(raw_np.size, raw_chunk.size)
+      raw_np[:copy_len] = raw_chunk[:copy_len]
+
+    res_arr = jax.device_put(pinned_target, sharding)
+    res_arr.block_until_ready()
+    pinned_target.delete()
+    return res_arr, total_bytes_read
+  else:
+    # CPU fallback
+    local_shards = []
+    idx_map = sharding.addressable_devices_indices_map(global_shape)
+    for i, (device, shard_index) in enumerate(idx_map.items()):
+      if shard_index is not None:
+        shard_shape = tuple(
+            (s.stop - s.start)
+            if (s.start is not None and s.stop is not None)
+            else (dim if s == slice(None) else 1)
+            for s, dim in zip(shard_index, global_shape)
+        )
+      else:
+        shard_shape = sharding.shard_shape(global_shape)
+      async with limits.reserved_bytes(byte_limiter, shard_bytes):
+        raw_chunk = np.asarray(await t[i, :shard_bytes].read())
+        total_bytes_read += shard_bytes
+      unpacked = raw_chunk.view(dtype).reshape(shard_shape)
+      hbm_shard = jax.device_put(unpacked, device)
+      local_shards.append(hbm_shard)
+
+    res_arr = jax.make_array_from_single_device_arrays(
+        global_shape, sharding, local_shards
+    )
+    return res_arr, total_bytes_read
+
+
 async def async_deserialize(
     user_sharding: jax.sharding.Sharding | Format,
     tensorstore_spec: Union[ts.Spec, Dict[str, Any]],
@@ -401,6 +495,7 @@ async def async_deserialize(
     context: Optional[ts.Context] = None,
     assume_metadata: bool = False,
     strict: bool = True,
+    enable_raw_tiled_transfer: bool = False,
 ) -> DeserializationResult:
   """Reads an array using TensorStore, returns the actual IO bytes read."""
   byte_limiter = byte_limiter or limits.get_byte_limiter()
@@ -431,6 +526,20 @@ async def async_deserialize(
       assume_metadata=assume_metadata,
       context=context,
   )
+  is_raw = enable_raw_tiled_transfer or (
+      t.dtype == ts.uint8
+      and t.rank == 2
+      and global_shape is not None
+      and t.shape != tuple(global_shape)
+  )
+  if is_raw and global_shape is not None:
+    return await _restore_raw_tiled_array(
+        t,
+        sharding=sharding,
+        global_shape=tuple(global_shape),
+        dtype=jnp.dtype(dtype or jnp.float32),
+        byte_limiter=byte_limiter,
+    )
   global_shape = tuple(t.shape if global_shape is None else global_shape)
   new_shard_shape = sharding.shard_shape(global_shape)
   if new_shard_shape != t.shape:

@@ -415,6 +415,106 @@ class StandardCheckpointHandlerTestBase(
     metadata = self.handler.metadata(self.directory)
     self.assertEqual(metadata.custom_metadata, custom_metadata)
 
+  @parameterized.parameters((True,), (False,))
+  def test_enable_pinned_host_transfer(self, enable_pinned_host_transfer: bool):
+    handler = StandardCheckpointHandler(
+        enable_pinned_host_transfer=enable_pinned_host_transfer
+    )
+    self.assertEqual(
+        handler._impl._handler_impl._enable_pinned_host_transfer,
+        enable_pinned_host_transfer,
+    )
+    handler.save(self.directory, args=self.save_args_cls(self.pytree))
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    handler.close()
+
+  @parameterized.parameters((True,), (False,))
+  def test_enable_async_host_untile(self, enable_async_host_untile: bool):
+    handler = StandardCheckpointHandler(
+        enable_async_host_untile=enable_async_host_untile
+    )
+    self.assertEqual(
+        handler._impl._handler_impl._enable_async_host_untile,
+        enable_async_host_untile,
+    )
+    handler.save(self.directory, args=self.save_args_cls(self.pytree))
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    handler.close()
+
+  @parameterized.parameters((True,), (False,))
+  def test_enable_raw_tiled_transfer(self, enable_raw_tiled_transfer: bool):
+    handler = StandardCheckpointHandler(
+        enable_raw_tiled_transfer=enable_raw_tiled_transfer
+    )
+    self.assertEqual(
+        handler._impl._handler_impl._enable_raw_tiled_transfer,
+        enable_raw_tiled_transfer,
+    )
+    handler.save(self.directory, args=self.save_args_cls(self.pytree))
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    handler.close()
+
+  def test_mode2_raw_tiled_save_and_restore_as_is_verification(self):
+    ckpt_normal_orig = self.directory / 'ckpt_normal_orig'
+    ckpt_mode2_asis = self.directory / 'ckpt_mode2_asis'
+    ckpt_normal_resaved = self.directory / 'ckpt_normal_resaved'
+
+    # 1. Save original PyTree as normal checkpoint.
+    normal_handler = StandardCheckpointHandler(
+        enable_pinned_host_transfer=False,
+        enable_raw_tiled_transfer=False,
+    )
+    normal_handler.save(ckpt_normal_orig, args=self.save_args_cls(self.pytree))
+    normal_handler.close()
+
+    # 2. Save original PyTree using Mode 2 As-Is.
+    mode2_handler = StandardCheckpointHandler(
+        enable_pinned_host_transfer=True,
+        enable_raw_tiled_transfer=True,
+    )
+    mode2_handler.save(ckpt_mode2_asis, args=self.save_args_cls(self.pytree))
+
+    # 3. Restore ckpt_mode2_asis As-Is back to HBM.
+    pytree_restored_asis = mode2_handler.restore(
+        ckpt_mode2_asis, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    mode2_handler.close()
+    test_utils.assert_tree_equal(self, self.pytree, pytree_restored_asis)
+
+    # 4. Save restored PyTree as normal checkpoint.
+    normal_handler_resave = StandardCheckpointHandler(
+        enable_pinned_host_transfer=False,
+        enable_raw_tiled_transfer=False,
+    )
+    normal_handler_resave.save(
+        ckpt_normal_resaved, args=self.save_args_cls(pytree_restored_asis)
+    )
+
+    # 5. Verify ckpt_normal_resaved against ckpt_normal_orig.
+    restored_orig = normal_handler_resave.restore(
+        ckpt_normal_orig, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    restored_resaved = normal_handler_resave.restore(
+        ckpt_normal_resaved, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, restored_orig, restored_resaved)
+    for orig_f in ckpt_normal_orig.glob('**/*'):
+      if orig_f.is_file() and not orig_f.name.endswith(('.json', '.txt')):
+        rel = orig_f.relative_to(ckpt_normal_orig)
+        resaved_f = ckpt_normal_resaved / rel
+        if resaved_f.exists() and resaved_f.is_file():
+          self.assertEqual(orig_f.read_bytes(), resaved_f.read_bytes())
+    normal_handler_resave.close()
+
   def test_construct_restore_args_with_fallback_sharding(self):
     simple_sharding = jax.sharding.NamedSharding(
         mesh=jax.sharding.Mesh(jax.devices(), ('x',)),
