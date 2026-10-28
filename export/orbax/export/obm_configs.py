@@ -14,13 +14,14 @@
 
 """Configuration classes for Orbax Model Export."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import enum
 import itertools
 import logging
 import jax
 from jax import export as jax_export
+from jax.experimental import layout as jax_layout
 
 
 # LINT.IfChange
@@ -422,6 +423,13 @@ class Jax2ObmOptions:
     native_serialization_disabled_checks: A sequence of
       `jax_export.DisabledSafetyCheck` to disable when exporting.
     save_shlo_to_file: Whether to save the StableHLO bytes as an external file.
+    output_layout_fn: Optional function that returns the layout to request for
+      an output of the exported function, given its `jax.ShapeDtypeStruct`, or
+      None to keep the default layout. The layouts are stored in the exported
+      StableHLO and used when the serving runtime compiles the model. For
+      example, linear layouts (`tiling=((1,),)`) on rank-1 TPU outputs let PJRT
+      copy them straight into host buffers instead of unpacking them on the
+      host. Not supported with input aliasing or `enable_auto_layout`.
   """
 
   # TODO: b/448900820 - Consider constraint the type to the proto enums.
@@ -441,6 +449,9 @@ class Jax2ObmOptions:
   ] = ()
   save_shlo_to_file: bool = False
   loader_type: int | None = None
+  output_layout_fn: (
+      Callable[[jax.ShapeDtypeStruct], jax_layout.Layout | None] | None
+  ) = None
 
 
 @dataclasses.dataclass(kw_only=True)
