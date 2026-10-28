@@ -239,6 +239,16 @@ def _get_default_preservation_policy(
   return preservation_policy_lib.AnyPreservationPolicy(preservation_policies)
 
 
+def _has_best_n_policy(
+    policy: preservation_policy_lib.PreservationPolicy,
+) -> bool:
+  if isinstance(policy, preservation_policy_lib.BestN):
+    return True
+  if isinstance(policy, preservation_policy_lib.AnyPreservationPolicy):
+    return any(_has_best_n_policy(p) for p in policy.policies)
+  return False
+
+
 # TODO(b/268051457) Clean up when no longer depended upon by internal users.
 def is_async_checkpointer(checkpointer: AbstractCheckpointer):
   return isinstance(
@@ -1582,8 +1592,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           f' {args_dict.keys()}. Reserved names: {RESERVED_ITEM_NAMES}.'
       )
     if (
-        metrics is not None and self._track_best
-    ) and not self._options.prevent_write_metrics:
+        metrics is not None
+        and (
+            self._track_best
+            or _has_best_n_policy(self._preservation_policy)
+        )
+        and not self._options.prevent_write_metrics
+    ):
       args_dict[METRIC_ITEM_NAME] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
 
