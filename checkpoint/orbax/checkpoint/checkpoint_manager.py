@@ -1528,9 +1528,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           'Some provided items have prohibited reserved names:'
           f' {args_dict.keys()}. Reserved names: {RESERVED_ITEM_NAMES}.'
       )
-    if (
-        metrics is not None and self._track_best
-    ) and not self._options.prevent_write_metrics:
+    if metrics is not None and not self._options.prevent_write_metrics:
       args_dict[METRIC_ITEM_NAME] = args_lib.JsonSave(metrics)
     args = args_lib.Composite(**args_dict)
 
