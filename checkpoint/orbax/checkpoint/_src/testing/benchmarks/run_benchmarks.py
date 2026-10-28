@@ -21,8 +21,11 @@ using standard environment variables like JAX_COORDINATOR_ADDRESS,
 JAX_PROCESS_ID and JAX_NUM_PROCESSES.
 """
 
+import importlib
 import os
 
+
+# pylint: disable=g-import-not-at-top
 from absl import app
 from absl import flags
 from absl import logging

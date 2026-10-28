@@ -237,6 +237,8 @@ class ParamInfo:
     ts_context: Tensorstore context to use for reading/writing.
     value_typestr: Stores the original value's typestr (from TypeHandler).
     enable_pinned_host_transfer: If False, disables transfer to pinned host.
+    enable_async_host_untile: If True, executes untiling asynchronously on host.
+    enable_raw_tiled_transfer: If True, saves raw tiled bytes as-is.
     raise_array_data_missing_error: Only used for restoring.
     write_shape: Shape of the array shard. Used in the subchunking context.
     is_prioritized_key_fn: See ``IsPrioritizedKeyFn`` definition.
@@ -263,6 +265,8 @@ class ParamInfo:
       ts_context: Optional[ts.Context] = None,
       value_typestr: Optional[str] = None,
       enable_pinned_host_transfer: bool = False,
+      enable_async_host_untile: bool = False,
+      enable_raw_tiled_transfer: bool = False,
       raise_array_data_missing_error: bool = True,
       write_shape: arrays_types.Shape | None = None,
       is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
@@ -289,6 +293,8 @@ class ParamInfo:
     self.ts_context = ts_context
     self.value_typestr = value_typestr
     self.enable_pinned_host_transfer = enable_pinned_host_transfer
+    self.enable_async_host_untile = enable_async_host_untile
+    self.enable_raw_tiled_transfer = enable_raw_tiled_transfer
     self.raise_array_data_missing_error = raise_array_data_missing_error
     self.write_shape = write_shape
     self.is_prioritized_key_fn = is_prioritized_key_fn

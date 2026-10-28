@@ -15,10 +15,13 @@
 """Handles replica slices of jax.Arrays and host transfers."""
 
 import collections
+import concurrent.futures
+import ctypes
 import dataclasses
 import functools
+import itertools
 import math
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from absl import logging
 import jax
@@ -73,13 +76,21 @@ class ReplicaSlice:
   index: Index
   unsliced_data: jax.Array | np.ndarray
   slice_args: Optional[SliceArgs]
+  _is_on_host: Optional[bool] = None
+  is_temporary_copy: bool = False
+  is_raw_tiled: bool = False
+  raw_device_array: Optional[jax.Array] = None
+  raw_c_buf: Any = None
+  shard_index: int = 0
 
   def __post_init__(self):
     if self.is_on_host:
       assert not self.slice_args, f'On-host {self!r} must not have slice args'
 
   @property
-  def is_on_host(self):
+  def is_on_host(self) -> bool:
+    if self._is_on_host is not None:
+      return self._is_on_host
     return isinstance(self.unsliced_data, np.ndarray)
 
   def data(self):
@@ -121,6 +132,9 @@ class ReplicaSlices:
   dtype: np.dtype | jax.numpy.dtype
   is_on_host: bool
   replica_slices: list[ReplicaSlice]
+  is_raw_tiled: bool = False
+  raw_shard_bytes: int = 0
+  num_shards: int = 1
 
   def __post_init__(self):
     if not all(
@@ -131,6 +145,8 @@ class ReplicaSlices:
   @property
   def nbytes(self) -> int:
     """Returns the total number of bytes for all replica slices."""
+    if self.is_raw_tiled:
+      return sum(s.unsliced_data.nbytes for s in self.replica_slices)
     total_bytes = 0
     for rslice in self.replica_slices:
       if rslice.slice_args is None:
@@ -150,6 +166,26 @@ class ReplicaSlices:
   def to_fragments(self) -> fragments.ConcreteFragments:
     """Converts replica slices to fragments."""
     assert self.is_on_host
+    if self.is_raw_tiled:
+      frags = []
+      for rslice in self.replica_slices:
+        val = rslice.data()
+        assert isinstance(val, np.ndarray)
+        val_2d = val.reshape((1, val.size)) if val.ndim == 1 else val
+        frags.append(
+            fragments.ConcreteFragment(
+                index=(
+                    slice(rslice.shard_index, rslice.shard_index + 1),
+                    slice(0, val.size),
+                ),
+                value=val_2d,
+            )
+        )
+      return fragments.ConcreteFragments(
+          shape=(self.num_shards, self.raw_shard_bytes),
+          dtype=np.dtype(np.uint8),
+          fragments=frags,
+      )
     result = fragments.ConcreteFragments(
         shape=self.global_shape,
         dtype=self.dtype,
@@ -268,11 +304,14 @@ def get_replica_slices(
   # single-replica: a single replica saves an entire shard.
   def pick_single_replica() -> Result:
     target_replica_id = shard0.replica_id if replica_id is None else replica_id
+    sorted_devs = sorted(list(arr.sharding.device_set), key=lambda d: d.id)
+    dev_to_idx = {d.id: idx for idx, d in enumerate(sorted_devs)}
     rslices = [
         ReplicaSlice(
             index=shard.index,
             unsliced_data=shard.data,
             slice_args=None,
+            shard_index=dev_to_idx.get(shard.device.id, 0),
         )
         for shard in arr.addressable_shards
         if shard.replica_id == target_replica_id
@@ -306,6 +345,8 @@ def get_replica_slices(
     if math.prod(local_shape) * arr.itemsize < min_slice_bytes:
       return None
 
+    sorted_devs = sorted(list(arr.sharding.device_set), key=lambda d: d.id)
+    dev_to_idx = {d.id: idx for idx, d in enumerate(sorted_devs)}
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
       # Sanity check that all shards have the same shape.
@@ -330,6 +371,7 @@ def get_replica_slices(
               index=shard.index[:axis] + (new_slice,) + shard.index[axis + 1 :],
               unsliced_data=shard.data,
               slice_args=SliceArgs(start_offset, end_offset, axis),
+              shard_index=dev_to_idx.get(shard.device.id, 0),
           )
       )
 
@@ -397,6 +439,8 @@ def transfer_arrays_to_host(
     max_replicas_for_replica_parallel: Optional[int] = None,
     *,
     enable_pinned_host_transfer: bool = False,
+    async_host_untile: bool = False,
+    enable_raw_tiled_transfer: bool = False,
 ) -> Sequence[ReplicaSlices]:
   """Transfers arrays to host memory.
 
@@ -418,6 +462,11 @@ def transfer_arrays_to_host(
       True.
     enable_pinned_host_transfer: Whether to allow transfer to pinned host
       memory. Pinned memory is closely associated with a TPU device and can
+      enable faster device to host transfer.
+    async_host_untile: Whether to defer untiling to background threads. When
+      True, blocks only until PCIe DMA to host memory finishes.
+    enable_raw_tiled_transfer: Whether to save raw tiled bytes without CPU
+      untiling.
 
   Returns:
     ReplicaSlices objects, in host memory.
@@ -425,36 +474,115 @@ def transfer_arrays_to_host(
   logging.info(
       'Transferring arrays to host memory with options:'
       ' use_replica_parallel=%s, min_slice_bytes_for_replica_parallel=%s,'
-      ' max_replicas_for_replica_parallel=%s, enable_pinned_host_transfer=%s',
+      ' max_replicas_for_replica_parallel=%s, enable_pinned_host_transfer=%s,'
+      ' async_host_untile=%s, enable_raw_tiled_transfer=%s',
       use_replica_parallel,
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
       enable_pinned_host_transfer,
+      async_host_untile,
+      enable_raw_tiled_transfer,
   )
 
   def use_pinned_host_transfer(device: jax.Device):
     has_pinned_host = any(
         m.kind == 'pinned_host' for m in device.addressable_memories()
     )
-    return enable_pinned_host_transfer and has_pinned_host
+    return (
+        enable_pinned_host_transfer or enable_raw_tiled_transfer
+    ) and has_pinned_host
 
   def async_transfer_slice(
       rslice: ReplicaSlice,
-  ) -> tuple[ReplicaSlice, jax.Array]:
+  ) -> tuple[ReplicaSlice, jax.Array, bool]:
     assert not rslice.is_on_host
     data = rslice.data()
     assert isinstance(data, jax.Array)
     device = data.device
+    is_temp = False
     # Start the asynchronous device-to-host copy
     if use_pinned_host_transfer(device):  # pyrefly: ignore[bad-argument-type]
       # If available, transfer to pinned host memory
-      data = jax.device_put(
+      new_data = jax.device_put(
           data,
           make_single_device_sharding(device, memory_kind='pinned_host'),
       )
+      is_temp = new_data is not rslice.unsliced_data
+      data = new_data
     else:
       data.copy_to_host_async()
-    return rslice, data
+    return rslice, data, is_temp
+
+  if enable_raw_tiled_transfer:
+    result = []
+    for arr in arrays:
+      has_pinned_host = any(
+          any(m.kind == 'pinned_host' for m in d.addressable_memories())
+          for d in arr.sharding.device_set
+      )
+      is_temp = False
+      if has_pinned_host:
+        pinned_sharding = arr.sharding.with_memory_kind('pinned_host')
+        transferred = jax.device_put(arr, pinned_sharding)
+        transferred.block_until_ready()
+        is_temp = True
+      else:
+        transferred = arr
+
+      raw_slices = []
+      raw_shard_bytes = 0
+      for i, shard in enumerate(transferred.addressable_shards):
+        raw_np = None
+        c_buf = None
+        if (
+            has_pinned_host
+            and hasattr(shard.data, 'unsafe_buffer_pointer')
+            and hasattr(shard.data, 'on_device_size_in_bytes')
+        ):
+          try:
+            ptr = shard.data.unsafe_buffer_pointer()
+            size = shard.data.on_device_size_in_bytes()
+            if ptr != 0 and size > 0:
+              c_buf = (ctypes.c_uint8 * size).from_address(ptr)
+              raw_np = np.frombuffer(c_buf, dtype=np.uint8)
+          except Exception:  # pylint: disable=broad-exception-caught
+            pass
+        if raw_np is None:
+          raw_np = (
+              np.ascontiguousarray(np.asarray(shard.data))
+              .view(np.uint8)
+              .ravel()
+          )
+          c_buf = raw_np
+        raw_shard_bytes = raw_np.size
+        rslice = ReplicaSlice(
+            index=shard.index,
+            unsliced_data=raw_np,
+            slice_args=None,
+            _is_on_host=True,
+            is_temporary_copy=is_temp,
+            is_raw_tiled=True,
+            raw_device_array=transferred,
+            raw_c_buf=c_buf,
+            shard_index=i,
+        )
+        raw_slices.append(rslice)
+
+      num_shards = len(transferred.addressable_shards)
+      result.append(
+          ReplicaSlices(
+              global_shape=arr.shape,
+              local_shape=arr.addressable_shards[0].data.shape,
+              sharding=arr.sharding,
+              dtype=arr.dtype,
+              is_on_host=True,
+              replica_slices=raw_slices,
+              is_raw_tiled=True,
+              raw_shard_bytes=raw_shard_bytes,
+              num_shards=num_shards,
+          )
+      )
+    return result
 
   # Gather the replica slices to be saved for each array.
   rslices_per_array = [
@@ -472,6 +600,30 @@ def transfer_arrays_to_host(
       [async_transfer_slice(rslice) for rslice in rslices.replica_slices]
       for rslices in rslices_per_array
   ]
+  if async_host_untile:
+    # Wait only for hardware PCIe DMA to pinned_host / host DRAM.
+    transferred = [
+        data
+        for _, data, _ in itertools.chain.from_iterable(transfers_per_array)
+    ]
+    jax.block_until_ready(transferred)
+    return [
+        dataclasses.replace(
+            rslices,
+            is_on_host=True,
+            replica_slices=[
+                dataclasses.replace(
+                    rslice_on_device,
+                    unsliced_data=data,
+                    slice_args=None,
+                    _is_on_host=True,
+                    is_temporary_copy=is_temp,
+                )
+                for rslice_on_device, data, is_temp in transfers
+            ],
+        )
+        for rslices, transfers in zip(rslices_per_array, transfers_per_array)
+    ]
   # Wait for all the transferred data to be ready.
   return [
       dataclasses.replace(
@@ -483,9 +635,69 @@ def transfer_arrays_to_host(
                   # Conversion to numpy arrays forces block_until_ready.
                   unsliced_data=np.asarray(data),
                   slice_args=None,
+                  _is_on_host=True,
               )
-              for rslice_on_device, data in transfers
+              for rslice_on_device, data, _ in transfers
           ],
       )
       for rslices, transfers in zip(rslices_per_array, transfers_per_array)
   ]
+
+
+def _untile_slice(rslice: ReplicaSlice) -> ReplicaSlice:
+  """Converts a single slice to numpy and deletes on-device buffer."""
+  data = rslice.unsliced_data
+  if isinstance(data, np.ndarray):
+    return rslice
+  npy = np.asarray(data)
+  if rslice.is_temporary_copy and hasattr(data, 'delete'):
+    data.delete()
+  return dataclasses.replace(
+      rslice,
+      unsliced_data=npy,
+      slice_args=None,
+      _is_on_host=True,
+      is_temporary_copy=False,
+  )
+
+
+def untile_pinned_slices_to_numpy(
+    rslices_list: Sequence[ReplicaSlices],
+    max_workers: int = 16,
+) -> list[ReplicaSlices]:
+  """Converts pinned_host jax.Arrays in ReplicaSlices to numpy in parallel.
+
+  Args:
+    rslices_list: Sequence of ReplicaSlices holding pinned_host jax.Arrays.
+    max_workers: Maximum number of worker threads for parallel CPU untiling.
+
+  Returns:
+    List of updated ReplicaSlices holding untiled np.ndarrays.
+  """
+  all_slices = []
+  for rslices in rslices_list:
+    all_slices.extend(rslices.replica_slices)
+  if not all_slices:
+    return list(rslices_list)
+
+  worker_count = min(max_workers, len(all_slices))
+  if worker_count <= 1:
+    untiled_slices = [_untile_slice(s) for s in all_slices]
+  else:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=worker_count
+    ) as executor:
+      untiled_slices = list(executor.map(_untile_slice, all_slices))
+
+  slice_iter = iter(untiled_slices)
+  result = []
+  for rslices in rslices_list:
+    new_slices = [next(slice_iter) for _ in rslices.replica_slices]
+    result.append(
+        dataclasses.replace(
+            rslices,
+            is_on_host=True,
+            replica_slices=new_slices,
+        )
+    )
+  return result

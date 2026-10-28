@@ -604,6 +604,9 @@ def _log_no_prioritized_params(
     )
 
 
+_barrier_counter = itertools.count()
+
+
 def _serialize_arrays_batches_without_dispatcher(
     prioritized: Sequence[_ArrayToSerialize],
     deprioritized: Sequence[_ArrayToSerialize],
@@ -619,6 +622,8 @@ def _serialize_arrays_batches_without_dispatcher(
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
     callback: types.SerializationStatusCallback,
+    enable_async_host_untile: bool = False,
+    enable_raw_tiled_transfer: bool = False,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
@@ -627,6 +632,8 @@ def _serialize_arrays_batches_without_dispatcher(
       replica_id=replica_id,
       use_replica_parallel=use_replica_parallel,
       enable_pinned_host_transfer=enable_pinned_host_transfer,
+      async_host_untile=enable_async_host_untile,
+      enable_raw_tiled_transfer=enable_raw_tiled_transfer,
       min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
   )
@@ -651,6 +658,10 @@ def _serialize_arrays_batches_without_dispatcher(
     prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
         prioritized_arrays
     )
+    if enable_async_host_untile:
+      multihost.sync_global_processes(
+          f'async_host_untile:d2h_complete_{next(_barrier_counter)}'
+      )
     _on_batch_callback(prioritized_infos, callback.on_transfer_end)
   else:
     _log_no_prioritized_params(deprioritized)
@@ -673,10 +684,27 @@ def _serialize_arrays_batches_without_dispatcher(
     logical_bytes = 0
     all_array_metadatas: list[ts_utils.ArrayMetadata] = []
 
-    if prioritized_values_on_host:
-      logical_bytes += sum(v.nbytes for v in prioritized_values_on_host)
+    prioritized_slices = prioritized_values_on_host
+    if prioritized_slices:
+      if enable_async_host_untile and not enable_raw_tiled_transfer:
+        t0 = time.perf_counter()
+        prioritized_slices = replica_slices.untile_pinned_slices_to_numpy(
+            prioritized_slices
+        )
+        untile_duration = time.perf_counter() - t0
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/background_untile_duration_secs',
+            untile_duration,
+        )
+        logging.info(
+            'Background untiling completed in %.4f seconds'
+            ' (background_untile_s=%.4f).',
+            untile_duration,
+            untile_duration,
+        )
+      logical_bytes += sum(v.nbytes for v in prioritized_slices)
       b_metadatas = await async_serialize_replica_slices_batch(
-          prioritized_values_on_host,
+          prioritized_slices,
           prioritized_infos,
           prioritized_args,
       )
@@ -698,7 +726,27 @@ def _serialize_arrays_batches_without_dispatcher(
         b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
         # Release the device buffers before awaiting the (slower) write.
         del b_arrays
+        if enable_async_host_untile:
+          multihost.sync_global_processes(
+              f'async_host_untile:d2h_complete_{next(_barrier_counter)}'
+          )
         _on_batch_callback(b_infos, callback.on_transfer_end)
+        if enable_async_host_untile and not enable_raw_tiled_transfer:
+          t0 = time.perf_counter()
+          b_arrays_on_host = replica_slices.untile_pinned_slices_to_numpy(
+              b_arrays_on_host
+          )
+          untile_duration = time.perf_counter() - t0
+          jax.monitoring.record_event_duration_secs(
+              '/jax/orbax/write/background_untile_duration_secs',
+              untile_duration,
+          )
+          logging.info(
+              'Background untiling completed in %.4f seconds'
+              ' (background_untile_s=%.4f).',
+              untile_duration,
+              untile_duration,
+          )
         logical_bytes += sum(v.nbytes for v in b_arrays_on_host)
         b_metadatas = await async_serialize_replica_slices_batch(
             b_arrays_on_host,
@@ -761,6 +809,8 @@ def _serialize_arrays(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
+    enable_async_host_untile: bool = False,
+    enable_raw_tiled_transfer: bool = False,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
 
@@ -821,6 +871,8 @@ def _serialize_arrays(
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
         callback,
+        enable_async_host_untile=enable_async_host_untile,
+        enable_raw_tiled_transfer=enable_raw_tiled_transfer,
     )
   else:
 
@@ -960,19 +1012,38 @@ async def _async_serialize_replica_slices(
             1,
         )
     await info.await_path_creation()
+    if value.is_raw_tiled:
+      write_global_shape = (value.num_shards, value.raw_shard_bytes)
+      write_local_shape = (1, value.raw_shard_bytes)
+      write_dtype = np.dtype(np.uint8)
+      raw_meta = dict(ext_metadata.get(info.name) or {})
+      raw_meta['is_raw_tiled'] = True
+      raw_meta['logical_global_shape'] = list(value.global_shape)
+      raw_meta['logical_local_shape'] = list(value.local_shape)
+      raw_meta['logical_dtype'] = jnp.dtype(value.dtype).name
+      raw_meta['num_shards'] = value.num_shards
+      raw_meta['raw_shard_bytes'] = value.raw_shard_bytes
+      cur_ext_metadata = raw_meta
+      write_arg = None
+    else:
+      write_global_shape = value.global_shape
+      write_local_shape = value.local_shape
+      write_dtype = value.dtype
+      cur_ext_metadata = ext_metadata.get(info.name)
+      write_arg = arg
     array_write_spec = ts_utils.build_array_write_spec(
         info=info,
-        arg=arg,
-        global_shape=value.global_shape,
-        local_shape=value.local_shape,
-        dtype=value.dtype,
+        arg=write_arg,
+        global_shape=write_global_shape,
+        local_shape=write_local_shape,
+        dtype=write_dtype,
         use_ocdbt=info.is_ocdbt_checkpoint,  # pyrefly: ignore[bad-argument-type]
         process_index=ocdbt_utils.get_process_index_for_subdir(
             info.is_ocdbt_checkpoint  # pyrefly: ignore[bad-argument-type]
         ),
         replica_separate_folder=replica_separate_folder,
         metadata_key=metadata_key,
-        ext_metadata=ext_metadata.get(info.name),
+        ext_metadata=cur_ext_metadata,
     )
     tspec = array_write_spec.json
     ts_context = info.ts_context
@@ -1165,6 +1236,7 @@ async def _deserialize_arrays(
     shardings: Sequence[jax.sharding.Sharding],
     metadata_key: str | None,
     array_metadata_store: array_metadata_store_lib.Store | None,
+    enable_raw_tiled_transfer: bool = False,
 ) -> Sequence[jax.Array]:
   """Deserializes arrays and applies array_metadata if available."""
   initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
@@ -1216,6 +1288,10 @@ async def _deserialize_arrays(
               byte_limiter=info.byte_limiter,
               context=info.ts_context,
               strict=arg.strict if hasattr(arg, 'strict') else True,
+              enable_raw_tiled_transfer=(
+                  enable_raw_tiled_transfer
+                  or getattr(info, 'enable_raw_tiled_transfer', False)
+              ),
           )
       )
     results = await asyncio.gather(*deserialize_ops)
@@ -1416,6 +1492,8 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
       callback: types.SerializationStatusCallback | None = None,
+      enable_async_host_untile: bool = False,
+      enable_raw_tiled_transfer: bool = False,
   ):
     """Constructor.
 
@@ -1441,11 +1519,15 @@ class ArrayHandler(types.TypeHandler):
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
       callback: The callback to use for executing operations in handlers.
+      enable_async_host_untile: Whether to defer untiling to background threads.
+      enable_raw_tiled_transfer: Whether to transfer raw tiled bytes directly. #
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
+    self._enable_async_host_untile = enable_async_host_untile
+    self._enable_raw_tiled_transfer = enable_raw_tiled_transfer
     self._use_replica_parallel = (
         _get_default_use_replica_parallel()
         if use_replica_parallel is None
@@ -1639,6 +1721,14 @@ class ArrayHandler(types.TypeHandler):
     )
 
     future_list = []
+    enable_async_host_untile = (
+        any(getattr(info, 'enable_async_host_untile', False) for info in infos)
+        or self._enable_async_host_untile
+    )
+    enable_raw_tiled_transfer = (
+        any(getattr(info, 'enable_raw_tiled_transfer', False) for info in infos)
+        or self._enable_raw_tiled_transfer
+    )
     if self._enable_write_sharding_file:
       future_list.append(
           future.CommitFutureAwaitingContractedSignals(
@@ -1674,6 +1764,8 @@ class ArrayHandler(types.TypeHandler):
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
             callback=self._callback,
+            enable_async_host_untile=enable_async_host_untile,
+            enable_raw_tiled_transfer=enable_raw_tiled_transfer,
         )
     )
 
@@ -1748,6 +1840,10 @@ class ArrayHandler(types.TypeHandler):
     sharding_file_exists = await async_path.exists(sharding_file_path)
     shardings = await _deserialize_shardings(infos, args, sharding_file_exists)
 
+    enable_raw_tiled_transfer = (
+        any(getattr(info, 'enable_raw_tiled_transfer', False) for info in infos)
+        or self._enable_raw_tiled_transfer
+    )
     if self._dispatcher is None:
       ret = await _deserialize_arrays(
           infos,
@@ -1755,6 +1851,7 @@ class ArrayHandler(types.TypeHandler):
           shardings,
           self._metadata_key,
           self._array_metadata_store,
+          enable_raw_tiled_transfer=enable_raw_tiled_transfer,
       )
     else:
       args = await self._maybe_read_metadata_and_update_restore_args(

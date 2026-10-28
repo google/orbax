@@ -15,6 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.serialization import replica_slices
 
@@ -333,6 +334,58 @@ class ReplicaSlicesTest(parameterized.TestCase):
     else:
       # With single-replica we transfer a single slice for each shard.
       self.assertLen(rslices.replica_slices, num_partitions)
+
+  @parameterized.product(
+      partitioned=[False, True],
+      use_replica_parallel=[False, True],
+  )
+  def test_transfer_async_host_untile(self, partitioned, use_replica_parallel):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, _, _ = make_multi_device_array(
+        (64, 64),
+        partitioned=partitioned,
+    )
+
+    rslices_list = replica_slices.transfer_arrays_to_host(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=use_replica_parallel,
+        async_host_untile=True,
+    )
+    rslices = rslices_list[0]
+    self.assertTrue(rslices.is_on_host)
+    for rslice in rslices.replica_slices:
+      self.assertTrue(rslice.is_on_host)
+
+    untiled_rslices = replica_slices.untile_pinned_slices_to_numpy(
+        rslices_list, max_workers=4
+    )[0]
+    self.assertTrue(untiled_rslices.is_on_host)
+
+    combined_rslices = np.zeros(arr.shape) * np.nan
+    for rslice in untiled_rslices.replica_slices:
+      self.assertTrue(rslice.is_on_host)
+      self.assertIsInstance(rslice.unsliced_data, np.ndarray)
+      self.assertTrue(np.all(np.isnan(combined_rslices[rslice.index])))
+      combined_rslices[rslice.index] = rslice.data()
+    self.assertFalse(np.any(np.isnan(arr)))
+    self.assertFalse(np.any(np.isnan(combined_rslices)))
+    np.testing.assert_array_equal(combined_rslices, arr)
+
+  def test_transfer_raw_tiled(self):
+    arr = jnp.arange(8, dtype=jnp.int32)
+    rslices_list = replica_slices.transfer_arrays_to_host(
+        [arr],
+        replica_id=0,
+        use_replica_parallel=False,
+        enable_raw_tiled_transfer=True,
+    )
+    rslices = rslices_list[0]
+    self.assertTrue(rslices.is_raw_tiled)
+    raw_data = rslices.replica_slices[0].data()
+    self.assertIsInstance(raw_data, np.ndarray)
+    self.assertGreater(raw_data.size, 0)
 
   def test_nbytes_no_slicing(self):
     rslice = replica_slices.ReplicaSlice(

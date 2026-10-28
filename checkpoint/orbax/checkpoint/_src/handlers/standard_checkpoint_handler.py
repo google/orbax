@@ -83,6 +83,9 @@ class StandardCheckpointHandler(
           pytree_metadata_options_lib.PYTREE_METADATA_OPTIONS
       ),
       use_ocdbt: bool = True,
+      enable_pinned_host_transfer: Optional[bool] = None,
+      enable_async_host_untile: bool = False,
+      enable_raw_tiled_transfer: bool = False,
   ):
     """Creates StandardCheckpointHandler.
 
@@ -100,6 +103,13 @@ class StandardCheckpointHandler(
       pytree_metadata_options: Options to control types like tuple and
         namedtuple in pytree metadata.
       use_ocdbt: Whether to enable Tensorstore OCDBT driver.
+      enable_pinned_host_transfer: Whether to use pinned_host memory for the
+        transfer from device to host memory. Passing None will enable
+        pinned_host memory depending on the platform used (currently only
+        enables it for the GPU backend).
+      enable_async_host_untile: Whether to defer untiling to background threads.
+      enable_raw_tiled_transfer: Whether to save and restore raw tiled bytes
+        directly without CPU untiling or retiling.
     """
 
     self._supported_types = checkpoint_utils.STANDARD_ARRAY_TYPES
@@ -109,6 +119,9 @@ class StandardCheckpointHandler(
         multiprocessing_options=multiprocessing_options,
         pytree_metadata_options=pytree_metadata_options,
         use_ocdbt=use_ocdbt,
+        enable_pinned_host_transfer=enable_pinned_host_transfer,
+        enable_async_host_untile=enable_async_host_untile,
+        enable_raw_tiled_transfer=enable_raw_tiled_transfer,
     )
 
   def _validate_save_state(
