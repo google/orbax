@@ -395,7 +395,8 @@ class ReplicatorCheckpointManagerTest(
       )
     manager.wait_until_finished()
 
-    expected_steps = [0, 3, 6, 9, 12, 15]
+    # Step 0 is never saved, so step 1 becomes the initial save.
+    expected_steps = [1, 3, 6, 9, 12, 15]
     self.assertNotEmpty(list(self.local_directory.iterdir()))
     self.assertEqual(manager.all_steps(), expected_steps)
     for i in expected_steps:
@@ -415,14 +416,14 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0,
+        1,
         args=get_composite_save_args(pytree),
     )
     manager.wait_until_finished()
-    self.assert_process_metadata_files_exist(0, global_mesh)
+    self.assert_process_metadata_files_exist(1, global_mesh)
 
     restored = manager.restore(
-        0, args=get_composite_restore_args(restore_args=restore_args)
+        1, args=get_composite_restore_args(restore_args=restore_args)
     )
 
     test_utils.assert_tree_equal(self, pytree, restored.state)
@@ -440,13 +441,13 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=global_mesh,
     )
 
-    for i in range(3):
+    for i in range(2, 5):
       manager.save(
           i,
           args=get_composite_save_args(pytree),
       )
       manager.wait_until_finished()
-    self.assertEqual(manager.all_steps(), [0, 2])
+    self.assertEqual(manager.all_steps(), [2, 4])
 
   @parameterized.parameters((0,), (1,))
   def test_save_restore_dataset_iterator(self, replica_axis_index: int):
@@ -473,17 +474,17 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0,
+        1,
         args=args_lib.Composite(
             state=PyTreeSaveArgs(pytree),
             dataset=DatasetIteratorCheckpointSave(dummy_iterator),
         ),
     )
     manager.wait_until_finished()
-    self.assert_process_metadata_files_exist(0, global_mesh)
+    self.assert_process_metadata_files_exist(1, global_mesh)
 
     restored = manager.restore(
-        0,
+        1,
         args=args_lib.Composite(
             state=PyTreeRestoreArgs(restore_args=restore_args),
             dataset=DatasetIteratorCheckpointRestore(dummy_iterator),
@@ -493,14 +494,14 @@ class ReplicatorCheckpointManagerTest(
     test_utils.assert_tree_equal(self, dummy_iterator, restored.dataset)
 
     manager.save(
-        1,
+        2,
         args=args_lib.Composite(
             state=PyTreeSaveArgs(pytree),
             dataset=DatasetIteratorCheckpointSave(dummy_iterator),
         ),
     )
     manager.wait_until_finished()
-    self.assertEqual(manager.all_steps(), [1])
+    self.assertEqual(manager.all_steps(), [2])
 
   def test_no_cleanup(self):
     options = ReplicatorCheckpointManagerOptions(
@@ -513,26 +514,26 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0,
-        args=get_composite_save_args(self.pytree),
-    )
-    manager.wait_until_finished()
-    self.assert_process_metadata_files_exist(0, self.global_mesh)
-
-    manager.save(
         1,
-        args=get_composite_save_args(self.doubled_pytree),
+        args=get_composite_save_args(self.pytree),
     )
     manager.wait_until_finished()
     self.assert_process_metadata_files_exist(1, self.global_mesh)
 
+    manager.save(
+        2,
+        args=get_composite_save_args(self.doubled_pytree),
+    )
+    manager.wait_until_finished()
+    self.assert_process_metadata_files_exist(2, self.global_mesh)
+
     restored = manager.restore(
-        0,
+        1,
         args=get_composite_restore_args(restore_args=self.restore_args),
     )
     test_utils.assert_tree_equal(self, self.pytree, restored.state)
     restored = manager.restore(
-        1,
+        2,
         args=get_composite_restore_args(restore_args=self.restore_args),
     )
     test_utils.assert_tree_equal(self, self.doubled_pytree, restored.state)
@@ -548,22 +549,22 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0,
-        args=get_composite_save_args(self.pytree),
-    )
-    manager.save(
         1,
         args=get_composite_save_args(self.pytree),
     )
     manager.save(
         2,
+        args=get_composite_save_args(self.pytree),
+    )
+    manager.save(
+        3,
         args=get_composite_save_args(self.doubled_pytree),
     )
     manager.wait_until_finished()
 
     # 3 steps should exist
-    self.assertEqual(manager.all_steps(), [0, 1, 2])
-    for step in [0, 1, 2]:
+    self.assertEqual(manager.all_steps(), [1, 2, 3])
+    for step in [1, 2, 3]:
       self.assertTrue((self.local_directory / str(step)).exists())
       self.assertTrue(
           (
@@ -573,7 +574,7 @@ class ReplicatorCheckpointManagerTest(
       self.assert_process_metadata_files_exist(step, self.global_mesh)
 
     # Step looks like uncommitted now.
-    (self.local_directory / '0' / atomicity.COMMIT_SUCCESS_FILE).unlink()
+    (self.local_directory / '1' / atomicity.COMMIT_SUCCESS_FILE).unlink()
 
     manager2 = ReplicatorCheckpointManager(
         self.local_directory,
@@ -581,29 +582,29 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=self.global_mesh,
     )
 
-    # manager2 should have gc'd step 0
-    self.assertEqual(manager2.all_steps(), [1, 2])
-    self.assertFalse((self.local_directory / '0').exists())
-    self.assertTrue((self.local_directory / '1').exists())
+    # manager2 should have gc'd step 1
+    self.assertEqual(manager2.all_steps(), [2, 3])
+    self.assertFalse((self.local_directory / '1').exists())
     self.assertTrue((self.local_directory / '2').exists())
+    self.assertTrue((self.local_directory / '3').exists())
 
     # new step save should work
     manager2.save(
-        3,
+        4,
         args=get_composite_save_args(self.doubled_pytree),
     )
     manager2.wait_until_finished()
-    self.assertEqual(manager2.all_steps(), [1, 2, 3])
-    self.assertTrue((self.local_directory / '2').exists())
+    self.assertEqual(manager2.all_steps(), [2, 3, 4])
     self.assertTrue((self.local_directory / '3').exists())
-    self.assert_process_metadata_files_exist(3, self.global_mesh)
+    self.assertTrue((self.local_directory / '4').exists())
+    self.assert_process_metadata_files_exist(4, self.global_mesh)
 
   @parameterized.parameters(
-      (0, 1, True),
-      (0, 2, True),
+      (0, 1, False),
+      (0, 2, False),
       (1, 1, True),
       (1, 1, True),
-      (1, 2, False),
+      (1, 2, True),
       (3, 5, False),
       (2, 1, True),
       (3, 2, False),
@@ -634,10 +635,10 @@ class ReplicatorCheckpointManagerTest(
     self.assertEqual(manager.should_save(step), expectation)
 
   @parameterized.parameters(
-      (1, 4, [0, 1, 2, 3]),
-      (2, 4, [0, 2]),
-      (3, 4, [0, 3]),
-      (3, 6, [0, 3]),
+      (1, 4, [1, 2, 3]),
+      (2, 4, [1, 2]),
+      (3, 4, [1, 3]),
+      (3, 6, [1, 3]),
   )
   def test_steps(
       self,
@@ -793,10 +794,6 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=global_mesh,
     ) as manager:
       manager.save(
-          0,
-          args=get_composite_save_args(pytree),
-      )
-      manager.save(
           1,
           args=get_composite_save_args(pytree),
       )
@@ -804,9 +801,13 @@ class ReplicatorCheckpointManagerTest(
           2,
           args=get_composite_save_args(pytree),
       )
+      manager.save(
+          3,
+          args=get_composite_save_args(pytree),
+      )
       manager.wait_until_finished()
-      self.assertSameElements([0, 1, 2], manager.all_steps())
-      self.assertEqual(2, manager.latest_step())
+      self.assertSameElements([1, 2, 3], manager.all_steps())
+      self.assertEqual(3, manager.latest_step())
       test_utils.assert_tree_equal(
           self,
           pytree,
@@ -824,8 +825,8 @@ class ReplicatorCheckpointManagerTest(
         options=options,
         global_mesh=new_global_mesh,
     ) as manager:
-      self.assertSameElements([0, 1, 2], manager.all_steps())
-      self.assertEqual(2, manager.latest_step())
+      self.assertSameElements([1, 2, 3], manager.all_steps())
+      self.assertEqual(3, manager.latest_step())
       test_utils.assert_tree_equal(
           self,
           pytree,
@@ -840,17 +841,17 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=self.global_mesh,
     ) as mngr:
       metadata_folder = mesh_consistency.process_metadata_folder(
-          self.local_directory / str(0) / 'process_metadata'
+          self.local_directory / str(1) / 'process_metadata'
       )
       self.assertFalse(metadata_folder.exists())
 
       mngr.save(
-          0,
+          1,
           args=get_composite_save_args(self.pytree),
       )
       mngr.wait_until_finished()
 
-      self.assert_process_metadata_files_exist(0, self.global_mesh)
+      self.assert_process_metadata_files_exist(1, self.global_mesh)
 
       (metadata_folder / atomicity.COMMIT_SUCCESS_FILE).unlink()
       with self.assertRaisesRegex(
@@ -883,6 +884,44 @@ class ReplicatorCheckpointManagerTest(
       for step in expectation:
         self.assert_process_metadata_files_exist(step, self.global_mesh)
 
+  def test_step_zero_is_not_saved(self):
+    # The MTC replicator protocol reserves step 0 as "no checkpoint".
+    with ReplicatorCheckpointManager(
+        self.local_directory,
+        global_mesh=self.global_mesh,
+    ) as manager:
+      self.assertFalse(manager.should_save(0))
+      self.assertFalse(
+          manager.save(0, args=get_composite_save_args(self.pytree))
+      )
+      manager.wait_until_finished()
+      self.assertEmpty(manager.all_steps())
+      self.assertIsNone(manager.latest_step())
+      self.assertFalse((self.local_directory / '0').exists())
+
+      # Step 1 is the first checkpoint that gets saved.
+      self.assertTrue(manager.should_save(1))
+      self.assertTrue(
+          manager.save(1, args=get_composite_save_args(self.pytree))
+      )
+      manager.wait_until_finished()
+      self.assertEqual(manager.all_steps(), [1])
+      self.assert_process_metadata_files_exist(1, self.global_mesh)
+
+  def test_step_zero_is_not_saved_when_forced(self):
+    with ReplicatorCheckpointManager(
+        self.local_directory,
+        global_mesh=self.global_mesh,
+    ) as manager:
+      self.assertFalse(
+          manager.save(
+              0, args=get_composite_save_args(self.pytree), force=True
+          )
+      )
+      manager.wait_until_finished()
+      self.assertEmpty(manager.all_steps())
+      self.assertFalse((self.local_directory / '0').exists())
+
   @parameterized.parameters((0,), (1,))
   def test_multiple_items(self, replica_axis_index: int):
     global_mesh = self.make_global_mesh(replica_axis_index=replica_axis_index)
@@ -893,16 +932,16 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=global_mesh,
     ) as manager:
       manager.save(
-          0,
+          1,
           args=args_lib.Composite(
               state=PyTreeSaveArgs(pytree),
               other_state=PyTreeSaveArgs(doubled_pytree),
           ),
       )
-      self.assert_process_metadata_files_exist(0, global_mesh)
+      self.assert_process_metadata_files_exist(1, global_mesh)
 
     restored = manager.restore(
-        0,
+        1,
         args=args_lib.Composite(
             state=PyTreeRestoreArgs(restore_args=restore_args),
             other_state=PyTreeRestoreArgs(restore_args=restore_args),
@@ -925,16 +964,16 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=global_mesh,
     ) as manager:
       manager.save(
-          0,
+          1,
           args=args_lib.Composite(
               state=PyTreeSaveArgs(pytree),
               other_state=PyTreeSaveArgs(doubled_pytree),
           ),
       )
-      self.assert_process_metadata_files_exist(0, global_mesh)
+      self.assert_process_metadata_files_exist(1, global_mesh)
 
     restored = manager.restore(
-        0,
+        1,
         args=args_lib.Composite(
             state=PyTreeRestoreArgs(),
             other_state=PyTreeRestoreArgs(),
@@ -975,11 +1014,11 @@ class ReplicatorCheckpointManagerTest(
         global_mesh=self.global_mesh,
     ) as manager:
       manager.save(
-          0,
+          1,
           args=get_composite_save_args(self.pytree, args_lib.PyTreeSave),
       )
       restored = manager.restore(
-          0,
+          1,
           args=get_composite_restore_args(
               restore_args=self.restore_args,
               checkpoint_args=args_lib.PyTreeRestore,
@@ -990,10 +1029,10 @@ class ReplicatorCheckpointManagerTest(
           TypeError,
           r'restore\(\) missing 1 required positional argument: .args.',
       ):
-        manager.restore(0)
+        manager.restore(1)
       with self.assertRaisesRegex(ValueError, 'No step path found'):
         manager.restore(
-            1,
+            2,
             args=get_composite_restore_args(
                 self.pytree, args_lib.PyTreeRestore
             ),
@@ -1002,7 +1041,7 @@ class ReplicatorCheckpointManagerTest(
           TypeError,
           r'restore\(\) missing 1 required positional argument: .args.',
       ):
-        manager.restore(1)
+        manager.restore(2)
 
   @parameterized.parameters(
       ((8,), ('data',)),
@@ -1027,12 +1066,12 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0, args=get_composite_save_args(self.pytree, args_lib.PyTreeSave)
+        1, args=get_composite_save_args(self.pytree, args_lib.PyTreeSave)
     )
     manager.wait_until_finished()
 
     restored = manager.restore(
-        0, args=get_composite_restore_args(restore_args=restore_args)
+        1, args=get_composite_restore_args(restore_args=restore_args)
     )
     test_utils.assert_tree_equal(self, pytree, restored.state)
 

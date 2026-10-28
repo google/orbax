@@ -381,6 +381,8 @@ class _ReplicatorLocalCheckpointEngine:
     return self._impl.reached_preemption(step)
 
   def should_save(self, step: int) -> bool:
+    if step == colocated_utils.NO_STEP_SENTINEL:
+      return False
     return self._impl.should_save(step)
 
   def is_saving_in_progress(self) -> bool:
@@ -400,6 +402,8 @@ class _ReplicatorLocalCheckpointEngine:
       custom_metadata: dict[str, Any] | None = None,
   ) -> bool:
     """Local save path shared by standard and sidecar execution."""
+    if step == colocated_utils.NO_STEP_SENTINEL:
+      return False
     if not force and not self.should_save(step):
       return False
 
@@ -784,6 +788,9 @@ class ReplicatorCheckpointManager(
   data is copied to the process with data loss. Specifically, the processes must
   be "peers" in the sense that they share the same index into the global array
   data.
+
+  Step 0 is never saved: the replicator service reserves step 0 to mean "no
+  checkpoint", so a step-0 checkpoint could not be restored.
 
   Users can control a few properties of the checkpointing behavior like the save
   interval. The period at which checkpoints are persisted to global storage, or
