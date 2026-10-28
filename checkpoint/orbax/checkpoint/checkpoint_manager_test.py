@@ -2194,22 +2194,26 @@ class CheckpointManagerTest(
         for waiter in waiters:
           waiter.result(timeout=5)
 
-  @parameterized.parameters((None,), (2,))
-  def test_async_error_multiple_steps(self, num_waiter_threads: Optional[int]):
+  @parameterized.product(num_waiter_threads=(None, 2), max_to_keep=(0, 1, 2))
+  def test_async_error_multiple_steps(
+      self, num_waiter_threads: Optional[int], max_to_keep: int
+  ):
     with CheckpointManager(
         self.directory,
         AsyncCheckpointer(PyTreeCheckpointHandler()),
         options=CheckpointManagerOptions(
             max_to_keep=2,
+            best_fn=lambda metrics: metrics['score'],
         ),
     ) as manager:
-      self.assertTrue(manager.save(0, {'a': 1, 'b': 2}))
-      self.assertTrue(manager.save(1, {'a': 1, 'b': 2}))
-      self.assertTrue(manager.save(2, {'a': 1, 'b': 2}))
+      self.assertTrue(manager.save(0, {'a': 1, 'b': 2}, metrics={'score': 0}))
+      self.assertTrue(manager.save(1, {'a': 1, 'b': 2}, metrics={'score': 2}))
+      self.assertTrue(manager.save(2, {'a': 1, 'b': 2}, metrics={'score': 1}))
       manager.wait_until_finished()
       self.assertSameElements([1, 2], manager.all_steps())
 
     async_timeout_secs = 10
+    pytree_handler = PyTreeCheckpointHandler()
     with (
         futures.ThreadPoolExecutor(
             max_workers=num_waiter_threads,
@@ -2220,11 +2224,12 @@ class CheckpointManagerTest(
             self.directory,
             AsyncCheckpointer(
                 test_utils.ErrorCheckpointHandler(
-                    PyTreeCheckpointHandler(), executor=executor
+                    pytree_handler, executor=executor
                 )
             ),
             options=CheckpointManagerOptions(
-                max_to_keep=1,
+                max_to_keep=max_to_keep,
+                best_fn=lambda metrics: metrics['score'],
                 enable_async_checkpointing=True,
                 async_options=checkpoint_manager.AsyncOptions(
                     timeout_secs=async_timeout_secs
@@ -2233,7 +2238,7 @@ class CheckpointManagerTest(
         ) as manager,
     ):
       # Initiate save which will fail.
-      self.assertTrue(manager.save(3, {'a': 1, 'b': 2}))
+      self.assertTrue(manager.save(3, {'a': 3, 'b': 4}, metrics={'score': 3}))
 
       if num_waiter_threads is not None:
         waiters = self._call_wait_until_finished_concurrently(
@@ -2249,6 +2254,13 @@ class CheckpointManagerTest(
       with self.assertRaises(SystemError):
         manager.wait_until_finished()
 
+      self.assertSameElements([1, 2], manager.all_steps())
+      self.assertEqual(2, manager.latest_step())
+      self.assertEqual(1, manager.best_step())
+      self.assertEqual({'score': 2}, manager.metrics(1))
+      self.assertEqual({'score': 1}, manager.metrics(2))
+      self.assertEqual({'a': 1, 'b': 2}, manager.restore(None))
+
       # Error is cleared so it is not re-raised.
       manager.wait_until_finished()
       if num_waiter_threads is not None:
@@ -2258,6 +2270,40 @@ class CheckpointManagerTest(
         # All waiters should succeed.
         for waiter in waiters:
           waiter.result(timeout=5)
+
+      with mock.patch.object(
+          test_utils.ErrorCheckpointHandler,
+          'async_save',
+          side_effect=pytree_handler.async_save,
+      ):
+        self.assertTrue(
+            manager.save(4, {'a': 4, 'b': 5}, metrics={'score': 4})
+        )
+        manager.wait_until_finished()
+      expected_steps = {0: [], 1: [4], 2: [1, 4]}[max_to_keep]
+      self.assertSameElements(expected_steps, manager.all_steps())
+      self.assertSameElements(
+          expected_steps, step_lib.checkpoint_steps(manager.directory)
+      )
+
+  def test_async_finalization_error_preserves_history(self):
+    options = CheckpointManagerOptions(
+        max_to_keep=1, best_fn=lambda metrics: metrics['score']
+    )
+    with CheckpointManager(self.directory, options=options) as manager:
+      manager.save(0, args=args.JsonSave({'value': 7}), metrics={'score': 1})
+      manager.wait_until_finished()
+      with mock.patch.object(
+          manager, '_finalize_checkpoint', side_effect=SystemError
+      ):
+        manager.save(1, args=args.JsonSave({'value': 8}), metrics={'score': 2})
+        with self.assertRaises(SystemError):
+          manager.wait_until_finished()
+      self.assertEqual([0], manager.all_steps())
+      self.assertEqual(0, manager.latest_step())
+      self.assertEqual(0, manager.best_step())
+      self.assertEqual({'score': 1}, manager.metrics(0))
+      self.assertEqual({'value': 7}, manager.restore(None))
 
   def test_legacy_handler_default_item(self):
     if multihost.is_pathways_backend():
