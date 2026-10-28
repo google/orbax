@@ -1461,7 +1461,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ),
       )
     in_save_wait_start_time = time.time()
-    self.wait_until_finished()
+    self._wait_until_finished()
     # Only the wait inside this call falls within the blocking save envelope.
     # `_wait_for_prev_save_duration` also accumulates `wait_until_finished()`
     # calls made outside of `save()` (e.g. before eval or restore), which are
@@ -2072,6 +2072,23 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     If some checkpointers are of type :py:class:`.AsyncCheckpointer`, however,
     this method will wait until each of these checkpointers is finished.
     """
+    self._wait_until_finished_impl(manual=True)
+
+  def _wait_until_finished(self):
+    """Like `wait_until_finished()`, but for internal callers.
+
+    Used by `save()` and `close()` so that their waits are not recorded as
+    manual `wait_until_finished()` calls.
+    """
+    self._wait_until_finished_impl(manual=False)
+
+  def _wait_until_finished_impl(self, *, manual: bool):
+    """Blocks until any incomplete save operations are completed.
+
+    Args:
+      manual: Whether this is an explicit user call to `wait_until_finished()`,
+        as opposed to the automatic wait inside `save()` or `close()`.
+    """
     start_time = time.time()
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
@@ -2133,6 +2150,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             duration,
         )
         self._wait_for_prev_save_duration += duration
+        if manual:
+          # Explicit user call (e.g. before eval or restore), as opposed to the
+          # automatic wait inside `save()` (recorded as
+          # /jax/orbax/write/blocking_wait_prev_duration_secs) or `close()`.
+          jax.monitoring.record_event_duration_secs(
+              '/jax/orbax/write/manual_wait_until_finished_duration_secs',
+              duration,
+          )
 
   def is_saving_in_progress(self) -> bool:
     """Returns whether a checkpoint save is in progress."""
@@ -2231,7 +2256,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def close(self):
     """Waits for outstanding operations to finish and closes internal objects."""
-    self.wait_until_finished()
+    self._wait_until_finished()
     self._checkpointer.close()
     # Call after checkpointer.close().
     self._non_blocking_metadata_store.close()
