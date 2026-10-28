@@ -17,7 +17,6 @@
 import asyncio
 import concurrent.futures
 import datetime
-import functools
 import sys
 import threading
 import time
@@ -541,14 +540,25 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-    prepare_destination = functools.partial(
-        self._prepare_destination_async, directory, force=force
-    )
     # Opt-in: defer destination preparation to the background thread.
     defer_preparation = (
         self._create_directories_asynchronously
         and self._file_options.skip_sync_file_validations
     )
+    metric = (
+        '/jax/orbax/write/background_prepare_destination_secs'
+        if defer_preparation
+        else '/jax/orbax/write/blocking_prepare_destination_secs'
+    )
+
+    async def prepare_destination():
+      start = time.time()
+      await self._prepare_destination_async(directory, force=force)
+      # The create_all_async barriers block the main thread either way, so
+      # exists() and rmtree() are the only time saved by deferring.
+      if utils.is_primary_host(self._primary_host):
+        jax.monitoring.record_event_duration_secs(metric, time.time() - start)
+
     if not defer_preparation:
       await prepare_destination()
 

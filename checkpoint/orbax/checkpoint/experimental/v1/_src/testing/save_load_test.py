@@ -623,6 +623,9 @@ class SaveLoadTestSuite:
           _trace(events, 'exists'),
           _trace(events, 'rmtree'),
           self.assertLogs(level='INFO') as cm,
+          mock.patch.object(
+              jax.monitoring, 'record_event_duration_secs', autospec=True
+          ) as record,
       ):
         ocp.save(self.directory, self.numpy_pytree, overwrite=True)
         found_log = any(
@@ -630,6 +633,19 @@ class SaveLoadTestSuite:
             for log in cm.output
         )
         self.assertEqual(found_log, multihost.is_primary_host(0))
+      # Exactly one destination preparation metric per save, on primary only.
+      prep_metrics = [
+          c.args[0]
+          for c in record.call_args_list
+          if c.args[0].endswith('_prepare_destination_secs')
+      ]
+      phase = 'background' if skip_sync else 'blocking'
+      self.assertEqual(
+          prep_metrics,
+          [f'/jax/orbax/write/{phase}_prepare_destination_secs']
+          if multihost.is_primary_host(0)
+          else [],
+      )
       # Only the primary removes the old checkpoint. With skip_sync, the check
       # and removal run in background directory creation, off MainThread.
       threads = [(op, th) for op, p, th in events if p == str(self.directory)]

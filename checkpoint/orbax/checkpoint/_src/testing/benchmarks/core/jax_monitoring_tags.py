@@ -67,6 +67,14 @@ TAG_MAP: dict[str, tuple[str, str]] = {
         "2_save_breakdown/background_directory_creation_s",
         "s",
     ),
+    "/jax/orbax/write/blocking_prepare_destination_secs": (
+        "2_save_breakdown/blocking_prepare_destination_s",
+        "s",
+    ),
+    "/jax/orbax/write/background_prepare_destination_secs": (
+        "2_save_breakdown/background_prepare_destination_s",
+        "s",
+    ),
     "/jax/orbax/write/background_item_finalize_secs": (
         "2_save_breakdown/background_item_finalize_s",
         "s",

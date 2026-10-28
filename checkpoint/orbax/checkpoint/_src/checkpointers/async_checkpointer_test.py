@@ -614,10 +614,26 @@ class AsyncCheckpointerTest(
         self._trace(events, 'exists'),
         self._trace(events, 'rmtree'),
         self._trace(events, 'mkdir'),
+        mock.patch.object(
+            jax.monitoring, 'record_event_duration_secs', autospec=True
+        ) as mock_record,
     ):
       checkpointer.save(self.directory, self.doubled_pytree, force=True)
       self.wait_if_async(checkpointer)
 
+    # Exactly one destination preparation metric per save, on primary only.
+    prep_metrics = [
+        c.args[0]
+        for c in mock_record.call_args_list
+        if c.args[0].endswith('_prepare_destination_secs')
+    ]
+    phase = 'background' if skip_sync_file_validations else 'blocking'
+    self.assertEqual(
+        prep_metrics,
+        [f'/jax/orbax/write/{phase}_prepare_destination_secs']
+        if multihost.is_primary_host(checkpointer._primary_host)
+        else [],
+    )
     dir_events = [(op, th) for op, arg, th in events if arg == self.directory]
     main_thread_ops = [op for op, th in dir_events if th == 'MainThread']
     rmtree_calls = [op for op, _ in dir_events if op == 'rmtree']

@@ -14,7 +14,10 @@
 
 """Internal utilities for path handling in saving."""
 
+import time
+
 from absl import logging
+import jax
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import atomicity_defaults
 from orbax.checkpoint._src.path import atomicity_types
@@ -100,6 +103,7 @@ async def maybe_overwrite_existing(
   Raises:
     ValueError: If the path exists and overwrite is False.
   """
+  start = time.time()
   await deletion_metadata.ensure_available(path)
   # Sync before and after existence check, since otherwise the processes may
   # not agree and it is possible for one process to run ahead and create the
@@ -125,6 +129,11 @@ async def maybe_overwrite_existing(
       operation_id=synchronization.get_operation_id(),
       processes=context.multiprocessing_options.active_processes,
   )
+  if multihost.is_primary_host(context.multiprocessing_options.primary_host):
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/blocking_prepare_destination_secs',
+        time.time() - start,
+    )
 
 
 async def prepare_destination_pre_creation(
@@ -148,13 +157,17 @@ async def prepare_destination_pre_creation(
     deletion_metadata.DeletionRecoveryError: If the path has an invalid
       deletion record.
   """
+  start = time.time()
   await deletion_metadata.ensure_available(path)
-  if not await async_path.exists(path):
-    return
-  if not overwrite:
-    raise ValueError(f'Destination {path} already exists.')
-  logging.info(
-      '[process=%s] Specified `overwrite`: removing existing path.',
-      multihost.process_index(),
+  if await async_path.exists(path):
+    if not overwrite:
+      raise ValueError(f'Destination {path} already exists.')
+    logging.info(
+        '[process=%s] Specified `overwrite`: removing existing path.',
+        multihost.process_index(),
+    )
+    await async_path.rmtree(path)
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/background_prepare_destination_secs',
+      time.time() - start,
   )
-  await async_path.rmtree(path)
