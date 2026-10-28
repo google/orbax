@@ -397,6 +397,7 @@ class BasePyTreeCheckpointHandler(
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      enable_async_host_untile: bool = False,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
       copy_device_arrays_for_async_transfer: bool = False,
   ):
@@ -415,8 +416,8 @@ class BasePyTreeCheckpointHandler(
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
         before a new array can start being transferred. Can be "auto".
-      memory_limit_options: Options for configuring memory limits for save.
-        Can help to reduce the possibility of OOM's when checkpoints are saved.
+      memory_limit_options: Options for configuring memory limits for save. Can
+        help to reduce the possibility of OOM's when checkpoints are saved.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       use_compression: If True, use zstd compression.
@@ -431,6 +432,8 @@ class BasePyTreeCheckpointHandler(
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      enable_async_host_untile: Whether to defer untiling to background threads.
+        When True, blocks only until PCIe DMA to host memory finishes.
       is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
         using jax.tree.map_with_path) that should be scheduled for D2H transfer
         before other keys. The transfer is scheduled before returning to the
@@ -444,16 +447,16 @@ class BasePyTreeCheckpointHandler(
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
       copy_device_arrays_for_async_transfer: Whether to copy `jax.Array` leaves
-        on device, instead of transferring them to host, before returning to
-        the caller. The copies are transferred to host in the background (in
-        batches of at most `save_device_host_concurrent_bytes`, if set) and
-        released as their transfers complete, so the caller may donate or
-        mutate the originals without waiting for the transfer. Defaults to
-        False. Warning: this can double peak device memory usage, since a
-        second copy of every array may be held until its transfer completes.
-        Arrays that already reside in host memory (e.g. `pinned_host`) are
-        never copied, so the caller must not donate or mutate them until the
-        save finishes, or the checkpoint may fail or be corrupted.
+        on device, instead of transferring them to host, before returning to the
+        caller. The copies are transferred to host in the background (in batches
+        of at most `save_device_host_concurrent_bytes`, if set) and released as
+        their transfers complete, so the caller may donate or mutate the
+        originals without waiting for the transfer. Defaults to False. Warning:
+        this can double peak device memory usage, since a second copy of every
+        array may be held until its transfer completes. Arrays that already
+        reside in host memory (e.g. `pinned_host`) are never copied, so the
+        caller must not donate or mutate them until the save finishes, or the
+        checkpoint may fail or be corrupted.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -498,9 +501,20 @@ class BasePyTreeCheckpointHandler(
       self._array_metadata_store.set_primary_host(self._primary_host)
     self._array_metadata_validator = array_metadata_validator
 
-    if enable_pinned_host_transfer is None:
+    if enable_async_host_untile:
+      if (
+          enable_pinned_host_transfer is not None
+          and not enable_pinned_host_transfer
+      ):
+        raise ValueError(
+            'enable_async_host_untile requires'
+            ' enable_pinned_host_transfer=True.'
+        )
+      enable_pinned_host_transfer = True
+    elif enable_pinned_host_transfer is None:
       enable_pinned_host_transfer = jax.default_backend() == 'gpu'
     self._enable_pinned_host_transfer = enable_pinned_host_transfer
+    self._enable_async_host_untile = enable_async_host_untile
     self._is_prioritized_key_fn = is_prioritized_key_fn
     if self._is_prioritized_key_fn:
       jax.monitoring.record_event(
@@ -588,6 +602,7 @@ class BasePyTreeCheckpointHandler(
           use_compression=use_compression,
           use_zarr3=use_zarr3,
           enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+          enable_async_host_untile=self._enable_async_host_untile,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           device_host_byte_limiter=device_host_byte_limiter,

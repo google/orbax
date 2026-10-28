@@ -2066,6 +2066,8 @@ class PyTreeCheckpointHandlerTest(
         min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel,
         enable_pinned_host_transfer,
+        *args,
+        **kwargs,
     ):
       nonlocal true_count, false_count
       if enable_pinned_host_transfer:
@@ -2079,6 +2081,8 @@ class PyTreeCheckpointHandlerTest(
           min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          *args,
+          **kwargs,
       )
 
     with mock.patch.object(
@@ -2097,6 +2101,16 @@ class PyTreeCheckpointHandlerTest(
     else:
       self.assertEqual(true_count, 0)
       self.assertGreater(false_count, 0)
+
+  def test_enable_async_host_untile_requires_pinned_host(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'enable_async_host_untile requires enable_pinned_host_transfer=True.',
+    ):
+      _ = base_pytree_checkpoint_handler.BasePyTreeCheckpointHandler(
+          enable_async_host_untile=True,
+          enable_pinned_host_transfer=False,
+      )
 
   def test_custom_metadata(self):
     custom_metadata = {'foo': 1}

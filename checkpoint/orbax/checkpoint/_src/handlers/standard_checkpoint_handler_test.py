@@ -415,6 +415,38 @@ class StandardCheckpointHandlerTestBase(
     metadata = self.handler.metadata(self.directory)
     self.assertEqual(metadata.custom_metadata, custom_metadata)
 
+  @parameterized.parameters((True,), (False,))
+  def test_enable_pinned_host_transfer(self, enable_pinned_host_transfer: bool):
+    handler = StandardCheckpointHandler(
+        enable_pinned_host_transfer=enable_pinned_host_transfer
+    )
+    self.assertEqual(
+        handler._impl._handler_impl._enable_pinned_host_transfer,
+        enable_pinned_host_transfer,
+    )
+    handler.save(self.directory, args=self.save_args_cls(self.pytree))
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    handler.close()
+
+  @parameterized.parameters((True,), (False,))
+  def test_enable_async_host_untile(self, enable_async_host_untile: bool):
+    handler = StandardCheckpointHandler(
+        enable_async_host_untile=enable_async_host_untile
+    )
+    self.assertEqual(
+        handler._impl._handler_impl._enable_async_host_untile,
+        enable_async_host_untile,
+    )
+    handler.save(self.directory, args=self.save_args_cls(self.pytree))
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    handler.close()
+
   def test_construct_restore_args_with_fallback_sharding(self):
     simple_sharding = jax.sharding.NamedSharding(
         mesh=jax.sharding.Mesh(jax.devices(), ('x',)),

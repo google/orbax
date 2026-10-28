@@ -619,16 +619,22 @@ def _serialize_arrays_batches_without_dispatcher(
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
     callback: types.SerializationStatusCallback,
+    enable_async_host_untile: bool = False,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
-  replica_slices_transfer_arrays_to_host = functools.partial(
-      replica_slices.transfer_arrays_to_host,
+  transfer_kwargs = dict(
       replica_id=replica_id,
       use_replica_parallel=use_replica_parallel,
       enable_pinned_host_transfer=enable_pinned_host_transfer,
       min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+  )
+  if enable_async_host_untile:
+    transfer_kwargs['async_host_untile'] = True
+  replica_slices_transfer_arrays_to_host = functools.partial(
+      replica_slices.transfer_arrays_to_host,
+      **transfer_kwargs,
   )
   async_serialize_replica_slices_batch = functools.partial(
       _async_serialize_replica_slices,
@@ -657,6 +663,19 @@ def _serialize_arrays_batches_without_dispatcher(
   info_sample = next(
       (info for _, info, _ in itertools.chain(prioritized, deprioritized)), None
   )
+  if enable_async_host_untile and info_sample is not None:
+    raw_parent = getattr(info_sample, '_parent_dir', None)
+    parent_dir_suffix = (
+        str(getattr(raw_parent, 'path', raw_parent))
+        if raw_parent is not None
+        else None
+    )
+    multihost.sync_global_processes(
+        multihost.unique_barrier_key(
+            'async_host_untile:d2h_complete',
+            suffix=parent_dir_suffix,
+        )
+    )
 
   # `deprioritized_params` is passed as an argument rather than captured, so
   # that the coroutine frame is the only owner of the device arrays and can
@@ -673,10 +692,27 @@ def _serialize_arrays_batches_without_dispatcher(
     logical_bytes = 0
     all_array_metadatas: list[ts_utils.ArrayMetadata] = []
 
-    if prioritized_values_on_host:
-      logical_bytes += sum(v.nbytes for v in prioritized_values_on_host)
+    prioritized_slices = prioritized_values_on_host
+    if prioritized_slices:
+      if enable_async_host_untile:
+        untile_start_time = time.perf_counter()
+        prioritized_slices = replica_slices.untile_pinned_slices_to_numpy(
+            prioritized_slices
+        )
+        untile_duration = time.perf_counter() - untile_start_time
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/background_untile_duration_secs',
+            untile_duration,
+        )
+        logging.info(
+            'Background untiling completed in %.4f seconds'
+            ' (background_untile_s=%.4f).',
+            untile_duration,
+            untile_duration,
+        )
+      logical_bytes += sum(v.nbytes for v in prioritized_slices)
       b_metadatas = await async_serialize_replica_slices_batch(
-          prioritized_values_on_host,
+          prioritized_slices,
           prioritized_infos,
           prioritized_args,
       )
@@ -699,6 +735,22 @@ def _serialize_arrays_batches_without_dispatcher(
         # Release the device buffers before awaiting the (slower) write.
         del b_arrays
         _on_batch_callback(b_infos, callback.on_transfer_end)
+        if enable_async_host_untile:
+          untile_start_time = time.perf_counter()
+          b_arrays_on_host = replica_slices.untile_pinned_slices_to_numpy(
+              b_arrays_on_host
+          )
+          untile_duration = time.perf_counter() - untile_start_time
+          jax.monitoring.record_event_duration_secs(
+              '/jax/orbax/write/background_untile_duration_secs',
+              untile_duration,
+          )
+          logging.info(
+              'Background untiling completed in %.4f seconds'
+              ' (background_untile_s=%.4f).',
+              untile_duration,
+              untile_duration,
+          )
         logical_bytes += sum(v.nbytes for v in b_arrays_on_host)
         b_metadatas = await async_serialize_replica_slices_batch(
             b_arrays_on_host,
@@ -761,6 +813,7 @@ def _serialize_arrays(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
+    enable_async_host_untile: bool = False,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
 
@@ -821,6 +874,7 @@ def _serialize_arrays(
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
         callback,
+        enable_async_host_untile=enable_async_host_untile,
     )
   else:
 
@@ -1416,6 +1470,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
       callback: types.SerializationStatusCallback | None = None,
+      enable_async_host_untile: bool = False,
   ):
     """Constructor.
 
@@ -1441,11 +1496,13 @@ class ArrayHandler(types.TypeHandler):
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
       callback: The callback to use for executing operations in handlers.
+      enable_async_host_untile: Whether to defer untiling to background threads.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
     self._replica_id = replica_id
     self._enable_write_sharding_file = enable_write_sharding_file
+    self._enable_async_host_untile = enable_async_host_untile
     self._use_replica_parallel = (
         _get_default_use_replica_parallel()
         if use_replica_parallel is None
@@ -1639,6 +1696,10 @@ class ArrayHandler(types.TypeHandler):
     )
 
     future_list = []
+    enable_async_host_untile = (
+        any(getattr(info, 'enable_async_host_untile', False) for info in infos)
+        or self._enable_async_host_untile
+    )
     if self._enable_write_sharding_file:
       future_list.append(
           future.CommitFutureAwaitingContractedSignals(
@@ -1674,6 +1735,7 @@ class ArrayHandler(types.TypeHandler):
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
             callback=self._callback,
+            enable_async_host_untile=enable_async_host_untile,
         )
     )
 
