@@ -3090,6 +3090,7 @@ class CheckpointManagerTest(
             get_metric_fn=lambda metrics: metrics['loss'],
             reverse=True,
             n=n_to_keep,
+            keep_checkpoints_without_metrics=False,
         ),  # 1, 11
         preservation_policy_lib.EveryNSteps(
             interval_steps=interval_steps
@@ -3099,12 +3100,47 @@ class CheckpointManagerTest(
     policy = preservation_policy_lib.AnyPreservationPolicy(policies)
     options = CheckpointManagerOptions(preservation_policy=policy)
     with CheckpointManager(self.directory, options=options) as manager:
-      num_steps = 12
-      for step in range(num_steps):
+      for step in range(6):
+        metrics = {k: v[step] for k, v in all_metrics.items()}
+        self.save_params(step, manager, params=self.pytree, metrics=metrics)
+      self.wait_if_async(manager)
+    with CheckpointManager(self.directory, options=options) as manager:
+      for step in range(6, 12):
         metrics = {k: v[step] for k, v in all_metrics.items()}
         self.save_params(step, manager, params=self.pytree, metrics=metrics)
       self.wait_if_async(manager)
       self.assertCountEqual([0, 1, 3, 4, 8, 11], manager.all_steps())
+
+  @parameterized.parameters((False,), (True,))
+  def test_preservation_best_n_across_restart(self, keep_without_metrics):
+    policy = preservation_policy_lib.BestN(
+        get_metric_fn=lambda metrics: metrics['loss'],
+        reverse=True,
+        n=2,
+        keep_checkpoints_without_metrics=keep_without_metrics,
+    )
+    options = CheckpointManagerOptions(preservation_policy=policy)
+    pre_losses = {0: None, 1: 5, 2: 2, 3: 4, 4: 3}
+    with CheckpointManager(self.directory, options=options) as manager:
+      for step, loss in pre_losses.items():
+        metrics = {'loss': loss} if loss is not None else None
+        self.save_params(step, manager, params=self.pytree, metrics=metrics)
+      self.wait_if_async(manager)
+
+    expected_reloaded = {2: {'loss': 2}, 4: {'loss': 3}} | (
+        {0: None} if keep_without_metrics else {}
+    )
+    with CheckpointManager(self.directory, options=options) as manager:
+      reloaded_metrics = {c.step: c.metrics for c in manager._checkpoints}
+      self.assertEqual(reloaded_metrics, expected_reloaded)
+      self.assertEqual(manager.best_step(), 4)
+      for step, loss in {5: 10, 6: 1, 7: 8}.items():
+        self.save_params(
+            step, manager, params=self.pytree, metrics={'loss': loss}
+        )
+      self.wait_if_async(manager)
+      expected_steps = [0, 2, 6] if keep_without_metrics else [2, 6]
+      self.assertSameElements(expected_steps, manager.all_steps())
 
   def test_sync_continuous_checkpointing_with_minimum_interval_secs(self):
     with CheckpointManager(
