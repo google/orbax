@@ -57,7 +57,10 @@ class MetadataTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
 
   async def test_gcs_atomic_object_publication(self):
     bucket = mock.Mock()
-    with mock.patch.object(gcs_utils, 'get_bucket', return_value=bucket):
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=False),
+        mock.patch.object(gcs_utils, 'get_bucket', return_value=bucket),
+    ):
       await metadata.write_json(
           epath.Path('gs://bucket/checkpoint/record'), {'a': 1}, exclusive=True
       )
@@ -67,6 +70,43 @@ class MetadataTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
         content_type='application/json',
         if_generation_match=0,
     )
+
+  @parameterized.parameters(
+      (True, b'12345', False),
+      (True, b'', True),
+      (False, b'67890', False),
+  )
+  async def test_zonal_gcs_atomic_object_publication(
+      self,
+      exclusive: bool,
+      generation: bytes,
+      expect_error: bool,
+  ):
+    path = epath.Path('gs://zonal-bucket/checkpoint/record')
+    mock_kv = mock.MagicMock()
+    mock_kv.write.return_value.result.return_value = mock.Mock(
+        generation=generation
+    )
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=True),
+        mock.patch(
+            'tensorstore.KvStore.open',
+            return_value=mock.MagicMock(
+                result=mock.MagicMock(return_value=mock_kv)
+            ),
+        ) as mock_open,
+    ):
+      if expect_error:
+        with self.assertRaisesRegex(FileExistsError, 'already exists'):
+          await metadata.write_json(path, {'a': 1}, exclusive=exclusive)
+      else:
+        await metadata.write_json(path, {'a': 1}, exclusive=exclusive)
+      mock_open.assert_called_once()
+      mock_kv.write.assert_called_once_with(
+          b'',
+          json.dumps({'a': 1}, sort_keys=True).encode('utf-8'),
+          if_equal=b'\x02' if exclusive else None,
+      )
 
   @parameterized.parameters(False, True)
   async def test_gcs_relocation_and_conflict(self, conflict):

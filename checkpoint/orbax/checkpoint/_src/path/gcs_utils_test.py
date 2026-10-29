@@ -15,14 +15,49 @@
 """Tests for gcs_utils functions."""
 
 import os
+import types
 from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from google.api_core import exceptions as api_exceptions
+from google.auth import exceptions as auth_exceptions
 from orbax.checkpoint._src.path import gcs_utils
 
 
+def _layout(
+    location_type: str = 'zone', hns: bool = False
+) -> types.SimpleNamespace:
+  return types.SimpleNamespace(
+      location_type=location_type,
+      hierarchical_namespace=types.SimpleNamespace(enabled=hns),
+  )
+
+
+def _bucket(
+    location_type: str | None = 'zone',
+    storage_class: str = 'STANDARD',
+    hns: bool = False,
+) -> types.SimpleNamespace:
+  return types.SimpleNamespace(
+      location_type=location_type,
+      storage_class=storage_class,
+      hierarchical_namespace_enabled=hns,
+  )
+
+
 class GcsUtilsTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    for cached_fn in (
+        gcs_utils._get_bucket_info,
+        gcs_utils._get_storage_control_client,
+        gcs_utils._get_storage_client,
+        gcs_utils.get_bucket,
+    ):
+      cached_fn.cache_clear()
+      self.addCleanup(cached_fn.cache_clear)
 
   @parameterized.named_parameters(
       dict(
@@ -88,25 +123,34 @@ class GcsUtilsTest(parameterized.TestCase):
           'gs://my-bucket/dir/sub/',
           'gs://my-bucket',
           'gs://my-bucket/',
+          epath.Path('gs://my-bucket/dir/sub'),
       ],
+      is_zonal=[False, True],
   )
   def test_get_kvstore_for_gcs(
       self,
       gcs_backend: str | None,
-      ckpt_path: str,
+      ckpt_path: epath.PathLike,
+      is_zonal: bool,
   ):
     env_override = (
         {} if gcs_backend is None else {'TENSORSTORE_GCS_BACKEND': gcs_backend}
     )
-    expected_driver = gcs_backend or 'gcs'
-    if ckpt_path.endswith(('my-bucket', 'my-bucket/')):
+    expected_driver = gcs_backend or (
+        'gcs_grpc' if is_zonal and str(ckpt_path).startswith('gs://') else 'gcs'
+    )
+    path_str = str(ckpt_path)
+    if path_str.endswith(('my-bucket', 'my-bucket/')):
       expected_path = ''
-    elif ckpt_path.endswith('/'):
+    elif path_str.endswith('/'):
       expected_path = 'dir/sub/'
     else:
       expected_path = 'dir/sub'
 
-    with mock.patch.dict(os.environ, env_override, clear=False):
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=is_zonal),
+        mock.patch.dict(os.environ, env_override, clear=False),
+    ):
       if gcs_backend is None:
         os.environ.pop('TENSORSTORE_GCS_BACKEND', None)
       self.assertEqual(
@@ -117,6 +161,71 @@ class GcsUtilsTest(parameterized.TestCase):
               'path': expected_path,
           },
       )
+
+  def test_get_storage_control_client_caches_none_on_import_error(self):
+    with mock.patch.dict(
+        'sys.modules', {'google.cloud.storage_control_v2': None}
+    ):
+      self.assertIsNone(gcs_utils._get_storage_control_client())
+      self.assertIsNone(gcs_utils._get_storage_control_client())
+      self.assertEqual(
+          gcs_utils._get_storage_control_client.cache_info().hits, 1
+      )
+
+  @parameterized.named_parameters(
+      ('layout_zonal_hns', _layout('zone', True), None, (True, True)),
+      ('layout_regional', _layout('region', False), None, (False, False)),
+      (
+          'api_error_fallback_zonal',
+          api_exceptions.GoogleAPICallError('err'),
+          _bucket('zone', 'RAPID', True),
+          (True, True),
+      ),
+      (
+          'api_error_fallback_forbidden',
+          api_exceptions.GoogleAPICallError('err'),
+          api_exceptions.GoogleAPICallError('403'),
+          (False, False),
+      ),
+      (
+          'auth_error_no_fallback',
+          auth_exceptions.DefaultCredentialsError('no creds'),
+          None,
+          (False, False),
+      ),
+      (
+          'no_control_client_fallback_rapid',
+          None,
+          _bucket(None, 'RAPID', False),
+          (True, False),
+      ),
+  )
+  def test_bucket_info(self, layout, bucket, expected):
+    if layout is None:
+      client = None
+    else:
+      client = types.SimpleNamespace(
+          get_storage_layout=mock.Mock(side_effect=[layout])
+      )
+    with (
+        mock.patch.object(
+            gcs_utils, '_get_storage_control_client', return_value=client
+        ),
+        mock.patch.object(
+            gcs_utils, 'get_bucket', side_effect=[bucket]
+        ) as mock_get_bucket,
+    ):
+      self.assertEqual(
+          (
+              gcs_utils.is_zonal_bucket('b'),
+              gcs_utils.is_hierarchical_namespace_enabled('gs://b/d'),
+          ),
+          expected,
+      )
+      self.assertEqual(mock_get_bucket.called, bucket is not None)
+    self.assertFalse(
+        gcs_utils.is_hierarchical_namespace_enabled('/tmp/local/dir')
+    )
 
   def test_rmtree_non_gcs_path(self):
     local_path = epath.Path('/tmp/some/local/dir')
@@ -254,6 +363,22 @@ class GcsUtilsTest(parameterized.TestCase):
   def test_gcs_bucket_root_rejects_non_gcs_path(self):
     with self.assertRaises(ValueError):
       gcs_utils.gcs_bucket_root(epath.Path('/tmp/some/local/dir'))
+
+  @parameterized.parameters(
+      (False, 'get_bucket'),
+      (True, 'bucket'),
+  )
+  def test_get_bucket(self, is_forbidden: bool, expected_method: str):
+    mock_client = mock.MagicMock()
+    if is_forbidden:
+      mock_client.get_bucket.side_effect = api_exceptions.Forbidden('403')
+    bucket = mock.MagicMock()
+    getattr(mock_client, expected_method).return_value = bucket
+    with mock.patch.object(
+        gcs_utils, '_get_storage_client', return_value=mock_client
+    ):
+      self.assertIs(gcs_utils.get_bucket('my-bucket'), bucket)
+      getattr(mock_client, expected_method).assert_called_once_with('my-bucket')
 
 
 if __name__ == '__main__':
