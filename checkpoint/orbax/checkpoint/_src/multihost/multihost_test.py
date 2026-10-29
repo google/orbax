@@ -256,6 +256,28 @@ class ReachedPreemptionTest(parameterized.TestCase):
     )
     self.assertFalse(multihost.reached_preemption(step=5))
 
+  @mock.patch.object(multihost, 'is_proxy_pathways_backend', return_value=False)
+  @mock.patch.object(multihost, 'is_pathways_backend', return_value=False)
+  @mock.patch.object(multihost.multihost_utils, 'reached_preemption_sync_point')
+  @mock.patch.object(multihost.jax.monitoring, 'record_event')
+  def test_deduplicates_preemption_metric_per_step(
+      self,
+      mock_record_event,
+      mock_sync_point,
+      unused_mock_is_pathways,
+      unused_mock_is_proxy,
+  ):
+    multihost._last_logged_preemption_step = None
+    mock_sync_point.return_value = True
+    self.assertTrue(multihost.reached_preemption(step=10))
+    self.assertTrue(multihost.reached_preemption(step=10))
+    self.assertTrue(multihost.reached_preemption(step=10))
+    mock_record_event.assert_called_once_with('/jax/orbax/write/preemption')
+
+    # Calling with a new preemption step logs again.
+    self.assertTrue(multihost.reached_preemption(step=11))
+    self.assertEqual(mock_record_event.call_count, 2)
+
 
 if __name__ == '__main__':
   multiprocess_test.main()

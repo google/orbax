@@ -926,6 +926,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._last_save_time = None
     self._wait_for_prev_save_duration = 0.0
+    self._last_checkpoint_time = _INIT_TIME
+    self._previous_checkpoint_time = _INIT_TIME
+    self._last_preemption_skip_logged_step: Optional[int] = None
 
     logging.info(
         '[process=%s][thread=%s] CheckpointManager created,  primary_host=%s,'
@@ -1214,6 +1217,34 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """Returns True if a preemption sync point has been reached."""
     return utils.reached_preemption(step)
 
+  def _record_preemption_save_skipped(
+      self,
+      step: int,
+      current_time: datetime.datetime,
+      reason: str,
+  ) -> None:
+    """Records telemetry when a checkpoint save is skipped on a preemption step."""
+    if not multihost.is_primary_host(
+        self._multiprocessing_options.primary_host
+    ):
+      return
+    if self._last_preemption_skip_logged_step == step:
+      return
+    self._last_preemption_skip_logged_step = step
+    cc_enabled = int(self._is_continuous_checkpointing_enabled())
+    duration = current_time - self._last_checkpoint_time
+    jax.monitoring.record_event_duration_secs(
+        '/jax/checkpoint/write/preempt/duration_lost_secs',
+        duration.total_seconds(),
+        reason=reason,
+        continuous_checkpointing_enabled=cc_enabled,
+    )
+    jax.monitoring.record_event(
+        '/jax/checkpoint/write/preempt/save_skipped',
+        reason=reason,
+        continuous_checkpointing_enabled=cc_enabled,
+    )
+
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
 
@@ -1225,13 +1256,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       True if the checkpoint should be saved.
     """
+    current_time = datetime.datetime.now(tz=datetime.timezone.utc)
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
+      if self.reached_preemption(step):
+        self._record_preemption_save_skipped(step, current_time, 'read_only')
       return False
     last_checkpoint_step = self.latest_step()
     # Ensure current step is between the last step and next step (accounting for
     # save interval).
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
+      if self.reached_preemption(step):
+        self._record_preemption_save_skipped(
+            step, current_time, 'step_already_saved'
+        )
       return False
 
     if self._options.enable_should_save_is_saving_in_progress_check:
@@ -1241,7 +1279,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     reached_preemption = self.reached_preemption(step)
     current_step_info = checkpoint_info.CheckpointInfo(
         step=step,
-        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        time=current_time,
         metrics=None,
     )
     context = save_decision_policy_lib.DecisionContext(
@@ -1249,9 +1287,18 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         reached_preemption=reached_preemption,
         multiprocessing_options=self._multiprocessing_options,
     )
-    return self._save_decision_policy.should_save(
+    should_save_result = self._save_decision_policy.should_save(
         current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
     )
+    if not should_save_result and reached_preemption:
+      if is_saving_in_progress:
+        skip_reason = 'save_in_progress'
+      elif self._is_continuous_checkpointing_enabled():
+        skip_reason = 'minimum_interval_not_met'
+      else:
+        skip_reason = 'policy_rejected'
+      self._record_preemption_save_skipped(step, current_time, skip_reason)
+    return should_save_result
 
   def _get_save_directory(
       self,
@@ -1897,11 +1944,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return checkpoint_infos
 
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
-    self._checkpoints.append(
-        CheckpointInfo(
-            step, datetime.datetime.now(tz=datetime.timezone.utc), metrics
-        )
-    )
+    checkpoint_time = datetime.datetime.now(tz=datetime.timezone.utc)
+    self._previous_checkpoint_time = self._last_checkpoint_time
+    self._last_checkpoint_time = checkpoint_time
+    self._checkpoints.append(CheckpointInfo(step, checkpoint_time, metrics))
 
   def _root_metadata_file_path(self, legacy: bool = False) -> epath.Path:
     if not self._metadata_dir.exists():
@@ -2207,15 +2253,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # If another checkpoint has not been previously saved, measures the time
       # since program start.
       if self.reached_preemption(step):
-        if self._checkpoints.size() > 1:
-          previous_time = self._checkpoints[-2].time
-        else:
-          previous_time = _INIT_TIME
         assert not self._checkpoints.empty()
-        duration = self._checkpoints[-1].time - previous_time
+        duration = self._checkpoints[-1].time - self._previous_checkpoint_time
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/preempt/duration_saved_secs',
             duration.total_seconds(),
+            continuous_checkpointing_enabled=int(
+                self._is_continuous_checkpointing_enabled()
+            ),
         )
 
   def _finalize(self, step: int, steps_to_remove: List[int]):
