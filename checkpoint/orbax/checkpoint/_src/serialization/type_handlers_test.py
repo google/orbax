@@ -45,6 +45,7 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
+from orbax.checkpoint._src.serialization import worker_memory_utils
 from orbax.checkpoint._src.sharding_utils import make_single_device_sharding
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -117,6 +118,14 @@ def get_replica_pids(rep_id: int, mesh: jax.sharding.Mesh):
   pids = set([d.process_index for d in replica_devices])
   ids = set([d.id for d in replica_devices])
   return ids, pids
+
+
+class _DeprioritizedCallback(types.DefaultSerializationStatusCallback):
+  """Saves every array in memory-limited batches."""
+
+  def key_priority(self, keypath) -> types.TransferPriority:
+    del keypath  # Unused.
+    return types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
 
 
 class SerializationTest(
@@ -322,6 +331,169 @@ class SerializationTest(
     test_utils.assert_array_equal(self, full_replicated_arr, restored[0])
     test_utils.assert_array_equal(self, partial_replicated_arr, restored[1])
     test_utils.assert_array_equal(self, sharded_arr, restored[2])
+
+  def _make_arrays_with_one_replica_per_process(self):
+    # Replica 0 is on process 0 and replica 1 is on process 1. Within a
+    # replica, each array is sharded 4 ways, so a replica holds whole arrays of
+    # 512, 384, 256 and 128 bytes.
+    sharding = jax.sharding.NamedSharding(
+        mesh=jax.sharding.Mesh(
+            devices=np.asarray(jax.devices()).reshape(2, 4),
+            axis_names=('x', 'y'),
+        ),
+        spec=jax.sharding.PartitionSpec('y'),
+    )
+    arrays = [
+        jax.device_put(
+            np.arange(rows * 8, dtype=np.float32).reshape(rows, 8), sharding
+        )
+        for rows in (16, 12, 8, 4)
+    ]
+    return arrays, sharding
+
+  async def _serialize_and_record_bytes_written(self, handler, arrays, infos):
+    """Serializes `arrays` and returns the bytes this process wrote for each."""
+    bytes_written = {}
+    real_serialize = serialization.async_serialize_from_host
+
+    async def record_serialize(rslices_on_host, *args, **kwargs):
+      bytes_written[rslices_on_host.global_shape] = rslices_on_host.nbytes
+      return await real_serialize(rslices_on_host, *args, **kwargs)
+
+    with mock.patch.object(
+        serialization, 'async_serialize_from_host', side_effect=record_serialize
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+    return [bytes_written[arr.shape] for arr in arrays]
+
+  async def _merge_ocdbt_files(self, ts_context):
+    if multihost.process_index() == 0:
+      await ocdbt_utils.merge_ocdbt_per_process_files(
+          self.directory, ts_context=ts_context, use_zarr3=False
+      )
+    test_utils.sync_global_processes('merge_ocdbt_complete')
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='unbalanced_ocdbt',
+          balance_arrays_across_replicas=False,
+          use_ocdbt=True,
+          # Replica 0 saves every array.
+          expected_bytes_by_process=((512, 384, 256, 128), (0, 0, 0, 0)),
+      ),
+      dict(
+          testcase_name='unbalanced_no_ocdbt',
+          balance_arrays_across_replicas=False,
+          use_ocdbt=False,
+          expected_bytes_by_process=((512, 384, 256, 128), (0, 0, 0, 0)),
+      ),
+      dict(
+          testcase_name='balanced_ocdbt',
+          balance_arrays_across_replicas=True,
+          use_ocdbt=True,
+          # Each replica saves different whole arrays, 640 bytes each.
+          expected_bytes_by_process=((512, 0, 0, 128), (0, 384, 256, 0)),
+      ),
+      dict(
+          testcase_name='balanced_no_ocdbt',
+          balance_arrays_across_replicas=True,
+          use_ocdbt=False,
+          expected_bytes_by_process=((512, 0, 0, 128), (0, 384, 256, 0)),
+      ),
+  )
+  async def test_serialization_without_replica_parallel(
+      self, balance_arrays_across_replicas, use_ocdbt, expected_bytes_by_process
+  ):
+    handler = type_handlers.ArrayHandler(
+        primary_host=0,
+        replica_id=0,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=balance_arrays_across_replicas,
+    )
+    arrays, sharding = self._make_arrays_with_one_replica_per_process()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
+    infos = [
+        get_param_info(
+            f'array_{i}',
+            self.directory,
+            is_ocdbt=use_ocdbt,
+            ts_context=ts_context,
+        )
+        for i in range(len(arrays))
+    ]
+    await _create_param_save_dirs(infos)
+
+    bytes_written = await self._serialize_and_record_bytes_written(
+        handler, arrays, infos
+    )
+    test_utils.sync_global_processes(
+        'test_serialization_without_replica_parallel:serialized'
+    )
+    if use_ocdbt:
+      await self._merge_ocdbt_files(ts_context)
+    restored = await handler.deserialize(
+        infos, [ArrayRestoreArgs(sharding=sharding)] * len(arrays)
+    )
+    metadatas = await handler.metadata(infos)
+
+    self.assertSequenceEqual(
+        bytes_written, expected_bytes_by_process[multihost.process_index()]
+    )
+    test_utils.assert_tree_equal(self, arrays, restored)
+    # Arrays are saved as whole shards either way, so the stored layout is the
+    # same with and without balancing.
+    self.assertSequenceEqual(
+        [m.storage.chunk_shape for m in metadatas],
+        [(4, 8), (3, 8), (2, 8), (1, 8)],
+    )
+
+  async def test_balanced_serialization_in_memory_limited_batches(self):
+    handler = type_handlers.ArrayHandler(
+        primary_host=0,
+        replica_id=0,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        callback=_DeprioritizedCallback(),
+    )
+    arrays, sharding = self._make_arrays_with_one_replica_per_process()
+    ts_context = ts_utils.get_ts_context(use_ocdbt=True)
+    infos = [
+        get_param_info(
+            f'array_{i}', self.directory, is_ocdbt=True, ts_context=ts_context
+        ).replace(
+            keypath=(jax.tree_util.DictKey(f'array_{i}'),),
+            # Each process holds a whole replica (512, 384, 256, 128 bytes),
+            # and each array is counted against the process hosting its
+            # assigned replica. The first three arrays exceed the 129-byte
+            # per-worker budget on their own, and the 128-byte array on
+            # process 0 cannot join batch 3 because process 1 already holds
+            # 256 >= 129 bytes, so each batch fits a single array.
+            device_host_byte_limiter=limits.LimitInFlightBytes(129),
+        )
+        for i in range(len(arrays))
+    ]
+
+    bytes_written = await self._serialize_and_record_bytes_written(
+        handler, arrays, infos
+    )
+    test_utils.sync_global_processes(
+        'test_balanced_serialization_in_memory_limited_batches:serialized'
+    )
+    await self._merge_ocdbt_files(ts_context)
+    restored = await handler.deserialize(
+        infos, [ArrayRestoreArgs(sharding=sharding)] * len(arrays)
+    )
+
+    # Replicas are assigned over all arrays before they are split into
+    # memory-limited batches, so each replica still saves different whole
+    # arrays even though every batch holds a single array.
+    expected_bytes_by_process = ((512, 0, 0, 128), (0, 384, 256, 0))
+    self.assertSequenceEqual(
+        bytes_written, expected_bytes_by_process[multihost.process_index()]
+    )
+    test_utils.assert_tree_equal(self, arrays, restored)
 
   async def test_array_deserialization_with_custom_layout(self):
     handler = type_handlers.ArrayHandler()
@@ -743,6 +915,17 @@ class ArrayHandlerTest(parameterized.TestCase):
     super().setUp()
     self.pytree, _, _ = test_utils.setup_sharded_pytree()
 
+  def test_balance_arrays_across_replicas_rejects_local_checkpointing(self):
+    with self.assertRaisesRegex(
+        ValueError, '`balance_arrays_across_replicas` is incompatible'
+    ):
+      type_handlers.ArrayHandler(
+          primary_host=None,
+          replica_id=None,
+          use_replica_parallel=False,
+          balance_arrays_across_replicas=True,
+      )
+
 
 class ArrayHandlerCallbackTest(
     parameterized.TestCase, unittest.IsolatedAsyncioTestCase
@@ -893,6 +1076,271 @@ class ArrayHandlerCallbackTest(
             ('on_write_end', ('params', 'a')),
         ],
     )
+    self.assertNotIn(
+        'replica_ids',
+        mock_dispatcher.dispatch.call_args.kwargs['func_kwargs'],
+    )
+
+  async def test_balance_arrays_across_batches(self):
+    cb = self.TestCallback(types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED)
+    handler = type_handlers.ArrayHandler(
+        callback=cb,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        replica_id=0,
+    )
+    directory = epath.Path(self.create_tempdir().full_path)
+    leaves = jax.tree.leaves(self.pytree)
+    num_replicas = replica_slices._sharding_num_replicas(
+        leaves[0].sharding, leaves[0].shape
+    )
+    self.assertGreaterEqual(num_replicas, 4)
+    arrays = [leaves[0] for _ in range(4)]
+    infos = [
+        get_param_info(f'a_{i}', directory).replace(
+            keypath=(
+                jax.tree_util.DictKey('params'),
+                jax.tree_util.DictKey(f'a_{i}'),
+            ),
+            device_host_byte_limiter=limits.LimitInFlightBytes(16),
+        )
+        for i in range(4)
+    ]
+
+    recorded_replica_ids = []
+    real_transfer = replica_slices.transfer_arrays_to_host
+
+    def mock_transfer(transferred_arrays, replica_ids, *args, **kwargs):
+      recorded_replica_ids.append(replica_ids)
+      return real_transfer(transferred_arrays, replica_ids, *args, **kwargs)
+
+    def mock_batches(deprioritized_params, **kwargs):
+      del kwargs  # Unused.
+      # Yield 4 separate batches of 1 array each
+      for p in deprioritized_params:
+        yield [p[0]], [p[1]], [p[2]]
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', side_effect=mock_transfer
+    ), mock.patch.object(
+        jax_array_handlers,
+        '_get_deprioritized_batches_to_serialize',
+        side_effect=mock_batches,
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    # The 4 equal-sized arrays are assigned to the first 4 of the num_replicas
+    # replicas: [0, 1, 2, 3]. Each batch of 1 array receives its precomputed
+    # slice of replica_ids.
+    self.assertLen(recorded_replica_ids, 4)
+    self.assertEqual(
+        [r[0] for r in recorded_replica_ids],
+        [0, 1, 2, 3],
+    )
+
+  async def test_balance_arrays_across_batches_with_dispatcher(self):
+    class MixedPriorityCallback(types.DefaultSerializationStatusCallback):
+
+      def key_priority(self, keypath) -> types.TransferPriority:
+        name = tree_utils.str_keypath(keypath)[-1]
+        if name in ('a_0', 'a_1'):
+          return types.TransferPriority.SYNCHRONOUS
+        return types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+    dispatched_replica_ids = []
+
+    def mock_dispatch(*args, **kwargs):
+      del args  # Unused.
+      dispatched_replica_ids.append(kwargs['func_kwargs'].get('replica_ids'))
+      return jnp.array([1.0])
+
+    def mock_batches(deprioritized_params, **kwargs):
+      del kwargs  # Unused.
+      for p in deprioritized_params:
+        yield [p[0]], [p[1]], [p[2]]
+
+    mock_dispatcher.dispatch.side_effect = mock_dispatch
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        callback=MixedPriorityCallback(),
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        replica_id=0,
+    )
+    directory = epath.Path(self.create_tempdir().full_path)
+    leaves = jax.tree.leaves(self.pytree)
+    num_replicas = replica_slices._sharding_num_replicas(
+        leaves[0].sharding, leaves[0].shape
+    )
+    self.assertGreaterEqual(num_replicas, 4)
+    host_arr = jax.device_put(
+        leaves[0], leaves[0].sharding.with_memory_kind('pinned_host')
+    )
+    # Mix device arrays (restricted on device to their single replica, so worker
+    # replica_id becomes 0 on the 1-replica sub-mesh) and pinned_host arrays
+    # (kept on the full mesh with their balanced replica_id).
+    arrays = [leaves[0], host_arr, leaves[0], host_arr]
+    infos = [
+        get_param_info(f'a_{i}', directory).replace(
+            keypath=(
+                jax.tree_util.DictKey('params'),
+                jax.tree_util.DictKey(f'a_{i}'),
+            ),
+            device_host_byte_limiter=limits.LimitInFlightBytes(16),
+        )
+        for i in range(4)
+    ]
+
+    with mock.patch.object(
+        jax_array_handlers,
+        '_get_deprioritized_batches_to_serialize',
+        side_effect=mock_batches,
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    # Balanced replica assignments before on-device restriction are
+    # [0, 1, 2, 3]. a_0 and a_2 (device) are restricted to 1-replica sub-meshes
+    # (worker replica_ids [0]), while a_1 and a_3 (pinned_host) retain
+    # replica_ids [1] and [3] on the full mesh. Because a_0 (1-device sub-mesh)
+    # and a_1 (full mesh) have different device sets, the prioritized batch is
+    # dispatched in 2 groups ([0] and [1]), followed by the 2 deprioritized
+    # batches ([0] and [3]).
+    self.assertEqual(dispatched_replica_ids, [[0], [1], [0], [3]])
+
+  async def test_balance_arrays_across_batches_replica_parallel(self):
+    cb = self.TestCallback(types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED)
+    handler = type_handlers.ArrayHandler(
+        callback=cb,
+        use_replica_parallel=True,
+        balance_arrays_across_replicas=True,
+        replica_id=0,
+    )
+    directory = epath.Path(self.create_tempdir().full_path)
+    leaves = jax.tree.leaves(self.pytree)
+    arrays = [leaves[0] for _ in range(4)]
+    infos = [
+        get_param_info(f'a_{i}', directory).replace(
+            keypath=(
+                jax.tree_util.DictKey('params'),
+                jax.tree_util.DictKey(f'a_{i}'),
+            ),
+            device_host_byte_limiter=limits.LimitInFlightBytes(16),
+        )
+        for i in range(4)
+    ]
+
+    recorded_kwargs = []
+    real_get_batches = (
+        jax_array_handlers._get_deprioritized_batches_to_serialize
+    )
+
+    def mock_get_batches(deprioritized_params, **kwargs):
+      recorded_kwargs.append(kwargs)
+      return real_get_batches(deprioritized_params, **kwargs)
+
+    with mock.patch.object(
+        jax_array_handlers,
+        '_get_deprioritized_batches_to_serialize',
+        side_effect=mock_get_batches,
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    self.assertNotEmpty(recorded_kwargs)
+    # Memory usage is estimated across all replicas, as for replica-parallel
+    # saving without balancing.
+    self.assertEqual(recorded_kwargs[0]['replica_ids'], [None] * len(arrays))
+
+
+class WorkerMemoryUtilsTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.pytree, _, _ = test_utils.setup_sharded_pytree()
+
+  def test_next_memory_budgeted_batch_with_replica_ids(self):
+    directory = epath.Path(self.create_tempdir().full_path)
+    leaves = jax.tree.leaves(self.pytree)
+    arr = leaves[0]
+    arrays = [arr for _ in range(4)]
+    infos = [
+        get_param_info(f'a_{i}', directory).replace(
+            keypath=(
+                jax.tree_util.DictKey('params'),
+                jax.tree_util.DictKey(f'a_{i}'),
+            ),
+        )
+        for i in range(4)
+    ]
+    args = [types.SaveArgs() for _ in range(4)]
+    params = list(zip(arrays, infos, args))
+
+    # Mismatched length raises ValueError
+    with self.assertRaisesRegex(ValueError, 'Expected 4 replica_ids, got 2'):
+      list(
+          worker_memory_utils.next_memory_budgeted_batch(
+              params,
+              worker_memory_budget=1024 * 1024,
+              replica_ids=[0, 1],
+              dispatcher=None,
+          )
+      )
+
+    # Empty params returns empty generator
+    self.assertEmpty(
+        list(
+            worker_memory_utils.next_memory_budgeted_batch(
+                [],
+                worker_memory_budget=1024,
+                replica_ids=[],
+                dispatcher=None,
+            )
+        )
+    )
+
+    # Budget is sized to allow exactly 1 array per worker, but not 2.
+    shard_size = (
+        np.prod(arr.sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
+    )
+    budget = int(shard_size + 1)
+
+    # In a multi-worker environment where each device is on a different worker:
+    with mock.patch.object(
+        multihost, 'process_index_from_device', side_effect=lambda d: d.id
+    ):
+      # With replica_ids=[None, None, None, None], memory is estimated across
+      # all replicas for each array, so each array takes memory on every worker.
+      # Therefore, each batch can only fit 1 array (4 batches total).
+      batches_without_ids = list(
+          worker_memory_utils.next_memory_budgeted_batch(
+              params,
+              worker_memory_budget=budget,
+              replica_ids=[None] * len(params),
+              dispatcher=None,
+          )
+      )
+      self.assertLen(batches_without_ids, 4)
+
+      # With replica_ids=[0, 1, 2, 3], each array only consumes memory on the
+      # worker hosting that replica. Each worker gets 1 array <= budget, so
+      # all 4 arrays fit into a single batch.
+      batches_with_ids = list(
+          worker_memory_utils.next_memory_budgeted_batch(
+              params,
+              worker_memory_budget=budget,
+              replica_ids=[0, 1, 2, 3],
+              dispatcher=None,
+          )
+      )
+      self.assertLen(batches_with_ids, 1)
+      self.assertLen(batches_with_ids[0], 4)
 
 
 class CopyDeviceArraysForAsyncTransferTest(
@@ -999,6 +1447,56 @@ class CopyDeviceArraysForAsyncTransferTest(
         [('main_thread', 'original')],
     )
 
+  async def test_transfers_copies_in_background_with_balancing(self):
+    arr = jax.tree.leaves(self.pytree)[0]
+    host_arr = jax.device_put(arr, arr.sharding.with_memory_kind('pinned_host'))
+    arrays = [arr, host_arr, arr]
+    infos = [
+        self._get_param_info(
+            f'a{i}', copy_device_arrays_for_async_transfer=True
+        )
+        for i in range(len(arrays))
+    ]
+    handler = type_handlers.ArrayHandler(
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+        replica_id=0,
+    )
+    recorded_transfers = []
+    real_transfer = replica_slices.transfer_arrays_to_host
+
+    def _recording_transfer(transferred, replica_ids, *args, **kwargs):
+      recorded_transfers.append((
+          'main_thread'
+          if threading.current_thread() is threading.main_thread()
+          else 'background',
+          replica_ids,
+      ))
+      return real_transfer(transferred, replica_ids, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'transfer_arrays_to_host', _recording_transfer
+    ):
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    expected_ids = replica_slices.get_balanced_replica_ids(
+        arrays, use_replica_parallel=False
+    )
+    self.assertLen(set(expected_ids), 3)
+    # The host-resident array (index 1) stays in `prioritized` on the main
+    # thread, while the two device arrays (indices 0, 2) are copied and
+    # transferred in the background with their corresponding balanced replica
+    # IDs.
+    self.assertEqual(
+        recorded_transfers,
+        [
+            ('main_thread', [expected_ids[1]]),
+            ('background', [expected_ids[0], expected_ids[2]]),
+        ],
+    )
+
   async def test_dispatcher_transfers_background_arrays_before_the_write(
       self,
   ):
@@ -1028,6 +1526,75 @@ class CopyDeviceArraysForAsyncTransferTest(
         mock_dispatcher.dispatch.call_args.kwargs['input_arrays'],
         arrays_on_host,
     )
+
+  @parameterized.parameters(False, True)
+  async def test_dispatcher_selects_single_replicas_when_balanced(
+      self, copy_device_arrays_for_async_transfer: bool
+  ):
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape((2, jax.device_count() // 2)),
+        ('replica', 'data'),
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec(None, 'data')
+    )
+    arrays = [
+        test_utils.create_sharded_array(
+            np.arange(16, dtype=np.float32).reshape((4, 4)),
+            mesh,
+            sharding.spec,
+        ),
+        test_utils.create_sharded_array(
+            np.arange(16, dtype=np.float32).reshape((4, 4)) + 100,
+            mesh,
+            sharding.spec,
+        ),
+    ]
+    infos = [
+        self._get_param_info(
+            f'a{i}',
+            copy_device_arrays_for_async_transfer=(
+                copy_device_arrays_for_async_transfer
+            ),
+        )
+        for i in range(len(arrays))
+    ]
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    mock_dispatcher.device_to_host.side_effect = lambda x: x
+    mock_dispatcher.dispatch.return_value = jnp.array([1.0])
+
+    handler = type_handlers.ArrayHandler(
+        dispatcher=mock_dispatcher,
+        use_replica_parallel=False,
+        balance_arrays_across_replicas=True,
+    )
+    with mock.patch.object(jnp, 'copy', wraps=jnp.copy) as mock_copy:
+      futures = await handler.serialize(arrays, infos)
+      for f in futures:
+        f.result()
+
+    self.assertEqual(
+        mock_copy.call_count,
+        len(arrays) if copy_device_arrays_for_async_transfer else 0,
+    )
+    if copy_device_arrays_for_async_transfer:
+      for call in mock_copy.call_args_list:
+        copied_arr = call.args[0]
+        self.assertLen(copied_arr.sharding.device_set, jax.device_count() // 2)
+
+    (transferred,), _ = mock_dispatcher.device_to_host.call_args
+    self.assertLen(transferred, 2)
+    self.assertEqual(
+        transferred[0].sharding.device_set,
+        set(mesh.devices[0].flatten()),
+    )
+    self.assertEqual(
+        transferred[1].sharding.device_set,
+        set(mesh.devices[1].flatten()),
+    )
+    # The two arrays are on disjoint replica device sets, so they are
+    # dispatched in two separate groups.
+    self.assertEqual(mock_dispatcher.dispatch.call_count, 2)
 
 
 class PlaceholderHandlerTest(

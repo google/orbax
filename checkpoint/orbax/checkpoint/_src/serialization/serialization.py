@@ -101,7 +101,7 @@ async def async_serialize(
   # Start D2H transfer in parallel for each array.
   rslices = replica_slices.transfer_arrays_to_host(
       [arr_inp],
-      replica_id,
+      [replica_id],
       use_replica_parallel,
   )[0]
 
