@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checks. With `force=False` / `overwrite=False`, an existing destination would
   raise an exception when the save is awaited (e.g. `wait_until_finished()`).
 
+### Fixed
+
+- #v1 Preserve existing checkpoints when an overwrite is skipped by the save
+  decision policy.
+
 ## [0.12.8] - 2026-10-20
 
 ### Added

@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import operator
 import time
 import typing
 from typing import Any, Callable, Iterable, Sequence
@@ -27,6 +29,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.logging import abstract_logger
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.deletion import execution as deletion_execution
 from orbax.checkpoint.experimental.v1._src.deletion import validation as deletion_validation
@@ -190,6 +193,9 @@ class Checkpointer(epy.ContextManager):
         save_decision_policies.PreemptionCheckpointingPolicy(),
     ])
     save_decision_policy = save_decision_policy or default_save_decision_policy  # pyrefly: ignore[bad-assignment]
+    self._save_decision_policy: save_decision_policies.SaveDecisionPolicy = (
+        save_decision_policy  # pyrefly: ignore[bad-assignment]
+    )
     default_preservation_policy = preservation_policies.PreserveAll()
     preservation_policy = preservation_policy or default_preservation_policy  # pyrefly: ignore[bad-assignment]
 
@@ -290,11 +296,42 @@ class Checkpointer(epy.ContextManager):
         return checkpoint
     raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
 
+  def _should_save(self, step: int, *, replacing: bool = False) -> bool:
+    """Returns whether the save decision policy allows saving at `step`.
+
+    Args:
+      step: The step to evaluate.
+      replacing: True only when `step` already exists and the caller passed
+        `overwrite=True`. `step` is then excluded from the previous steps, so
+        the decision is made as if `step` did not exist.
+    """
+    previous_steps = [
+        info
+        for info in self._manager._checkpoints  # pylint: disable=protected-access
+        if not (replacing and info.step == step)
+    ]
+    # Steps are expected to increase; never save at or before the latest step.
+    if previous_steps and previous_steps[-1].step >= step:
+      return False
+    context = save_decision_policies.DecisionContext(
+        is_saving_in_progress=self._manager.is_saving_in_progress(),
+        reached_preemption=self._manager.reached_preemption(step),
+        multiprocessing_options=self._context.multiprocessing_options.v0(),
+    )
+    current_step = checkpoint_info.CheckpointInfo(
+        step=step,
+        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        metrics=None,
+    )
+    return self._save_decision_policy.should_save(
+        current_step, previous_steps=previous_steps, context=context  # pyrefly: ignore[bad-argument-type]
+    )
+
   def should_save(self, step: int) -> bool:
     """Returns whether a checkpoint should be saved at the given step."""
     with context_lib.get_context(self._context):
       step = _resolve_integer_step(step)
-      return self._manager.should_save(step)
+      return self._should_save(step)
 
   def save(
       self,
@@ -372,9 +409,10 @@ class Checkpointer(epy.ContextManager):
         under. Defaults to 'pytree'.
       force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
         always decides to save a checkpoint.
-      overwrite: If True, deletes any existing checkpoint at the given step
-        before saving. Otherwise, raises an error if the checkpoint already
-        exists.
+      overwrite: If True, replaces any existing checkpoint at the given step.
+        The existing checkpoint is deleted only if the save proceeds; if the
+        :py:class:`.SaveDecisionPolicy` skips the save, it is left intact.
+        Otherwise, raises an error if the checkpoint already exists.
       metrics: A PyTree of metrics to be saved with the checkpoint.
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the checkpoint
@@ -462,9 +500,10 @@ class Checkpointer(epy.ContextManager):
         objects (checkpointables) that need to be saved.
       force: If True, ignores all policy checks and always decides to save a
         checkpoint.
-      overwrite: If True, deletes any existing checkpoint at the given step
-        before saving. Otherwise, raises an error if the checkpoint already
-        exists.
+      overwrite: If True, replaces any existing checkpoint at the given step.
+        The existing checkpoint is deleted only if the save proceeds; if the
+        :py:class:`.SaveDecisionPolicy` skips the save, it is left intact.
+        Otherwise, raises an error if the checkpoint already exists.
       metrics: A dictionary of metrics to be saved with the checkpoint. Must be
         JSON-serializable.
       custom_metadata: A JSON dictionary representing user-specified custom
@@ -581,35 +620,35 @@ class Checkpointer(epy.ContextManager):
         target `step` already exists.
     """
     self._wait_for_deletion()
-    context = context_lib.get_context(self._context)
     saving_validation.validate_save_checkpointables(checkpointables)
-    if overwrite:
-      logging.info(
-          'Specified `overwrite`: deleting existing checkpoint %d if it'
-          ' exists.',
-          step,
-      )
-      try:
-        self._manager.delete(step)
-      except FileNotFoundError:
-        pass
-    elif any(c.step == step for c in self.checkpoints):
-      raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
+    with context_lib.get_context(self._context):
+      step_exists = step in self._manager.all_steps()
+      if step_exists and not overwrite:
+        raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
+      replacing = step_exists and overwrite
 
-    with context:
+      # Decide exactly once, before touching any existing checkpoint, so a
+      # skipped save never deletes the step it would have replaced.
+      if not force and not self._should_save(step, replacing=replacing):
+        return None
+
+      if replacing:
+        logging.info(
+            'Specified `overwrite`: deleting existing checkpoint %d.', step
+        )
+        self.delete(operator.index(step), missing_ok=True)
+
       checkpointer, args = saving.get_v0_checkpointer_and_args(
           checkpointables, metrics=metrics
       )
       self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
-      save_initiated = self._manager.save(
+      self._manager.save(
           step,
           args=args,
           metrics=metrics,
-          force=force,
+          force=True,
           custom_metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
       )
-      if not save_initiated:
-        return None
       return _AsyncSaveResponse(self._manager)
 
   def cancel(self, step: int | CheckpointMetadata | None = None):
