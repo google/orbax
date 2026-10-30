@@ -36,6 +36,7 @@ from orbax.checkpoint.experimental.v1._src.deletion import validation
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import types as path_types
+import tensorstore as ts
 
 RECORD_FILENAME = checkpoint_layout.CHECKPOINT_DELETION_KEY
 
@@ -301,6 +302,41 @@ async def write_json(
   )
 
 
+def _write_gcs_json(
+    path: path_types.Path, data: str, *, exclusive: bool
+) -> None:
+  """Writes JSON to GCS, using TensorStore for Zonal Rapid buckets.
+
+  Args:
+    path: Destination GCS path.
+    data: Serialized JSON string to write.
+    exclusive: Whether to fail if the destination file already exists.
+
+  Raises:
+    FileExistsError: If exclusive is True and the path already exists.
+  """
+  bucket, blob_path = gcs_utils.split_gcs_path(path)
+  if gcs_utils.is_zonal_bucket(bucket):
+    # TensorStore gcs_grpc driver writes via appendable temp object + Move.
+    # b'\x02' is StorageGeneration::NoValue() (if_generation_match: 0).
+    kv = ts.KvStore.open(gcs_utils.get_kvstore_for_gcs(path)).result()
+    write_result = kv.write(
+        b'',
+        data.encode('utf-8'),
+        if_equal=b'\x02' if exclusive else None,
+    ).result()
+    if exclusive and not write_result.generation:
+      raise FileExistsError(f'{path} already exists.')
+    # pylint: disable=protected-access
+    if hasattr(path, '_backend') and hasattr(path._backend, 'fs'):
+      path._backend.fs(path).invalidate_cache(os.fspath(path))
+    # pylint: enable=protected-access
+    return
+  blob = gcs_utils.get_bucket(bucket).blob(blob_path)
+  kwargs = {'if_generation_match': 0} if exclusive else {}
+  blob.upload_from_string(data, content_type='application/json', **kwargs)
+
+
 def _write_json(
     path: path_types.Path,
     value: dict[str, Any],
@@ -311,10 +347,7 @@ def _write_json(
   """Blocking implementation of `write_json`; runs in a worker thread."""
   data = json.dumps(value, sort_keys=True)
   if gcs_utils.is_gcs_path(path):
-    bucket, blob_path = gcs_utils.split_gcs_path(path)
-    blob = gcs_utils.get_bucket(bucket).blob(blob_path)
-    kwargs = {'if_generation_match': 0} if exclusive else {}
-    blob.upload_from_string(data, content_type='application/json', **kwargs)
+    _write_gcs_json(path, data, exclusive=exclusive)
     return
   local = _local_path(path)
   descriptor, temporary = tempfile.mkstemp(
