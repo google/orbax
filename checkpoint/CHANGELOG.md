@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `checkpoint_managers.continuous_checkpointing_options`, which returns
+  `CheckpointManagerOptions` with one `ContinuousCheckpointingPolicy` whose
+  `target_interval_steps` are the milestones (plus optional specific steps and
+  an initial save; no preemption save), and keep the latest and the latest
+  milestone checkpoints.
+- EXPERIMENTAL: Add `agreement` to `ContinuousCheckpointingPolicy`. The default
+  `'per_check'` is unchanged. `'per_save'` applies the same save rule (also
+  with `target_interval_steps`) but agrees across hosts only around saves: at
+  a planned step and while a write overruns it, instead of on every
+  `should_save` call. `continuous_checkpointing_options()` uses `'per_save'`
+  by default.
+
 ## [0.12.9] - 2026-11-02
 
 ### Added
