@@ -80,3 +80,7 @@ AbstractLeaf = _tree_types.AbstractLeaf
 #: Recursive JSON-serializable container type (lists and string-keyed dicts of
 #: JSON primitives ``str | int | float | bool | None`` or nested containers).
 JsonType = _tree_types.JsonType
+
+#: A JSON-serializable value (primitive ``str | int | float | bool | None`` or
+#: nested :py:data:`JsonType` container).
+JsonValue = _tree_types.JsonValue

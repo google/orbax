@@ -82,4 +82,10 @@ AbstractLeaf = (
 #: of JSON primitives ``str | int | float | bool | None`` or nested containers).
 JsonType = tree_types.JsonType
 
+#: A JSON-serializable value (primitive ``str | int | float | bool | None`` or
+#: nested :py:data:`~.JsonType` container).
+JsonValue = tree_types.JsonValue
+
+#: Sentinel value used in target abstract trees to omit a leaf when loading a
+#: partial PyTree checkpoint.
 PLACEHOLDER = ...
