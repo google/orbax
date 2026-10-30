@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `checkpoint_managers.continuous_checkpointing_options`, which returns
+  `CheckpointManagerOptions` that combine step-based milestone saves,
+  preemption saves, an initial save and `ContinuousCheckpointingPolicy`, and
+  keep the latest and the latest milestone checkpoints.
+
 ### Changed
 
 - `FileOptions.skip_sync_file_validations=True` (V0 and #v1) now checks for and
