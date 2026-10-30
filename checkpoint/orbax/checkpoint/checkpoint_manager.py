@@ -1695,7 +1695,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     else:
       self._finalize(
-          step, steps_to_remove, previous_checkpoint_infos, previous_checkpoint_times
+          step,
+          steps_to_remove,
+          previous_checkpoint_infos,
+          previous_checkpoint_times,
       )
       logging.info(
           '[process=%s][thread=%s][step=%s] Finished synchronous save.',
