@@ -2235,6 +2235,9 @@ class CheckpointManagerTest(
             ),
         ) as manager,
     ):
+      previous_checkpoint_times = (
+          manager._last_checkpoint_time, manager._previous_checkpoint_time
+      )
       # Initiate save which will fail.
       self.assertTrue(manager.save(3, {'a': 3, 'b': 4}, metrics={'score': 3}))
 
@@ -2258,6 +2261,10 @@ class CheckpointManagerTest(
       self.assertEqual({'score': 2}, manager.metrics(1))
       self.assertEqual({'score': 1}, manager.metrics(2))
       self.assertEqual({'a': 1, 'b': 2}, manager.restore(None))
+      self.assertEqual(
+          previous_checkpoint_times,
+          (manager._last_checkpoint_time, manager._previous_checkpoint_time),
+      )
 
       # Error is cleared so it is not re-raised.
       manager.wait_until_finished()
@@ -2291,6 +2298,7 @@ class CheckpointManagerTest(
     with CheckpointManager(self.directory, options=options) as manager:
       manager.save(0, args=args.JsonSave({'value': 7}), metrics={'score': 1})
       manager.wait_until_finished()
+      step0_time = manager._checkpoints[-1].time
       with mock.patch.object(
           manager, '_finalize_checkpoint', side_effect=SystemError
       ):
@@ -2302,6 +2310,20 @@ class CheckpointManagerTest(
       self.assertEqual(0, manager.best_step())
       self.assertEqual({'score': 1}, manager.metrics(0))
       self.assertEqual({'value': 7}, manager.restore(None))
+      with (
+          mock.patch.object(manager, 'reached_preemption', return_value=True),
+          mock.patch.object(
+              jax.monitoring, 'record_event_duration_secs'
+          ) as record_duration,
+      ):
+        manager.save(2, args=args.JsonSave({'value': 9}), metrics={'score': 3})
+        manager.wait_until_finished()
+        if multihost.process_index() == 0:
+          record_duration.assert_any_call(
+              '/jax/checkpoint/write/preempt/duration_saved_secs',
+              (manager._checkpoints[-1].time - step0_time).total_seconds(),
+              continuous_checkpointing_enabled=0,
+          )
 
   def test_legacy_handler_default_item(self):
     if multihost.is_pathways_backend():
