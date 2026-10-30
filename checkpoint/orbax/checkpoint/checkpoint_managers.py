@@ -25,6 +25,7 @@ from orbax.checkpoint._src.checkpoint_managers.save_decision_policy import (
     InitialSavePolicy,
     SpecificStepsPolicy,
     ContinuousCheckpointingPolicy,
+    ScheduledContinuousCheckpointingPolicy,
     AnySavePolicy,
 )
 
@@ -41,6 +42,8 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     BestN,
     LatestDuration,
 )
+
+from orbax.checkpoint._src.checkpoint_managers.continuous_checkpointing import continuous_checkpointing_options
 
 from orbax.checkpoint._src.checkpoint_managers.policy_checkpoint_info import PolicyCheckpointInfo
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
