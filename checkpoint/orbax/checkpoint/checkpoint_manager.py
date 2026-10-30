@@ -1590,6 +1590,20 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         '/jax/orbax/write/blocking_val_duration_secs',
         validation_duration,
     )
+    # Save-start notification. Sent after all checks that can reject the save
+    # (e.g. `StepAlreadyExistsError`), immediately before the write starts, so
+    # only for saves that really happen. Lets stateful policies (e.g.
+    # ScheduledContinuousCheckpointingPolicy) agree on state once per save.
+    # No-op for other policies.
+    save_decision_policy_lib.notify_save_start(
+        self._save_decision_policy,
+        step,
+        context=save_decision_policy_lib.DecisionContext(
+            is_saving_in_progress=False,
+            reached_preemption=bool(step_stats.reached_preemption),
+            multiprocessing_options=self._multiprocessing_options,
+        ),
+    )
     step_stats.checkpointer_blocking_start_time = time.time()
     if isinstance(self._checkpointer, Checkpointer):
       # `Checkpointer.save()` folds these into its own blocking metrics so that
@@ -1709,7 +1723,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         else [decision_policy]
     )
     return any(
-        isinstance(p, save_decision_policy_lib.ContinuousCheckpointingPolicy)
+        isinstance(
+            p,
+            (
+                save_decision_policy_lib.ContinuousCheckpointingPolicy,
+                save_decision_policy_lib.ScheduledContinuousCheckpointingPolicy,
+            ),
+        )
         for p in policies
     )
 
