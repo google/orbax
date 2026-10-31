@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- For graph-based (keyword-arguments based) pipelines, the exported pipeline
+  signature now includes inputs read only by later nodes, such as the model.
+
 ## [0.0.8] - 2025-9-17
 
 ### Removed
