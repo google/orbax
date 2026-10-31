@@ -926,8 +926,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._last_save_time = None
     self._wait_for_prev_save_duration = 0.0
-    self._last_checkpoint_time = _INIT_TIME
-    self._previous_checkpoint_time = _INIT_TIME
+    # Timestamp of the most recently started checkpoint save (step N); used by
+    # `should_save()` to measure `duration_lost_secs` when a preemption save is
+    # skipped.
+    self._latest_checkpoint_time = _INIT_TIME
+    # Timestamp of the checkpoint save preceding the current save (step N-1);
+    # stashed before `self._checkpoints` prunes old steps so
+    # `_finalize_checkpoint()` can compute `duration_saved_secs`.
+    self._prior_checkpoint_time = _INIT_TIME
     self._last_preemption_skip_logged_step: Optional[int] = None
 
     logging.info(
@@ -1232,7 +1238,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       return
     self._last_preemption_skip_logged_step = step
     cc_enabled = int(self._is_continuous_checkpointing_enabled())
-    duration = current_time - self._last_checkpoint_time
+    duration = current_time - self._latest_checkpoint_time
     jax.monitoring.record_event_duration_secs(
         '/jax/checkpoint/write/preempt/duration_lost_secs',
         duration.total_seconds(),
@@ -1945,8 +1951,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
     checkpoint_time = datetime.datetime.now(tz=datetime.timezone.utc)
-    self._previous_checkpoint_time = self._last_checkpoint_time
-    self._last_checkpoint_time = checkpoint_time
+    self._prior_checkpoint_time = self._latest_checkpoint_time
+    self._latest_checkpoint_time = checkpoint_time
     self._checkpoints.append(CheckpointInfo(step, checkpoint_time, metrics))
 
   def _root_metadata_file_path(self, legacy: bool = False) -> epath.Path:
@@ -2254,7 +2260,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # since program start.
       if self.reached_preemption(step):
         assert not self._checkpoints.empty()
-        duration = self._checkpoints[-1].time - self._previous_checkpoint_time
+        duration = self._checkpoints[-1].time - self._prior_checkpoint_time
         jax.monitoring.record_event_duration_secs(
             '/jax/checkpoint/write/preempt/duration_saved_secs',
             duration.total_seconds(),
