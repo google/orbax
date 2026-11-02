@@ -14,7 +14,9 @@
 
 """Multihost utilities for benchmarks."""
 
+import json
 import threading
+from typing import Any
 
 from absl import logging
 from orbax.checkpoint._src.multihost import multihost
@@ -53,3 +55,35 @@ def sync_global_processes(
   except ImportError:
     pass
   multihost.sync_global_processes(name)
+
+
+def gather_on_primary(name: str, value: Any) -> list[Any] | None:
+  """Collects every process's JSON-serializable `value` on process 0.
+
+  Collective: every process must call it with the same `name`, which must be
+  unique in the job. Each process stores its value in the jax.distributed
+  key-value store and waits at barrier `name`; then process 0 alone reads all
+  values with one directory read. No process blocks on a key, since many such
+  calls at once (one per process) can overload the coordination service.
+
+  Args:
+    name: Names the exchange and its barrier.
+    value: This process's JSON-serializable value.
+
+  Returns:
+    On process 0, every process's value in process order; elsewhere, None.
+  """
+  if multihost.process_count() == 1:
+    return [value]
+  client = multihost.get_jax_distributed_client()
+  prefix = f"benchmark_gather/{name}"
+  client.key_value_set(f"{prefix}/{get_process_index()}", json.dumps(value))
+  sync_global_processes(name)
+  if get_process_index() != 0:
+    return None
+  values = {
+      int(key.rsplit("/", 1)[1]): json.loads(v)
+      for key, v in client.key_value_dir_get(prefix)
+  }
+  client.key_value_delete(prefix)
+  return [values[i] for i in sorted(values)]
