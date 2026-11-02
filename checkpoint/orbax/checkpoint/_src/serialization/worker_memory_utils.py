@@ -87,6 +87,7 @@ def _estimate_worker_memory_usage(
     *,
     replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
+    transfer_sharding: jax.sharding.Sharding | None = None,
 ) -> dict[int, int]:
   """Estimates memory used by the array on each worker after transfer.
 
@@ -95,11 +96,23 @@ def _estimate_worker_memory_usage(
     replica_id: The replica id to use for estimation. If None, all replicas are
       used.
     device_to_worker_ids_map: A mapping from device ID to worker ID.
+    transfer_sharding: Optional sharding of the array as transferred to host
+      (e.g. from `replica_slices.get_single_replica_sharding`). Defaults to
+      `arr.sharding`.
 
   Returns:
     A mapping from worker ID to estimated memory usage.
   """
   worker_memory_usage = collections.defaultdict(int)
+  if transfer_sharding is not None:
+    shard_memory_size = (
+        np.prod(transfer_sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
+    )
+    for device in transfer_sharding.device_set:
+      worker_id = device_to_worker_ids_map[device.id]
+      worker_memory_usage[worker_id] += shard_memory_size  # pyrefly: ignore[unsupported-operation]
+    return worker_memory_usage
+
   shard_memory_size = (
       np.prod(arr.sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
   )
@@ -117,12 +130,14 @@ def _increment_worker_memory_usage(
     *,
     replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
+    transfer_sharding: jax.sharding.Sharding | None = None,
 ) -> dict[int, int]:
   """Increments memory used by the array on each worker after transfer."""
   estimate = _estimate_worker_memory_usage(
       arr,
       replica_id=replica_id,
       device_to_worker_ids_map=device_to_worker_ids_map,
+      transfer_sharding=transfer_sharding,
   )
   return {
       worker_id: current_worker_memory_usage[worker_id] + estimate[worker_id]
@@ -153,7 +168,7 @@ def next_memory_budgeted_batch(
     params: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
     worker_memory_budget: int,
     *,
-    replica_id: int | None,
+    replica_ids: Sequence[int | None],
     dispatcher: dispatchers.Dispatcher | None,
 ):
   """Yields batches of info, args, and arrays that fit within the memory budget.
@@ -162,11 +177,17 @@ def next_memory_budgeted_batch(
     params: A sequence of (array, info, args) tuples.
     worker_memory_budget: The maximum amount of memory that can be used on any
       worker.
-    replica_id: The replica id to use for estimation. If None, all replicas are
-      used.
+    replica_ids: The replica id to use for estimation for each array. If an
+      element is None, all replicas are used for that array.
     dispatcher: The dispatcher instance to use. If None, the default dispatcher
       is used.
   """
+  if len(replica_ids) != len(params):
+    raise ValueError(
+        f'Expected {len(params)} replica_ids, got {len(replica_ids)}'
+    )
+  if not params:
+    return
   arrays, infos, args = zip(*params, strict=True)
   if dispatcher is None:
     device_to_worker_ids_map = {
@@ -176,39 +197,46 @@ def next_memory_budgeted_batch(
     device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
     # NOTE: We only transfer save shards with replica_id == replica_id, but we
     # are actually redundantly transferring all shards, thanks to remote python
-    # / colcoated python. So we set replica_id to None, to estimate memory usage
-    # for all replicas.
-    replica_id = None
+    # / colcoated python. So we set replica_ids to None, to estimate memory
+    # usage for all replicas.
+    replica_ids = [None] * len(params)
 
   def _no_worker_memory_usage() -> dict[int, int]:
     return {id: 0 for id in set(device_to_worker_ids_map.values())}
 
+  first_replica_id = replica_ids[0]
   current_batch = [(arrays[0], infos[0], args[0])]
-  current_worker_memory_usage = _estimate_worker_memory_usage(
+  current_batch_replica_ids = [first_replica_id]
+  current_worker_memory_usage = _increment_worker_memory_usage(
       arrays[0],
-      replica_id=replica_id,
+      _no_worker_memory_usage(),
+      replica_id=first_replica_id,
       device_to_worker_ids_map=device_to_worker_ids_map,
   )
 
-  for arr, info, arg in zip(arrays[1:], infos[1:], args[1:]):
+  for i, (arr, info, arg) in enumerate(
+      zip(arrays[1:], infos[1:], args[1:]), start=1
+  ):
+    arr_replica_id = replica_ids[i]
     incremented_worker_memory_usage = _increment_worker_memory_usage(
         arr,
         current_worker_memory_usage,
-        replica_id=replica_id,
+        replica_id=arr_replica_id,
         device_to_worker_ids_map=device_to_worker_ids_map,
     )
     if _is_array_under_memory_budget(
         worker_memory_budget, incremented_worker_memory_usage
     ):
       current_batch.append((arr, info, arg))
+      current_batch_replica_ids.append(arr_replica_id)
       current_worker_memory_usage = incremented_worker_memory_usage
     else:
       assert current_batch
       logging.info(
-          '[process=%d] Obtained a memory-limited batch (replica_id=%s) with'
+          '[process=%d] Obtained a memory-limited batch (replica_ids=%s) with'
           ' %d arrays. Per-worker, projected to cost: %s',
           multihost.process_index(),
-          replica_id,
+          current_batch_replica_ids,
           len(current_batch),
           _humanize_worker_memory_usage(current_worker_memory_usage),
       )
@@ -217,19 +245,20 @@ def next_memory_budgeted_batch(
       # Assumes arrays have completed saving and worker memory has been freed.
       # The current array still needs to be dealt with.
       current_batch = [(arr, info, arg)]
+      current_batch_replica_ids = [arr_replica_id]
       current_worker_memory_usage = _increment_worker_memory_usage(
           arr,
           _no_worker_memory_usage(),
-          replica_id=replica_id,
+          replica_id=arr_replica_id,
           device_to_worker_ids_map=device_to_worker_ids_map,
       )
 
   if current_batch:
     logging.info(
-        '[process=%d] Obtained a memory-limited batch (replica_id=%s) with %d'
+        '[process=%d] Obtained a memory-limited batch (replica_ids=%s) with %d'
         ' arrays. Per-worker, projected to cost: %s',
         multihost.process_index(),
-        replica_id,
+        current_batch_replica_ids,
         len(current_batch),
         _humanize_worker_memory_usage(current_worker_memory_usage),
     )

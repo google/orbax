@@ -233,21 +233,35 @@ async def _async_serialize_shardings(
 
 def _get_replica_slices(
     arrays: Sequence[jax.Array],
-    replica_id: int,
+    replica_ids: Sequence[int | None],
     use_replica_parallel: bool,
     min_slice_bytes_for_replica_parallel: int | None = None,
     max_replicas_for_replica_parallel: int | None = None,
 ) -> Sequence[replica_slices.ReplicaSlices]:
   """Returns ReplicaSlices for arrays."""
+  if len(replica_ids) != len(arrays):
+    raise ValueError(
+        f'Expected {len(arrays)} replica_ids, got {len(replica_ids)}'
+    )
+  for arr, r in zip(arrays, replica_ids):
+    num_replicas = replica_slices._sharding_num_replicas(  # pylint: disable=protected-access
+        arr.sharding, arr.shape
+    )
+    if r is not None and not 0 <= r < num_replicas:
+      raise ValueError(
+          f'replica_id {r} out of range [0, {num_replicas}) for array of'
+          f' shape {arr.shape}'
+      )
+
   rslices_per_array = [
       replica_slices.get_replica_slices(
           arr,
-          replica_id,
+          arr_replica_id,
           use_replica_parallel,
           min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel,
       )
-      for arr in arrays
+      for arr, arr_replica_id in zip(arrays, replica_ids)
   ]
   # D2H copy is performed automatically as part of dispatcher call, but
   # we must set properties correctly to pass later consistency checks.
@@ -467,15 +481,32 @@ def _worker_serialize_arrays(
     array_metadata_store: array_metadata_store_lib.Store | None,
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
+    replica_ids: Sequence[int] | None = None,
 ):
   """Worker function to serialize arrays."""
   initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
       types.IoDirection.WRITE
   )
   total_start_time = time.time()
+  if (
+      primary_host is not None
+      and arrays
+      and isinstance(arrays[0].sharding, jax.sharding.Sharding)
+      and arrays[0].addressable_shards
+  ):
+    first_device = min(arrays[0].sharding.device_set, key=lambda d: d.id)
+    primary_host = (
+        multihost.process_index()
+        if any(s.device == first_device for s in arrays[0].addressable_shards)
+        else -1
+    )
+  # `replica_ids` is only dispatched when balancing arrays across replicas; see
+  # `_serialize_arrays`.
+  if replica_ids is None:
+    replica_ids = [replica_id] * len(arrays)
   rslices_per_array = _get_replica_slices(
       arrays,
-      replica_id,
+      replica_ids,
       use_replica_parallel,
       min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel,
@@ -510,7 +541,7 @@ def _get_deprioritized_batches_to_serialize(
     deprioritized_params: Sequence[_ArrayToSerialize],
     *,
     device_host_max_bytes: int | None,
-    replica_id: int | None,
+    replica_ids: Sequence[int | None],
     dispatcher: dispatchers.Dispatcher | None,
 ) -> Iterator[
     tuple[
@@ -530,7 +561,7 @@ def _get_deprioritized_batches_to_serialize(
   Args:
     deprioritized_params: The (array, info, args) tuples to batch.
     device_host_max_bytes: Per-worker budget for in-flight D2H bytes, if any.
-    replica_id: See `worker_memory_utils.next_memory_budgeted_batch`.
+    replica_ids: See `worker_memory_utils.next_memory_budgeted_batch`.
     dispatcher: See `worker_memory_utils.next_memory_budgeted_batch`.
   """
   if device_host_max_bytes is not None:
@@ -550,7 +581,7 @@ def _get_deprioritized_batches_to_serialize(
         for batch in worker_memory_utils.next_memory_budgeted_batch(
             deprioritized_params,
             device_host_max_bytes,
-            replica_id=replica_id,
+            replica_ids=replica_ids,
             dispatcher=dispatcher,
         )
     )
@@ -608,7 +639,6 @@ def _serialize_arrays_batches_without_dispatcher(
     prioritized: Sequence[_ArrayToSerialize],
     deprioritized: Sequence[_ArrayToSerialize],
     device_host_max_bytes: int | None,
-    replica_id: int | None,
     use_replica_parallel: bool,
     min_slice_bytes_for_replica_parallel: int | None,
     max_replicas_for_replica_parallel: int | None,
@@ -619,12 +649,13 @@ def _serialize_arrays_batches_without_dispatcher(
     ext_metadata: Dict[str, Any],
     enable_pinned_host_transfer: bool,
     callback: types.SerializationStatusCallback,
+    prioritized_replica_ids: Sequence[int | None],
+    deprioritized_replica_ids: Sequence[int | None],
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
   replica_slices_transfer_arrays_to_host = functools.partial(
       replica_slices.transfer_arrays_to_host,
-      replica_id=replica_id,
       use_replica_parallel=use_replica_parallel,
       enable_pinned_host_transfer=enable_pinned_host_transfer,
       min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
@@ -649,7 +680,8 @@ def _serialize_arrays_batches_without_dispatcher(
     )
     prioritized_arrays, prioritized_infos, prioritized_args = zip(*prioritized)
     prioritized_values_on_host = replica_slices_transfer_arrays_to_host(
-        prioritized_arrays
+        prioritized_arrays,
+        prioritized_replica_ids,
     )
     _on_batch_callback(prioritized_infos, callback.on_transfer_end)
   else:
@@ -684,18 +716,31 @@ def _serialize_arrays_batches_without_dispatcher(
         all_array_metadatas.extend(b_metadatas)
       _on_batch_callback(prioritized_infos, callback.on_write_end)
     if deprioritized_params:
+      num_deprioritized = len(deprioritized_params)
       batches = _get_deprioritized_batches_to_serialize(
           deprioritized_params,
           device_host_max_bytes=device_host_max_bytes,
           # TODO(b/436858989): We overestimate memory usage for now if replica
           # parallel is enabled, as each host has a non-trivial calculation for
           # bytes transferred to host.
-          replica_id=None if use_replica_parallel else replica_id,
+          replica_ids=(
+              [None] * num_deprioritized
+              if use_replica_parallel
+              else deprioritized_replica_ids
+          ),
           dispatcher=None,
       )
       del deprioritized_params
+      deprioritized_offset = 0
       for b_arrays, b_infos, b_args in batches:
-        b_arrays_on_host = replica_slices_transfer_arrays_to_host(b_arrays)
+        b_replica_ids = deprioritized_replica_ids[
+            deprioritized_offset : deprioritized_offset + len(b_arrays)
+        ]
+        deprioritized_offset += len(b_arrays)
+        b_arrays_on_host = replica_slices_transfer_arrays_to_host(
+            b_arrays,
+            b_replica_ids,
+        )
         # Release the device buffers before awaiting the (slower) write.
         del b_arrays
         _on_batch_callback(b_infos, callback.on_transfer_end)
@@ -708,6 +753,7 @@ def _serialize_arrays_batches_without_dispatcher(
         if b_metadatas:
           all_array_metadatas.extend(b_metadatas)
         _on_batch_callback(b_infos, callback.on_write_end)
+      assert deprioritized_offset == num_deprioritized
 
     _log_io_metrics(
         direction=types.IoDirection.WRITE,
@@ -761,9 +807,9 @@ def _serialize_arrays(
     enable_replica_parallel_separate_folder: bool,
     ext_metadata: Dict[str, Any],
     callback: types.SerializationStatusCallback,
+    balance_arrays_across_replicas: bool = False,
 ) -> future.Future:
   """D2H transfer and serialize arrays using dispatcher if provided."""
-
   device_host_max_bytes = None
   if byte_limiter := infos[0].device_host_byte_limiter:
     if isinstance(byte_limiter, limits.LimitInFlightBytes):
@@ -791,11 +837,97 @@ def _serialize_arrays(
         )
 
   deprioritized = prioritized_async + deprioritized
+  any_single_replica_selected = False
+  all_arrays = [v for v, _, _ in prioritized] + [v for v, _, _ in deprioritized]
+  if balance_arrays_across_replicas:
+    if replica_id is None:
+      raise ValueError(
+          '`balance_arrays_across_replicas` is incompatible with local'
+          ' checkpointing'
+      )
+    all_replica_ids = replica_slices.get_balanced_replica_ids(
+        all_arrays,
+        use_replica_parallel,
+        min_slice_bytes_for_replica_parallel,
+        max_replicas_for_replica_parallel,
+    )
+  else:
+    all_replica_ids = [replica_id] * len(all_arrays)
+  prioritized_async_replica_ids = all_replica_ids[
+      len(prioritized) : len(prioritized) + len(prioritized_async)
+  ]
+  if balance_arrays_across_replicas and dispatcher is not None:
+    single_replica_shardings = [
+        replica_slices.get_single_replica_sharding(
+            arr,
+            replica_id=arr_replica_id,
+            use_replica_parallel=use_replica_parallel,
+            min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
+            max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+        )
+        for arr, arr_replica_id in zip(all_arrays, all_replica_ids)
+    ]
+    if any(s is not None for s in single_replica_shardings):
+      any_single_replica_selected = True
+      selected_arrays = replica_slices.select_single_replicas_on_device(
+          all_arrays, single_replica_shardings
+      )
+      prioritized = [
+          (v, info, arg)
+          for v, (_, info, arg) in zip(
+              selected_arrays[: len(prioritized)], prioritized
+          )
+      ]
+      deprioritized = [
+          (v, info, arg)
+          for v, (_, info, arg) in zip(
+              selected_arrays[len(prioritized) :], deprioritized
+          )
+      ]
+      all_replica_ids = [
+          0 if s is not None else r
+          for s, r in zip(single_replica_shardings, all_replica_ids)
+      ]
+  prioritized_replica_ids = all_replica_ids[: len(prioritized)]
+  deprioritized_replica_ids = all_replica_ids[len(prioritized) :]
+
   if infos[0].copy_device_arrays_for_async_transfer:
     # Instead of transferring device arrays to host before returning, copy them
     # on device now and transfer the copies in the background, so that the
     # caller may donate or mutate the originals as soon as we return. Arrays
     # that already reside in host memory keep their scheduling.
+    prioritized_in_device = [
+        sharding_utils.is_in_device_memory(v) for v, _, _ in prioritized
+    ]
+    deprioritized_in_device = [
+        sharding_utils.is_in_device_memory(v) for v, _, _ in deprioritized
+    ]
+    copied_prioritized_ids = [
+        r
+        for r, on_dev in zip(prioritized_replica_ids, prioritized_in_device)
+        if on_dev
+    ]
+    prioritized_on_host_ids = [
+        r
+        for r, on_dev in zip(prioritized_replica_ids, prioritized_in_device)
+        if not on_dev
+    ]
+    copied_deprioritized_ids = [
+        r
+        for r, on_dev in zip(deprioritized_replica_ids, deprioritized_in_device)
+        if on_dev
+    ]
+    deprioritized_on_host_ids = [
+        r
+        for r, on_dev in zip(deprioritized_replica_ids, deprioritized_in_device)
+        if not on_dev
+    ]
+    prioritized_replica_ids = prioritized_on_host_ids
+    deprioritized_replica_ids = (
+        copied_prioritized_ids
+        + copied_deprioritized_ids
+        + deprioritized_on_host_ids
+    )
     copied_prioritized, prioritized_on_host = _copy_device_arrays(prioritized)
     copied_deprioritized, deprioritized_on_host = _copy_device_arrays(
         deprioritized
@@ -805,12 +937,12 @@ def _serialize_arrays(
         copied_prioritized + copied_deprioritized + deprioritized_on_host
     )
 
+
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
         prioritized,
         deprioritized,
         device_host_max_bytes,
-        replica_id,
         use_replica_parallel,
         min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel,
@@ -821,6 +953,8 @@ def _serialize_arrays(
         ext_metadata,
         infos[0].enable_pinned_host_transfer,
         callback,
+        prioritized_replica_ids=prioritized_replica_ids,
+        deprioritized_replica_ids=deprioritized_replica_ids,
     )
   else:
 
@@ -829,30 +963,78 @@ def _serialize_arrays(
         batch_args: Sequence[types.SaveArgs],
         batch_arrays: Sequence[jax.Array],
         d2h_start_time: float | None = None,
+        *,
+        batch_replica_ids: Sequence[int | None],
     ):
-      ret = dispatcher.dispatch(
-          _worker_serialize_arrays,
-          input_arrays=batch_arrays,
-          func_kwargs={
-              'infos': batch_infos,
-              'args': batch_args,
-              'replica_id': replica_id,
-              'use_replica_parallel': use_replica_parallel,
-              'min_slice_bytes_for_replica_parallel': (
-                  min_slice_bytes_for_replica_parallel
-              ),
-              'max_replicas_for_replica_parallel': (
-                  max_replicas_for_replica_parallel
-              ),
-              'primary_host': primary_host,
-              'metadata_key': metadata_key,
-              'array_metadata_store': array_metadata_store,
-              'enable_replica_parallel_separate_folder': (
-                  enable_replica_parallel_separate_folder
-              ),
-              'ext_metadata': ext_metadata,
-          },
-      )
+      assert dispatcher is not None
+      groups = collections.defaultdict(lambda: ([], [], [], []))
+      for idx, (info, arg, arr) in enumerate(
+          zip(batch_infos, batch_args, batch_arrays)
+      ):
+        if isinstance(arr.sharding, jax.sharding.NamedSharding):
+          device_key = tuple(arr.sharding.mesh.devices.flatten())
+        elif isinstance(arr.sharding, jax.sharding.Sharding):
+          device_key = tuple(
+              sorted(arr.sharding.device_set, key=lambda d: d.id)
+          )
+        else:
+          device_key = ()
+        group_infos, group_args, group_arrays, group_replica_ids = groups[
+            device_key
+        ]
+        group_infos.append(info)
+        group_args.append(arg)
+        group_arrays.append(arr)
+        group_replica_ids.append(batch_replica_ids[idx])
+
+      if len(groups) == 1:
+        grouped_batches = [
+            (batch_infos, batch_args, batch_arrays, batch_replica_ids)
+        ]
+      else:
+        grouped_batches = list(groups.values())
+
+      rets = []
+      for (
+          group_infos,
+          group_args,
+          group_arrays,
+          group_replica_ids,
+      ) in grouped_batches:
+        func_kwargs: dict[str, Any] = {
+            'infos': group_infos,
+            'args': group_args,
+            'replica_id': replica_id,
+            'use_replica_parallel': use_replica_parallel,
+            'min_slice_bytes_for_replica_parallel': (
+                min_slice_bytes_for_replica_parallel
+            ),
+            'max_replicas_for_replica_parallel': (
+                max_replicas_for_replica_parallel
+            ),
+            'primary_host': primary_host,
+            'metadata_key': metadata_key,
+            'array_metadata_store': (
+                None if any_single_replica_selected else array_metadata_store
+            ),
+            'enable_replica_parallel_separate_folder': (
+                enable_replica_parallel_separate_folder
+            ),
+            'ext_metadata': ext_metadata,
+        }
+        # Per-array replica ids are only dispatched when balancing, keeping the
+        # kwargs unchanged otherwise for users who wrap the dispatcher to split
+        # these calls into smaller batches by slicing the per-array kwargs they
+        # know of. The worker defaults to saving every array with `replica_id`.
+        if balance_arrays_across_replicas:
+          func_kwargs['replica_ids'] = group_replica_ids
+        rets.append(
+            dispatcher.dispatch(
+                _worker_serialize_arrays,
+                input_arrays=group_arrays,
+                func_kwargs=func_kwargs,
+            )
+        )
       if d2h_start_time is not None:
         jax.block_until_ready(batch_arrays)
         _log_io_metrics(
@@ -865,7 +1047,7 @@ def _serialize_arrays(
 
       _on_batch_callback(batch_infos, callback.on_transfer_end)
 
-      jax.block_until_ready(ret)
+      jax.block_until_ready(rets)
 
       _on_batch_callback(batch_infos, callback.on_write_end)
 
@@ -891,31 +1073,88 @@ def _serialize_arrays(
       _log_no_prioritized_params(deprioritized)
 
     all_infos = infos
+    all_args = args
+    all_arrays_meta = [
+        (
+            arr.shape,
+            replica_slices.get_local_shape(
+                arr,
+                use_replica_parallel=use_replica_parallel,
+                min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
+                max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+            ),
+            arr.dtype,
+        )
+        for arr in arrays
+    ]
+    del arrays
 
     # See `_serialize_arrays_batches_without_dispatcher` for why
     # `deprioritized_params` is an argument rather than a captured variable.
     async def _serialize(deprioritized_params: Sequence[_ArrayToSerialize]):
       for info in all_infos:
         await info.await_path_creation()
+      if any_single_replica_selected and array_metadata_store is not None:
+        array_metadatas = [
+            ts_utils.build_array_write_spec(
+                info=info,
+                arg=arg,
+                global_shape=global_shape,
+                local_shape=local_shape,
+                dtype=dtype,
+                use_ocdbt=bool(info.is_ocdbt_checkpoint),
+                process_index=ocdbt_utils.get_process_index_for_subdir(
+                    bool(info.is_ocdbt_checkpoint)
+                ),
+                replica_separate_folder=False,
+                metadata_key=metadata_key,
+                ext_metadata=ext_metadata.get(info.name),
+            ).metadata
+            for (global_shape, local_shape, dtype), info, arg in zip(
+                all_arrays_meta, all_infos, all_args
+            )
+        ]
+        await array_metadata_store.write(
+            checkpoint_dir=all_infos[0].parent_dir,
+            array_metadatas=array_metadatas,
+            process_index=0,
+        )
       if prioritized:
         arrays, infos, args = zip(*prioritized)
-        await _serialize_batch(infos, args, arrays, d2h_start_time)
+        await _serialize_batch(
+            infos,
+            args,
+            arrays,
+            d2h_start_time,
+            batch_replica_ids=prioritized_replica_ids,
+        )
       if deprioritized_params:
+        num_deprioritized = len(deprioritized_params)
         batches = _get_deprioritized_batches_to_serialize(
             deprioritized_params,
             device_host_max_bytes=device_host_max_bytes,
-            replica_id=replica_id,
+            replica_ids=deprioritized_replica_ids,
             dispatcher=dispatcher,
         )
         del deprioritized_params
+        deprioritized_offset = 0
         for b_arrays, b_infos, b_args in batches:
+          b_replica_ids = deprioritized_replica_ids[
+              deprioritized_offset : deprioritized_offset + len(b_arrays)
+          ]
+          deprioritized_offset += len(b_arrays)
           b_d2h_start_time = time.time()
           b_arrays_on_host = dispatcher.device_to_host(b_arrays)
           # Release the device buffers before awaiting the (slower) write.
           del b_arrays
           await _serialize_batch(
-              b_infos, b_args, b_arrays_on_host, b_d2h_start_time
+              b_infos,
+              b_args,
+              b_arrays_on_host,
+              b_d2h_start_time,
+              batch_replica_ids=b_replica_ids,
           )
+        assert deprioritized_offset == num_deprioritized
 
     return future.CommitFutureAwaitingContractedSignals(
         _serialize(deprioritized),
@@ -1416,6 +1655,7 @@ class ArrayHandler(types.TypeHandler):
       enable_replica_parallel_separate_folder: bool = False,
       dispatcher: dispatchers.Dispatcher | None = None,
       callback: types.SerializationStatusCallback | None = None,
+      balance_arrays_across_replicas: bool = False,
   ):
     """Constructor.
 
@@ -1424,9 +1664,16 @@ class ArrayHandler(types.TypeHandler):
       primary_host: the host id of the primary host.  Default to 0.  If it's set
         to None, then all hosts will be considered as primary.  It's useful in
         the case that all hosts are only working with local storage.
-      replica_id: the replica id to be used for saving.  Default to 0.  If it's
-        set to None, each shards will pick first replica_id to be used. It's
-        useful in the case that all hosts are only working with local storage.
+      replica_id: The replica that saves each array by default. Defaults to 0.
+        Orbax may override this per array: with `use_replica_parallel`, an
+        array may instead be split across multiple replicas that save it
+        concurrently; with `balance_arrays_across_replicas`, an array that is
+        not saved replica-parallel may instead be saved whole by a replica
+        other than `replica_id`, chosen to balance the bytes saved per replica.
+        If None, each process uses the replica id of its first addressable
+        shard, which is useful when all hosts only work with local storage;
+        this is incompatible with both `use_replica_parallel` and
+        `balance_arrays_across_replicas`.
       use_replica_parallel: Whether to parallelize saving across replicas.
       min_slice_bytes_for_replica_parallel: Minimum number of bytes per replica
         slice. Only uses replica-parallel when the amount of data written per
@@ -1441,6 +1688,10 @@ class ArrayHandler(types.TypeHandler):
         arrays in separate folders when use_replica_parallel is active.
       dispatcher: The dispatcher to use for executing operations on the workers.
       callback: The callback to use for executing operations in handlers.
+      balance_arrays_across_replicas: If True, each array that is not saved
+        replica-parallel is saved whole by one replica, chosen to balance the
+        bytes saved per replica (e.g. per slice), instead of by `replica_id`,
+        which must not be None.
     """
     self._metadata_key = metadata_key
     self._primary_host = primary_host
@@ -1455,6 +1706,12 @@ class ArrayHandler(types.TypeHandler):
         min_slice_bytes_for_replica_parallel
     )
     self._max_replicas_for_replica_parallel = max_replicas_for_replica_parallel
+    self._balance_arrays_across_replicas = balance_arrays_across_replicas
+    if self._balance_arrays_across_replicas and self._replica_id is None:
+      raise ValueError(
+          '`balance_arrays_across_replicas` is incompatible with local'
+          ' checkpointing'
+      )
     self._array_metadata_store = array_metadata_store
     self._enable_replica_parallel_separate_folder = (
         enable_replica_parallel_separate_folder
@@ -1470,11 +1727,13 @@ class ArrayHandler(types.TypeHandler):
     logging.vlog(
         1,
         'Created `%s` with primary_host=%s, replica_id=%s,'
-        ' use_replica_parallel=%s, array_metadata_store=%s, dispatcher=%s',
+        ' use_replica_parallel=%s, balance_arrays_across_replicas=%s,'
+        ' array_metadata_store=%s, dispatcher=%s',
         self.__class__.__qualname__,
         self._primary_host,
         self._replica_id,
         self._use_replica_parallel,
+        self._balance_arrays_across_replicas,
         self._array_metadata_store,
         self._dispatcher,
     )
@@ -1674,6 +1933,7 @@ class ArrayHandler(types.TypeHandler):
             ext_metadata=self._ext_metadata,
             array_metadata_store=self._array_metadata_store,
             callback=self._callback,
+            balance_arrays_across_replicas=self._balance_arrays_across_replicas,
         )
     )
 
