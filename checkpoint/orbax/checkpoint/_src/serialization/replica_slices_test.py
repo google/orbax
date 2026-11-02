@@ -55,6 +55,20 @@ def make_multi_device_array(shape, partitioned, pinned_host=False):
   return data, num_partitions, num_replicas
 
 
+def make_replicated_array(shape, num_replicas):
+  """Returns an array sharded within, and replicated across, replicas."""
+  num_data = jax.device_count() // num_replicas
+  devices = np.asarray(jax.devices()[: num_replicas * num_data])
+  mesh = jax.sharding.Mesh(
+      devices.reshape(num_replicas, num_data), ('replica', 'data')
+  )
+  sharding = jax.sharding.NamedSharding(
+      mesh, jax.sharding.PartitionSpec('data')
+  )
+  x = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+  return jax.device_put(x, sharding)
+
+
 class ReplicaSlicesTest(parameterized.TestCase):
 
   @parameterized.product(partitioned=[False, True])
@@ -311,7 +325,7 @@ class ReplicaSlicesTest(parameterized.TestCase):
 
     rslices = replica_slices.transfer_arrays_to_host(
         [arr],
-        replica_id=0,
+        replica_ids=[0],
         use_replica_parallel=use_replica_parallel,
     )[0]
 
@@ -437,6 +451,360 @@ class ReplicaSlicesTest(parameterized.TestCase):
         4 * 2 * np.dtype(np.int16).itemsize
     )
     self.assertEqual(rslices.nbytes, expected_nbytes)
+
+  @parameterized.parameters((2, 7), (3, 5), (4, 4))
+  def test_get_balanced_replica_ids(self, num_replicas, expected_max):
+    if jax.device_count() < num_replicas:
+      self.skipTest(f'Test requires at least {num_replicas} devices.')
+    num_data = jax.device_count() // num_replicas
+    sizes = (4, 4, 2, 2, 1, 1)
+    arrays = [
+        make_replicated_array((num_data * size, 8), num_replicas)
+        for size in sizes
+    ]
+
+    replica_ids = replica_slices.get_balanced_replica_ids(arrays, False)
+
+    group_sizes = [0] * num_replicas
+    for size, replica_id in zip(sizes, replica_ids):
+      group_sizes[replica_id] += size
+    # The largest group is as small as possible.
+    self.assertEqual(max(group_sizes), expected_max)
+
+  def test_get_balanced_replica_ids_with_replica_parallel(self):
+    if jax.device_count() < 3:
+      self.skipTest('Test requires at least 3 devices.')
+    num_data = jax.device_count() // 3
+    arrays = [
+        # Shards of shape (8, 8) are saved replica-parallel by replicas 0, 1.
+        make_replicated_array((num_data * 8, 8), 3),
+        # Shards of shape (1, 3) cannot be split, so go to replica 2.
+        make_replicated_array((num_data, 3), 3),
+        make_replicated_array((num_data, 3), 3),
+    ]
+    self.assertEqual(
+        replica_slices.get_balanced_replica_ids(
+            arrays, True, max_replicas_for_replica_parallel=2
+        ),
+        [0, 2, 2],
+    )
+    # When min_slice_bytes_for_replica_parallel prevents replica-parallel
+    # saving of the first array, it is balanced as a whole array on replica 0
+    # and the two smaller arrays go to replicas 1 and 2.
+    self.assertEqual(
+        replica_slices.get_balanced_replica_ids(
+            arrays,
+            True,
+            min_slice_bytes_for_replica_parallel=arrays[0].nbytes + 1,
+            max_replicas_for_replica_parallel=2,
+        ),
+        [0, 1, 2],
+    )
+
+  def test_get_balanced_replica_ids_skips_unsafe_pinned_host_slicing(self):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires at least 4 devices.')
+    # Small 1D pinned_host arrays are not safe to slice for replica-parallel,
+    # so get_balanced_replica_ids must treat them as whole-replica saves.
+    arrays = [
+        make_multi_device_array(2 * 768, partitioned=False, pinned_host=True)[0]
+        for _ in range(2)
+    ]
+    self.assertEqual(
+        replica_slices.get_balanced_replica_ids(
+            arrays, use_replica_parallel=True
+        ),
+        [0, 1],
+    )
+
+  def test_get_balanced_replica_ids_with_mixed_replica_counts(self):
+    num_replicas = jax.device_count()
+    if num_replicas < 4:
+      self.skipTest('Test requires at least 4 devices.')
+    num_data = num_replicas // 2
+    arrays = [
+        # One more fully replicated array than there are replicas.
+        *[
+            make_replicated_array((8, 8), num_replicas)
+            for _ in range(num_replicas + 1)
+        ],
+        # Replicated across the two halves of the devices (e.g. slices).
+        make_replicated_array((num_data * 8, 8), 2),
+    ]
+
+    replica_ids = replica_slices.get_balanced_replica_ids(arrays, False)
+
+    # The fully replicated arrays use every replica, not just the first replica
+    # of each half.
+    self.assertCountEqual(set(replica_ids[:-1]), range(num_replicas))
+    # The last array goes to the half saving fewer fully replicated arrays.
+    arrays_per_half = [0, 0]
+    for replica_id in replica_ids[:-1]:
+      arrays_per_half[replica_id * 2 // num_replicas] += 1
+    self.assertEqual(
+        replica_ids[-1], arrays_per_half.index(min(arrays_per_half))
+    )
+
+  def test_partition_into_k_groups_returns_sums(self):
+    values = [5, 4, 3, 3, 1]
+    initial_sums = [2, 0, 1]
+    subsets, sums = replica_slices.partition_into_k_groups(
+        values, 3, initial_sums=initial_sums
+    )
+    self.assertCountEqual(sum(subsets, []), range(len(values)))
+    self.assertEqual(
+        sums,
+        [
+            initial_sum + sum(values[i] for i in subset)
+            for initial_sum, subset in zip(initial_sums, subsets)
+        ],
+    )
+
+  @parameterized.product(
+      num_replicas=[2, 3], use_replica_parallel=[False, True]
+  )
+  def test_transfer_balanced(self, num_replicas, use_replica_parallel):
+    if jax.device_count() < num_replicas:
+      self.skipTest(f'Test requires at least {num_replicas} devices.')
+    num_data = jax.device_count() // num_replicas
+    arrays = [
+        make_replicated_array((num_data * size, 8), num_replicas)
+        for size in (4, 3, 2, 1)
+    ]
+
+    replica_ids = replica_slices.get_balanced_replica_ids(
+        arrays, use_replica_parallel=use_replica_parallel
+    )
+    rslices_per_array = replica_slices.transfer_arrays_to_host(
+        arrays,
+        replica_ids,
+        use_replica_parallel=use_replica_parallel,
+    )
+
+    # Every array is still saved exactly once.
+    for arr, rslices in zip(arrays, rslices_per_array):
+      combined = np.full(arr.shape, np.nan)
+      for rslice in rslices.replica_slices:
+        self.assertTrue(np.all(np.isnan(combined[rslice.index])))
+        combined[rslice.index] = rslice.data()
+      np.testing.assert_array_equal(combined, arr)
+
+  def test_transfer_balanced_saves_arrays_whole_regardless_of_divisibility(
+      self,
+  ):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    # Shards of 4 and 2 rows (by 5 columns) could be split across 2 replicas;
+    # shards of 3 and 1 rows could not.
+    arrays = [
+        make_replicated_array((num_data * rows, 5), 2) for rows in (4, 3, 2, 1)
+    ]
+
+    replica_ids = replica_slices.get_balanced_replica_ids(
+        arrays, use_replica_parallel=False
+    )
+    rslices_per_array = replica_slices.transfer_arrays_to_host(
+        arrays,
+        replica_ids,
+        use_replica_parallel=False,
+    )
+
+    # Replica 0 saves the 4- and 1-row arrays and replica 1 saves the 3- and
+    # 2-row arrays, so each saves 5 rows per shard.
+    self.assertEqual(replica_ids, [0, 1, 1, 0])
+    # No array is split across replicas, so the saved layout is unchanged.
+    self.assertEqual(
+        [rslices.local_shape for rslices in rslices_per_array],
+        [(4, 5), (3, 5), (2, 5), (1, 5)],
+    )
+
+  def test_transfer_with_explicit_replica_ids(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    arrays = [
+        make_replicated_array((num_data * size, 8), 2)
+        for size in (4, 3, 2, 1)
+    ]
+    expected_by_replica = [
+        {
+            r: replica_slices.get_replica_slices(
+                arr, r, use_replica_parallel=False
+            )
+            for r in (0, 1)
+        }
+        for arr in arrays
+    ]
+    explicit_ids = [0, 1, 0, 1]
+    rslices_per_array = replica_slices.transfer_arrays_to_host(
+        arrays,
+        explicit_ids,
+        use_replica_parallel=False,
+    )
+    for i, (rslices, r) in enumerate(zip(rslices_per_array, explicit_ids)):
+      expected = expected_by_replica[i][r].replica_slices
+      self.assertLen(rslices.replica_slices, len(expected))
+      for actual_slice, expected_slice in zip(rslices.replica_slices, expected):
+        self.assertEqual(actual_slice.index, expected_slice.index)
+        np.testing.assert_array_equal(
+            actual_slice.data(), np.asarray(expected_slice.data())
+        )
+
+  def test_transfer_replica_ids_invalid(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    arrays = [make_replicated_array((num_data, 8), 2)]
+    with self.assertRaisesRegex(ValueError, 'Expected 1 replica_ids, got 2'):
+      replica_slices.transfer_arrays_to_host(
+          arrays,
+          [0, 1],
+          use_replica_parallel=False,
+      )
+    for out_of_range_id in (-1, 2):
+      with self.assertRaisesRegex(
+          ValueError, f'replica_id {out_of_range_id} out of range'
+      ):
+        replica_slices.transfer_arrays_to_host(
+            arrays,
+            [out_of_range_id],
+            use_replica_parallel=False,
+        )
+
+  def test_transfer_with_none_replica_ids(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    arrays = [make_replicated_array((num_data, 8), 2)]
+    # A None replica id saves the array as `replica_id=None` does (as for local
+    # checkpointing) instead of failing the range check.
+    rslices = replica_slices.transfer_arrays_to_host(
+        arrays, [None], use_replica_parallel=False
+    )[0]
+    expected = replica_slices.get_replica_slices(
+        arrays[0], None, use_replica_parallel=False
+    )
+    self.assertEqual(
+        [rslice.index for rslice in rslices.replica_slices],
+        [rslice.index for rslice in expected.replica_slices],
+    )
+
+  @parameterized.product(partitioned=[False, True])
+  def test_select_single_replicas_on_device(self, partitioned):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, num_partitions, num_replicas = make_multi_device_array(
+        (64, 64),
+        partitioned=partitioned,
+    )
+    jax.block_until_ready(arr)
+    stats_before = [d.memory_stats() for d in jax.local_devices()]
+
+    for replica_id in range(num_replicas):
+      sharding = replica_slices.get_single_replica_sharding(
+          arr, replica_id=replica_id
+      )
+      self.assertIsNotNone(sharding)
+      selected = replica_slices.select_single_replicas_on_device(
+          [arr], [sharding]
+      )[0]
+      jax.block_until_ready(selected)
+
+      self.assertEqual(selected.sharding, sharding)
+      self.assertLen(selected.addressable_shards, num_partitions)
+      expected_indices = [
+          shard.index
+          for shard in arr.addressable_shards
+          if shard.replica_id == replica_id
+      ]
+      self.assertEqual(
+          [shard.index for shard in selected.addressable_shards],
+          expected_indices,
+      )
+      for shard in selected.addressable_shards:
+        self.assertEqual(shard.replica_id, 0)
+      np.testing.assert_array_equal(selected, arr)
+
+    stats_after = [d.memory_stats() for d in jax.local_devices()]
+    if all(s is not None for s in stats_before + stats_after):
+      for before, after in zip(stats_before, stats_after):
+        self.assertLessEqual(after['bytes_in_use'], before['bytes_in_use'])
+
+  def test_get_single_replica_sharding_skips_ineligible_arrays(self):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, _, num_replicas = make_multi_device_array((64, 64), partitioned=False)
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(arr, replica_id=None)
+    )
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(arr, replica_id=-1)
+    )
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(arr, replica_id=num_replicas)
+    )
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(
+            arr, replica_id=0, use_replica_parallel=True
+        )
+    )
+    # When min_slice_bytes_for_replica_parallel prevents replica-parallel
+    # slicing, single-replica sharding is returned.
+    self.assertIsNotNone(
+        replica_slices.get_single_replica_sharding(
+            arr,
+            replica_id=0,
+            use_replica_parallel=True,
+            min_slice_bytes_for_replica_parallel=arr.nbytes + 1,
+        )
+    )
+    pinned_arr, _, _ = make_multi_device_array(
+        (64, 64), partitioned=False, pinned_host=True
+    )
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(pinned_arr, replica_id=0)
+    )
+    fully_sharded = make_replicated_array((64, 64), 1)
+    self.assertIsNone(
+        replica_slices.get_single_replica_sharding(fully_sharded, replica_id=0)
+    )
+
+  def test_select_single_replicas_on_device_balanced(self):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    arrays = [
+        make_replicated_array((num_data * rows, 5), 2) for rows in (4, 3, 2, 1)
+    ]
+    replica_ids = replica_slices.get_balanced_replica_ids(
+        arrays, use_replica_parallel=False
+    )
+    shardings = [
+        replica_slices.get_single_replica_sharding(arr, replica_id=r)
+        for arr, r in zip(arrays, replica_ids)
+    ]
+    selected_arrays = replica_slices.select_single_replicas_on_device(
+        arrays, shardings
+    )
+    for arr, selected in zip(arrays, selected_arrays):
+      self.assertLen(selected.sharding.device_set, num_data)
+      np.testing.assert_array_equal(selected, arr)
+
+    selected_replica_ids = replica_slices.get_balanced_replica_ids(
+        selected_arrays, use_replica_parallel=False
+    )
+    rslices_per_array = replica_slices.transfer_arrays_to_host(
+        selected_arrays,
+        selected_replica_ids,
+        use_replica_parallel=False,
+    )
+    for arr, rslices in zip(arrays, rslices_per_array):
+      combined = np.full(arr.shape, np.nan)
+      for rslice in rslices.replica_slices:
+        self.assertTrue(np.all(np.isnan(combined[rslice.index])))
+        combined[rslice.index] = rslice.data()
+      np.testing.assert_array_equal(combined, arr)
 
 if __name__ == '__main__':
   absltest.main()
