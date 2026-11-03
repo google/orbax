@@ -128,48 +128,81 @@ class GetBackendOcdbtTargetDataFileSizeTest(parameterized.TestCase):
 
 class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
 
-  @parameterized.product(
-      use_zarr3=(True, False),
-      use_compression=(True, False),
-  )
-  def test_build_zarr_shard_and_chunk_metadata(
-      self, use_zarr3: bool, use_compression: bool
+  @parameterized.product(use_zarr3=(True, False))
+  def test_build_zarr_shard_and_chunk_metadata_without_compression(
+      self,
+      use_zarr3: bool,
   ):
     shape = (10, 6, 32)
     chunk_shape = (5, 6, 8)
     metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
         global_shape=shape,
         shard_shape=chunk_shape,
-        use_compression=use_compression,
+        compression_spec=ts_utils.NoCompression(),
         use_zarr3=use_zarr3,
         chunk_shape=chunk_shape,
     )
-    expected_algo = 'zstd' if use_compression else 'none'
-    self.assertEqual(algo, expected_algo)
-    if use_compression:
-      expected_level = 3 if use_zarr3 else 1
-      self.assertEqual(level, expected_level)
-    else:
-      self.assertIsNone(level)
+    self.assertEqual(algo, 'none')
+    self.assertIsNone(level)
     self.assertEqual(metadata['shape'], shape)
     if not use_zarr3:
       self.assertEqual(metadata['chunks'], chunk_shape)
-      if use_compression:
-        self.assertEqual(metadata['compressor'], {'id': 'zstd', 'level': 1})
-      else:
-        self.assertIsNone(metadata['compressor'])
+      self.assertIsNone(metadata['compressor'])
     else:
       self.assertEqual(
           metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
       )
       codecs = metadata['codecs'][0]['configuration']['codecs']
       codec_names = [c['name'] for c in codecs]
-      if use_compression:
-        self.assertIn('zstd', codec_names)
-        zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
-        self.assertEqual(zstd_codec['configuration']['level'], 3)
-      else:
-        self.assertNotIn('zstd', codec_names)
+      self.assertNotIn('zstd', codec_names)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      compression_spec=(
+          None,
+          ts_utils.ZstdCompression(),
+          ts_utils.ZstdCompression(level=-1),
+          ts_utils.ZstdCompression(level=0),
+          ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_build_zarr_shard_and_chunk_metadata_with_compression(
+      self,
+      use_zarr3: bool,
+      compression_spec: ts_utils.ZstdCompression | None,
+  ):
+    shape = (10, 6, 32)
+    chunk_shape = (5, 6, 8)
+    kwargs = {}
+    if compression_spec is not None:
+      kwargs['compression_spec'] = compression_spec
+    metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
+        global_shape=shape,
+        shard_shape=chunk_shape,
+        use_zarr3=use_zarr3,
+        chunk_shape=chunk_shape,
+        **kwargs,
+    )
+    expected_level = (
+        (3 if use_zarr3 else 1)
+        if (compression_spec is None or compression_spec.level is None)
+        else compression_spec.level
+    )
+    self.assertEqual(algo, 'zstd')
+    self.assertEqual(level, expected_level)
+    self.assertEqual(metadata['shape'], shape)
+    if not use_zarr3:
+      self.assertEqual(metadata['chunks'], chunk_shape)
+      self.assertEqual(
+          metadata['compressor'], {'id': 'zstd', 'level': expected_level}
+      )
+    else:
+      self.assertEqual(
+          metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
+      )
+      codecs = metadata['codecs'][0]['configuration']['codecs']
+      zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
+      self.assertEqual(zstd_codec['configuration']['level'], expected_level)
 
 
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
@@ -216,6 +249,86 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(tspec.metadata.use_ocdbt, use_ocdbt)
     self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
     self.assertEqual(tspec.json['driver'], 'zarr3' if use_zarr3 else 'zarr')
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      compression_spec=(
+          ts_utils.NoCompression(),
+          ts_utils.ZstdCompression(),
+          ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_compression_spec(
+      self,
+      use_zarr3: bool,
+      compression_spec: ts_utils.CompressionSpec,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        compression_spec=compression_spec,
+    )
+    if isinstance(compression_spec, ts_utils.NoCompression):
+      self.assertEqual(tspec.metadata.compression_algorithm, 'none')
+      self.assertIsNone(tspec.metadata.compression_level)
+    else:
+      assert isinstance(compression_spec, ts_utils.ZstdCompression)
+      expected_level = (
+          (3 if use_zarr3 else 1)
+          if compression_spec.level is None
+          else compression_spec.level
+      )
+      self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+      self.assertEqual(tspec.metadata.compression_level, expected_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_compression=(True, False),
+  )
+  def test_deprecated_use_compression(
+      self,
+      use_zarr3: bool,
+      use_compression: bool,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        use_compression=use_compression,
+    )
+    if use_compression:
+      self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+      self.assertEqual(
+          tspec.metadata.compression_level, 3 if use_zarr3 else 1
+      )
+    else:
+      self.assertEqual(tspec.metadata.compression_algorithm, 'none')
+      self.assertIsNone(tspec.metadata.compression_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_compression=(True, False),
+  )
+  def test_rejects_both_use_compression_and_compression_spec(
+      self,
+      use_zarr3: bool,
+      use_compression: bool,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Cannot specify both use_compression and compression_spec',
+    ):
+      self.array_write_spec_constructor(
+          directory=self.directory,
+          relative_array_filename=self.param_name,
+          use_zarr3=use_zarr3,
+          use_ocdbt=False,
+          use_compression=use_compression,
+          compression_spec=ts_utils.ZstdCompression(level=1),
+      )
 
   @parameterized.product(use_ocdbt=(True, False))
   def test_default_zarr_driver_version(self, use_ocdbt: bool):
