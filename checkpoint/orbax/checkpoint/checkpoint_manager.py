@@ -1636,7 +1636,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     previous_checkpoint_infos = list(self._checkpoints)
     previous_checkpoint_times = (
-        self._last_checkpoint_time, self._previous_checkpoint_time
+        self._latest_checkpoint_time, self._prior_checkpoint_time
     )
     self._add_checkpoint_info(step, metrics)
     step_stats.get_old_steps_start_time = time.time()
@@ -2301,7 +2301,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       except BaseException:  # pylint: disable=broad-exception-caught
         # Retention has only pruned the cache; no old checkpoint was deleted.
         self._checkpoints.set(previous_checkpoint_infos)
-        self._last_checkpoint_time, self._previous_checkpoint_time = (
+        self._latest_checkpoint_time, self._prior_checkpoint_time = (
             previous_checkpoint_times
         )
         raise

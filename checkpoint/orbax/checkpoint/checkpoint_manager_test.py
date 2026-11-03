@@ -2236,7 +2236,7 @@ class CheckpointManagerTest(
         ) as manager,
     ):
       previous_checkpoint_times = (
-          manager._last_checkpoint_time, manager._previous_checkpoint_time
+          manager._latest_checkpoint_time, manager._prior_checkpoint_time
       )
       # Initiate save which will fail.
       self.assertTrue(manager.save(3, {'a': 3, 'b': 4}, metrics={'score': 3}))
@@ -2263,7 +2263,7 @@ class CheckpointManagerTest(
       self.assertEqual({'a': 1, 'b': 2}, manager.restore(None))
       self.assertEqual(
           previous_checkpoint_times,
-          (manager._last_checkpoint_time, manager._previous_checkpoint_time),
+          (manager._latest_checkpoint_time, manager._prior_checkpoint_time),
       )
 
       # Error is cleared so it is not re-raised.
