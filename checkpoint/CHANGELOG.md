@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ContinuousCheckpointingPolicy(deferral_save_time_percentile=...)` opts in to
+  deferring opportunistic saves before each `target_interval_steps` step when
+  the time left is within that percentile of recent save durations (e.g. `0.9`).
+  Deferral starts once 3 saves have completed. Off by default.
+
 ### Changed
 
+- The preemption `duration_lost_secs` metric for
+  `ContinuousCheckpointingPolicy` now reports why the save was skipped
+  (`save_in_progress`, `deferred_for_target_step` or
+  `minimum_interval_not_met`).
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now
   raises `ValueError` for every `jax.Array`. Small `pinned_host` arrays
   previously fell back to single-replica saving.
