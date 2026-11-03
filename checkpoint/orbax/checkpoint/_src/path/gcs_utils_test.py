@@ -15,14 +15,49 @@
 """Tests for gcs_utils functions."""
 
 import os
+import types
 from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
+from google.api_core import exceptions as api_exceptions
+from google.auth import exceptions as auth_exceptions
 from orbax.checkpoint._src.path import gcs_utils
 
 
+def _layout(
+    location_type: str = 'zone', hns: bool = False
+) -> types.SimpleNamespace:
+  return types.SimpleNamespace(
+      location_type=location_type,
+      hierarchical_namespace=types.SimpleNamespace(enabled=hns),
+  )
+
+
+def _bucket(
+    location_type: str | None = 'zone',
+    storage_class: str = 'STANDARD',
+    hns: bool = False,
+) -> types.SimpleNamespace:
+  return types.SimpleNamespace(
+      location_type=location_type,
+      storage_class=storage_class,
+      hierarchical_namespace_enabled=hns,
+  )
+
+
 class GcsUtilsTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    for cached_fn in (
+        gcs_utils._get_bucket_info,
+        gcs_utils._get_storage_control_client,
+        gcs_utils._get_storage_client,
+        gcs_utils.get_bucket,
+    ):
+      cached_fn.cache_clear()
+      self.addCleanup(cached_fn.cache_clear)
 
   @parameterized.named_parameters(
       dict(
@@ -88,25 +123,32 @@ class GcsUtilsTest(parameterized.TestCase):
           'gs://my-bucket/dir/sub/',
           'gs://my-bucket',
           'gs://my-bucket/',
+          epath.Path('gs://my-bucket/dir/sub'),
       ],
+      is_zonal=[False, True],
   )
   def test_get_kvstore_for_gcs(
       self,
       gcs_backend: str | None,
-      ckpt_path: str,
+      ckpt_path: epath.PathLike,
+      is_zonal: bool,
   ):
     env_override = (
         {} if gcs_backend is None else {'TENSORSTORE_GCS_BACKEND': gcs_backend}
     )
-    expected_driver = gcs_backend or 'gcs'
-    if ckpt_path.endswith(('my-bucket', 'my-bucket/')):
+    expected_driver = gcs_backend or ('gcs_grpc' if is_zonal else 'gcs')
+    path_str = str(ckpt_path)
+    if path_str.endswith(('my-bucket', 'my-bucket/')):
       expected_path = ''
-    elif ckpt_path.endswith('/'):
+    elif path_str.endswith('/'):
       expected_path = 'dir/sub/'
     else:
       expected_path = 'dir/sub'
 
-    with mock.patch.dict(os.environ, env_override, clear=False):
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=is_zonal),
+        mock.patch.dict(os.environ, env_override, clear=False),
+    ):
       if gcs_backend is None:
         os.environ.pop('TENSORSTORE_GCS_BACKEND', None)
       self.assertEqual(
@@ -117,6 +159,136 @@ class GcsUtilsTest(parameterized.TestCase):
               'path': expected_path,
           },
       )
+
+  @parameterized.parameters(
+      (True, b'12345', False),
+      (True, b'', True),
+      (False, b'67890', False),
+  )
+  def test_write_json(
+      self,
+      exclusive: bool,
+      generation: bytes,
+      expect_error: bool,
+  ):
+    path = epath.Path('gs://bucket/checkpoint/record')
+    mock_kv = mock.MagicMock()
+    mock_kv.write.return_value.result.return_value = mock.Mock(
+        generation=generation
+    )
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=False),
+        mock.patch.object(
+            gcs_utils.ts.KvStore,
+            'open',
+            return_value=mock.MagicMock(
+                result=mock.MagicMock(return_value=mock_kv)
+            ),
+        ) as mock_open,
+    ):
+      if expect_error:
+        with self.assertRaisesRegex(FileExistsError, 'already exists'):
+          gcs_utils.write_json(path, '{"a": 1}', exclusive=exclusive)
+      else:
+        gcs_utils.write_json(path, '{"a": 1}', exclusive=exclusive)
+      mock_open.assert_called_once()
+      mock_kv.write.assert_called_once_with(
+          b'',
+          b'{"a": 1}',
+          if_equal=gcs_utils._NO_VALUE_GENERATION if exclusive else None,
+      )
+
+  def test_write_json_invalidates_cache(self):
+    mock_fs = mock.Mock()
+    mock_backend = types.SimpleNamespace(fs=mock.Mock(return_value=mock_fs))
+    mock_path = mock.MagicMock(spec=epath.Path)
+    mock_path._backend = mock_backend
+    mock_path.__fspath__.return_value = 'gs://bucket/checkpoint/record'
+    mock_kv = mock.MagicMock()
+    mock_kv.write.return_value.result.return_value = mock.Mock(generation=b'1')
+    with (
+        mock.patch.object(gcs_utils, 'is_zonal_bucket', return_value=False),
+        mock.patch.object(
+            gcs_utils.ts.KvStore,
+            'open',
+            return_value=mock.MagicMock(
+                result=mock.MagicMock(return_value=mock_kv)
+            ),
+        ),
+    ):
+      gcs_utils.write_json(mock_path, '{"a": 1}')
+    mock_fs.invalidate_cache.assert_called_once_with(
+        'gs://bucket/checkpoint/record'
+    )
+
+  def test_get_storage_control_client_caches_none_on_import_error(self):
+    with mock.patch.dict(
+        'sys.modules', {'google.cloud.storage_control_v2': None}
+    ):
+      self.assertIsNone(gcs_utils._get_storage_control_client())
+      self.assertIsNone(gcs_utils._get_storage_control_client())
+      self.assertEqual(
+          gcs_utils._get_storage_control_client.cache_info().hits, 1
+      )
+
+  @parameterized.named_parameters(
+      ('layout_zonal_hns', _layout('zone', True), None, (True, True)),
+      ('layout_regional', _layout('region', False), None, (False, False)),
+      (
+          'api_error_fallback_zonal',
+          api_exceptions.GoogleAPICallError('err'),
+          _bucket('zone', 'RAPID', True),
+          (True, True),
+      ),
+      (
+          'api_error_fallback_forbidden',
+          api_exceptions.GoogleAPICallError('err'),
+          api_exceptions.Forbidden('403'),
+          (False, False),
+      ),
+      (
+          'auth_error_no_fallback',
+          auth_exceptions.DefaultCredentialsError('no creds'),
+          None,
+          (False, False),
+      ),
+      (
+          'no_control_client_fallback_rapid',
+          None,
+          _bucket(None, 'RAPID', False),
+          (True, False),
+      ),
+  )
+  def test_bucket_info(self, layout, bucket, expected):
+    if layout is None:
+      control_client = None
+    else:
+      control_client = types.SimpleNamespace(
+          get_storage_layout=mock.Mock(side_effect=[layout])
+      )
+    storage_client = mock.Mock()
+    storage_client.get_bucket.side_effect = [bucket]
+    with (
+        mock.patch.object(
+            gcs_utils,
+            '_get_storage_control_client',
+            return_value=control_client,
+        ),
+        mock.patch.object(
+            gcs_utils, '_get_storage_client', return_value=storage_client
+        ),
+    ):
+      self.assertEqual(
+          (
+              gcs_utils.is_zonal_bucket('b'),
+              gcs_utils.is_hierarchical_namespace_enabled('gs://b/d'),
+          ),
+          expected,
+      )
+      self.assertEqual(storage_client.get_bucket.called, bucket is not None)
+    self.assertFalse(
+        gcs_utils.is_hierarchical_namespace_enabled('/tmp/local/dir')
+    )
 
   def test_rmtree_non_gcs_path(self):
     local_path = epath.Path('/tmp/some/local/dir')
@@ -130,7 +302,8 @@ class GcsUtilsTest(parameterized.TestCase):
   ):
     mock_is_hns_enabled.return_value = False
     gcs_path = mock.MagicMock()
-    gcs_path.__str__.return_value = 'gs://bucket/dir'  # pyrefly: ignore[missing-attribute]
+    # pyrefly: ignore[missing-attribute]
+    gcs_path.__str__.return_value = 'gs://bucket/dir'
 
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)
@@ -148,7 +321,8 @@ class GcsUtilsTest(parameterized.TestCase):
   ):
     mock_is_hns_enabled.return_value = True
     gcs_path = mock.MagicMock(spec=epath.Path)
-    gcs_path.__str__.return_value = 'gs://bucket/dir'  # pyrefly: ignore[missing-attribute]
+    # pyrefly: ignore[missing-attribute]
+    gcs_path.__str__.return_value = 'gs://bucket/dir'
 
     with mock.patch.object(gcs_utils, 'is_gcs_path', return_value=True):
       gcs_utils.rmtree(gcs_path)
@@ -194,7 +368,8 @@ class GcsUtilsTest(parameterized.TestCase):
         'sys.modules',
         {'google.cloud.storage_control_v2': mock_storage_control_v2},
     ):
-      gcs_utils.cleanup_hns_folders(gcs_path)  # pyrefly: ignore[bad-argument-type]
+      # pyrefly: ignore[bad-argument-type]
+      gcs_utils.cleanup_hns_folders(gcs_path)
 
     # list_folders should have been called the right prefix
     mock_client.list_folders.assert_called_once()
@@ -254,6 +429,17 @@ class GcsUtilsTest(parameterized.TestCase):
   def test_gcs_bucket_root_rejects_non_gcs_path(self):
     with self.assertRaises(ValueError):
       gcs_utils.gcs_bucket_root(epath.Path('/tmp/some/local/dir'))
+
+  def test_get_bucket(self):
+    mock_client = mock.MagicMock()
+    with mock.patch.object(
+        gcs_utils, '_get_storage_client', return_value=mock_client
+    ):
+      self.assertIs(
+          gcs_utils.get_bucket('my-bucket'), mock_client.bucket.return_value
+      )
+      mock_client.bucket.assert_called_once_with('my-bucket')
+      mock_client.get_bucket.assert_not_called()
 
 
 if __name__ == '__main__':
