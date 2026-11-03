@@ -1210,20 +1210,23 @@ def get_tensorstore_raw_bytes(
 
 
 def resolve_compression_settings(
-    metadatas: Sequence[ArrayMetadata | SerializedArrayMetadata],
-) -> tuple[str, str]:
-  """Extracts (algo, level) across array metadata."""
-  if not metadatas:
-    return ('none', 'None')
-  compression_settings = {
-      (m.compression_algorithm, m.compression_level) for m in metadatas
-  }
-  if len(compression_settings) == 1:
-    algo, level = next(iter(compression_settings))
-    return (str(algo), str(level))
+    compressions: Sequence[value_metadata.Compression],
+) -> value_metadata.Compression:
+  """Resolves compression settings across array compression metadata.
 
-  # this should be rare.
-  return ('mixed', 'mixed')
+  Args:
+    compressions: Sequence of value_metadata.Compression metadata objects.
+
+  Returns:
+    A value_metadata.Compression with common settings, default uncompressed
+    Compression('none') if empty, or Compression('mixed') if settings differ.
+  """
+  if not compressions:
+    return value_metadata.Compression('none')
+  unique_compressions = set(compressions)
+  if len(unique_compressions) == 1:
+    return next(iter(unique_compressions))
+  return value_metadata.Compression('mixed')
 
 
 def print_ts_debug_data(key: str | None, infos: Sequence[types.ParamInfo]):

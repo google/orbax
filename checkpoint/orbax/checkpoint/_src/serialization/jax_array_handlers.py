@@ -314,6 +314,32 @@ def _record_logical_metrics(
     )
 
 
+def _resolve_compression_labels(
+    metadatas: (
+        Sequence[ts_utils.ArrayMetadata | ts_utils.SerializedArrayMetadata]
+        | None
+    ),
+) -> tuple[str, str]:
+  """Resolves compression algorithm and level strings from array metadata.
+
+  Args:
+    metadatas: Sequence of array metadata objects, or None if metadata is
+      unavailable.
+
+  Returns:
+    A tuple of (compression_algorithm, compression_level) strings.
+  """
+  compression = ts_utils.resolve_compression_settings(
+      [
+          value_metadata.Compression(
+              m.compression_algorithm, m.compression_level
+          )
+          for m in (metadatas or [])
+      ]
+  )
+  return compression.algorithm, str(compression.level)
+
+
 def _record_compression_metrics(
     direction: types.IoDirection,
     logical_bytes: int,
@@ -329,10 +355,9 @@ def _record_compression_metrics(
   if logical_bytes <= 0 or raw_bytes <= 0:
     return
   ratio = float(logical_bytes) / raw_bytes
-  algo_str = 'none'
-  level_str = 'None'
-  if metadatas is not None:
-    algo_str, level_str = ts_utils.resolve_compression_settings(metadatas)
+  compression_algorithm, compression_level = _resolve_compression_labels(
+      metadatas
+  )
   logging.info(
       '[process=%d] %s ratio (logical/raw): %.3f (%s / %s), algo=%s, level=%s',
       multihost.process_index(),
@@ -340,16 +365,16 @@ def _record_compression_metrics(
       ratio,
       humanize.naturalsize(logical_bytes, binary=True),
       humanize.naturalsize(raw_bytes, binary=True),
-      algo_str,
-      level_str,
+      compression_algorithm,
+      compression_level,
   )
   jax.monitoring.record_scalar(
       f'/jax/orbax/{direction.value}/worker/io/compression_ratio',
       ratio,
       storage_type=storage_type,
       custom_prefix=custom_prefix,
-      compression_algorithm=algo_str,
-      compression_level=level_str,
+      compression_algorithm=compression_algorithm,
+      compression_level=compression_level,
   )
 
 
@@ -387,10 +412,9 @@ def _record_raw_metrics(
       duration,
       f' (prefix: {custom_prefix})' if custom_prefix else '',
   )
-  algo_str = 'none'
-  level_str = 'None'
-  if metadatas is not None:
-    algo_str, level_str = ts_utils.resolve_compression_settings(metadatas)
+  compression_algorithm, compression_level = _resolve_compression_labels(
+      metadatas
+  )
   # raw/gbytes records the actual physical raw bytes transferred to/from the
   # storage backend, including compression (e.g. zstd) when enabled or
   # uncompressed chunk bytes when disabled.
@@ -399,8 +423,8 @@ def _record_raw_metrics(
       raw_bytes / (1024**3),
       storage_type=storage_type,
       custom_prefix=custom_prefix,
-      compression_algorithm=algo_str,
-      compression_level=level_str,
+      compression_algorithm=compression_algorithm,
+      compression_level=compression_level,
   )
   if raw_throughput is not None:
     jax.monitoring.record_scalar(
