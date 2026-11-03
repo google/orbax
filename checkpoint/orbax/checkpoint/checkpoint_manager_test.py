@@ -3178,6 +3178,30 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
       self.assertCountEqual([0, 1, 3, 4, 8, 11], manager.all_steps())
 
+  @parameterized.parameters((False, [1, 3]), (True, [0, 1, 3]))
+  def test_preservation_best_n_across_restart(
+      self, keep_without_metrics, expected
+  ):
+    best_n = preservation_policy_lib.BestN(
+        get_metric_fn=lambda m: m['loss'],
+        reverse=True,
+        n=2,
+        keep_checkpoints_without_metrics=keep_without_metrics,
+    )
+    policy = (
+        preservation_policy_lib.AnyPreservationPolicy([best_n])
+        if keep_without_metrics
+        else best_n
+    )
+    options = CheckpointManagerOptions(preservation_policy=policy)
+    for steps in [((0, None), (1, 2), (2, 5)), ((3, 1), (4, 4))]:
+      with CheckpointManager(self.directory, options=options) as manager:
+        for step, loss in steps:
+          metrics = {'loss': loss} if loss is not None else None
+          self.save_params(step, manager, self.pytree, metrics=metrics)
+        self.wait_if_async(manager)
+    self.assertSameElements(expected, manager.all_steps())
+
   def test_sync_continuous_checkpointing_with_minimum_interval_secs(self):
     with CheckpointManager(
         self.directory,
