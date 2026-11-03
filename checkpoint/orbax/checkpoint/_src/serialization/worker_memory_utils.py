@@ -14,8 +14,7 @@
 
 """Utilities for managing worker memory usage."""
 
-import collections
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 import functools
 
 from absl import logging
@@ -83,7 +82,7 @@ def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
 
 
 def _estimate_worker_memory_usage(
-    arr: jax.Array,
+    arr: jax.Array | jax.ShapeDtypeStruct,
     *,
     replica_id: int | None,
     device_to_worker_ids_map: dict[int, int],
@@ -91,43 +90,35 @@ def _estimate_worker_memory_usage(
   """Estimates memory used by the array on each worker after transfer.
 
   Args:
-    arr: The array to estimate memory usage for.
+    arr: The array or array spec to estimate memory usage for.
     replica_id: The replica id to use for estimation. If None, all replicas are
-      used.
+      used. Must be None when `arr` is a `jax.ShapeDtypeStruct`.
     device_to_worker_ids_map: A mapping from device ID to worker ID.
 
   Returns:
     A mapping from worker ID to estimated memory usage.
   """
-  worker_memory_usage = collections.defaultdict(int)
+  worker_memory_usage = dict.fromkeys(device_to_worker_ids_map.values(), 0)
   shard_memory_size = (
-      np.prod(arr.sharding.shard_shape(arr.shape)) * arr.dtype.itemsize
+      int(np.prod(arr.sharding.shard_shape(arr.shape))) * arr.dtype.itemsize
   )
-  for shard in arr.global_shards:
-    if replica_id is not None and shard.replica_id != replica_id:
-      continue
-    worker_id = device_to_worker_ids_map[shard.device.id]
-    worker_memory_usage[worker_id] += shard_memory_size  # pyrefly: ignore[unsupported-operation]
+  if replica_id is None:
+    devices = arr.sharding.device_set
+  else:
+    if not isinstance(arr, jax.Array):
+      raise ValueError(
+          'Filtering by `replica_id` requires a materialized `jax.Array`.'
+      )
+    devices = [
+        shard.device
+        for shard in arr.global_shards
+        if shard.replica_id == replica_id
+    ]
+  for device in devices:
+    worker_memory_usage[device_to_worker_ids_map[device.id]] += (
+        shard_memory_size
+    )
   return worker_memory_usage
-
-
-def _increment_worker_memory_usage(
-    arr: jax.Array,
-    current_worker_memory_usage: dict[int, int],
-    *,
-    replica_id: int | None,
-    device_to_worker_ids_map: dict[int, int],
-) -> dict[int, int]:
-  """Increments memory used by the array on each worker after transfer."""
-  estimate = _estimate_worker_memory_usage(
-      arr,
-      replica_id=replica_id,
-      device_to_worker_ids_map=device_to_worker_ids_map,
-  )
-  return {
-      worker_id: current_worker_memory_usage[worker_id] + estimate[worker_id]
-      for worker_id in current_worker_memory_usage
-  }
 
 
 def _is_array_under_memory_budget(
@@ -149,6 +140,48 @@ def _humanize_worker_memory_usage(
   }
 
 
+def _batch_indices_with_memory_usage(
+    item_usages: Iterable[dict[int, int]],
+    worker_memory_budget: int,
+) -> Iterator[tuple[list[int], dict[int, int]]]:
+  """Groups items into consecutive batches that fit `worker_memory_budget`.
+
+  An item that alone reaches or exceeds `worker_memory_budget` gets its own
+  batch.
+
+  Args:
+    item_usages: Per-worker byte estimates for each item, keyed by worker ID.
+      Workers missing from an estimate use no memory for that item.
+    worker_memory_budget: Maximum bytes allowed on any worker in a batch.
+
+  Yields:
+    `(indices, worker_memory_usage)` for each batch.
+  """
+  current_batch: list[int] = []
+  current_worker_memory_usage: dict[int, int] = {}
+  for i, item_usage in enumerate(item_usages):
+    incremented_worker_memory_usage = {
+        worker_id: (
+            current_worker_memory_usage.get(worker_id, 0)
+            + item_usage.get(worker_id, 0)
+        )
+        for worker_id in current_worker_memory_usage.keys() | item_usage.keys()
+    }
+    if not current_batch or _is_array_under_memory_budget(
+        worker_memory_budget, incremented_worker_memory_usage
+    ):
+      current_batch.append(i)
+      current_worker_memory_usage = incremented_worker_memory_usage
+    else:
+      # Assumes the previous batch completes and frees worker memory before the
+      # next batch starts.
+      yield current_batch, current_worker_memory_usage
+      current_batch = [i]
+      current_worker_memory_usage = dict(item_usage)
+  if current_batch:
+    yield current_batch, current_worker_memory_usage
+
+
 def next_memory_budgeted_batch(
     params: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
     worker_memory_budget: int,
@@ -167,7 +200,6 @@ def next_memory_budgeted_batch(
     dispatcher: The dispatcher instance to use. If None, the default dispatcher
       is used.
   """
-  arrays, infos, args = zip(*params, strict=True)
   if dispatcher is None:
     device_to_worker_ids_map = {
         d.id: multihost.process_index_from_device(d) for d in jax.devices()
@@ -180,57 +212,58 @@ def next_memory_budgeted_batch(
     # for all replicas.
     replica_id = None
 
-  def _no_worker_memory_usage() -> dict[int, int]:
-    return {id: 0 for id in set(device_to_worker_ids_map.values())}
-
-  current_batch = [(arrays[0], infos[0], args[0])]
-  current_worker_memory_usage = _estimate_worker_memory_usage(
-      arrays[0],
-      replica_id=replica_id,
-      device_to_worker_ids_map=device_to_worker_ids_map,
-  )
-
-  for arr, info, arg in zip(arrays[1:], infos[1:], args[1:]):
-    incremented_worker_memory_usage = _increment_worker_memory_usage(
-        arr,
-        current_worker_memory_usage,
-        replica_id=replica_id,
-        device_to_worker_ids_map=device_to_worker_ids_map,
-    )
-    if _is_array_under_memory_budget(
-        worker_memory_budget, incremented_worker_memory_usage
-    ):
-      current_batch.append((arr, info, arg))
-      current_worker_memory_usage = incremented_worker_memory_usage
-    else:
-      assert current_batch
-      logging.info(
-          '[process=%d] Obtained a memory-limited batch (replica_id=%s) with'
-          ' %d arrays. Per-worker, projected to cost: %s',
-          multihost.process_index(),
-          replica_id,
-          len(current_batch),
-          _humanize_worker_memory_usage(current_worker_memory_usage),
-      )
-      yield current_batch
-
-      # Assumes arrays have completed saving and worker memory has been freed.
-      # The current array still needs to be dealt with.
-      current_batch = [(arr, info, arg)]
-      current_worker_memory_usage = _increment_worker_memory_usage(
+  item_usages = (
+      _estimate_worker_memory_usage(
           arr,
-          _no_worker_memory_usage(),
           replica_id=replica_id,
           device_to_worker_ids_map=device_to_worker_ids_map,
       )
-
-  if current_batch:
+      for arr, _, _ in params
+  )
+  for indices, batch_worker_memory_usage in _batch_indices_with_memory_usage(
+      item_usages, worker_memory_budget
+  ):
     logging.info(
         '[process=%d] Obtained a memory-limited batch (replica_id=%s) with %d'
         ' arrays. Per-worker, projected to cost: %s',
         multihost.process_index(),
         replica_id,
-        len(current_batch),
-        _humanize_worker_memory_usage(current_worker_memory_usage),
+        len(indices),
+        _humanize_worker_memory_usage(batch_worker_memory_usage),
     )
-    yield current_batch
+    yield [params[i] for i in indices]
+
+
+def next_memory_budgeted_batch_indices(
+    specs: Sequence[jax.ShapeDtypeStruct],
+    worker_memory_budget: int,
+    *,
+    dispatcher: dispatchers.Dispatcher,
+) -> Iterator[list[int]]:
+  """Yields consecutive batches of `specs` that fit the worker memory budget.
+
+  Like `next_memory_budgeted_batch`, but for arrays that are yet to be
+  materialized by `dispatcher`, e.g. when restoring. A spec that alone exceeds
+  the budget gets its own batch.
+
+  Args:
+    specs: The arrays to materialize, with shardings.
+    worker_memory_budget: The maximum amount of memory to use on any worker.
+    dispatcher: The dispatcher that materializes the arrays.
+
+  Yields:
+    Batches of indices into `specs`.
+  """
+  device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+  item_usages = (
+      _estimate_worker_memory_usage(
+          spec,
+          replica_id=None,
+          device_to_worker_ids_map=device_to_worker_ids_map,
+      )
+      for spec in specs
+  )
+  for indices, _ in _batch_indices_with_memory_usage(
+      item_usages, worker_memory_budget
+  ):
+    yield indices

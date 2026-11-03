@@ -88,6 +88,40 @@ class ColocatedTransportTest(absltest.TestCase):
     self.assertIsInstance(cpu_sharding, jax.sharding.NamedSharding)
     self.mock_cp_devices.assert_called_once_with(self.arr.sharding.mesh)
 
+  def test_colocated_cpu_sharding_uses_default_memory_kind(self):
+    device = jax.devices()[0]
+    for memory_kind in ('device', 'pinned_host', 'unpinned_host'):
+      with self.subTest(memory_kind=memory_kind):
+        named = self.arr.sharding.with_memory_kind(memory_kind)
+        self.assertEqual(
+            colocated_transport.colocated_cpu_sharding(named),
+            jax.sharding.NamedSharding(named.mesh, named.spec),
+        )
+        single = jax.sharding.SingleDeviceSharding(
+            device, memory_kind=memory_kind
+        )
+        self.assertEqual(
+            colocated_transport.colocated_cpu_sharding(single),
+            jax.sharding.SingleDeviceSharding(device),
+        )
+
+  def test_normalize_single_device_sharding_uses_default_memory_kind(self):
+    tpu = mock.Mock(platform='tpu')
+    cpu = jax.devices()[0]
+
+    class _FakeSingleDeviceSharding:
+      device_set = {tpu}
+      memory_kind = 'pinned_host'
+
+    with mock.patch.object(
+        colocated_transport, '_to_serializable_cpu_device', return_value=cpu
+    ):
+      result = colocated_transport._normalize_single_device_sharding_to_colocated_cpu(  # pylint: disable=protected-access
+          _FakeSingleDeviceSharding()  # pyrefly: ignore[bad-argument-type]
+      )
+
+    self.assertEqual(result, jax.sharding.SingleDeviceSharding(cpu))
+
   def test_transform_tree_shardings(self):
     restore_args = type_handlers.ArrayRestoreArgs(sharding=self.arr.sharding)
     sharding_meta = sharding_metadata.NamedShardingMetadata.from_jax_sharding(
