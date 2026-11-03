@@ -25,6 +25,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types as serialization_types
 import tensorstore as ts
@@ -2191,6 +2192,75 @@ class GetTensorStoreRawBytesTest(parameterized.TestCase):
     self.assertGreaterEqual(diff_read, arr.nbytes)
 
 
+class ZarrMetadataFromTensorstoreTest(parameterized.TestCase):
+
+  @parameterized.product(
+      use_zarr3=(False, True),
+      wrap_cast=(False, True),
+      case=(
+          (
+              ts_utils.ZstdCompression(level=2),
+              value_metadata.Compression('zstd', 2),
+          ),
+          (
+              ts_utils.BloscCompression(cname='zstd', clevel=4),
+              value_metadata.Compression('blosc_zstd', 4),
+          ),
+      ),
+  )
+  def test_extracts_zarr_metadata_and_unwraps_cast_adapter(
+      self,
+      use_zarr3: bool,
+      wrap_cast: bool,
+      case: tuple[ts_utils.CompressionSpec, value_metadata.Compression],
+  ):
+    compression, expected = case
+    tmpdir = self.create_tempdir().full_path
+    if use_zarr3:
+      metadata = {
+          'shape': [4, 4],
+          'data_type': 'float32',
+          'chunk_grid': {
+              'name': 'regular',
+              'configuration': {'chunk_shape': [4, 4]},
+          },
+          'codecs': [
+              {'name': 'bytes'},
+              compression.zarr3_codec(),
+          ],
+      }
+    else:
+      metadata = {
+          'shape': [4, 4],
+          'dtype': '<f4',
+          'chunks': [4, 4],
+          'compressor': compression.zarr2_compressor(),
+      }
+    spec: dict[str, Any] = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {'driver': 'file', 'path': tmpdir},
+        'metadata': metadata,
+    }
+    ts.open(spec, create=True, open=True).result()
+    read_spec: dict[str, Any] = {
+        'driver': spec['driver'],
+        'kvstore': spec['kvstore'],
+    }
+    if wrap_cast:
+      read_spec = {'driver': 'cast', 'dtype': 'bfloat16', 'base': read_spec}
+    store = ts.open(read_spec, open=True, read=True).result()
+    meta = ts_utils.zarr_metadata_from_tensorstore(store)
+    self.assertIsNotNone(meta)
+    assert meta is not None
+    self.assertEqual(meta.zarr_format, 3 if use_zarr3 else 2)
+    self.assertEqual(meta.compression, expected)
+
+  def test_returns_none_when_metadata_unavailable(self):
+    self.assertIsNone(
+        ts_utils.zarr_metadata_from_tensorstore(ts.array([1, 2, 3]))
+    )
+
+
 class ResolveCompressionSettingsTest(parameterized.TestCase):
 
   def test_empty(self):
@@ -2198,75 +2268,80 @@ class ResolveCompressionSettingsTest(parameterized.TestCase):
         ts_utils.resolve_compression_settings([]), ('none', 'None')
     )
 
-  def test_single(self):
-    meta = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='array_metadata',
+          metadatas=[
+              ts_utils.ArrayMetadata(
+                  param_name='a',
+                  shape=(1,),
+                  dtype=np.dtype('float32'),
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  use_ocdbt=True,
+                  use_zarr3=False,
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              )
+          ],
+      ),
+      dict(
+          testcase_name='serialized_array_metadata',
+          metadatas=[
+              ts_utils.SerializedArrayMetadata(
+                  param_name='a',
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              )
+          ],
+      ),
+      dict(
+          testcase_name='zarr_compression',
+          metadatas=[
+              value_metadata.Compression('zstd', 3),
+              value_metadata.Compression('zstd', 3),
+          ],
+      ),
+  )
+  def test_uniform_settings(self, metadatas):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta]), ('zstd', '3')
+        ts_utils.resolve_compression_settings(metadatas), ('zstd', '3')
     )
 
-  def test_multiple_identical(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='mixed_algorithm',
+          metadatas=[
+              value_metadata.Compression('zstd', 3),
+              value_metadata.Compression('none'),
+          ],
+      ),
+      dict(
+          testcase_name='mixed_level',
+          metadatas=[
+              value_metadata.Compression('zstd', 1),
+              value_metadata.Compression('zstd', 3),
+          ],
+      ),
+      dict(
+          testcase_name='mixed_across_types',
+          metadatas=[
+              ts_utils.SerializedArrayMetadata(
+                  param_name='a',
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              ),
+              value_metadata.Compression('none'),
+          ],
+      ),
+  )
+  def test_mixed_settings(self, metadatas):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]), ('zstd', '1')
-    )
-
-  def test_mixed(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='none',
-        compression_level=None,
-    )
-    self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]),
-        ('mixed', 'mixed'),
+        ts_utils.resolve_compression_settings(metadatas), ('mixed', 'mixed')
     )
 
 
