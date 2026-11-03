@@ -25,6 +25,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types as serialization_types
 import tensorstore as ts
@@ -1635,78 +1636,43 @@ class ResolveCompressionSettingsTest(parameterized.TestCase):
 
   def test_empty(self):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([]), ('none', 'None')
+        ts_utils.resolve_compression_settings([]),
+        value_metadata.Compression('none'),
     )
 
   def test_single(self):
-    meta = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta]), ('zstd', '3')
+        ts_utils.resolve_compression_settings(
+            [value_metadata.Compression('zstd', 3)]
+        ),
+        value_metadata.Compression('zstd', 3),
     )
 
   def test_multiple_identical(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]), ('zstd', '1')
+        ts_utils.resolve_compression_settings([
+            value_metadata.Compression('zstd', 1),
+            value_metadata.Compression('zstd', 1),
+        ]),
+        value_metadata.Compression('zstd', 1),
     )
 
-  def test_mixed(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='none',
-        compression_level=None,
-    )
+  def test_mixed_algorithm(self):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]),
-        ('mixed', 'mixed'),
+        ts_utils.resolve_compression_settings([
+            value_metadata.Compression('zstd', 3),
+            value_metadata.Compression('none'),
+        ]),
+        value_metadata.Compression('mixed'),
+    )
+
+  def test_mixed_level(self):
+    self.assertEqual(
+        ts_utils.resolve_compression_settings([
+            value_metadata.Compression('zstd', 1),
+            value_metadata.Compression('zstd', 3),
+        ]),
+        value_metadata.Compression('mixed'),
     )
 
 
