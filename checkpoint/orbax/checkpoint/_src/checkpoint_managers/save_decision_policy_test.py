@@ -40,13 +40,18 @@ def _make_step_info(
   )
 
 
-def _make_context(*, is_saving_in_progress: bool = False) -> DecisionContext:
+def _make_context(
+    *,
+    is_saving_in_progress: bool = False,
+    save_durations_secs: Sequence[float] = (),
+) -> DecisionContext:
   return DecisionContext(
       is_saving_in_progress=is_saving_in_progress,
       in_progress_step=None,
       reached_preemption=False,
       multiprocessing_options=options_lib.MultiprocessingOptions(),
       cancel_in_progress_save=lambda: None,
+      save_durations_secs=save_durations_secs,
   )
 
 
@@ -74,16 +79,30 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
           target_interval_steps=10,
           deferral_window_steps=-1,
       ),
+      dict(
+          testcase_name="zero_deferral_percentile",
+          target_interval_steps=10,
+          deferral_window_steps=None,
+          deferral_save_time_percentile=0.0,
+      ),
+      dict(
+          testcase_name="greater_than_one_deferral_percentile",
+          target_interval_steps=10,
+          deferral_window_steps=None,
+          deferral_save_time_percentile=1.1,
+      ),
   )
   def test_continuous_policy_invalid_arguments_raises_value_error(
       self,
       target_interval_steps: int | None,
       deferral_window_steps: int | None,
+      deferral_save_time_percentile: float | None = 0.9,
   ):
     with self.assertRaises(ValueError):
       ContinuousCheckpointingPolicy(
           target_interval_steps=target_interval_steps,
           deferral_window_steps=deferral_window_steps,
+          deferral_save_time_percentile=deferral_save_time_percentile,
       )
 
   def test_continuous_policy_saving_in_progress_behavior(self):
@@ -143,7 +162,8 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
 
   def test_continuous_policy_default_deferral_window(self):
     # With target_interval_steps=10 and deferral_window_steps=None (default),
-    # no opportunistic saves are deferred prior to target steps.
+    # when no historical save durations are present yet, no opportunistic saves
+    # are deferred prior to target steps.
     policy = ContinuousCheckpointingPolicy(target_interval_steps=10)
     idle_ctx = _make_context(is_saving_in_progress=False)
     prev = [_make_step_info(0, self.base_time, 0)]
@@ -158,6 +178,42 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
           f"Expected step {step} with default deferral_window_steps=None to"
           " save.",
       )
+
+  def test_continuous_policy_dynamic_deferral_save_time_percentile(self):
+    # Historical save durations: [10s, 20s, 30s] -> p90 = 28s.
+    # Step timestamps advance by 10s/step, tracked automatically by the policy.
+    # With target_interval_steps=10, steps 8 (20s to target <= 28s) and 9
+    # (10s to target <= 28s) are deferred, while steps 1..7 (>= 30s to target)
+    # and target step 10 are saved.
+    policy = ContinuousCheckpointingPolicy(target_interval_steps=10)
+    ctx = _make_context(
+        is_saving_in_progress=False,
+        save_durations_secs=[10.0, 20.0, 30.0],
+    )
+    previous_steps: list[CheckpointInfo] = []
+    saved_steps: list[int] = []
+
+    for step in range(11):
+      info = _make_step_info(step, self.base_time, step * 10.0)
+      if policy.should_save(info, previous_steps, context=ctx):
+        saved_steps.append(step)
+        previous_steps.append(info)
+
+    self.assertSequenceEqual(saved_steps, [0, 1, 2, 3, 4, 5, 6, 7, 10])
+
+    # Disabling deferral_save_time_percentile=None saves all steps 0..10.
+    no_deferral_policy = ContinuousCheckpointingPolicy(
+        target_interval_steps=10,
+        deferral_save_time_percentile=None,
+    )
+    previous_steps = []
+    saved_steps = []
+    for step in range(11):
+      info = _make_step_info(step, self.base_time, step * 10.0)
+      if no_deferral_policy.should_save(info, previous_steps, context=ctx):
+        saved_steps.append(step)
+        previous_steps.append(info)
+    self.assertSequenceEqual(saved_steps, list(range(11)))
 
   @parameterized.named_parameters(
       dict(
@@ -250,6 +306,7 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
         reached_preemption=False,
         multiprocessing_options=options_lib.MultiprocessingOptions(),
         cancel_in_progress_save=record_cancel,
+        save_durations_secs=(),
     )
     self.assertTrue(
         policy.should_save(
@@ -269,6 +326,7 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
         reached_preemption=False,
         multiprocessing_options=options_lib.MultiprocessingOptions(),
         cancel_in_progress_save=record_cancel,
+        save_durations_secs=(),
     )
     self.assertTrue(
         policy.should_save(
@@ -287,6 +345,7 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
         reached_preemption=False,
         multiprocessing_options=options_lib.MultiprocessingOptions(),
         cancel_in_progress_save=record_cancel,
+        save_durations_secs=(),
     )
     self.assertTrue(
         policy.should_save(
