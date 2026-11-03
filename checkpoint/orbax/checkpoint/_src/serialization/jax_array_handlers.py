@@ -805,6 +805,7 @@ def _serialize_arrays(
         copied_prioritized + copied_deprioritized + deprioritized_on_host
     )
 
+
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
         prioritized,
