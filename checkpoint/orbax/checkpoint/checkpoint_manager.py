@@ -42,6 +42,7 @@ from orbax.checkpoint._src.checkpointers import abstract_checkpointer
 from orbax.checkpoint._src.checkpointers import async_checkpointer
 from orbax.checkpoint._src.checkpointers import checkpointer as checkpointer_lib
 from orbax.checkpoint._src.futures import future
+from orbax.checkpoint._src.futures import signaling_client
 from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import checkpoint_handler
 from orbax.checkpoint._src.handlers import composite_checkpoint_handler
@@ -140,10 +141,44 @@ class _FinalizeThread(threading.Thread):
         daemon=daemon,
     )
     self._step = step
+    self._lock = threading.Lock()
+    self._cancelled = False
+    self._finalizing = False
+    self._cancel_handled = False
     self._thread_local = threading.local()
 
   def step(self) -> int:
     return self._step
+
+  def try_cancel(self) -> bool:
+    """Marks the thread as cancelled if finalization has not yet begun."""
+    with self._lock:
+      if self._cancelled or self._finalizing:
+        return False
+      self._cancelled = True
+      return True
+
+  def try_begin_finalize(self) -> bool:
+    """Marks finalization as begun if the thread has not been cancelled."""
+    with self._lock:
+      if self._cancelled:
+        return False
+      self._finalizing = True
+      return True
+
+  def cancel(self) -> None:
+    with self._lock:
+      self._cancelled = True
+
+  def is_cancelled(self) -> bool:
+    with self._lock:
+      return self._cancelled
+
+  def is_cancel_handled(self) -> bool:
+    return self._cancel_handled
+
+  def mark_cancel_handled(self) -> None:
+    self._cancel_handled = True
 
   def run(self):
     try:
@@ -934,6 +969,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # stashed before `self._checkpoints` prunes old steps so
     # `_finalize_checkpoint()` can compute `duration_saved_secs`.
     self._prior_checkpoint_time = _INIT_TIME
+    # Snapshot of `self._checkpoints` preceding the current save (step N-1);
+    # stashed before `self._checkpoints` appends step N and prunes old steps so
+    # `cancel()` can roll back in-memory checkpoint state.
+    self._prior_checkpoints: list[CheckpointInfo] = list(self._checkpoints)
     self._last_preemption_skip_logged_step: Optional[int] = None
 
     logging.info(
@@ -1218,6 +1257,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     by this object has been updated externally.
     """
     self._checkpoints.set(self._load_checkpoint_infos())
+    self._prior_checkpoints = list(self._checkpoints)
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
@@ -1952,6 +1992,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def _add_checkpoint_info(self, step: int, metrics: Optional[PyTree]):
     checkpoint_time = datetime.datetime.now(tz=datetime.timezone.utc)
     self._prior_checkpoint_time = self._latest_checkpoint_time
+    self._prior_checkpoints = list(self._checkpoints)
     self._latest_checkpoint_time = checkpoint_time
     self._checkpoints.append(CheckpointInfo(step, checkpoint_time, metrics))
 
@@ -2233,6 +2274,71 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if is_async_checkpointer(self._checkpointer):
       self._checkpointer.check_for_errors()  # pyrefly: ignore[missing-attribute]
 
+  def cancel(self) -> None:
+    """Cancels any ongoing background save operation and cleans up its state."""
+    finalize_thread = self._finalize_thread.get()
+    if finalize_thread is None or finalize_thread.is_cancel_handled():
+      logging.info(
+          '[process=%s] CheckpointManager.cancel() called with no save in'
+          ' progress; no-op.',
+          multihost.process_index(),
+      )
+      return
+    finalize_thread.mark_cancel_handled()
+    in_flight_step = finalize_thread.step()
+    is_primary_host = multihost.is_primary_host(
+        self._multiprocessing_options.primary_host
+    )
+    was_cancelled = False
+    if is_primary_host:
+      was_cancelled = finalize_thread.try_cancel()
+    if (
+        not multihost.should_skip_process_sync(
+            self._multiprocessing_options.active_processes
+        )
+        and self._multiprocessing_options.primary_host is not None
+    ):
+      client = signaling_client.get_signaling_client()
+      operation_id = synchronization.OperationIdGenerator.next_operation_id()
+      cancel_barrier_key = (
+          f'{self._signals_namespace}_checkpoint_manager_cancel_'
+          f'{operation_id}_{in_flight_step}/'
+      )
+      if is_primary_host:
+        client.key_value_set(
+            cancel_barrier_key,
+            str(int(was_cancelled)),
+            allow_overwrite=True,
+        )
+      was_cancelled = bool(
+          int(
+              client.blocking_key_value_get(
+                  cancel_barrier_key,
+                  timeout_secs=multihost.coordination_timeout(),
+              )
+          )
+      )
+    if not was_cancelled:
+      self._wait_until_finished()
+      logging.info(
+          '[process=%s] CheckpointManager.cancel() called with no save in'
+          ' progress; no-op.',
+          multihost.process_index(),
+      )
+      return
+    logging.info(
+        '[process=%s] Cancelling in-progress checkpoint save at step %d.',
+        multihost.process_index(),
+        in_flight_step,
+    )
+    finalize_thread.cancel()
+    if hasattr(self._checkpointer, 'cancel'):
+      self._checkpointer.cancel()
+    self._wait_until_finished()
+    self._checkpoint_deleter.delete(in_flight_step)
+    self._checkpoints.set(self._prior_checkpoints)
+    self._latest_checkpoint_time = self._prior_checkpoint_time
+
   def _finalize_checkpoint(self, step: int):
     """Executes final actions just before the checkpoint write completes.
 
@@ -2276,6 +2382,19 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     try:
       self._non_blocking_metadata_store.wait_until_finished()
       self._wait_for_checkpointers()
+      finalize_thread = self._finalize_thread.get()
+      if (
+          finalize_thread is not None
+          and not finalize_thread.try_begin_finalize()
+      ):
+        logging.info(
+            '[process=%s][thread=%s][step=%s] Checkpoint save was cancelled;'
+            ' skipping finalization and garbage collection.',
+            process_index,
+            current_thread.name,
+            step,
+        )
+        return
       # If an error is encountered while waiting for commit futures to complete,
       # we will not proceed past this point.
       self._finalize_checkpoint(step)
