@@ -22,12 +22,19 @@ typically signals that `chunk_byte_size` is set too low.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from concurrent import futures
 import dataclasses
+import itertools
 
 from absl import logging
 from etils import epath
 
 _SMALL_FILE_THRESHOLD_BYTES: int = 1 * 1024 * 1024
+# Threads that list directories and stat files. Only the primary host scans
+# while the others wait at a barrier, and one listing or stat on a remote
+# filesystem can take ~100 ms, so a serial walk of a many-host checkpoint can
+# outlast the barrier.
+_SCAN_THREADS: int = 64
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,23 +66,53 @@ def _classify_file(name: str) -> str:
   return "other"
 
 
-def _iter_file_sizes(path: epath.Path) -> Iterator[tuple[str, int]]:
-  """Yields (leaf_name, size_bytes) for every file under path; logs IO errors."""
+def _list_dir(path: epath.Path) -> list[epath.Path]:
+  """Returns the children of `path`, or none if it cannot be listed."""
   try:
-    children = list(path.iterdir())
+    return list(path.iterdir())
   except OSError as e:
     logging.warning("inventory: cannot iterdir %s: %s", path, e)
-    return
-  for child in children:
-    if child.is_dir():
-      yield from _iter_file_sizes(child)
-      continue
-    try:
-      size = child.stat().length
-    except (OSError, AttributeError) as e:
-      logging.warning("inventory: cannot stat %s: %s", child, e)
-      continue
-    yield child.name, size
+    return []
+
+
+def _stat_entry(path: epath.Path) -> tuple[bool, int | None]:
+  """Returns (is_dir, size); size is None for a directory or a failed stat."""
+  try:
+    stat = path.stat()
+  except (OSError, AttributeError) as e:
+    logging.warning("inventory: cannot stat %s: %s", path, e)
+    return False, None
+  if stat.is_directory:
+    return True, None
+  return False, stat.length
+
+
+def _iter_file_sizes(path: epath.Path) -> Iterator[tuple[str, int]]:
+  """Yields (leaf_name, size_bytes) for every file under path; logs IO errors.
+
+  Walks one directory level at a time, listing the level's directories and
+  then stating their children in parallel.
+
+  Args:
+    path: The directory to walk.
+
+  Yields:
+    (leaf_name, size_bytes) per file, level by level.
+  """
+  with futures.ThreadPoolExecutor(_SCAN_THREADS) as pool:
+    directories = [path]
+    while directories:
+      children = list(
+          itertools.chain.from_iterable(pool.map(_list_dir, directories))
+      )
+      directories = []
+      for child, (is_dir, size) in zip(
+          children, pool.map(_stat_entry, children)
+      ):
+        if is_dir:
+          directories.append(child)
+        elif size is not None:
+          yield child.name, size
 
 
 def scan_checkpoint(path: epath.Path) -> CheckpointInventory:

@@ -68,20 +68,21 @@ def to_shape_dtype_struct(
     scalar_dtype: ScalarType | None = None,
     support_format: bool = False,  # TODO(b/460844509) - True by default.
 ) -> jax.ShapeDtypeStruct | ScalarType:
-  """Get ShapeDtypeStruct from array-like object.
+  """Get ``jax.ShapeDtypeStruct`` from array-like object.
 
   Args:
-    arr: Array-like object. This can include jax.Array, jax.ShapeDtypeStruct,
-      ArrayRestoreArgs, value_metadata.ArrayMetadata - anything that has
-      `shape`/`global_shape`, `dtype`, and `sharding` properties. It may also be
-      a numpy array or a scalar value.
-    dtype: Optional dtype that overrides the dtype of `arr` in the result.
+    arr: Array-like object. This can include ``jax.Array``,
+      ``jax.ShapeDtypeStruct``, ``ArrayRestoreArgs``,
+      ``value_metadata.ArrayMetadata`` - anything that has
+      ``shape``/``global_shape``, ``dtype``, and ``sharding`` properties. It may
+      also be a numpy array or a scalar value.
+    dtype: Optional dtype that overrides the dtype of ``arr`` in the result.
     scalar_dtype: Optional dtype to use for scalars. Useful for converting to
       Python scalar types.
     support_format: Whether to support layout in the result.
 
   Returns:
-    jax.ShapeDtypeStruct or scalar value.
+    ``jax.ShapeDtypeStruct`` or scalar value.
   """
   if isinstance(arr, jax.Array) and jax.dtypes.issubdtype(
       arr.dtype, jax.dtypes.prng_key

@@ -326,5 +326,107 @@ class ManagedDeletionTest(parameterized.TestCase):
     self.assert_latest_step(1)
 
 
+class ManagedReplacementTest(parameterized.TestCase):
+  """Replacing a step consults the save policy before deleting the step."""
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path) / 'run'
+    self.state: Any = {'weights': np.arange(8)}
+    self.updated: Any = {'weights': np.ones(8)}
+    self.policy = ocp.training.save_decision_policies.FixedIntervalPolicy(4)
+    self.ckptr = ocp.training.Checkpointer(
+        self.directory, save_decision_policy=self.policy  # pyrefly: ignore[bad-argument-type]
+    )
+
+  def tearDown(self):
+    self.ckptr.close()
+    super().tearDown()
+
+  def run_save(self, asynchronous: bool, step: int, state: Any, **kwargs):
+    """Runs `Checkpointer.save` or waits for `Checkpointer.save_async`."""
+    if asynchronous:
+      response = self.ckptr.save_async(step, state, **kwargs)
+      return response is not None and response.result()
+    return self.ckptr.save(step, state, **kwargs)
+
+  def watch_policy(self):
+    return mock.patch.object(
+        self.policy, 'should_save', wraps=self.policy.should_save
+    )
+
+  def assert_steps(self, expected_steps: list[int]):
+    self.assertEqual([c.step for c in self.ckptr.checkpoints], expected_steps)
+
+  def assert_weights(self, step: int, expected: Any):
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(step))['weights'],
+        expected['weights'],
+    )
+
+  @parameterized.parameters(False, True)
+  def test_policy_rejection_leaves_step_intact(self, asynchronous):
+    self.ckptr.save(2, self.state, force=True)
+    self.assertFalse(
+        self.run_save(asynchronous, 2, self.updated, overwrite=True)
+    )
+    self.assert_steps([2])
+    self.assert_weights(2, self.state)
+
+  def test_force_bypasses_policy_when_replacing(self):
+    self.ckptr.save(2, self.state, force=True)
+    with self.watch_policy() as should_save:
+      self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    should_save.assert_not_called()
+    self.assert_weights(2, self.updated)
+
+  def test_replacing_latest_step_excludes_it_from_history(self):
+    self.ckptr.save(0, self.state)
+    self.ckptr.save(4, self.state)
+    with self.watch_policy() as should_save:
+      self.assertTrue(self.ckptr.save(4, self.updated, overwrite=True))
+    should_save.assert_called_once()
+    history = should_save.call_args.kwargs['previous_steps']
+    self.assertEqual([info.step for info in history], [0])
+    self.assert_steps([0, 4])
+    self.assert_weights(4, self.updated)
+
+  def test_rewinding_to_earlier_step_needs_force(self):
+    self.ckptr.save(0, self.state)
+    self.ckptr.save(4, self.state)
+    self.assertFalse(self.ckptr.save(0, self.updated, overwrite=True))
+    self.assert_weights(0, self.state)
+    self.ckptr.save(0, self.updated, overwrite=True, force=True)
+    self.assert_weights(0, self.updated)
+
+  def test_duplicate_step_raises_without_overwrite(self):
+    self.ckptr.save(2, self.state, force=True)
+    with self.assertRaises(ocp.training.errors.StepAlreadyExistsError):
+      self.ckptr.save(2, self.updated, force=True)
+    self.assert_weights(2, self.state)
+
+  def test_replacement_goes_through_delete(self):
+    self.ckptr.save(2, self.state, force=True)
+    with mock.patch.object(
+        self.ckptr, 'delete', wraps=self.ckptr.delete
+    ) as delete:
+      self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    delete.assert_called_once_with(2, missing_ok=True)
+
+  def test_replacement_waits_for_pending_save(self):
+    response = self.ckptr.save_async(2, self.state, force=True)
+    assert response is not None
+    self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    self.assertTrue(response.result())
+    self.assert_steps([2])
+    self.assert_weights(2, self.updated)
+
+  def test_should_save_agrees_with_save(self):
+    self.ckptr.save(0, self.state)
+    self.assertFalse(self.ckptr.should_save(0))
+    self.assertFalse(self.ckptr.should_save(2))
+    self.assertTrue(self.ckptr.should_save(4))
+
+
 if __name__ == '__main__':
   absltest.main()

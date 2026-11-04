@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Restore function-local named tuples when rich PyTree metadata is enabled.
 
+## [0.12.9] - 2026-11-02
+
+### Added
+
+- Add support to GCS Rapid Bucket.
+
 ### Changed
 
 - `FileOptions.skip_sync_file_validations=True` (V0 and #v1) now checks for and
@@ -18,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (with `create_directories_asynchronously=True`) instead of only skipping the
   checks. With `force=False` / `overwrite=False`, an existing destination would
   raise an exception when the save is awaited (e.g. `wait_until_finished()`).
+
+### Fixed
+
+- #v1 Preserve existing checkpoints when an overwrite is skipped by the save
+  decision policy.
 
 ## [0.12.8] - 2026-10-20
 

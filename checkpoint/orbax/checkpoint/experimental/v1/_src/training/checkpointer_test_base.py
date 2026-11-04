@@ -399,7 +399,7 @@ class CheckpointerTestBase:
       with mock.patch.object(
           checkpointer._manager,
           'wait_until_finished',
-          side_effect=[None, RuntimeError('Mocked background save error')],
+          side_effect=RuntimeError('Mocked background save error'),
       ):
         response = checkpointer.save_async(0, self.pytree)
         self.assertIsNotNone(response)

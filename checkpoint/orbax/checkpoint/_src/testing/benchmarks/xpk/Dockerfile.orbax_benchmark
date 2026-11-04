@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     dnsutils \
     ca-certificates \
+    libgoogle-perftools4 \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Checkout Orbax (Optimized Shallow Fetch)
@@ -118,6 +120,8 @@ RUN pip install pathwaysutils tensorboard cloudpickle
 # Set PYTHONPATH so 'import orbax' works from the correctly mapped directory.
 # Keeps the base image's PYTHONPATH, e.g. /app for the SimDevice plugin.
 ENV PYTHONPATH=/app/orbax_repo/checkpoint${PYTHONPATH:+:${PYTHONPATH}}
+# Preload TCMalloc to cut page faults and avoid glibc arena memory retention.
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4
 
 # Verify installation
 RUN python3 -c "import orbax.checkpoint; print('Orbax installed:', orbax.checkpoint.__file__)"

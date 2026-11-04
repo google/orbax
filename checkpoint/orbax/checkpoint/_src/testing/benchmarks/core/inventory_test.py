@@ -88,6 +88,23 @@ class ScanCheckpointTest(parameterized.TestCase):
     self.assertEqual(inv.file_count, 0)
     self.assertEqual(inv.total_bytes, 0)
 
+  def test_iter_file_sizes_walks_nested_dirs(self):
+    d = epath.Path(self.create_tempdir().full_path)
+    _write(d / 'p0' / 'l0' / 'chunk_0', 3)
+    _write(d / 'p0' / 'l0' / 'ocdbt.process_0', 5)
+    _write(d / 'p0' / '_METADATA', 2)
+    _write(d / 'p1' / 'chunk_1', 4)
+
+    self.assertCountEqual(
+        inventory._iter_file_sizes(d),
+        [
+            ('chunk_0', 3),
+            ('ocdbt.process_0', 5),
+            ('_METADATA', 2),
+            ('chunk_1', 4),
+        ],
+    )
+
 
 if __name__ == '__main__':
   absltest.main()

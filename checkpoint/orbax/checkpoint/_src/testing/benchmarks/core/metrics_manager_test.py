@@ -15,7 +15,6 @@
 """Tests for MetricsManager — aggregation, per-host writers, and HParams."""
 
 import dataclasses
-import json
 from unittest import mock
 
 from absl import logging
@@ -25,6 +24,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import metrics_manager
+from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
 class MetricsManagerTest(parameterized.TestCase):
@@ -406,38 +406,40 @@ class MetricsManagerPerHostWriterTest(parameterized.TestCase):
     self.assertFalse(kwargs.get('just_logging', False))
 
 
-class PerHostSidecarTest(absltest.TestCase):
-  """The primary reads every host's means sidecar once, in parallel."""
+class KeyValueSummaryTest(absltest.TestCase):
 
-  def test_reads_many_sidecars_in_host_order(self):
-    temp_dir = epath.Path(self.create_tempdir().full_path)
+  def _summarize(self, process_index, gathered):
     manager = metrics_manager.MetricsManager(
         name='Suite',
         num_repeats=1,
-        tensorboard_dir=temp_dir,
-        enable_per_host_metrics=True,
+        tensorboard_dir=epath.Path(self.create_tempdir().full_path),
     )
-    num_hosts = 200
-    for i in range(num_hosts):
-      host_dir = temp_dir / 'bench1' / f'host_{i}'
-      host_dir.mkdir(parents=True)
-      (host_dir / '_per_host_means.json').write_text(
-          json.dumps({'keys': ['time_s'], 'means': [float(i)]})
-      )
-    # Neither a host without a sidecar nor a non-host directory counts.
-    (temp_dir / 'bench1' / f'host_{num_hosts}').mkdir()
-    (temp_dir / 'bench1' / 'other').mkdir()
+    for name, value in [
+        ('get_process_index', process_index),
+        ('gather_on_primary', gathered),
+        ('sync_global_processes', None),
+    ]:
+      self.enter_context(mock.patch.object(multihost, name, return_value=value))
+    write_cards = self.enter_context(
+        mock.patch.object(manager, '_write_summary_cards')
+    )
+    manager._aggregate_and_write_summary('bench1', [])
+    return write_cards
 
-    per_host_means = manager._read_per_host_means('bench1')
+  def test_primary_summarizes_every_host_in_order(self):
+    gathered = [{'keys': ['t'], 'means': [m]} for m in (1.0, 3.0, 2.0)]
 
-    self.assertLen(per_host_means, num_hosts)
+    (_, _, aggregates, per_host_values), _ = self._summarize(
+        0, gathered
+    ).call_args
+
     self.assertEqual(
-        manager._gather_per_host_values(per_host_means),
-        [(i, {'time_s': float(i)}) for i in range(num_hosts)],
+        per_host_values, [(0, {'t': 1.0}), (1, {'t': 3.0}), (2, {'t': 2.0})]
     )
-    aggregates = manager._gather_cross_host_aggregates(per_host_means)
-    self.assertEqual(aggregates['time_s']['max'], num_hosts - 1)
-    self.assertEqual(aggregates['time_s']['min'], 0)
+    self.assertEqual(aggregates['t']['max'], 3.0)
+
+  def test_other_processes_write_no_summary(self):
+    self._summarize(3, None).assert_not_called()
 
 
 @dataclasses.dataclass(frozen=True)

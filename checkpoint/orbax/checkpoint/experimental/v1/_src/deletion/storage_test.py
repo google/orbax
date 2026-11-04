@@ -56,16 +56,11 @@ class MetadataTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     self.assertLen(list(directory.iterdir()), 1)
 
   async def test_gcs_atomic_object_publication(self):
-    bucket = mock.Mock()
-    with mock.patch.object(gcs_utils, 'get_bucket', return_value=bucket):
-      await metadata.write_json(
-          epath.Path('gs://bucket/checkpoint/record'), {'a': 1}, exclusive=True
-      )
-    bucket.blob.assert_called_once_with('checkpoint/record')
-    bucket.blob.return_value.upload_from_string.assert_called_once_with(
-        json.dumps({'a': 1}),
-        content_type='application/json',
-        if_generation_match=0,
+    path = epath.Path('gs://bucket/checkpoint/record')
+    with mock.patch.object(gcs_utils, 'write_json') as mock_write:
+      await metadata.write_json(path, {'a': 1}, exclusive=True)
+    mock_write.assert_called_once_with(
+        path, json.dumps({'a': 1}, sort_keys=True), exclusive=True
     )
 
   @parameterized.parameters(False, True)

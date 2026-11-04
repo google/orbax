@@ -19,6 +19,8 @@ Types
    :annotation: = tuple[PyTreeKey, ...]
 .. autodata:: JsonType
    :annotation: = list[JsonValue] | dict[str, JsonValue]
+.. autodata:: JsonValue
+   :annotation: = str | int | float | bool | None | JsonType
 
 Structure Utils
 ------------------------------------------------------------
