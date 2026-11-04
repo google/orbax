@@ -83,7 +83,6 @@ name_to_pipeline {
     }
     model_functions {
       model_function_name: "__MODEL_FUNCTION_NAME__"
-      weights_name: "__WEIGHTS_NAME__"
     }
     pre_processor_names: "__PRE_PROCESSOR_NAME__"
     post_processor_names: "__POST_PROCESSOR_NAME__"
@@ -167,7 +166,6 @@ name_to_pipeline {
     components {
       function_name: "__MODEL_FUNCTION_NAME__"
       role: ROLE_MODEL
-      weights_name: "__WEIGHTS_NAME__"
       named_signature {
       }
     }
