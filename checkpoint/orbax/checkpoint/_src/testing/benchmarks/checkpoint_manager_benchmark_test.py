@@ -31,6 +31,7 @@ CheckpointManagerBenchmarkOptions = (
 CheckpointManagerBenchmark = (
     checkpoint_manager_benchmark.CheckpointManagerBenchmark
 )
+_ORIGINAL_CHECKPOINT_MANAGER = checkpoint_manager.CheckpointManager
 
 
 class CheckpointManagerBenchmarkTest(parameterized.TestCase):
@@ -59,6 +60,23 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
               train_steps=1, max_to_keep=[1, 2]
           ),
           expected_len=2,
+      ),
+      dict(
+          options=CheckpointManagerBenchmarkOptions(
+              train_steps=2,
+              overwrite_existing_step=[False, True],
+              warmup_save=True,
+          ),
+          expected_len=2,
+      ),
+      dict(
+          options=CheckpointManagerBenchmarkOptions(
+              train_steps=2,
+              overwrite_existing_step=[False, True],
+              skip_sync_file_validations=[False, True],
+              warmup_save=True,
+          ),
+          expected_len=4,
       ),
   )
   def test_generate_benchmarks(self, options, expected_len):
@@ -98,7 +116,9 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
     }
 
     test_path = epath.Path(self.create_tempdir().full_path)
-    test_options = CheckpointManagerBenchmarkOptions(train_steps=1)
+    test_options = CheckpointManagerBenchmarkOptions(
+        train_steps=1, skip_sync_file_validations=True
+    )
     context = benchmarks_core.TestContext(
         pytree=pytree, path=test_path, options=test_options
     )
@@ -106,6 +126,8 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
     result = generator.test_fn(context)
 
     self.mock_checkpoint_manager_cls.assert_called_once()
+    cm_options_arg = self.mock_checkpoint_manager_cls.call_args[1]['options']
+    self.assertTrue(cm_options_arg.file_options.skip_sync_file_validations)
     self.assertIsInstance(result, benchmarks_core.TestResult)
     self.assertContainsSubset(
         {
@@ -125,6 +147,62 @@ class CheckpointManagerBenchmarkTest(parameterized.TestCase):
     self.assertEqual(
         CheckpointManagerBenchmarkOptions,
         CheckpointManagerBenchmark.options_class,
+    )
+
+  @parameterized.named_parameters(
+      ('fresh_with_restore', False, True, ['0', '1', '2'], 'restore_2'),
+      ('overwrite_with_restore', True, True, ['0'], 'restore_0'),
+      ('overwrite_skip_restore', True, False, ['0'], None),
+  )
+  def test_warmup_and_overwrite_modes(
+      self, overwrite, verify_restore, expected_steps, restore_key
+  ):
+    generator = CheckpointManagerBenchmark(
+        checkpoint_configs=[benchmarks_configs.CheckpointConfig(spec={})],
+        options=CheckpointManagerBenchmarkOptions(),
+    )
+    test_path = epath.Path(self.create_tempdir().full_path)
+    options = CheckpointManagerBenchmarkOptions(
+        train_steps=2,
+        max_to_keep=10,
+        overwrite_existing_step=overwrite,
+        warmup_save=True,
+        verify_restore=verify_restore,
+    )
+    context = benchmarks_core.TestContext(
+        pytree={'a': jnp.arange(4)}, path=test_path, options=options
+    )
+    with mock.patch.object(
+        checkpoint_manager, 'CheckpointManager', _ORIGINAL_CHECKPOINT_MANAGER
+    ):
+      result = generator.test_fn(context)
+
+    metrics = result.metrics.results.keys()
+    self.assertContainsSubset(
+        {
+            'save_0::0_basics/time_s',
+            'save_1::0_basics/time_s',
+            'wait_until_finished_0::0_basics/time_s',
+            'wait_until_finished_1::0_basics/time_s',
+        },
+        metrics,
+    )
+    if restore_key is not None:
+      self.assertContainsSubset(
+          {
+              f'{restore_key}::0_basics/time_s',
+              'correctness_check::0_basics/time_s',
+          },
+          metrics,
+      )
+    else:
+      self.assertNotIn('correctness_check::0_basics/time_s', metrics)
+    self.assertIsNone(result.inventory)
+    (attempt_dir,) = test_path.iterdir()
+    self.assertEqual(result.path, attempt_dir)
+    self.assertEqual(
+        sorted(step_dir.name for step_dir in attempt_dir.iterdir()),
+        expected_steps,
     )
 
 
