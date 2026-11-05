@@ -1674,6 +1674,14 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         time.time() - step_stats.checkpointer_blocking_start_time
     )
 
+    # The in-memory view of checkpoints is updated optimistically here, so it
+    # diverges from the on-disk view until the save is finalized: the new step
+    # is added before it is committed, and old steps are pruned before they are
+    # deleted. This is because saves are generally assumed to succeed, and APIs
+    # like `latest_step()` and `should_save()` would be confusing if they did
+    # not register the step that was just saved until it fully lands on disk.
+    # If the save fails, the in-memory view is rolled back in
+    # `_wait_until_finished_impl()`.
     self._add_checkpoint_info(step, metrics)
     step_stats.get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
@@ -2233,7 +2241,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           step,
           finalize_thread_name,
       )
-      self._checkpoints.delete_if(lambda info: info.step == step)
+      # `save()` already added the failed step and pruned old steps from the
+      # in-memory view, but old steps are only deleted from disk after a
+      # successful finalize. Restore the view from before the failed save.
+      self._checkpoints.set(self._prior_checkpoints)
+      self._latest_checkpoint_time = self._prior_checkpoint_time
       raise
     finally:
       duration = time.time() - start_time

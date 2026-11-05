@@ -2249,6 +2249,8 @@ class CheckpointManagerTest(
       # the error.
       with self.assertRaises(SystemError):
         manager.wait_until_finished()
+      self.assertSameElements([1, 2], manager.all_steps())
+      self.assertEqual(2, manager.latest_step())
 
       # Error is cleared so it is not re-raised.
       manager.wait_until_finished()
@@ -2259,6 +2261,108 @@ class CheckpointManagerTest(
         # All waiters should succeed.
         for waiter in waiters:
           waiter.result(timeout=5)
+
+  def test_failed_async_save_retains_checkpoint_history(self):
+    options = CheckpointManagerOptions(max_to_keep=1)
+    with CheckpointManager(self.directory, options=options) as manager:
+      manager.save(0, args=args.PyTreeSave({'value': 7}))
+      manager.wait_until_finished()
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+      handler = test_utils.ErrorCheckpointHandler(
+          PyTreeCheckpointHandler(), executor=executor
+      )
+      with CheckpointManager(
+          self.directory, item_handlers=handler, options=options
+      ) as manager:
+        latest_checkpoint_time = manager._latest_checkpoint_time
+        manager.save(1, args=test_utils.ErrorSaveArgs({'value': 8}))
+        with self.assertRaises(SystemError):
+          manager.wait_until_finished()
+
+        self.assertEqual([0], manager.all_steps())
+        self.assertEqual(0, manager.latest_step())
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(0, args=test_utils.ErrorRestoreArgs()),
+        )
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(None, args=test_utils.ErrorRestoreArgs()),
+        )
+        self.assertEqual(
+            latest_checkpoint_time, manager._latest_checkpoint_time
+        )
+
+  def test_failed_async_save_then_successful_save(self):
+    options = CheckpointManagerOptions(
+        max_to_keep=1,
+        best_fn=lambda metrics: metrics['loss'],
+        best_mode='min',
+    )
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+      with CheckpointManager(
+          self.directory,
+          item_handlers={
+              'state': PyTreeCheckpointHandler(),
+              'error': test_utils.ErrorCheckpointHandler(
+                  PyTreeCheckpointHandler(), executor=executor
+              ),
+          },
+          options=options,
+      ) as manager:
+        manager.save(
+            0,
+            args=args.Composite(state=args.PyTreeSave({'value': 7})),
+            metrics={'loss': 0.5},
+        )
+        manager.wait_until_finished()
+        latest_checkpoint_time = manager._latest_checkpoint_time
+
+        # Step 1 has the best metric, but its commit fails.
+        manager.save(
+            1,
+            args=args.Composite(
+                state=args.PyTreeSave({'value': 8}),
+                error=test_utils.ErrorSaveArgs({'value': 8}),
+            ),
+            metrics={'loss': 0.1},
+        )
+        with self.assertRaises(SystemError):
+          manager.wait_until_finished()
+
+        self.assertEqual([0], manager.all_steps())
+        self.assertEqual(0, manager.latest_step())
+        self.assertEqual(0, manager.best_step())
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(
+                None, args=args.Composite(state=args.PyTreeRestore())
+            ).state,
+        )
+        self.assertEqual(
+            latest_checkpoint_time, manager._latest_checkpoint_time
+        )
+
+        # A later successful save applies retention normally.
+        manager.save(
+            2,
+            args=args.Composite(state=args.PyTreeSave({'value': 9})),
+            metrics={'loss': 0.2},
+        )
+        manager.wait_until_finished()
+        self.assertEqual([2], manager.all_steps())
+        self.assertEqual(2, manager.latest_step())
+        self.assertEqual(2, manager.best_step())
+        self.assertEqual(
+            {'value': 9},
+            manager.restore(
+                None, args=args.Composite(state=args.PyTreeRestore())
+            ).state,
+        )
+        manager.reload()
+        self.assertEqual([2], manager.all_steps())
 
   def test_legacy_handler_default_item(self):
     if multihost.is_pathways_backend():
