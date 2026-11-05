@@ -369,6 +369,12 @@ class Checkpointer(epy.ContextManager):
         return checkpoint
     raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
 
+  def _record_preemption_save_skipped(
+      self, step: int, current_time: datetime.datetime, reason: str
+  ) -> None:
+    """Records the same preemption telemetry as `CheckpointManager`."""
+    self._manager._record_preemption_save_skipped(step, current_time, reason)  # pylint: disable=protected-access
+
   def _should_save(
       self,
       step: int,
@@ -386,6 +392,7 @@ class Checkpointer(epy.ContextManager):
       cancel_in_progress_save: Callback invoked by the policy when an
         in-progress background save should be cancelled.
     """
+    current_time = datetime.datetime.now(tz=datetime.timezone.utc)
     previous_steps = [
         info
         for info in self._manager._checkpoints  # pylint: disable=protected-access
@@ -409,22 +416,37 @@ class Checkpointer(epy.ContextManager):
             latest_step,
             latest_step,
         )
+      if self._manager.reached_preemption(step):
+        self._record_preemption_save_skipped(
+            step, current_time, 'step_already_saved'
+        )
       return False
+    is_saving_in_progress = self._manager.is_saving_in_progress()
+    reached_preemption = self._manager.reached_preemption(step)
     context = save_decision_policies.DecisionContext(
-        is_saving_in_progress=self._manager.is_saving_in_progress(),
+        is_saving_in_progress=is_saving_in_progress,
         in_progress_step=self._manager._in_progress_step(),  # pylint: disable=protected-access
-        reached_preemption=self._manager.reached_preemption(step),
+        reached_preemption=reached_preemption,
         multiprocessing_options=self._context.multiprocessing_options.v0(),
         cancel_in_progress_save=cancel_in_progress_save,
     )
     current_step = checkpoint_info.CheckpointInfo(
         step=step,
-        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        time=current_time,
         metrics=None,
     )
-    return self._save_decision_policy.should_save(
+    should_save = self._save_decision_policy.should_save(
         current_step, previous_steps=previous_steps, context=context  # pyrefly: ignore[bad-argument-type]
     )
+    if not should_save and reached_preemption:
+      if is_saving_in_progress:
+        reason = 'save_in_progress'
+      elif self._manager._is_continuous_checkpointing_enabled():  # pylint: disable=protected-access
+        reason = 'minimum_interval_not_met'
+      else:
+        reason = 'policy_rejected'
+      self._record_preemption_save_skipped(step, current_time, reason)
+    return should_save
 
   def should_save(self, step: int) -> bool:
     """Returns whether a checkpoint should be saved at the given step.
