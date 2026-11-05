@@ -259,6 +259,7 @@ def handler_with_options(
     enable_padding_and_truncation: bool = True,
     ocdbt_target_data_file_size: int | None = None,
     enable_pinned_host_transfer: bool | None = None,
+    enable_async_host_untile: bool = False,
     pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
         tree_metadata.PYTREE_METADATA_OPTIONS
     ),
@@ -279,6 +280,7 @@ def handler_with_options(
   context.array.saving.use_compression = use_compression
   context.array.saving.ocdbt_target_data_file_size = ocdbt_target_data_file_size
   context.array.saving.enable_pinned_host_transfer = enable_pinned_host_transfer
+  context.array.saving.enable_async_host_untile = enable_async_host_untile
   context.array.saving.array_metadata_store = array_metadata_store
   context.array.saving.enable_write_sharding_file = enable_write_sharding_file
   context.array.saving.use_replica_parallel = not utils.is_pathways_backend()
@@ -1651,6 +1653,7 @@ class PyTreeHandlerTest(
         min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel,
         enable_pinned_host_transfer,
+        **kwargs,
     ):
       nonlocal true_count, false_count
       if enable_pinned_host_transfer:
@@ -1664,6 +1667,7 @@ class PyTreeHandlerTest(
           min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          **kwargs,
       )
 
     with mock.patch.object(
@@ -1681,6 +1685,90 @@ class PyTreeHandlerTest(
     else:
       self.assertEqual(true_count, 0)
       self.assertGreater(false_count, 0)
+
+  def _create_multi_dtype_pytree(self):
+    mesh = jax.sharding.Mesh(jax.devices(), ('x',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    base = np.arange(16 * 128).reshape((16, 128))
+    tree = {
+        k: create_sharded_array(base.astype(dt), sharding)
+        for k, dt in (
+            ('bf16', jnp.bfloat16),
+            ('f32', np.float32),
+            ('i32', np.int32),
+        )
+    }
+    return tree, jax.tree.map(as_abstract_type, tree)
+
+  def _verify_v1_async_untile_save(self, handler, async_dir, tree, abstract):
+    allow_untile = threading.Event()
+    untile_threads: list[str] = []
+    main_thread = threading.current_thread().name
+    main_asarray_calls = 0
+    orig_untile = replica_slices.untile_pinned_slices_to_numpy
+    orig_asarray = np.asarray
+
+    def gated_untile(rslices_list, *args, **kwargs):
+      allow_untile.wait(timeout=10.0)
+      untile_threads.append(threading.current_thread().name)
+      return orig_untile(rslices_list, *args, **kwargs)
+
+    def spy_asarray(a, *args, **kwargs):
+      nonlocal main_asarray_calls
+      if (
+          isinstance(a, jax.Array)
+          and threading.current_thread().name == main_thread
+      ):
+        main_asarray_calls += 1
+      return orig_asarray(a, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'untile_pinned_slices_to_numpy', new=gated_untile
+    ), mock.patch.object(replica_slices.np, 'asarray', new=spy_asarray):
+      awaitable = handler.save_async(async_dir, tree)
+      if replica_slices._has_pinned_host_memory(jax.local_devices()[0]):
+        self.assertEqual(main_asarray_calls, 0)
+      self.assertEmpty(untile_threads)
+      allow_untile.set()
+      asyncio.run(_run_awaitable(awaitable))
+
+    test_utils.sync_global_processes(f'v1_async_untile_{async_dir.name}')
+    if replica_slices._has_pinned_host_memory(jax.local_devices()[0]):
+      self.assertNotEmpty(untile_threads)
+      self.assertNotIn(main_thread, untile_threads)
+    restored = handler.load(async_dir, abstract)
+    test_utils.assert_tree_equal(self, tree, restored)
+
+  @parameterized.parameters(False, True)
+  def test_enable_async_host_untile(self, use_ocdbt: bool):
+    if multihost.is_pathways_backend():
+      self.skipTest('Disabled on Pathways.')
+    with self.assertRaises(ValueError):
+      options_lib.ArrayOptions.Saving(
+          enable_pinned_host_transfer=False, enable_async_host_untile=True
+      )
+    with self.assertRaises(ValueError):
+      with handler_with_options(
+          enable_pinned_host_transfer=False, enable_async_host_untile=True
+      ) as invalid_handler:
+        invalid_handler.save(self.directory, self.pytree)
+
+    tree, abstract = self._create_multi_dtype_pytree()
+    sync_dir = self.directory / f'sync_{use_ocdbt}'
+    async_dir = self.directory / f'async_{use_ocdbt}'
+    if multihost.process_index() == 0:
+      sync_dir.mkdir(parents=True, exist_ok=True)
+      async_dir.mkdir(parents=True, exist_ok=True)
+    test_utils.sync_global_processes(f'v1_async_untile_dirs_{use_ocdbt}')
+
+    with handler_with_options(
+        use_ocdbt=use_ocdbt, enable_async_host_untile=True
+    ) as handler:
+      handler.save(sync_dir, tree)
+      test_utils.sync_global_processes(f'v1_sync_untile_saved_{use_ocdbt}')
+      restored_sync = handler.load(sync_dir, abstract)
+      test_utils.assert_tree_equal(self, tree, restored_sync)
+      self._verify_v1_async_untile_save(handler, async_dir, tree, abstract)
 
   @parameterized.product(
       use_ocdbt=(True, False),

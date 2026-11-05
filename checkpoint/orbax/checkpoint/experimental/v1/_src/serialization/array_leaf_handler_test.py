@@ -113,17 +113,20 @@ class ArrayLeafHandlerTest(
       use_zarr3: bool = True,
       use_replica_parallel: bool = True,
       enable_replica_parallel_separate_folder: bool = False,
-      enable_pinned_host_transfer: bool = False,
+      enable_pinned_host_transfer: bool | None = False,
+      enable_async_host_untile: bool = False,
       save_concurrent_bytes: int | None = None,
       load_concurrent_bytes: int | None = None,
       use_compression: bool = True,
       min_slice_bytes_for_replica_parallel: int | None = None,
       max_replicas_for_replica_parallel: int | None = None,
+      pytree: dict[str, jax.Array] | None = None,
   ):
     # make unit with different tests
     parent_dir = epath.Path(
         self.create_tempdir(f'tmp_{self._testMethodName}').full_path
     )
+    tree_to_save = self.pytree if pytree is None else pytree
 
     context = context_lib.Context()
     context.array.saving.use_ocdbt = use_ocdbt
@@ -135,6 +138,7 @@ class ArrayLeafHandlerTest(
     context.array.saving.enable_pinned_host_transfer = (
         enable_pinned_host_transfer
     )
+    context.array.saving.enable_async_host_untile = enable_async_host_untile
     context.array.saving.use_compression = use_compression
     context.array.saving.min_slice_bytes_for_replica_parallel = (
         min_slice_bytes_for_replica_parallel
@@ -155,7 +159,7 @@ class ArrayLeafHandlerTest(
           parent_dir=path_test_utils.PathAwaitingCreationWrapper(parent_dir),
           ts_context=ts_utils.get_ts_context(use_ocdbt=use_ocdbt),
       )
-      serialization_params = _get_serialization_params(self.pytree)
+      serialization_params = _get_serialization_params(tree_to_save)
       task = await handler.serialize(
           params=serialization_params,
           serialization_context=serialization_context,
@@ -187,7 +191,7 @@ class ArrayLeafHandlerTest(
           zarr3_checkpoint=use_zarr3,
       )
       deserialization_task = await handler.deserialize(
-          _get_deserialization_params(self.pytree),
+          _get_deserialization_params(tree_to_save),
           deserialization_context=deserialization_context,
       )
 
@@ -252,6 +256,56 @@ class ArrayLeafHandlerTest(
         min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
     )
+
+  @parameterized.product(
+      enable_pinned_host_transfer=(None, True),
+      use_replica_parallel=(True, False),
+  )
+  async def test_async_host_untile(
+      self,
+      enable_pinned_host_transfer: bool | None,
+      use_replica_parallel: bool,
+  ):
+    mesh = jax.sharding.Mesh(
+        jax.devices(),
+        ('x',),
+        axis_types=(jax.sharding.AxisType.Auto,),
+    )
+    sharded = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    replicated = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+    base = np.arange(16 * 128).reshape((16, 128))
+    dtype_tree = {
+        'bf16': array_test_utils.create_sharded_array(
+            base.astype(jnp.bfloat16), sharded
+        ),
+        'f32': array_test_utils.create_sharded_array(
+            base.astype(np.float32), replicated
+        ),
+        'i32': array_test_utils.create_sharded_array(
+            base.astype(np.int32), sharded
+        ),
+    }
+    await self._test_simple_checkpoint_impl(
+        enable_pinned_host_transfer=enable_pinned_host_transfer,
+        enable_async_host_untile=True,
+        use_replica_parallel=use_replica_parallel,
+        pytree=dtype_tree,
+    )
+    ctx = context_lib.Context()
+    ctx.array.saving.enable_async_host_untile = True
+    ctx.multiprocessing_options.active_processes = {0}
+    ctx.multiprocessing_options.barrier_sync_key_prefix = 'v1_pfx'
+    ser_ctx = types.SerializationContext(
+        parent_dir=path_test_utils.PathAwaitingCreationWrapper(
+            epath.Path(self.create_tempdir('paraminfo_mp').full_path)
+        ),
+        ts_context=ts_utils.get_ts_context(use_ocdbt=True),
+    )
+    info = array_leaf_handler._create_v0_saving_paraminfo(
+        _get_serialization_params(dtype_tree)[0], ctx, ser_ctx
+    )
+    self.assertEqual(info.active_processes, {0})
+    self.assertEqual(info.barrier_sync_key_prefix, 'v1_pfx')
 
   async def test_metadata(self):
     # make unit with different tests

@@ -16,6 +16,7 @@
 
 # pylint: disable=protected-access, missing-function-docstring
 
+import asyncio
 import functools
 from typing import Any
 from unittest import mock
@@ -612,6 +613,37 @@ class StandardCheckpointHandlerTestBase(
       standard_checkpoint_handler._construct_restore_args(
           target_tree, get_metadata_tree, fallback_sharding=None
       )
+
+  @parameterized.parameters(False, True)
+  def test_enable_async_host_untile(self, async_save: bool):
+    if utils.is_pathways_backend():
+      self.skipTest('Disabled on Pathways.')
+    with self.assertRaises(ValueError):
+      StandardCheckpointHandler(
+          enable_pinned_host_transfer=False, enable_async_host_untile=True
+      )
+    handler = self.handler.__class__(enable_async_host_untile=True)
+    self.addCleanup(handler.close)
+
+    if async_save:
+      futures = asyncio.run(
+          handler.async_save(
+              self.directory, args=self.save_args_cls(self.pytree)
+          )
+      )
+      for f in futures or []:
+        f.result()
+      test_utils.sync_global_processes('standard_async_untile:save')
+      if jax.process_index() == 0:
+        handler.finalize(self.directory)
+      test_utils.sync_global_processes('standard_async_untile:finalize')
+    else:
+      handler.save(self.directory, args=self.save_args_cls(self.pytree))
+
+    restored = handler.restore(
+        self.directory, args=self.restore_args_cls(self.zeros_pytree)
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
 
 
 class StandardCheckpointHandlerTestJaxRandomKeys(
