@@ -33,6 +33,8 @@ from orbax.checkpoint._src.serialization import type_handlers
 
 CheckpointingImpl = pathways_types.CheckpointingImpl
 
+PATHWAYS_CONTROLLER_PROCESS_ID: str = 'pwcontroller'
+
 
 
 
@@ -79,14 +81,16 @@ def get_pathways_numpy_handler(
 ) -> type_handlers.NumpyHandler:
   """Returns the Pathways NumpyHandler."""
   return type_handlers.NumpyHandler(
-      ocdbt_process_id='pwcontroller',
+      ocdbt_process_id=PATHWAYS_CONTROLLER_PROCESS_ID,
       deepcopy_host_arrays=deepcopy_host_arrays,
   )
 
 
 def get_pathways_scalar_handler() -> type_handlers.ScalarHandler:
   """Returns the Pathways ScalarHandler."""
-  return type_handlers.ScalarHandler(ocdbt_process_id='pwcontroller')
+  return type_handlers.ScalarHandler(
+      ocdbt_process_id=PATHWAYS_CONTROLLER_PROCESS_ID
+  )
 
 
 def _register_numpy_and_scalar_handlers():
