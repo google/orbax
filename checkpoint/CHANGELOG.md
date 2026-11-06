@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Multi-tier checkpointing: step 0 is now saved and restored like any other
+  step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
+  Orbax in the workload and `colocated-python-sidecar` images together.
+
 ### Fixed
 
 - Preserve the PRNG implementation when saving and restoring typed JAX random
   keys with `JaxRandomKeyCheckpointHandler`, regardless of the default PRNG.
+
+- `CheckpointManager` retains previously saved steps when an asynchronous save
+  fails, instead of dropping them from `all_steps()` / `latest_step()`.
 
 ## [0.12.9] - 2026-11-02
 

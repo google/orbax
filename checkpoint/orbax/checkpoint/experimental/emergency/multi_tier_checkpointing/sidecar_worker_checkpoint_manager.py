@@ -209,11 +209,14 @@ class WorkerCheckpointManagerRaw:
 
     Returns:
       A scalar JAX array containing True if a step was saved.
+
+    Raises:
+      ValueError: If the step is negative.
     """
     step = int(np.asarray(step_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return colocated_utils.make_scalar_on_like(
-          False, step_array, dtype=jnp.bool_
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC sidecar cannot save negative step {step}.'
       )
     force = bool(np.asarray(force_array))
     save_args = args_lib.Composite(
@@ -251,9 +254,9 @@ class WorkerCheckpointManagerRaw:
   def should_save(self, step_array: jax.Array) -> jax.Array:
     """Returns whether a checkpoint should be saved at `step_array`."""
     step = int(np.asarray(step_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return colocated_utils.make_scalar_on_like(
-          False, step_array, dtype=jnp.bool_
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC sidecar cannot save negative step {step}.'
       )
     should_save = self._rcm.should_save(step)
     return colocated_utils.make_scalar_on_like(
@@ -265,29 +268,31 @@ class WorkerCheckpointManagerRaw:
   ) -> PyTree:
     """Restores state using worker-side inference.
 
-    A negative step means "restore the latest local step".
-
     Args:
-      step_array: The step to restore, as a scalar JAX array.
+      step_array: The step to restore, as a scalar JAX array. The controller
+        resolves the step across workers, so it must be non-negative.
       partial_restore_array: Whether this is a partial restore.
 
     Returns:
       The restored state PyTree.
+
+    Raises:
+      ValueError: If the step is negative.
     """
     step = int(np.asarray(step_array))
-    partial_restore = bool(np.asarray(partial_restore_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
+    if step < 0:
       raise ValueError(
-          'Pathways colocated MTC cannot restore step 0 because the MTC '
-          'coordinator protocol reserves step 0 as "no checkpoint".'
+          'Pathways colocated MTC sidecar cannot restore negative step'
+          f' {step}.'
       )
+    partial_restore = bool(np.asarray(partial_restore_array))
     with TimeBlock(
         f'Pathways colocated MTC sidecar restore step={step} '
         f'partial_restore={partial_restore}',
         level=python_logging.INFO,
     ) as timer:
       result = self._rcm.restore(
-          None if step < 0 else step,
+          step,
           args_lib.Composite(
               state=args_lib.PyTreeRestore(partial_restore=partial_restore),
           ),
