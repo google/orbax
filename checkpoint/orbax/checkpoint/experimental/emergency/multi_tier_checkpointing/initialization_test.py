@@ -28,6 +28,21 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import pat
 import yaml
 
 
+def _create_restore_marker(marker: epath.Path) -> epath.Path:
+  """Creates a `.restore` symlink to a checkpoint dir, like the replicator.
+
+  Args:
+    marker: Path of the `.restore` symlink to create.
+
+  Returns:
+    The checkpoint directory the symlink points to.
+  """
+  target = marker.parent / f"{marker.name}.target"
+  target.mkdir(parents=True, exist_ok=True)
+  os.symlink(os.fspath(target), os.fspath(marker), target_is_directory=True)
+  return target
+
+
 class MultiTierCheckpointingInitializationTest(
     absltest.TestCase,
 ):
@@ -215,7 +230,7 @@ class MultiTierCheckpointingInitializationTest(
     tmp_dir = self.create_tempdir().full_path
     epath.Path(tmp_dir).mkdir(parents=True, exist_ok=True)
     restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
-    restore_dir.write_text("restore_dir")
+    _create_restore_marker(restore_dir)
     self.assertTrue(restore_dir.exists())
     self.assertTrue(
         initialization._block_and_process_restore_dir(
@@ -230,8 +245,7 @@ class MultiTierCheckpointingInitializationTest(
     tmp_dir = self.create_tempdir().full_path
     root = epath.Path(tmp_dir)
     root.mkdir(parents=True, exist_ok=True)
-    restore_dir = root / "test-run-s1-n0-w0.restore"
-    restore_dir.mkdir(parents=True, exist_ok=True)
+    restore_dir = _create_restore_marker(root / "test-run-s1-n0-w0.restore")
     per_step_process_metadata = restore_dir / "process_metadata"
     per_step_process_metadata.mkdir(parents=True, exist_ok=True)
     (per_step_process_metadata / "mesh.json").write_text("metadata")
@@ -319,7 +333,7 @@ class MultiTierCheckpointingInitializationTest(
     root = epath.Path(tmp_dir)
     root.mkdir(parents=True, exist_ok=True)
     marker = root / "test-run-s0-n0-w0.restore"
-    marker.write_text("no checkpoint")
+    marker.touch()
 
     self.assertTrue(
         initialization._block_and_process_restore_dir(
@@ -349,6 +363,83 @@ class MultiTierCheckpointingInitializationTest(
     )
     self.assertFalse(marker.exists())
     self.assertTrue((root / "0").exists())
+
+  def test_block_and_process_restore_dir_treats_empty_file_as_no_checkpoint(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / "test-run-s5-n0-w0.restore"
+    marker.touch()
+
+    self.assertTrue(
+        initialization._block_and_process_restore_dir(
+            root,
+            timeout_seconds=1,
+        )
+    )
+    self.assertFalse(marker.exists())
+    self.assertFalse((root / "5").exists())
+
+  def test_block_and_process_restore_dir_prefers_symlink_over_empty_file(
+      self,
+  ):
+    tmp_dir = self.create_tempdir().full_path
+    root = epath.Path(tmp_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    no_checkpoint_marker = root / "test-run-s0-n0-w0.restore"
+    no_checkpoint_marker.touch()
+    restore_marker = root / "test-run-s0-n0-w1.restore"
+    _create_restore_marker(restore_marker)
+
+    self.assertTrue(
+        initialization._block_and_process_restore_dir(
+            root,
+            timeout_seconds=1,
+        )
+    )
+    self.assertFalse(no_checkpoint_marker.exists())
+    self.assertFalse(os.path.lexists(restore_marker))
+    self.assertTrue((root / "0").is_dir())
+
+  def test_block_and_process_restore_dir_rejects_unexpected_marker(self):
+
+    def non_empty_file(marker):
+      marker.write_text("not a restore marker")
+
+    def real_directory(marker):
+      marker.mkdir()
+
+    def symlink_to_file(marker):
+      target = marker.parent / "target-file"
+      target.write_text("")
+      os.symlink(os.fspath(target), os.fspath(marker))
+
+    def dangling_symlink(marker):
+      os.symlink(os.fspath(marker.parent / "missing"), os.fspath(marker))
+
+    for create in (
+        non_empty_file,
+        real_directory,
+        symlink_to_file,
+        dangling_symlink,
+    ):
+      for step in (0, 5):
+        with self.subTest(marker=create.__name__, step=step):
+          tmp_dir = self.create_tempdir().full_path
+          root = epath.Path(tmp_dir)
+          root.mkdir(parents=True, exist_ok=True)
+          marker = root / f"test-run-s{step}-n0-w0.restore"
+          create(marker)
+
+          with self.assertRaisesRegex(ValueError, "Unexpected MTC restore"):
+            initialization._block_and_process_restore_dir(
+                root,
+                timeout_seconds=1,
+            )
+          self.assertTrue(os.path.lexists(marker))
+          self.assertFalse(os.path.lexists(root / str(step)))
 
   def test_validate_node_rank_by_process_index_rejects_negative_rank(self):
     with self.assertRaisesRegex(ValueError, "invalid entries"):
@@ -461,7 +552,7 @@ class MultiTierCheckpointingInitializationTest(
     jax_init_info_file.write_text("0\ncoordinator_address")
     self.assertTrue(jax_init_info_file.exists())
     restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
-    restore_dir.write_text("restore_dir")
+    _create_restore_marker(restore_dir)
     self.assertTrue(restore_dir.exists())
 
     with (
@@ -540,7 +631,7 @@ class MultiTierCheckpointingInitializationTest(
     jax_init_info_file.write_text("0\ncoordinator_address")
     self.assertTrue(jax_init_info_file.exists())
     restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
-    restore_dir.write_text("restore_dir")
+    _create_restore_marker(restore_dir)
     self.assertTrue(restore_dir.exists())
 
     with self.assertRaises(ValueError):
@@ -920,7 +1011,7 @@ class MultiTierCheckpointingInitializationTest(
     self.assertTrue(replicator_file.exists())
 
     restore_dir = epath.Path(tmp_dir) / "test-run-s1-n0-w0.restore"
-    restore_dir.write_text("restore_dir")
+    _create_restore_marker(restore_dir)
     self.assertTrue(restore_dir.exists())
 
     with (
@@ -991,7 +1082,7 @@ class MultiTierCheckpointingInitializationTest(
         ),
     ):
       with self.subTest(use_mtc_process_ids=True):
-        (tmp_dir / "test-run-s1-n0-w0.restore").write_text("restore_dir")
+        _create_restore_marker(tmp_dir / "test-run-s1-n0-w0.restore")
         initialization.initialize_multi_tier_checkpointing(
             tmp_dir,
             num_slices=1,
@@ -1009,7 +1100,7 @@ class MultiTierCheckpointingInitializationTest(
 
       mock_jax_distributed_initialize.reset_mock()
       with self.subTest(use_mtc_process_ids=False):
-        (tmp_dir / "test-run-s2-n0-w0.restore").write_text("restore_dir")
+        _create_restore_marker(tmp_dir / "test-run-s2-n0-w0.restore")
         initialization.initialize_multi_tier_checkpointing(
             tmp_dir,
             num_slices=1,
