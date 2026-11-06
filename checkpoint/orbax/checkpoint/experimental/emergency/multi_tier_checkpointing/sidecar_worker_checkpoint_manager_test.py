@@ -81,24 +81,31 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.manager._rcm.save.assert_called_once()
     mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
 
-  def test_save_skips_protocol_no_checkpoint_sentinel(self):
+  def test_save_delegates_step_zero_to_rcm(self):
     state = {'weights': np.arange(4)}
-    step_array = jnp.asarray(
-        sidecar_lib.colocated_utils.NO_STEP_SENTINEL, dtype=np.int32
-    )
+    step_array = jnp.asarray(0, dtype=np.int32)
     force_array = jnp.asarray(True)
-    packed_result = object()
+    self.manager._rcm.save.return_value = True
 
     with mock.patch.object(
-        sidecar_lib.colocated_utils,
-        'make_scalar_on_like',
-        return_value=packed_result,
+        sidecar_lib.colocated_utils, 'make_scalar_on_like'
     ) as mock_make_scalar:
-      result = self.manager.save(step_array, force_array, state)
+      self.manager.save(step_array, force_array, state)
 
-    self.assertIs(result, packed_result)
+    self.manager._rcm.save.assert_called_once()
+    args, _ = self.manager._rcm.save.call_args
+    self.assertEqual(args[0], 0)
+    mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
+
+  def test_save_rejects_negative_step(self):
+    with self.assertRaisesRegex(ValueError, 'negative step -1'):
+      self.manager.save(
+          jnp.asarray(-1, dtype=np.int32),
+          jnp.asarray(True),
+          {'weights': np.arange(4)},
+      )
+
     self.manager._rcm.save.assert_not_called()
-    mock_make_scalar.assert_called_once_with(False, step_array, dtype=jnp.bool_)
 
   def test_should_save_delegates_to_rcm_and_packs_result(self):
     step_array = jnp.asarray(11, dtype=np.int32)
@@ -116,22 +123,23 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     self.manager._rcm.should_save.assert_called_once_with(11)
     mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
 
-  def test_should_save_skips_protocol_no_checkpoint_sentinel(self):
-    step_array = jnp.asarray(
-        sidecar_lib.colocated_utils.NO_STEP_SENTINEL, dtype=np.int32
-    )
-    packed_result = object()
+  def test_should_save_delegates_step_zero_to_rcm(self):
+    step_array = jnp.asarray(0, dtype=np.int32)
+    self.manager._rcm.should_save.return_value = True
 
     with mock.patch.object(
-        sidecar_lib.colocated_utils,
-        'make_scalar_on_like',
-        return_value=packed_result,
+        sidecar_lib.colocated_utils, 'make_scalar_on_like'
     ) as mock_make_scalar:
-      result = self.manager.should_save(step_array)
+      self.manager.should_save(step_array)
 
-    self.assertIs(result, packed_result)
+    self.manager._rcm.should_save.assert_called_once_with(0)
+    mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
+
+  def test_should_save_rejects_negative_step(self):
+    with self.assertRaisesRegex(ValueError, 'negative step -1'):
+      self.manager.should_save(jnp.asarray(-1, dtype=np.int32))
+
     self.manager._rcm.should_save.assert_not_called()
-    mock_make_scalar.assert_called_once_with(False, step_array, dtype=jnp.bool_)
 
   def test_restore_infer_unwraps_state(self):
     restored_state = {'weights': np.arange(2, dtype=np.float32)}
@@ -163,26 +171,23 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
 
     self.assertEqual(result, restored_state)
 
-  def test_restore_infer_negative_step_requests_latest(self):
-    self.manager._rcm.restore.return_value = args_lib.Composite(state={'x': 1})
-
-    self.manager.restore_infer(
-        jnp.asarray(-1, dtype=np.int32), jnp.asarray(False)
-    )
-
-    args, _ = self.manager._rcm.restore.call_args
-    self.assertIsNone(args[0])
-
-  def test_restore_infer_rejects_protocol_no_checkpoint_sentinel(self):
-    with self.assertRaisesRegex(ValueError, 'cannot restore step 0'):
+  def test_restore_infer_rejects_negative_step(self):
+    with self.assertRaisesRegex(ValueError, 'negative step -1'):
       self.manager.restore_infer(
-          jnp.asarray(
-              sidecar_lib.colocated_utils.NO_STEP_SENTINEL, dtype=np.int32
-          ),
-          jnp.asarray(False),
+          jnp.asarray(-1, dtype=np.int32), jnp.asarray(False)
       )
 
     self.manager._rcm.restore.assert_not_called()
+
+  def test_restore_infer_restores_step_zero(self):
+    self.manager._rcm.restore.return_value = args_lib.Composite(state={'x': 1})
+
+    self.manager.restore_infer(
+        jnp.asarray(0, dtype=np.int32), jnp.asarray(False)
+    )
+
+    args, _ = self.manager._rcm.restore.call_args
+    self.assertEqual(args[0], 0)
 
   def test_latest_step_delegates_to_rcm_and_packs_result(self):
     dummy_array = jnp.asarray(True)
@@ -236,6 +241,19 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
         steps_array, np.asarray(expected, dtype=np.int32)
     )
     self.manager._rcm.all_steps.assert_called_once_with()
+
+  def test_all_steps_keeps_step_zero_distinct_from_padding(self):
+    dummy_array = jnp.asarray(0, dtype=jnp.int32)
+    self.manager._rcm.all_steps.return_value = [0]
+
+    result = self.manager.all_steps(dummy_array)
+
+    steps_array = np.asarray(result)
+    self.assertEqual(steps_array[0], 0)
+    self.assertTrue(
+        np.all(steps_array[1:] == sidecar_lib.colocated_utils.NO_STEP_SENTINEL)
+    )
+    self.assertNotEqual(sidecar_lib.colocated_utils.NO_STEP_SENTINEL, 0)
 
   def test_all_steps_result_uses_replicated_sharding(self):
     device = jax.devices()[0]

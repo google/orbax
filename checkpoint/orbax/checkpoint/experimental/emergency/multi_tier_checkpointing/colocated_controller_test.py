@@ -524,6 +524,23 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     controller._worker_manager.all_steps.assert_called_once()
     mock_array_values.assert_called_once()
 
+  def test_latest_step_returns_step_zero(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.all_steps.return_value = object()
+
+    with mock.patch.object(
+        controller_lib.colocated_utils,
+        'array_result_values',
+        return_value=[
+            _steps_array([0]),
+            _steps_array([0]),
+        ],
+    ):
+      latest_step = controller.latest_step()
+
+    self.assertEqual(latest_step, 0)
+
   def test_latest_step_returns_highest_common_step(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
@@ -558,6 +575,24 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     ):
       latest_step = controller.latest_step()
 
+    self.assertIsNone(latest_step)
+
+  def test_latest_step_ignores_negative_values(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.all_steps.return_value = object()
+
+    with mock.patch.object(
+        controller_lib.colocated_utils,
+        'array_result_values',
+        return_value=[
+            _steps_array([-5, 3]),
+            _steps_array([-5, 4]),
+        ],
+    ):
+      latest_step = controller.latest_step()
+
+    # -5 is common to both workers but is not a valid checkpoint step.
     self.assertIsNone(latest_step)
 
   def test_latest_step_retries_transient_runtime_error(self):
@@ -615,15 +650,34 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     mock_worker_dummy.assert_called_once_with()
     mock_unanimous.assert_called_once()
 
-  def test_should_save_skips_protocol_no_checkpoint_sentinel(self):
+  def test_should_save_dispatches_step_zero_to_workers(self):
+    controller, _ = self._make_controller_for_restore()
+    controller._worker_manager = mock.Mock()
+    controller._worker_manager.should_save.return_value = object()
+    dummy = jax.device_put(
+        jnp.array(True),
+        jax.sharding.SingleDeviceSharding(controller._worker_cpu_devices[0]),
+    )
+
+    with mock.patch.object(
+        controller_lib.colocated_utils,
+        'require_unanimous_scalar_result',
+        return_value=True,
+    ), mock.patch.object(controller, '_worker_dummy', return_value=dummy):
+      should_save = controller.should_save(0)
+
+    self.assertTrue(should_save)
+    controller._worker_manager.should_save.assert_called_once()
+    step_arg = controller._worker_manager.should_save.call_args.args[0]
+    self.assertEqual(np.asarray(step_arg).item(), 0)
+
+  def test_should_save_rejects_negative_step(self):
     controller, _ = self._make_controller_for_restore()
     controller._worker_manager = mock.Mock()
 
-    should_save = controller.should_save(
-        controller_lib.colocated_utils.NO_STEP_SENTINEL
-    )
+    with self.assertRaisesRegex(ValueError, 'negative step -1'):
+      controller.should_save(-1)
 
-    self.assertFalse(should_save)
     controller._worker_manager.should_save.assert_not_called()
 
   def test_save_skips_state_preparation_when_workers_will_not_save(self):
@@ -646,26 +700,41 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     mock_prepare.assert_not_called()
     mock_finish_pending.assert_not_called()
 
-  def test_save_skips_protocol_no_checkpoint_sentinel_even_when_forced(self):
+  def test_save_checks_save_schedule_for_step_zero(self):
+    controller, _ = self._make_controller_for_restore()
+
+    with mock.patch.object(
+        controller, 'should_save', return_value=False
+    ) as mock_should_save, mock.patch.object(
+        controller, '_prepare_state_for_save'
+    ) as mock_prepare:
+      saved = controller.save(
+          0,
+          args_lib.Composite(state=args_lib.PyTreeSave(item={'x': 1})),
+      )
+
+    self.assertFalse(saved)
+    mock_should_save.assert_called_once_with(0)
+    mock_prepare.assert_not_called()
+
+  @parameterized.parameters(False, True)
+  def test_save_rejects_negative_step(self, force):
     controller, _ = self._make_controller_for_restore()
 
     with mock.patch.object(
         controller, 'should_save'
     ) as mock_should_save, mock.patch.object(
         controller, '_prepare_state_for_save'
-    ) as mock_prepare, mock.patch.object(
-        controller, '_finish_pending_save'
-    ) as mock_finish_pending:
-      saved = controller.save(
-          controller_lib.colocated_utils.NO_STEP_SENTINEL,
-          args_lib.Composite(state=args_lib.PyTreeSave(item={'x': 1})),
-          force=True,
-      )
+    ) as mock_prepare:
+      with self.assertRaisesRegex(ValueError, 'negative step -1'):
+        controller.save(
+            -1,
+            args_lib.Composite(state=args_lib.PyTreeSave(item={'x': 1})),
+            force=force,
+        )
 
-    self.assertFalse(saved)
     mock_should_save.assert_not_called()
     mock_prepare.assert_not_called()
-    mock_finish_pending.assert_not_called()
 
   def test_save_tracks_pending_worker_result_until_lifecycle_drain(self):
     controller, _ = self._make_controller_for_restore()
@@ -1830,28 +1899,45 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         'restored_state_size', 8, 'B', log_rate=True
     )
 
-  def test_restore_rejects_protocol_no_checkpoint_sentinel(self):
+  @parameterized.named_parameters(
+      dict(testcase_name='explicit_step', step=0),
+      dict(testcase_name='latest_step', step=None),
+  )
+  def test_restore_dispatches_step_zero_to_workers(self, step):
     controller, sharding = self._make_controller_for_restore()
+    cpu_sharding = jax.sharding.NamedSharding(
+        sharding.mesh, jax.sharding.PartitionSpec()
+    )
+    restored_cpu_state = {
+        'weights': jax.device_put(
+            jnp.arange(2, dtype=jnp.float32),
+            cpu_sharding,
+        )
+    }
     template_state = {
         'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
     }
     restore_args = {
         'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
     }
+    self._set_worker_restore_result(
+        controller, return_value=restored_cpu_state
+    )
+    controller.latest_step = mock.Mock(return_value=0)
 
-    with self.assertRaisesRegex(ValueError, 'cannot restore step 0'):
-      controller.restore(
-          controller_lib.colocated_utils.NO_STEP_SENTINEL,
-          args_lib.Composite(
-              state=args_lib.PyTreeRestore(
-                  item=template_state,
-                  restore_args=restore_args,
-              )
-          ),
-          default_item_mode=True,
-      )
+    controller.restore(
+        step,
+        args_lib.Composite(
+            state=args_lib.PyTreeRestore(
+                item=template_state,
+                restore_args=restore_args,
+            )
+        ),
+        default_item_mode=True,
+    )
 
-    controller._worker_manager.restore_infer.specialize.assert_not_called()
+    step_arg, _ = controller._worker_manager.restore_infer.call_args.args
+    self.assertEqual(np.asarray(step_arg).item(), 0)
 
   def test_restore_rewraps_physical_prng_key_data(self):
     controller, sharding = self._make_controller_for_restore()
@@ -2253,6 +2339,31 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
           default_item_mode=True,
       )
 
+    controller._worker_manager.restore_infer.assert_not_called()
+
+  def test_restore_rejects_negative_step(self):
+    controller, sharding = self._make_controller_for_restore()
+    template_state = {
+        'weights': jax.ShapeDtypeStruct((2,), jnp.float32, sharding=sharding)
+    }
+    restore_args = {
+        'weights': type_handlers.ArrayRestoreArgs(sharding=sharding)
+    }
+    controller.latest_step = mock.Mock(return_value=5)
+
+    with self.assertRaisesRegex(ValueError, 'negative step -1'):
+      controller.restore(
+          -1,
+          args_lib.Composite(
+              state=args_lib.PyTreeRestore(
+                  item=template_state,
+                  restore_args=restore_args,
+              )
+          ),
+          default_item_mode=True,
+      )
+
+    controller.latest_step.assert_not_called()
     controller._worker_manager.restore_infer.assert_not_called()
 
   def test_restore_none_step_with_dataset_resolves_single_explicit_step(self):

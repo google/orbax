@@ -657,6 +657,91 @@ class AsyncCheckpointerTest(
     test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
     checkpointer.close()
 
+  def test_cancel_save(self):
+    """Cancelling an in-flight save skips commit, cleans tmpdir, and allows subsequent saves."""
+    original_on_commit_callback = atomicity.on_commit_callback
+    commit_started = threading.Event()
+    should_delay = True
+
+    async def mock_on_commit_callback(tmpdir, *a, **kw):
+      if should_delay:
+        commit_started.set()
+        await asyncio.sleep(10)
+      return await original_on_commit_callback(tmpdir, *a, **kw)
+
+    checkpointer = AsyncCheckpointer(PyTreeCheckpointHandler())
+    with mock.patch.object(
+        atomicity, 'on_commit_callback', new=mock_on_commit_callback
+    ):
+      checkpointer.save(self.directory, args=PyTreeSaveArgs(item=self.pytree))
+      if multihost.is_primary_host(checkpointer._primary_host):
+        self.assertTrue(commit_started.wait(timeout=5.0))
+      multihost.sync_global_processes('async_checkpointer_cancel_in_flight')
+
+      start_time = time.time()
+      checkpointer.cancel()
+      checkpointer.wait_until_finished()
+      self.assertLess(time.time() - start_time, 5.0)
+      checkpointer.check_for_errors()
+      self.assertFalse(self.directory.exists())
+      self.assertEmpty(list(self.directory.parent.iterdir()))
+
+      # Subsequent save to the same destination should succeed and restore.
+      should_delay = False
+      checkpointer.save(
+          self.directory, args=PyTreeSaveArgs(item=self.doubled_pytree)
+      )
+      checkpointer.wait_until_finished()
+      self.assertTrue(self.directory.exists())
+      restored = checkpointer.restore(
+          self.directory,
+          args=PyTreeRestoreArgs(restore_args=self.pytree_restore_args),
+      )
+      test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
+    checkpointer.close()
+
+  def test_cancel_during_commit_futures(self):
+    """Cancelling while handler commit futures are running skips finalization and cleans up."""
+    checkpointer = self.checkpointer(PyTreeCheckpointHandler())
+    checkpointer.save(self.directory, self.pytree)
+    checkpointer.cancel()
+    self.wait_if_async(checkpointer)
+    checkpointer.check_for_errors()
+    self.assertFalse(self.directory.exists())
+    self.assertEmpty(list(self.directory.parent.iterdir()))
+
+    # Subsequent save after cancellation succeeds.
+    checkpointer.save(self.directory, self.doubled_pytree)
+    self.wait_if_async(checkpointer)
+    self.assertTrue(self.directory.exists())
+    restored = checkpointer.restore(
+        self.directory, restore_args=self.pytree_restore_args
+    )
+    test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
+    checkpointer.close()
+
+  def test_cancel_when_no_save_in_progress(self):
+    """Calling cancel() when idle or after completion is a safe no-op."""
+    checkpointer = self.checkpointer(PyTreeCheckpointHandler())
+    # Cancel before any save has started.
+    checkpointer.cancel()
+    checkpointer.check_for_errors()
+
+    checkpointer.save(self.directory, self.pytree)
+    self.wait_if_async(checkpointer)
+    self.assertTrue(self.directory.exists())
+
+    # Cancel after save has already completed.
+    checkpointer.cancel()
+    self.wait_if_async(checkpointer)
+    checkpointer.check_for_errors()
+    self.assertTrue(self.directory.exists())
+    restored = checkpointer.restore(
+        self.directory, restore_args=self.pytree_restore_args
+    )
+    test_utils.assert_tree_equal(self, self.pytree, restored)
+    checkpointer.close()
+
 
 if __name__ == '__main__':
   multiprocess_test.main()

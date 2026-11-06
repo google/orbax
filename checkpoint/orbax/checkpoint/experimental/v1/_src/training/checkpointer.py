@@ -662,9 +662,7 @@ class Checkpointer(epy.ContextManager):
         if isinstance(step, int):
           resolved_step = step
     logging.info('V1 Checkpointer.cancel() called.')
-    if hasattr(self._manager._checkpointer, 'cancel'):  # pylint: disable=protected-access
-      logging.info('V1 Checkpointer delegating to V0 checkpointer.cancel()')
-      self._manager._checkpointer.cancel()  # pylint: disable=protected-access
+    self._manager.cancel()
     if resolved_step is not None:
       try:
         self._manager.delete(resolved_step)
