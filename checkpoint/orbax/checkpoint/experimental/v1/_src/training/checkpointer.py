@@ -27,6 +27,7 @@ from absl import logging
 from etils import epy
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint_info
@@ -983,10 +984,11 @@ class Checkpointer(epy.ContextManager):
       # TODO(b/568044767): Update RestoreStepStatistics field naming for V1 or
       # replace with trace-level telemetry.
       step_stats.checkpointer_start_time = time.time()
-      restored = loading.load_checkpointables(
-          restore_directory,
-          abstract_checkpointables,
-      )
+      with event_tracking.step_context(step):
+        restored = loading.load_checkpointables(
+            restore_directory,
+            abstract_checkpointables,
+        )
       step_stats.checkpointer_duration_secs = (
           time.time() - step_stats.checkpointer_start_time
       )

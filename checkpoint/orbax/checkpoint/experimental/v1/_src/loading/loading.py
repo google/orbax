@@ -190,36 +190,48 @@ def load(
     The restored `PyTree`.
   """
   start_time = time.time()
-  event_tracking.OperationRecorder(
+  ctx = context_lib.get_context()
+  # Ensure the operation ID is incremented as soon as possible. This must be
+  # done uniquely for each load operation.
+  asyncio_utils.run_sync(
+      synchronization.synchronize_next_operation_id(
+          prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
+          processes=ctx.multiprocessing_options.active_processes,
+      )
+  )
+  recorder = event_tracking.OperationRecorder(
       path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.LOAD,
       async_origin=False,
-  ).record_start(start_time)
-
-  abstract_state = _standardize_abstract_checkpointables(abstract_state)
-  validation.validate_state_checkpointable_name(checkpointable_name)
-  validation.validate_abstract_state(abstract_state)  # pyrefly: ignore[bad-argument-type]
-
-  ctx = context_lib.get_context()
-  path = ctx.file_options.path_class(path)
-
-  resolver = asyncio_utils.run_sync(
-      layout_registry.CheckpointLayoutResolver.resolve(
-          path, ctx.checkpoint_layout, pytree_name=checkpointable_name
-      )
   )
-  loaded_pytree = _load_impl(
-      path,
-      functools.partial(
-          resolver.layout.load,
-          path=path,
-          checkpointable_name=resolver.pytree_name,
-          abstract_state=abstract_state,
-      ),
-      start_time=start_time,
-  )
+  recorder.record_start(start_time)
 
-  return loaded_pytree  # pyrefly: ignore[bad-return]
+  try:
+    abstract_state = _standardize_abstract_checkpointables(abstract_state)
+    validation.validate_state_checkpointable_name(checkpointable_name)
+    validation.validate_abstract_state(abstract_state)  # pyrefly: ignore[bad-argument-type]
+
+    path = ctx.file_options.path_class(path)
+
+    resolver = asyncio_utils.run_sync(
+        layout_registry.CheckpointLayoutResolver.resolve(
+            path, ctx.checkpoint_layout, pytree_name=checkpointable_name
+        )
+    )
+    loaded_pytree = _load_impl(
+        path,
+        functools.partial(
+            resolver.layout.load,
+            path=path,
+            checkpointable_name=resolver.pytree_name,
+            abstract_state=abstract_state,
+        ),
+        start_time=start_time,
+    )
+    return loaded_pytree  # pyrefly: ignore[bad-return]
+  except BaseException as e:
+    recorder.record_failure(e)
+    raise
 
 
 def load_checkpointables(
@@ -331,32 +343,45 @@ def load_checkpointables(
     FileNotFoundError: If the checkpoint path does not exist.
   """
   start_time = time.time()
-  event_tracking.OperationRecorder(
+  ctx = context_lib.get_context()
+  # Ensure the operation ID is incremented as soon as possible. This must be
+  # done uniquely for each load operation.
+  asyncio_utils.run_sync(
+      synchronization.synchronize_next_operation_id(
+          prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
+          processes=ctx.multiprocessing_options.active_processes,
+      )
+  )
+  recorder = event_tracking.OperationRecorder(
       path,  # pyrefly: ignore[bad-argument-type]
       operation_type=event_tracking.OperationType.LOAD,
       async_origin=False,
-  ).record_start(start_time)
-
-  abstract_checkpointables = _standardize_abstract_checkpointables(
-      abstract_checkpointables
   )
-  validation.validate_abstract_checkpointables(abstract_checkpointables)  # pyrefly: ignore[bad-argument-type]
+  recorder.record_start(start_time)
 
-  ctx = context_lib.get_context()
-  path = ctx.file_options.path_class(path)
-  layout = asyncio_utils.run_sync(
-      layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
-  )
+  try:
+    abstract_checkpointables = _standardize_abstract_checkpointables(
+        abstract_checkpointables
+    )
+    validation.validate_abstract_checkpointables(abstract_checkpointables)  # pyrefly: ignore[bad-argument-type]
 
-  return _load_impl(  # pyrefly: ignore[bad-return]
-      path,
-      functools.partial(
-          layout.load_checkpointables,
-          path=path,
-          abstract_checkpointables=abstract_checkpointables,  # pyrefly: ignore[bad-argument-type]
-      ),
-      start_time=start_time,
-  )
+    path = ctx.file_options.path_class(path)
+    layout = asyncio_utils.run_sync(
+        layout_registry.get_checkpoint_layout(path, ctx.checkpoint_layout)
+    )
+
+    return _load_impl(  # pyrefly: ignore[bad-return]
+        path,
+        functools.partial(
+            layout.load_checkpointables,
+            path=path,
+            abstract_checkpointables=abstract_checkpointables,  # pyrefly: ignore[bad-argument-type]
+        ),
+        start_time=start_time,
+    )
+  except BaseException as e:
+    recorder.record_failure(e)
+    raise
 
 
 def _load_impl(
@@ -379,14 +404,6 @@ def _load_impl(
     raise ValueError('Path must not be None.')
 
   ctx = context_lib.get_context()
-  # Ensure the operation ID is incremented as soon as possible. This must be
-  # done uniquely for each load operation.
-  asyncio_utils.run_sync(
-      synchronization.synchronize_next_operation_id(
-          prefix=ctx.multiprocessing_options.barrier_sync_key_prefix,
-          processes=ctx.multiprocessing_options.active_processes,
-      )
-  )
 
   async def _load() -> Checkpointable:
     load_awaitable = await load_fn()
@@ -470,34 +487,40 @@ class _LoadPyTreeResponse(AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]): 
     )
 
   async def _finalize_load(self) -> tree_types.PyTreeOf[tree_types.Leaf]:  # pyrefly: ignore[bad-specialization]
-    logging.info(
-        '[process=%s] Waiting for background load operations',
-        multihost.process_index(),
-    )
-    result = await self._background_awaitable
-    logging.vlog(
-        1,
-        '[process=%s] Finished waiting for background load operations.',
-        multihost.process_index(),
-    )
-
-    await multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            '_load_async:finalize',
-            prefix=(
-                self._context.multiprocessing_options.barrier_sync_key_prefix
-            ),
-        ),
-        operation_id=synchronization.get_operation_id(),
-        processes=self._context.multiprocessing_options.active_processes,
-    )
-    total_duration_secs = time.time() - self._start_time
-    event_tracking.OperationRecorder(
+    recorder = event_tracking.OperationRecorder(
         self._path,
         operation_type=event_tracking.OperationType.LOAD,
         async_origin=True,
-    ).record_completion(total_duration_secs)
-    return result
+        operation_id=self._operation_id,
+    )
+    try:
+      logging.info(
+          '[process=%s] Waiting for background load operations',
+          multihost.process_index(),
+      )
+      result = await self._background_awaitable
+      logging.vlog(
+          1,
+          '[process=%s] Finished waiting for background load operations.',
+          multihost.process_index(),
+      )
+
+      await multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              '_load_async:finalize',
+              prefix=(
+                  self._context.multiprocessing_options.barrier_sync_key_prefix
+              ),
+          ),
+          operation_id=synchronization.get_operation_id(),
+          processes=self._context.multiprocessing_options.active_processes,
+      )
+      total_duration_secs = time.time() - self._start_time
+      recorder.record_completion(total_duration_secs)
+      return result
+    except BaseException as e:
+      recorder.record_failure(e)
+      raise
 
   def result(
       self, timeout: float | None = None
@@ -515,11 +538,6 @@ def load_async(
 ) -> async_types.AsyncResponse[tree_types.PyTreeOf[tree_types.Leaf]]:  # pyrefly: ignore[bad-specialization]
   """Loads a PyTree asynchronously. Currently has limited support."""
   start_time = time.time()
-  event_tracking.OperationRecorder(
-      path,  # pyrefly: ignore[bad-argument-type]
-      operation_type=event_tracking.OperationType.LOAD,
-      async_origin=True,
-  ).record_start(start_time)
   ctx = context_lib.get_context()
   # Ensure the operation ID is incremented as soon as possible. This must be
   # done uniquely for each load operation.
@@ -529,36 +547,45 @@ def load_async(
           processes=ctx.multiprocessing_options.active_processes,
       )
   )
-  if not path:
-    raise ValueError('Path must not be None.')
-  if ctx.checkpoint_layout != options_lib.CheckpointLayout.SAFETENSORS:
-    raise NotImplementedError(
-        'Asynchronous loading only supported for SAFETENSORS checkpoint '
-        f'layout, not {ctx.checkpoint_layout}.'
-    )
-  path = ctx.file_options.path_class(path)
-  abstract_state = _standardize_abstract_checkpointables(abstract_state)
-  validation.validate_state_checkpointable_name(checkpointable_name)
-  validation.validate_abstract_state(abstract_state)  # pyrefly: ignore[bad-argument-type]
-
-  async def _blocking_load() -> Any:
-    resolver = await layout_registry.CheckpointLayoutResolver.resolve(
-        path, ctx.checkpoint_layout, pytree_name=checkpointable_name
-    )
-    return await resolver.layout.load(
-        path,
-        checkpointable_name=resolver.pytree_name,
-        abstract_state=abstract_state,
-    )
-
-  background_awaitable = asyncio_utils.run_sync(_blocking_load())
-  response = _LoadPyTreeResponse.create(
-      background_awaitable,
-      path,
-      start_time=start_time,
-      context=ctx,
+  recorder = event_tracking.OperationRecorder(
+      path,  # pyrefly: ignore[bad-argument-type]
+      operation_type=event_tracking.OperationType.LOAD,
+      async_origin=True,
   )
-  return response
+  recorder.record_start(start_time)
+  try:
+    if not path:
+      raise ValueError('Path must not be None.')
+    if ctx.checkpoint_layout != options_lib.CheckpointLayout.SAFETENSORS:
+      raise NotImplementedError(
+          'Asynchronous loading only supported for SAFETENSORS checkpoint '
+          f'layout, not {ctx.checkpoint_layout}.'
+      )
+    path = ctx.file_options.path_class(path)
+    abstract_state = _standardize_abstract_checkpointables(abstract_state)
+    validation.validate_state_checkpointable_name(checkpointable_name)
+    validation.validate_abstract_state(abstract_state)  # pyrefly: ignore[bad-argument-type]
+
+    async def _blocking_load() -> Any:
+      resolver = await layout_registry.CheckpointLayoutResolver.resolve(
+          path, ctx.checkpoint_layout, pytree_name=checkpointable_name
+      )
+      return await resolver.layout.load(
+          path,
+          checkpointable_name=resolver.pytree_name,
+          abstract_state=abstract_state,
+      )
+
+    background_awaitable = asyncio_utils.run_sync(_blocking_load())
+    return _LoadPyTreeResponse.create(
+        background_awaitable,
+        path,
+        start_time=start_time,
+        context=ctx,
+    )
+  except BaseException as e:
+    recorder.record_failure(e)
+    raise
 
 
 def load_checkpointables_async(

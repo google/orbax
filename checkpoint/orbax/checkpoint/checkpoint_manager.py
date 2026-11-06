@@ -50,6 +50,7 @@ from orbax.checkpoint._src.handlers import handler_registration
 from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import proto_checkpoint_handler
 from orbax.checkpoint._src.logging import abstract_logger
+from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
 from orbax.checkpoint._src.metadata import checkpoint
@@ -1679,10 +1680,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         validation_duration,
     )
     step_stats.checkpointer_blocking_start_time = time.time()
-    if isinstance(self._checkpointer, Checkpointer):
-      # `Checkpointer.save()` folds these into its own blocking metrics so that
-      # each is recorded once per save and spans the full blocking save.
-      with future.signals_namespace(self._signals_namespace):
+    with (
+        future.signals_namespace(self._signals_namespace),
+        event_tracking.step_context(step),
+    ):
+      if isinstance(self._checkpointer, Checkpointer):
+        # `Checkpointer.save()` folds these into its own blocking metrics so
+        # that each is recorded once per save and spans the full blocking save.
         self._checkpointer.save(
             save_directory,
             args=args,
@@ -1696,22 +1700,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
                 wait_prev_duration_secs=in_save_wait_duration_secs,
             ),
         )
-    else:
-      with future.signals_namespace(self._signals_namespace):
+      else:
         self._checkpointer.save(
             save_directory,
             args=args,
             custom_metadata=custom_metadata,
             force=True,
         )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/checkpoint_start_sync_duration_secs',
-          cm_start_sync_duration,
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/blocking_wait_prev_duration_secs',
-          in_save_wait_duration_secs,
-      )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+            cm_start_sync_duration,
+        )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/blocking_wait_prev_duration_secs',
+            in_save_wait_duration_secs,
+        )
     step_stats.checkpointer_blocking_duration_secs = (
         time.time() - step_stats.checkpointer_blocking_start_time
     )
@@ -1935,7 +1938,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     restore_directory = self._get_read_step_directory(step, directory)
     step_stats.checkpointer_start_time = time.time()
-    restored = self._checkpointer.restore(restore_directory, args=args)
+    with event_tracking.step_context(step):
+      restored = self._checkpointer.restore(restore_directory, args=args)
     step_stats.checkpointer_duration_secs = (
         time.time() - step_stats.checkpointer_start_time
     )
