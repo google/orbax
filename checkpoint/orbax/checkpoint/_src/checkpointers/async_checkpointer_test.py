@@ -743,5 +743,238 @@ class AsyncCheckpointerTest(
     checkpointer.close()
 
 
+class BackgroundWaitForCommitFuturesTest(parameterized.TestCase):
+
+  @parameterized.parameters(
+      (False, True),
+      (True, False),
+  )
+  def test_on_commit_complete_non_primary_host(
+      self,
+      cancel_requested: bool,
+      expected_complete: bool,
+  ):
+    on_commit_callback = mock.Mock()
+    on_commit_complete = mock.Mock()
+    sync_fn = mock.Mock()
+    with mock.patch.object(jax, 'process_count', return_value=2):
+      async_checkpointer._background_wait_for_commit_futures(
+          epath.Path('/tmp/ckpt'),
+          [],
+          on_commit_callback,
+          barrier_sync_key_prefix='test',
+          sync_fn=sync_fn,
+          timeout_secs=10,
+          primary_host=multihost.process_index() + 1,
+          is_cancel_requested=lambda: cancel_requested,
+          on_commit_complete=on_commit_complete,
+      )
+    on_commit_callback.assert_not_called()
+    self.assertEqual(on_commit_complete.called, expected_complete)
+    self.assertEqual(sync_fn.call_count, 2)
+
+  def test_unrequested_future_cancellation_skips_complete(self):
+    on_commit_callback = mock.Mock()
+    on_commit_complete = mock.Mock()
+    cancelled_future = futures.Future()
+    cancelled_future.cancel()
+    with mock.patch.object(jax, 'process_count', return_value=1):
+      with self.assertRaisesRegex(futures.CancelledError, ''):
+        async_checkpointer._background_wait_for_commit_futures(
+            epath.Path('/tmp/ckpt'),
+            [cancelled_future],
+            on_commit_callback,
+            barrier_sync_key_prefix='test',
+            sync_fn=mock.Mock(),
+            timeout_secs=10,
+            primary_host=multihost.process_index(),
+            is_cancel_requested=lambda: False,
+            on_commit_complete=on_commit_complete,
+        )
+    on_commit_callback.assert_not_called()
+    on_commit_complete.assert_not_called()
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='failure',
+          side_effect=RuntimeError('boom'),
+          cancel_requested=False,
+          expected_status='FAILURE',
+          expected_error_str='boom',
+      ),
+      dict(
+          testcase_name='timeout',
+          side_effect=TimeoutError('timed out'),
+          cancel_requested=False,
+          expected_status='TIMED_OUT',
+          expected_error_str='timed out',
+      ),
+      dict(
+          testcase_name='cancelled_exception',
+          side_effect=futures.CancelledError(),
+          cancel_requested=False,
+          expected_status='CANCELLED',
+          expected_error_str=None,
+      ),
+      dict(
+          testcase_name='cancelled_cleanly',
+          side_effect=None,
+          cancel_requested=True,
+          expected_status='CANCELLED',
+          expected_error_str=None,
+      ),
+  )
+  def test_async_manager_on_commit_failure(
+      self,
+      side_effect,
+      cancel_requested,
+      expected_status,
+      expected_error_str,
+  ):
+    manager = async_checkpointer._AsyncManager(
+        barrier_sync_fn=lambda **unused_kwargs: None,
+        timeout_secs=10,
+        primary_host=multihost.process_index() + 1,
+    )
+    manager._cancel_requested = cancel_requested
+    on_commit_failure = mock.Mock()
+    on_commit_complete = mock.Mock()
+    with mock.patch.object(
+        async_checkpointer,
+        '_background_wait_for_commit_futures',
+        side_effect=side_effect,
+    ):
+      manager._thread_func(
+          epath.Path('/tmp/ckpt'),
+          [],
+          mock.Mock(),
+          on_commit_complete=on_commit_complete,
+          on_commit_failure=on_commit_failure,
+      )
+    on_commit_complete.assert_not_called()
+    on_commit_failure.assert_called_once()
+    status, err = on_commit_failure.call_args.args
+    self.assertEqual(status, expected_status)
+    self.assertEqual(None if err is None else str(err), expected_error_str)
+
+  def test_save_blocking_failure_records_failure(self):
+    directory = epath.Path(self.create_tempdir().full_path) / 'step_1'
+    with mock.patch.object(
+        async_checkpointer.event_tracking.monitoring,
+        'record_operation',
+    ) as mock_record_op:
+      with AsyncCheckpointer(PyTreeCheckpointHandler()) as ckptr:
+        with mock.patch.object(
+            ckptr, '_save', side_effect=RuntimeError('save failed')
+        ):
+          with self.assertRaisesRegex(RuntimeError, 'save failed'):
+            ckptr.save(directory, args=PyTreeSaveArgs({'a': 1}))
+    self.assertEqual(mock_record_op.call_count, 2)
+    begin_call, end_call = mock_record_op.call_args_list
+    self.assertEqual(begin_call.args[:3], ('begin', 'save.1', 'save'))
+    self.assertEqual(end_call.args[:3], ('end', 'save.1', 'save'))
+    self.assertEqual(end_call.kwargs['status'], 'FAILURE')
+    self.assertIsInstance(end_call.kwargs['error'], RuntimeError)
+    self.assertEqual(str(end_call.kwargs['error']), 'save failed')
+
+  def test_on_commit_complete_after_background_duration(self):
+    events = []
+    with mock.patch.object(
+        jax.monitoring,
+        'record_event_duration_secs',
+        side_effect=lambda name, unused_val: events.append(name),
+    ):
+      async_checkpointer._background_wait_for_commit_futures(
+          epath.Path('/tmp/ckpt'),
+          [],
+          mock.Mock(),
+          barrier_sync_key_prefix='test',
+          sync_fn=mock.Mock(),
+          timeout_secs=10,
+          primary_host=multihost.process_index() + 1,
+          is_cancel_requested=lambda: False,
+          on_commit_complete=lambda: events.append('on_commit_complete'),
+      )
+    self.assertIn('/jax/orbax/write/background_duration_secs', events)
+    self.assertIn('on_commit_complete', events)
+    self.assertLess(
+        events.index('/jax/orbax/write/background_duration_secs'),
+        events.index('on_commit_complete'),
+    )
+
+  def test_async_manager_cancel_after_complete_does_not_fail(self):
+    manager = async_checkpointer._AsyncManager(
+        barrier_sync_fn=lambda **unused_kwargs: None,
+        timeout_secs=10,
+        primary_host=multihost.process_index() + 1,
+    )
+    on_commit_failure = mock.Mock()
+    on_commit_complete = mock.Mock(
+        side_effect=lambda: setattr(manager, '_cancel_requested', True)
+    )
+
+    def _fake_wait(*unused_args, on_commit_complete=None, **unused_kwargs):
+      if on_commit_complete is not None:
+        on_commit_complete()
+
+    with mock.patch.object(
+        async_checkpointer,
+        '_background_wait_for_commit_futures',
+        side_effect=_fake_wait,
+    ):
+      manager._thread_func(
+          epath.Path('/tmp/ckpt'),
+          [],
+          mock.Mock(),
+          on_commit_complete=on_commit_complete,
+          on_commit_failure=on_commit_failure,
+      )
+    on_commit_complete.assert_called_once()
+    on_commit_failure.assert_not_called()
+
+  def test_save_waits_for_prior_before_recording_start(self):
+    events = []
+    mon = async_checkpointer.event_tracking.monitoring
+    step1_dir = epath.Path(self.create_tempdir().full_path) / 'step_1'
+    step2_dir = epath.Path(self.create_tempdir().full_path) / 'step_2'
+
+    with AsyncCheckpointer(PyTreeCheckpointHandler()) as ckptr:
+      orig_wait = ckptr.wait_until_finished
+
+      def _wait_and_log():
+        orig_wait()
+        events.append(('wait_done',))
+
+      with (
+          mock.patch.object(
+              mon,
+              'record_operation',
+              side_effect=lambda ev, op_id, *a, **kw: events.append(
+                  ('op', ev, op_id)
+              ),
+          ),
+          mock.patch.object(
+              jax.monitoring,
+              'record_event_duration_secs',
+              side_effect=lambda name, *a, **kw: events.append(('dur', name)),
+          ),
+          mock.patch.object(
+              ckptr, 'wait_until_finished', side_effect=_wait_and_log
+          ),
+      ):
+        ckptr.save(step1_dir, args=PyTreeSaveArgs({'a': 1}))
+        ckptr.save(step2_dir, args=PyTreeSaveArgs({'a': 2}))
+      orig_wait()
+    step1_end = events.index(('op', 'end', 'save.1'))
+    wait_idx = events.index(('wait_done',), step1_end)
+    step2_begin = events.index(('op', 'begin', 'save.2'))
+    self.assertLess(step1_end, step2_begin)
+    self.assertLess(wait_idx, step2_begin)
+    self.assertIn(
+        ('dur', '/jax/orbax/write/checkpoint_start_sync_duration_secs'),
+        events[step2_begin:],
+    )
+
+
 if __name__ == '__main__':
   multiprocess_test.main()

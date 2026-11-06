@@ -20,6 +20,7 @@ import abc
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 _DEFAULT_PROMETHEUS_PORT = 9431
@@ -46,6 +47,25 @@ class MetricRecorder(abc.ABC):
   ) -> None:
     """Records an event duration in seconds with optional metadata."""
     pass
+
+  def record_operation(
+      self,
+      event: str,
+      operation_id: str,
+      operation_type: str,
+      timestamp: float,
+      **kwargs: Any,
+  ) -> None:
+    """Records an operation lifecycle event ('begin' or 'end').
+
+    Args:
+      event: Lifecycle event ('begin' or 'end').
+      operation_id: Operation identifier.
+      operation_type: Operation type ('save' or 'load').
+      timestamp: Event timestamp in epoch seconds.
+      **kwargs: Optional metadata.
+    """
+    del event, operation_id, operation_type, timestamp, kwargs
 
 
 _recorders: list[MetricRecorder] = []  # Protected by _init_lock
@@ -93,6 +113,70 @@ def initialize(recorder: MetricRecorder) -> None:
 
     _initialized = True
     logging.info('Installed JAX monitoring proxy listeners for Orbax.')
+
+
+def unregister_recorders_by_type(recorder_type: type[MetricRecorder]) -> None:
+  """Removes all registered recorders matching the given recorder type.
+
+  Args:
+    recorder_type: The MetricRecorder subclass to unregister.
+  """
+  global _recorders
+  with _init_lock:
+    _recorders = [r for r in _recorders if not isinstance(r, recorder_type)]
+
+
+def record_operation(
+    event: str,
+    operation_id: str,
+    operation_type: str,
+    timestamp: float | None = None,
+    **kwargs: Any,
+) -> None:
+  """Records an operation lifecycle event ('begin' or 'end').
+
+  Operation ids go only to recorders, never as jax.monitoring fields, to keep
+  metric cardinality bounded.
+
+  Args:
+    event: Lifecycle event name, such as 'begin' or 'end'.
+    operation_id: Unique identifier for the operation.
+    operation_type: Type of operation, e.g. 'save' or 'load'.
+    timestamp: Optional event timestamp in seconds; defaults to current time if
+      None.
+    **kwargs: Additional metadata forwarded to registered recorders.
+  """
+  if timestamp is None:
+    timestamp = time.time()
+  with _init_lock:
+    recorders_snapshot = _recorders[:]
+  for r in recorders_snapshot:
+    r.record_operation(event, operation_id, operation_type, timestamp, **kwargs)
+
+
+def format_operation_id(
+    operation_type: str,
+    step: int,
+    job_id: int | str | None = None,
+    sub_operation: str | None = None,
+) -> str:
+  """Returns an operation id shared across workers.
+
+  Args:
+    operation_type: Operation type ('save' or 'load').
+    step: Checkpoint step number.
+    job_id: Optional job UID prefix, or None to omit it.
+    sub_operation: Optional id appended as `#<id>`, or None to omit it.
+
+  Returns:
+    Formatted operation ID string.
+  """
+  base_id = (
+      f'{job_id}.{operation_type}.{step}'
+      if job_id is not None
+      else f'{operation_type}.{step}'
+  )
+  return f'{base_id}#{sub_operation}' if sub_operation else base_id
 
 
 def initialize_from_env() -> None:
