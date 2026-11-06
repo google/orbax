@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Snapshot JSON checkpoint items before asynchronous saves return, so later
+  changes to nested dictionaries and lists do not alter the saved checkpoint.
 - #v1 Preserve existing checkpoints when an overwrite is skipped by the save
   decision policy.
 
