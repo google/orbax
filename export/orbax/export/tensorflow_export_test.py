@@ -183,7 +183,6 @@ class TensorFlowExportTest(tf.test.TestCase, parameterized.TestCase):
     loaded = tf.saved_model.load(self._output_dir, ['serve'])
     self.assertCountEqual(expected_keys, loaded.signatures.keys())
 
-
   def test_variable_update(self):
     module = jax_module.JaxModule(
         {'bias': jnp.array(1)}, lambda p, x: x + p['bias']
