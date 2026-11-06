@@ -14,11 +14,19 @@
 
 """Logging utilities for tracking checkpoint events."""
 
+from collections.abc import Iterator
+import contextlib
+import contextvars
 import enum
+import re
+import time
+import types
 
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.futures import synchronization
+from orbax.checkpoint._src.logging import monitoring
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import utils as path_utils
 
@@ -54,21 +62,79 @@ class OperationType(enum.Enum):
   LOAD = 'load'
 
 
+_MONITORING_OPERATION_TYPES = types.MappingProxyType({
+    OperationType.SAVE: monitoring.OperationType.OPERATION_TYPE_SAVE,
+    OperationType.LOAD: monitoring.OperationType.OPERATION_TYPE_LOAD,
+})
+
+
+_CURRENT_STEP: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    'orbax_current_step', default=None
+)
+
+
+def current_step() -> int | None:
+  """Returns the active checkpoint step from `step_context()`, or None."""
+  return _CURRENT_STEP.get()
+
+
+@contextlib.contextmanager
+def step_context(step: int | None) -> Iterator[None]:
+  """Scopes the active checkpoint step for telemetry recorded within block."""
+  token = _CURRENT_STEP.set(step)
+  try:
+    yield
+  finally:
+    _CURRENT_STEP.reset(token)
+
+
 class OperationRecorder:
   """Records durations and events for checkpointing (save/load) operations."""
 
   def __init__(
       self,
-      path: epath.Path,
+      path: epath.PathLike,
       operation_type: OperationType,
       *,
       async_origin: bool,
       primary_host: int = 0,
+      step: int | None = None,
+      operation_id: str | None = None,
+      partial_save: bool = False,
   ):
-    self._path = path
+    """Initializes the instance.
+
+    Args:
+      path: Target checkpoint directory path.
+      operation_type: Checkpointing operation type (`SAVE` or `LOAD`).
+      async_origin: Whether the operation runs asynchronously in the background.
+      primary_host: Host index designated as primary for coordination metrics.
+      step: Checkpoint step number, or None to read from `step_context()`.
+      operation_id: Shared operation identifier, or None to use
+        `OperationIdGenerator.get_current_operation_id()`.
+      partial_save: Whether a `SAVE` operation is a partial checkpoint save.
+    """
+    self._path = epath.Path(path)
     self._operation_type = operation_type
+    if operation_type == OperationType.SAVE and partial_save:
+      self._monitoring_operation_type = (
+          monitoring.OperationType.OPERATION_TYPE_PARTIAL_SAVE
+      )
+    else:
+      self._monitoring_operation_type = _MONITORING_OPERATION_TYPES[
+          operation_type
+      ]
     self._async_origin = async_origin
     self._primary_host = primary_host
+    self._step = current_step() if step is None else step
+    if operation_id is None:
+      # TODO(b/582858125): Disambiguate job restarts where OperationIdGenerator
+      # resets to 0 (e.g., by logging per-worker process start time).
+      self._operation_id = (
+          synchronization.OperationIdGenerator.get_current_operation_id()
+      )
+    else:
+      self._operation_id = operation_id
     self._storage_type = path_utils.get_storage_type(self._path)
 
   def record_start(self, start_time: float):
@@ -120,6 +186,15 @@ class OperationRecorder:
           '/jax/orbax/read/storage_type',
           storage_type=path_utils.get_storage_type(self._path),
       )
+
+    monitoring.record_operation(
+        monitoring.OperationEvent.BEGIN,
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=start_time,
+        directory=str(self._path),
+        step=self._step,
+    )
 
   def record_blocking_completion(self, duration_secs: float, end_time: float):
     """Records the completion of the blocking part of an operation."""
@@ -228,3 +303,37 @@ class OperationRecorder:
               duration_secs,
               storage_type=self._storage_type,
           )
+    monitoring.record_operation(
+        monitoring.OperationEvent.END,
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=time.time(),
+        status='SUCCESS',
+    )
+
+  def record_failure(
+      self,
+      error: BaseException | str | None = None,
+      *,
+      status: str | None = None,
+  ) -> None:
+    """Records a failed or cancelled checkpointing operation end event.
+
+    Args:
+      error: Exception or error message that caused the failure, or None when
+        cancelled without an exception.
+      status: Explicit status override (e.g. 'CANCELLED'), or None to infer
+        'TIMED_OUT' for TimeoutError and 'FAILURE' otherwise.
+    """
+    if status is None:
+      status = 'TIMED_OUT' if isinstance(error, TimeoutError) else 'FAILURE'
+    monitoring.record_operation(
+        monitoring.OperationEvent.END,
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=time.time(),
+        status=status,
+        error=error,
+    )
+
+
