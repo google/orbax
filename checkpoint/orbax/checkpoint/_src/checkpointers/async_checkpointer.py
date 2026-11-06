@@ -69,6 +69,7 @@ def _background_wait_for_commit_futures(
     timeout_secs: int,
     primary_host: int | None,
     is_cancel_requested: Callable[[], bool] = lambda: False,
+    on_commit_complete: Callable[[], None] | None = None,
 ):
   """A function to be run in a background thread that waits for futures."""
   current_process = multihost.process_index()
@@ -100,6 +101,8 @@ def _background_wait_for_commit_futures(
           current_process,
           current_thread_id,
       )
+      if not is_cancel_requested():
+        raise
     else:
       raise
   commit_duration_secs = time.time() - thread_start_time
@@ -181,6 +184,8 @@ def _background_wait_for_commit_futures(
       '/jax/orbax/write/background_duration_secs',
       thread_duration_secs,
   )
+  if on_commit_complete is not None and not is_cancel_requested():
+    on_commit_complete()
   logging.info(
       '[process=%s][thread=%s] Background save thread done. Time taken: %fs.',
       current_process,
@@ -249,8 +254,20 @@ class _AsyncManager:
       directory: epath.Path,
       commit_futures: Sequence[future.Future],
       on_commit_callback: Callable[[], None],
+      on_commit_complete: Callable[[], None] | None = None,
+      on_commit_failure: (
+          Callable[[str, BaseException | None], None] | None
+      ) = None,
   ):
     """Awaits on commit futures and finalizes the checkpoint."""
+    commit_completed = False
+
+    def _on_complete():
+      nonlocal commit_completed
+      if on_commit_complete is not None:
+        on_commit_complete()
+      commit_completed = True
+
     try:
       _background_wait_for_commit_futures(
           directory,
@@ -261,6 +278,9 @@ class _AsyncManager:
           timeout_secs=self._timeout_secs,
           primary_host=self._primary_host,
           is_cancel_requested=lambda: self._cancel_requested,
+          on_commit_complete=(
+              _on_complete if on_commit_complete is not None else None
+          ),
       )
     except BaseException as e:  # pylint: disable=broad-exception-caught
 
@@ -271,6 +291,8 @@ class _AsyncManager:
             '[process=%s] Background save thread was cancelled cleanly.',
             multihost.process_index(),
         )
+        if not commit_completed and on_commit_failure is not None:
+          on_commit_failure('CANCELLED', None)
         return
       else:
         msg = (
@@ -280,12 +302,26 @@ class _AsyncManager:
         )
         logging.error(msg, exc_info=True)
         self._exception = e
+        if not commit_completed and on_commit_failure is not None:
+          status = 'TIMED_OUT' if isinstance(e, TimeoutError) else 'FAILURE'
+          on_commit_failure(status, e)
+    else:
+      if (
+          not commit_completed
+          and self._cancel_requested
+          and on_commit_failure is not None
+      ):
+        on_commit_failure('CANCELLED', None)
 
   def start_async_commit(
       self,
       directory: epath.Path,
       commit_futures: Sequence[future.Future],
       on_commit_callback: Callable[[], None],
+      on_commit_complete: Callable[[], None] | None = None,
+      on_commit_failure: (
+          Callable[[str, BaseException | None], None] | None
+      ) = None,
   ):
     """Completes checkpoint save in a background thread."""
     self._cancel_requested = False
@@ -297,6 +333,8 @@ class _AsyncManager:
             directory,
             commit_futures,
             on_commit_callback,
+            on_commit_complete,
+            on_commit_failure,
         ),
     )
     self._thread.start()
@@ -562,15 +600,6 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
             '/jax/orbax/write/background_finalize_secs',
             time.time() - finalize_start_time,
         )
-        operation_recorder = event_tracking.OperationRecorder(
-            tmpdir.get_final(),
-            operation_type=event_tracking.OperationType.SAVE,
-            async_origin=True,
-            primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
-        )
-        operation_recorder.record_completion(
-            time.time() - checkpoint_start_time
-        )
       except (concurrent.futures.CancelledError, asyncio.CancelledError):
         logging.info(
             '[process=%s][thread=%s] on_commit_callback was cancelled cleanly.',
@@ -733,10 +762,11 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     start_sync_duration_secs = time.time() - start_sync_start_time
     if save_context is not None:
       start_sync_duration_secs += save_context.start_sync_duration_secs
-    jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/checkpoint_start_sync_duration_secs',
-        start_sync_duration_secs,
-    )
+    wait_prev_start_time = time.perf_counter()
+    self.wait_until_finished()
+    wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
+    if save_context is not None:
+      wait_prev_duration_secs += save_context.wait_prev_duration_secs
     directory = epath.Path(directory)
     operation_recorder = event_tracking.OperationRecorder(
         directory,
@@ -745,39 +775,50 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(start_time=checkpoint_start_time)
-    tmpdir = self.get_temporary_path(directory)
-    wait_prev_start_time = time.perf_counter()
-    self.wait_until_finished()
-    wait_prev_duration_secs = time.perf_counter() - wait_prev_start_time
-    if save_context is not None:
-      wait_prev_duration_secs += save_context.wait_prev_duration_secs
-    jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/blocking_wait_prev_duration_secs',
-        wait_prev_duration_secs,
-    )
-    self.synchronize_next_awaitable_signal_operation_id()
-    on_commit_callback = self._make_on_commit_callback(
-        tmpdir, custom_metadata, checkpoint_start_time
-    )
-    commit_ops = asyncio_utils.run_sync(
-        self._save(
-            tmpdir,
-            *args,
-            force=force,
-            **kwargs,
-        )
-    )
-    blocking_end_time = time.time()
-    blocking_duration_secs = blocking_end_time - checkpoint_start_time
-    operation_recorder.record_blocking_completion(
-        blocking_duration_secs,
-        end_time=blocking_end_time,
-    )
-    self._async_manager.start_async_commit(
-        directory,
-        commit_futures=commit_ops,
-        on_commit_callback=on_commit_callback,
-    )
+    try:
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+          start_sync_duration_secs,
+      )
+      jax.monitoring.record_event_duration_secs(
+          '/jax/orbax/write/blocking_wait_prev_duration_secs',
+          wait_prev_duration_secs,
+      )
+      tmpdir = self.get_temporary_path(directory)
+      self.synchronize_next_awaitable_signal_operation_id()
+      on_commit_callback = self._make_on_commit_callback(
+          tmpdir, custom_metadata, checkpoint_start_time
+      )
+      commit_ops = asyncio_utils.run_sync(
+          self._save(
+              tmpdir,
+              *args,
+              force=force,
+              **kwargs,
+          )
+      )
+      blocking_end_time = time.time()
+      blocking_duration_secs = blocking_end_time - checkpoint_start_time
+      operation_recorder.record_blocking_completion(
+          blocking_duration_secs,
+          end_time=blocking_end_time,
+      )
+      self._async_manager.start_async_commit(
+          directory,
+          commit_futures=commit_ops,
+          on_commit_callback=on_commit_callback,
+          on_commit_complete=lambda: operation_recorder.record_completion(
+              time.time() - checkpoint_start_time
+          ),
+          on_commit_failure=(
+              lambda status, err: operation_recorder.record_failure(
+                  err, status=status
+              )
+          ),
+      )
+    except BaseException as e:
+      operation_recorder.record_failure(e)
+      raise
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""

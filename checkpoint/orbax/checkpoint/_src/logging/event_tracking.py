@@ -15,10 +15,13 @@
 """Logging utilities for tracking checkpoint events."""
 
 import enum
+import re
+import time
 
 from absl import logging
 from etils import epath
 import jax
+from orbax.checkpoint._src.logging import monitoring
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.path import utils as path_utils
 
@@ -54,21 +57,70 @@ class OperationType(enum.Enum):
   LOAD = 'load'
 
 
+_MONITORING_OPERATION_TYPES = {
+    OperationType.SAVE: monitoring.OperationType.OPERATION_TYPE_SAVE,
+    OperationType.LOAD: monitoring.OperationType.OPERATION_TYPE_LOAD,
+}
+
+
+_STEP_FROM_PATH_REGEX = re.compile(r'.+_(\d+)')
+
+
+def _parse_step_from_path(path: epath.PathLike) -> int | None:
+  """Parses a numeric step from bare ('100') or prefixed ('step_100') dirs.
+
+  Args:
+    path: Checkpoint directory path.
+
+  Returns:
+    The integer step parsed from the path name, or None if the directory name
+    does not end in a numeric step.
+  """
+  name = epath.Path(path).name
+  if name.isdigit():
+    return int(name)
+  match = _STEP_FROM_PATH_REGEX.fullmatch(name)
+  return int(match.group(1)) if match else None
+
+
 class OperationRecorder:
   """Records durations and events for checkpointing (save/load) operations."""
 
   def __init__(
       self,
-      path: epath.Path,
+      path: epath.PathLike,
       operation_type: OperationType,
       *,
       async_origin: bool,
       primary_host: int = 0,
+      step: int | None = None,
+      operation_id: str | None = None,
   ):
-    self._path = path
+    """Initializes the instance.
+
+    Args:
+      path: Target checkpoint directory path.
+      operation_type: Checkpointing operation type (`SAVE` or `LOAD`).
+      async_origin: Whether the operation runs asynchronously in the background.
+      primary_host: Host index designated as primary for coordination metrics.
+      step: Checkpoint step number, or None to parse it from `path.name`.
+      operation_id: Shared operation identifier, or None to format it from
+        `operation_type` and the resolved step.
+    """
+    self._path = epath.Path(path)
     self._operation_type = operation_type
+    self._monitoring_operation_type = _MONITORING_OPERATION_TYPES[
+        operation_type
+    ]
     self._async_origin = async_origin
     self._primary_host = primary_host
+    self._step = _parse_step_from_path(self._path) if step is None else step
+    if operation_id is None:
+      self._operation_id = monitoring.format_operation_id(
+          self._monitoring_operation_type, self._step or 0
+      )
+    else:
+      self._operation_id = operation_id
     self._storage_type = path_utils.get_storage_type(self._path)
 
   def record_start(self, start_time: float):
@@ -120,6 +172,15 @@ class OperationRecorder:
           '/jax/orbax/read/storage_type',
           storage_type=path_utils.get_storage_type(self._path),
       )
+
+    monitoring.record_operation(
+        'begin',
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=start_time,
+        directory=str(self._path),
+        step=self._step,
+    )
 
   def record_blocking_completion(self, duration_secs: float, end_time: float):
     """Records the completion of the blocking part of an operation."""
@@ -228,3 +289,37 @@ class OperationRecorder:
               duration_secs,
               storage_type=self._storage_type,
           )
+    monitoring.record_operation(
+        'end',
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=time.time(),
+        status='SUCCESS',
+    )
+
+  def record_failure(
+      self,
+      error: BaseException | str | None = None,
+      *,
+      status: str | None = None,
+  ) -> None:
+    """Records a failed or cancelled checkpointing operation end event.
+
+    Args:
+      error: Exception or error message that caused the failure, or None when
+        cancelled without an exception.
+      status: Explicit status override (e.g. 'CANCELLED'), or None to infer
+        'TIMED_OUT' for TimeoutError and 'FAILURE' otherwise.
+    """
+    if status is None:
+      status = 'TIMED_OUT' if isinstance(error, TimeoutError) else 'FAILURE'
+    monitoring.record_operation(
+        'end',
+        self._operation_id,
+        self._monitoring_operation_type,
+        timestamp=time.time(),
+        status=status,
+        error=error,
+    )
+
+
