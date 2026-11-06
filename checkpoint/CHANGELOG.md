@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Multi-tier checkpointing: step 0 is now saved and restored like any other
+  step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
+  Orbax in the workload and `colocated-python-sidecar` images together.
+
 ### Fixed
 
 - `CheckpointManager` retains previously saved steps when an asynchronous save

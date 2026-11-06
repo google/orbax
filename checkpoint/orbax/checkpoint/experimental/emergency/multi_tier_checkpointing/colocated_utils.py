@@ -27,9 +27,9 @@ from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import (
 
 
 PyTree = Any
-# The MTC coordinator protocol reserves step 0 as "no checkpoint".
-# Valid colocated MTC checkpoints therefore start at step 1.
-NO_STEP_SENTINEL = 0
+# Pads the fixed-size int32 step arrays that workers return to the colocated
+# controller (and encodes "no step"). Checkpoint steps are non-negative.
+NO_STEP_SENTINEL = -1
 MAX_TRACKED_STEPS = 128
 
 

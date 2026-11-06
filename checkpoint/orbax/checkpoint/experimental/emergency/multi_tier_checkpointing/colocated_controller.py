@@ -858,7 +858,9 @@ class ColocatedController:
           worker_step_sets.append({
               int(step)
               for step in steps.reshape(-1)
-              if int(step) != colocated_utils.NO_STEP_SENTINEL
+              # Checkpoint steps are non-negative; this drops the
+              # NO_STEP_SENTINEL padding.
+              if int(step) >= 0
           })
 
         common_steps = set.intersection(*worker_step_sets)
@@ -907,8 +909,10 @@ class ColocatedController:
 
   def should_save(self, step: int) -> bool:
     """Returns whether workers want to save `step`."""
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return False
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC cannot save negative step {step}.'
+      )
     step_arr = _scalar_on_dummy(step, self._worker_dummy(), dtype=jnp.int32)
     with TimeBlock(
         f'Pathways colocated MTC should_save step={step}',
@@ -951,9 +955,15 @@ class ColocatedController:
 
     Returns:
       True if the step was dispatched for saving, False otherwise.
+
+    Raises:
+      ValueError: If `step` is negative.
     """
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return False
+    # Checked here too: force=True skips should_save.
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC cannot save negative step {step}.'
+      )
     if not force:
       should_save = self.should_save(step)
       logging.vlog(
@@ -1063,10 +1073,10 @@ class ColocatedController:
       resolved_step = self.latest_step()
       if resolved_step is None:
         raise FileNotFoundError(f'No steps found in {self.directory}.')
-    if resolved_step == colocated_utils.NO_STEP_SENTINEL:
+    if resolved_step < 0:
       raise ValueError(
-          'Pathways colocated MTC cannot restore step 0 because the MTC '
-          'coordinator protocol reserves step 0 as "no checkpoint".'
+          'Pathways colocated MTC cannot restore negative step'
+          f' {resolved_step}.'
       )
 
     target_shardings = _prepare_restore_target_shardings(state_restore_args)
