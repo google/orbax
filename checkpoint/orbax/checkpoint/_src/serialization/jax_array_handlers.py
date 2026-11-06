@@ -22,6 +22,7 @@ import dataclasses
 import functools
 import itertools
 import os
+import threading
 import time
 from typing import Any, Callable, Dict, Iterator, Sequence, Set, TypeAlias, Union, cast
 import warnings
@@ -616,6 +617,194 @@ def _log_no_prioritized_params(
     )
 
 
+_D2HBarrierKey: TypeAlias = tuple[str | None, str, frozenset[int] | None]
+_D2H_BARRIER_COUNTERS: dict[_D2HBarrierKey, itertools.count] = (
+    collections.defaultdict(itertools.count)
+)
+_D2H_BARRIER_LOCK = threading.Lock()
+
+
+def _sync_d2h_processes(infos: Sequence[types.ParamInfo]) -> None:
+  """Synchronizes active processes after prioritized D2H transfers finish.
+
+  Args:
+    infos: Parameter metadata carrying active process and barrier prefix config.
+  """
+  if not infos:
+    return
+  raw_procs = infos[0].active_processes
+  active_procs = set(raw_procs) if raw_procs is not None else None
+  if multihost.should_skip_process_sync(active_procs):
+    return
+  prefix = infos[0].barrier_sync_key_prefix
+  frozen_procs = frozenset(active_procs) if active_procs is not None else None
+  counter_key = (prefix, future.current_signals_namespace(), frozen_procs)
+  with _D2H_BARRIER_LOCK:
+    seq = next(_D2H_BARRIER_COUNTERS[counter_key])
+  procs_tag = (
+      'all'
+      if active_procs is None
+      else '-'.join(map(str, sorted(active_procs)))
+  )
+  key = multihost.unique_barrier_key(
+      'async_host_untile:d2h_complete',
+      prefix=prefix,
+      suffix=f'{procs_tag}.{seq}',
+  )
+  if multihost.is_jax_distributed_client_initialized():
+    start = time.perf_counter()
+    sync_fn = multihost.get_barrier_sync_fn(processes=active_procs)
+    sync_fn(key=key, timeout_ms=multihost.coordination_timeout() * 1000)
+    jax.monitoring.record_event_duration_secs(
+        '/jax/orbax/write/d2h_complete_barrier_duration_secs',
+        time.perf_counter() - start,
+    )
+    return
+  multihost.sync_global_processes(
+      key,
+      processes=active_procs,
+      record_event_name='/jax/orbax/write/d2h_complete_barrier_duration_secs',
+  )
+
+
+def _maybe_untile_on_host(
+    rslices_batch: Sequence[replica_slices.ReplicaSlices],
+    enable_async_host_untile: bool,
+) -> Sequence[replica_slices.ReplicaSlices]:
+  """Untiles staged pinned_host slices to numpy arrays when enabled.
+
+  Args:
+    rslices_batch: Host `ReplicaSlices` batch to untile if staged on
+      pinned_host.
+    enable_async_host_untile: Whether async background untiling is enabled.
+
+  Returns:
+    `ReplicaSlices` backed by host `np.ndarray` buffers.
+  """
+  if not enable_async_host_untile:
+    return rslices_batch
+  untile_start = time.perf_counter()
+  untiled = replica_slices.untile_pinned_slices_to_numpy(rslices_batch)
+  jax.monitoring.record_event_duration_secs(
+      '/jax/orbax/write/background_untile_duration_secs',
+      time.perf_counter() - untile_start,
+  )
+  return untiled
+
+
+async def _serialize_host_slices_batch(
+    host_slices: Sequence[replica_slices.ReplicaSlices],
+    infos: Sequence[types.ParamInfo],
+    args: Sequence[types.SaveArgs],
+    enable_async_host_untile: bool,
+    serialize_batch_fn: Callable[..., Any],
+    callback: types.SerializationStatusCallback,
+    metadatas_out: list[ts_utils.ArrayMetadata],
+) -> int:
+  """Untiles (if needed) and writes one batch of host `ReplicaSlices`.
+
+  Args:
+    host_slices: Host-staged or numpy-backed `ReplicaSlices` for the batch.
+    infos: Parameter metadata for the batch.
+    args: Save arguments for the batch.
+    enable_async_host_untile: Whether slices need background host untiling.
+    serialize_batch_fn: Async serializer callable for `ReplicaSlices`.
+    callback: Serialization status callback to notify on write completion.
+    metadatas_out: Output list extended with written `ArrayMetadata` entries.
+
+  Returns:
+    Total logical bytes serialized in this batch.
+  """
+  values_to_write = _maybe_untile_on_host(host_slices, enable_async_host_untile)
+  logical_bytes = sum(v.nbytes for v in values_to_write)
+  b_metadatas = await serialize_batch_fn(values_to_write, infos, args)
+  del values_to_write
+  if b_metadatas:
+    metadatas_out.extend(b_metadatas)
+  _on_batch_callback(infos, callback.on_write_end)
+  return logical_bytes
+
+
+# TODO(b/436858989): We overestimate memory usage for now if replica parallel is
+# enabled, as each host has a non-trivial calculation for bytes transferred to
+# host.
+async def _transfer_and_write_batch(
+    batch: tuple[
+        Sequence[jax.Array],
+        Sequence[types.ParamInfo],
+        Sequence[types.SaveArgs],
+    ],
+    b_rep_ids: Sequence[int | None] | None,
+    transfer_fn: Callable[..., Sequence[replica_slices.ReplicaSlices]],
+    enable_async_host_untile: bool,
+    serialize_batch_fn: Callable[..., Any],
+    callback: types.SerializationStatusCallback,
+    metadatas_out: list[ts_utils.ArrayMetadata],
+) -> int:
+  """Transfers one batch to host, untiles, and serializes it."""
+  b_arrays, b_infos, b_args = batch
+  b_arrays_on_host = transfer_fn(b_arrays, b_rep_ids)
+  del b_arrays
+  try:
+    _on_batch_callback(b_infos, callback.on_transfer_end)
+    return await _serialize_host_slices_batch(
+        b_arrays_on_host,
+        b_infos,
+        b_args,
+        enable_async_host_untile,
+        serialize_batch_fn,
+        callback,
+        metadatas_out,
+    )
+  finally:
+    replica_slices.release_pinned_slices(b_arrays_on_host)
+
+
+async def _serialize_deprioritized_batches(
+    deprioritized: Sequence[tuple[jax.Array, types.ParamInfo, types.SaveArgs]],
+    device_host_max_bytes: int | None,
+    replica_ids: Sequence[int | None] | None,
+    use_replica_parallel: bool,
+    enable_async_host_untile: bool,
+    transfer_fn: Callable[..., Sequence[replica_slices.ReplicaSlices]],
+    serialize_batch_fn: Callable[..., Any],
+    callback: types.SerializationStatusCallback,
+    metadatas_out: list[ts_utils.ArrayMetadata],
+) -> int:
+  """Transfers, untiles, and writes deprioritized array batches."""
+  num_dep = len(deprioritized)
+  batch_rep_ids = (
+      [None] * num_dep
+      if use_replica_parallel or replica_ids is None
+      else replica_ids
+  )
+  batches = _get_deprioritized_batches_to_serialize(
+      deprioritized,
+      device_host_max_bytes=device_host_max_bytes,
+      replica_ids=batch_rep_ids,
+      dispatcher=None,
+  )
+  del deprioritized
+  logical_bytes, offset = 0, 0
+  for batch in batches:
+    b_rep = (
+        replica_ids[offset : offset + len(batch[0])]
+        if replica_ids is not None
+        else None
+    )
+    offset += len(batch[0])
+    logical_bytes += await _transfer_and_write_batch(
+        batch,
+        b_rep,
+        transfer_fn,
+        enable_async_host_untile,
+        serialize_batch_fn,
+        callback,
+        metadatas_out,
+    )
+  return logical_bytes
+
+
 def _serialize_arrays_batches_without_dispatcher(
     prioritized: Sequence[_ArrayToSerialize],
     deprioritized: Sequence[_ArrayToSerialize],
@@ -632,15 +821,22 @@ def _serialize_arrays_batches_without_dispatcher(
     callback: types.SerializationStatusCallback,
     prioritized_replica_ids: Sequence[int | None],
     deprioritized_replica_ids: Sequence[int | None],
+    enable_async_host_untile: bool = False,
 ) -> future.Future:
   """Serializes arrays batches without dispatcher."""
   # Complete D2H transfer in parallel for each array for prioritized values.
+  transfer_kwargs = (
+      {'async_host_untile': True} if enable_async_host_untile else {}
+  )
   replica_slices_transfer_arrays_to_host = functools.partial(
       replica_slices.transfer_arrays_to_host,
       use_replica_parallel=use_replica_parallel,
-      enable_pinned_host_transfer=enable_pinned_host_transfer,
+      enable_pinned_host_transfer=(
+          enable_pinned_host_transfer or enable_async_host_untile
+      ),
       min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
       max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+      **transfer_kwargs,
   )
   async_serialize_replica_slices_batch = functools.partial(
       _async_serialize_replica_slices,
@@ -651,9 +847,9 @@ def _serialize_arrays_batches_without_dispatcher(
       use_replica_parallel=use_replica_parallel,
       ext_metadata=ext_metadata,
   )
-  prioritized_values_on_host = []
-  prioritized_infos = []
-  prioritized_args = []
+  prioritized_values_on_host: Sequence[replica_slices.ReplicaSlices] = ()
+  prioritized_infos = ()
+  prioritized_args = ()
   if prioritized:
     logging.info(
         'Scheduling D2H of %d prioritized jax.Array.',
@@ -664,7 +860,13 @@ def _serialize_arrays_batches_without_dispatcher(
         prioritized_arrays,
         prioritized_replica_ids,
     )
-    _on_batch_callback(prioritized_infos, callback.on_transfer_end)
+    try:
+      if enable_async_host_untile:
+        _sync_d2h_processes(prioritized_infos)
+      _on_batch_callback(prioritized_infos, callback.on_transfer_end)
+    except BaseException:
+      replica_slices.release_pinned_slices(prioritized_values_on_host)
+      raise
   else:
     _log_no_prioritized_params(deprioritized)
   info_sample = next(
@@ -677,74 +879,53 @@ def _serialize_arrays_batches_without_dispatcher(
   async def _serialize_without_dispatcher(
       deprioritized_params: Sequence[_ArrayToSerialize],
   ):
-    if info_sample is None:
-      return
-    initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
-        types.IoDirection.WRITE
-    )
-    total_start_time = time.time()
-    logical_bytes = 0
-    all_array_metadatas: list[ts_utils.ArrayMetadata] = []
-
-    if prioritized_values_on_host:
-      logical_bytes += sum(v.nbytes for v in prioritized_values_on_host)
-      b_metadatas = await async_serialize_replica_slices_batch(
-          prioritized_values_on_host,
-          prioritized_infos,
-          prioritized_args,
+    nonlocal prioritized_values_on_host
+    b_arrays_on_host: Sequence[replica_slices.ReplicaSlices] = ()
+    try:
+      if info_sample is None:
+        return
+      initial_raw_bytes = ts_utils.get_tensorstore_raw_bytes(
+          types.IoDirection.WRITE
       )
-      if b_metadatas:
-        all_array_metadatas.extend(b_metadatas)
-      _on_batch_callback(prioritized_infos, callback.on_write_end)
-    if deprioritized_params:
-      num_deprioritized = len(deprioritized_params)
-      batches = _get_deprioritized_batches_to_serialize(
-          deprioritized_params,
-          device_host_max_bytes=device_host_max_bytes,
-          # TODO(b/436858989): We overestimate memory usage for now if replica
-          # parallel is enabled, as each host has a non-trivial calculation for
-          # bytes transferred to host.
-          replica_ids=(
-              [None] * num_deprioritized
-              if use_replica_parallel
-              else deprioritized_replica_ids
-          ),
-          dispatcher=None,
-      )
-      del deprioritized_params
-      deprioritized_offset = 0
-      for b_arrays, b_infos, b_args in batches:
-        b_replica_ids = deprioritized_replica_ids[
-            deprioritized_offset : deprioritized_offset + len(b_arrays)
-        ]
-        deprioritized_offset += len(b_arrays)
-        b_arrays_on_host = replica_slices_transfer_arrays_to_host(
-            b_arrays,
-            b_replica_ids,
-        )
-        # Release the device buffers before awaiting the (slower) write.
-        del b_arrays
-        _on_batch_callback(b_infos, callback.on_transfer_end)
-        logical_bytes += sum(v.nbytes for v in b_arrays_on_host)
-        b_metadatas = await async_serialize_replica_slices_batch(
+      total_start_time = time.time()
+      logical_bytes = 0
+      all_array_metadatas: list[ts_utils.ArrayMetadata] = []
+      if prioritized_values_on_host:
+        b_arrays_on_host = prioritized_values_on_host
+        prioritized_values_on_host = ()
+        logical_bytes += await _serialize_host_slices_batch(
             b_arrays_on_host,
-            b_infos,
-            b_args,
+            prioritized_infos,
+            prioritized_args,
+            enable_async_host_untile,
+            async_serialize_replica_slices_batch,
+            callback,
+            all_array_metadatas,
         )
-        if b_metadatas:
-          all_array_metadatas.extend(b_metadatas)
-        _on_batch_callback(b_infos, callback.on_write_end)
-      assert deprioritized_offset == num_deprioritized
-
-    _log_io_metrics(
-        direction=types.IoDirection.WRITE,
-        logical_bytes=logical_bytes,
-        start_time=total_start_time,
-        parent_dir=info_sample.parent_dir,
-        initial_raw_bytes=initial_raw_bytes,
-        metadatas=all_array_metadatas,
-    )
-
+        b_arrays_on_host = ()
+      if deprioritized_params:
+        logical_bytes += await _serialize_deprioritized_batches(
+            deprioritized_params,
+            device_host_max_bytes,
+            deprioritized_replica_ids,
+            use_replica_parallel,
+            enable_async_host_untile,
+            replica_slices_transfer_arrays_to_host,
+            async_serialize_replica_slices_batch,
+            callback,
+            all_array_metadatas,
+        )
+      _log_io_metrics(
+          direction=types.IoDirection.WRITE,
+          logical_bytes=logical_bytes,
+          start_time=total_start_time,
+          parent_dir=info_sample.parent_dir,
+          initial_raw_bytes=initial_raw_bytes,
+          metadatas=all_array_metadatas,
+      )
+    finally:
+      replica_slices.release_pinned_slices(prioritized_values_on_host)
+      replica_slices.release_pinned_slices(b_arrays_on_host)
   return future.CommitFutureAwaitingContractedSignals(
       _serialize_without_dispatcher(deprioritized),
       name='array_type_handler',
@@ -901,6 +1082,7 @@ def _serialize_arrays(
         callback,
         prioritized_replica_ids=prioritized_replica_ids,
         deprioritized_replica_ids=deprioritized_replica_ids,
+        enable_async_host_untile=infos[0].enable_async_host_untile,
     )
   else:
 
@@ -1762,6 +1944,9 @@ class ArrayHandler(types.TypeHandler):
 
     assert all([info.enable_pinned_host_transfer for info in infos]) or all(
         [not info.enable_pinned_host_transfer for info in infos]
+    )
+    assert all([info.enable_async_host_untile for info in infos]) or all(
+        [not info.enable_async_host_untile for info in infos]
     )
 
     future_list = []

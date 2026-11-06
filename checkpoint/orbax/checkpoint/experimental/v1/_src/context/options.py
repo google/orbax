@@ -348,6 +348,13 @@ class ArrayOptions(_ActiveContextGuard):
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      enable_async_host_untile: Whether to stage raw device shards to
+        pinned_host memory during the blocking transfer phase and offload host
+        untiling and sub-32-bit lane deinterleaving to background worker
+        threads. Automatically enables `enable_pinned_host_transfer` when None;
+        raises ValueError if `enable_pinned_host_transfer` is explicitly False;
+        and falls back to host numpy conversion on backends without pinned_host
+        memory.
       enable_post_merge_validation: If True, enables validation of the
         parameters after the finalize step.
       use_replica_parallel: Whether to parallelize saving across replicas.
@@ -412,6 +419,7 @@ class ArrayOptions(_ActiveContextGuard):
     use_compression: bool = True
     ocdbt_target_data_file_size: int | None = None
     enable_pinned_host_transfer: bool | None = None
+    enable_async_host_untile: bool = False
     enable_post_merge_validation: bool = True
     use_replica_parallel: bool | None = None
     min_slice_bytes_for_replica_parallel: int | None = None
@@ -422,6 +430,17 @@ class ArrayOptions(_ActiveContextGuard):
         array_metadata_store_lib.Store()
     )
     scoped_storage_options_creator: ScopedStorageOptionsCreator | None = None
+
+    def __post_init__(self):
+      if (
+          self.enable_async_host_untile
+          and self.enable_pinned_host_transfer is not None
+          and not self.enable_pinned_host_transfer
+      ):
+        raise ValueError(
+            '`enable_async_host_untile=True` cannot be used when '
+            '`enable_pinned_host_transfer=False`.'
+        )
 
   @dataclasses.dataclass(kw_only=True)
   class Loading(_ActiveContextGuard):

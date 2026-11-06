@@ -93,6 +93,11 @@ def _create_v0_saving_paraminfo(
   """Creates a V0 `ParamInfo` from V1 params and contexts for saving."""
 
   saving_options = context.array_options.saving
+  mp_options = context.multiprocessing_options
+  enable_pinned_host_transfer = type_handlers_v0.resolve_pinned_host_transfer(
+      saving_options.enable_pinned_host_transfer,
+      saving_options.enable_async_host_untile,
+  )
 
   return type_handlers_v0.ParamInfo(
       name=param.name,
@@ -105,8 +110,11 @@ def _create_v0_saving_paraminfo(
       ocdbt_target_data_file_size=saving_options.ocdbt_target_data_file_size,
       ts_context=serialization_context.ts_context,
       value_typestr=None,  # TODO(dnlng): Add value typestr.
-      enable_pinned_host_transfer=saving_options.enable_pinned_host_transfer,  # pyrefly: ignore[bad-argument-type]
+      enable_pinned_host_transfer=enable_pinned_host_transfer,
+      enable_async_host_untile=saving_options.enable_async_host_untile,
       copy_device_arrays_for_async_transfer=context.memory_options.copy_device_arrays_for_async_transfer,
+      active_processes=mp_options.active_processes,
+      barrier_sync_key_prefix=mp_options.barrier_sync_key_prefix,
       keypath=param.keypath,
   )
 

@@ -459,5 +459,22 @@ class MemoryOptionsTest(parameterized.TestCase):
     self.assertEqual(handler._callback, callback)
 
 
+class ArrayOptionsTest(parameterized.TestCase):
+
+  def test_enable_async_host_untile_validation_and_propagation(self):
+    self.assertFalse(ocp_options.ArrayOptions.Saving().enable_async_host_untile)
+    with self.assertRaisesRegex(ValueError, 'enable_async_host_untile=True'):
+      ocp_options.ArrayOptions.Saving(
+          enable_pinned_host_transfer=False, enable_async_host_untile=True
+      )
+
+    ctx = context_lib.Context()
+    ctx.array.saving.enable_async_host_untile = True
+    directory = epath.Path(self.create_tempdir().full_path) / 'ckpt'
+    pytree = {'a': jnp.ones((4, 8), dtype=jnp.bfloat16)}
+    with ctx:
+      saving.save_checkpointables(directory, {'model': pytree})
+
+
 if __name__ == '__main__':
   absltest.main()
