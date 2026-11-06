@@ -227,7 +227,9 @@ class Benchmark(abc.ABC):
       multihost.sync_global_processes("benchmark:setup_test_directory")
 
     if self.checkpoint_config.path is not None:
-      pytree = checkpoint_generation.load_checkpoint(self.checkpoint_config)
+      pytree = checkpoint_generation.load_checkpoint(
+          self.checkpoint_config, mesh=self.mesh
+      )
     elif self.checkpoint_config.spec is not None:
       pytree = checkpoint_generation.generate_checkpoint(
           self.checkpoint_config, mesh=self.mesh

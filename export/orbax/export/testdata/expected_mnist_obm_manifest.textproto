@@ -406,6 +406,7 @@ objects {
       data_names: "params.Dense_1.bias"
       data_names: "params.Dense_1.kernel"
       visibility: PUBLIC
+      weights_name: "__WEIGHTS_NAME__"
     }
   }
 }

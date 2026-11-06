@@ -424,9 +424,11 @@ class _SignalingThread(threading.Thread):
     """Waits for signals, runs the target function, and sends signals."""
     try:
       if self._cancelled:
+        self._set_signals()
         return
       self._wait_for_signals()
       if self._cancelled:
+        self._set_signals()
         return
       super().run()
       self._set_signals()
