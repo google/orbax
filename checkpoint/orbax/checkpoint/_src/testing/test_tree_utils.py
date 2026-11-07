@@ -1184,3 +1184,31 @@ TEST_PYTREES = [
 TEST_PYTREES_FOR_NAMED_PARAMETERS = [
     (test_pytree.unique_name, test_pytree) for test_pytree in TEST_PYTREES
 ]
+
+
+def get_jax_array_pytree_if_possible(pytree: PyTree) -> PyTree:
+  """Returns jax.Array and abstract jax.Array pytrees if possible."""
+  mesh = jax.sharding.Mesh(np.array(jax.devices()), 'd')
+  replicated = jax.sharding.NamedSharding(
+      mesh, jax.sharding.PartitionSpec(None)
+  )
+
+  def _create_jax_array(value):
+    if not isinstance(value, (int, float, jax.Array, np.ndarray)):
+      return value
+    value = np.asarray(value)
+    jax_array = jax.make_array_from_callback(
+        value.shape, replicated, value.__getitem__
+    )
+    return jax_array
+
+  jax_arrays = jax.tree_util.tree_map(_create_jax_array, pytree)
+  abstract_jax_arrays = jax.tree_util.tree_map(
+      lambda x: (
+          jax.ShapeDtypeStruct(x.shape, x.dtype, sharding=x.sharding)
+          if hasattr(x, 'shape')
+          else x
+      ),
+      jax_arrays,
+  )
+  return jax_arrays, abstract_jax_arrays
