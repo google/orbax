@@ -1943,26 +1943,22 @@ def _validate_sharding_and_get_primary_replica_processes(
           primary_replica_id=primary_replica_id,
       )
   )
-  if len(primary_replica_device_ids) == len(jax.devices()):
+  if len(primary_replica_device_ids) == sharding.mesh.devices.size:
     raise InvalidShardingError(
         'All devices are in the primary replica. There are no non-primary'
         ' replicas to broadcast to.'
     )
-
-  expected_primary_replica_device_ids = {
-      d.id
-      for d in jax.devices()
-      if multihost.process_index_from_device(d) in primary_replica_pids
-  }
-  if not primary_replica_device_ids.issubset(
-      expected_primary_replica_device_ids
+  replica_axis_name = sharding.mesh.axis_names[replica_axis_index]
+  if any(
+      replica_axis_name in axis
+      if isinstance(axis, tuple)
+      else axis == replica_axis_name
+      for axis in sharding.spec
   ):
     raise InvalidShardingError(
-        'The provided sharding is not valid. The primary replica has the'
-        f' following devices: {primary_replica_device_ids}, which is not a'
-        ' subset of the expected devices:'
-        f' {expected_primary_replica_device_ids}. for the primary processes:'
-        f' {primary_replica_pids}.'
+        f'Replica axis {replica_axis_name!r} (index {replica_axis_index}) must'
+        ' not be present in sharding.spec, as the array must be replicated'
+        f' across replicas. Got sharding.spec={sharding.spec}.'
     )
 
   return primary_replica_pids
@@ -2110,22 +2106,11 @@ class SingleReplicaArrayHandler(ArrayHandler):
   multihost training. Normally each host reads relevant data from the
   checkpoint, even if other hosts are reading the exact same data. This can be
   very inefficient with large number of pods/hosts and large checkpoint size.
-  With SingleReplicaArrayhandler the data is read only on hosts that are in
-  primary replica. Then these hosts broadcast the data to other hosts. It is
-  assumed that all hosts have ALL their devices either inside the primary
-  replica or outside.
-  Consider, for example, the following sharding on v4-128 which has 16 hosts and
-  64 devices::
-
-    shape = (32, 2)
-    mesh = jax.sharding.Mesh(jax.devices().reshape(shape), ('x', 'y'))
-    pspec = jax.sharding.PartitionSpec(None, 'y')
-    sharding=jax.sharding.NamedSharding(mesh, pspec)
-
-  This sharding will not work since the primary replica has only two devices,
-  and hence there is a host which has 2 devices in the primary replica, and 2
-  devices outside of primary replica. However, changing shape, for example, to
-  (4, 16) will result in a valid sharding.
+  With SingleReplicaArrayHandler the data is read only on hosts that have
+  devices in the primary replica. Then these hosts broadcast the data to the
+  other replicas. The mesh must have more than one replica along
+  `replica_axis_index`, and the array must be replicated along the replica axis
+  (i.e., the replica axis name must not appear in the `PartitionSpec`).
 
   This TypeHandler can be registered by running::
 
@@ -2179,16 +2164,18 @@ class SingleReplicaArrayHandler(ArrayHandler):
   def _construct_single_replica_sharding(
       self, sharding: jax.sharding.Sharding
   ) -> jax.sharding.Sharding:
-    """Constructs a single replica sharding."""
+    """Constructs a single replica sharding for the primary replica."""
     assert isinstance(sharding, jax.sharding.NamedSharding)
-    local_replica_devices = multislice.local_replica_devices(
-        sharding.mesh, replica_axis_index=self.replica_axis_index  # pyrefly: ignore[bad-argument-type]
+    replica_devices = multislice.replica_devices(
+        sharding.mesh,  # pyrefly: ignore[bad-argument-type]
+        replica_id=self.primary_replica_id,  # pyrefly: ignore[bad-argument-type]
+        replica_axis_index=self.replica_axis_index,  # pyrefly: ignore[bad-argument-type]
     )
-    local_replica_devices = np.expand_dims(  # pyrefly: ignore[no-matching-overload]
-        local_replica_devices, axis=self.replica_axis_index
+    replica_devices = np.expand_dims(  # pyrefly: ignore[no-matching-overload]
+        replica_devices, axis=self.replica_axis_index
     )
     replica_mesh = jax.sharding.Mesh(
-        local_replica_devices,
+        replica_devices,
         sharding.mesh.axis_names,
     )
     return jax.sharding.NamedSharding(replica_mesh, sharding.spec)
