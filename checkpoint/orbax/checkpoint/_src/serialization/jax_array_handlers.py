@@ -2260,16 +2260,19 @@ class SingleReplicaArrayHandler(ArrayHandler):
       dummy_input_array = dispatchers.get_dummy_input_array(
           primary_replica_devices  # pyrefly: ignore[bad-argument-type]
       )
+      result_specs = _single_replica_abstract_arrays(
+          args, single_replica_shardings
+      )
+      if result_specs is None:
+        raise ValueError(
+            'Restoring with a dispatcher requires `global_shape` and `dtype` on'
+            ' every `SingleReplicaArrayRestoreArgs`.'
+        )
       # Step 1: Deserialize arrays on a single replica.
       ret = self._dispatcher.dispatch(
           _single_replica_deserialize_on_worker,
           input_arrays=dummy_input_array,
-          result_specs=await _get_abstract_arrays(
-              args,
-              single_replica_shardings,
-              self._array_metadata_store,
-              infos,
-          ),
+          result_specs=list(result_specs),
           func_kwargs={
               'infos': infos,
               'args': args,
@@ -2281,14 +2284,26 @@ class SingleReplicaArrayHandler(ArrayHandler):
       # devices according to the final desired sharding. This is the equivalent
       # of multislice.broadcast_one_replica_to_all in non-dispatcher based
       # implementation.
-      ret = jax.tree.map(jax.device_put, ret, shardings)
+      physical_shardings = [
+          _physical_read_spec(arg, sharding)[2]  # pyrefly: ignore[bad-argument-type]
+          for arg, sharding in zip(args, shardings)
+      ]
+      ret = jax.tree.map(jax.device_put, ret, physical_shardings)
       jax.block_until_ready(ret)
 
-      if self._array_metadata_store is not None:
-        array_metadatas = await self._array_metadata_store.read(
-            checkpoint_dir=infos[0].parent_dir,
-        )
-        if array_metadatas:
-          ret = _wrap_random_key_data(array_metadatas, infos, list(ret))
+    if self._array_metadata_store is not None:
+      array_metadatas = await self._array_metadata_store.read(
+          checkpoint_dir=infos[0].parent_dir,
+      )
+      if array_metadatas:
+        ret = _wrap_random_key_data(array_metadatas, infos, list(ret))
+
+    if any(_has_prng_key_dtype(arg) for arg in args):
+      ret = list(ret)
+      for i, (arr, arg) in enumerate(zip(ret, args)):
+        if _has_prng_key_dtype(arg) and not jax.dtypes.issubdtype(
+            arr.dtype, jax.dtypes.prng_key
+        ):
+          ret[i] = jax.random.wrap_key_data(arr, impl=arg.dtype)
 
     return ret
