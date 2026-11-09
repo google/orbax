@@ -161,6 +161,7 @@ class PyTreeCheckpointHandlerTest(
       use_ocdbt: bool,
       use_zarr3: bool = False,
       enable_pinned_host_transfer: bool | None = None,
+      enable_async_host_untile: bool = False,
       pytree_metadata_options: tree_metadata.PyTreeMetadataOptions = (
           tree_metadata.PYTREE_METADATA_OPTIONS
       ),
@@ -185,6 +186,7 @@ class PyTreeCheckpointHandlerTest(
         type_handler_registry=handler_registry,
         pytree_metadata_options=pytree_metadata_options,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
+        enable_async_host_untile=enable_async_host_untile,
         use_compression=use_compression,
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
         copy_device_arrays_for_async_transfer=(
@@ -2066,6 +2068,7 @@ class PyTreeCheckpointHandlerTest(
         min_slice_bytes_for_replica_parallel,
         max_replicas_for_replica_parallel,
         enable_pinned_host_transfer,
+        **kwargs,
     ):
       nonlocal true_count, false_count
       if enable_pinned_host_transfer:
@@ -2079,6 +2082,7 @@ class PyTreeCheckpointHandlerTest(
           min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
           max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
           enable_pinned_host_transfer=enable_pinned_host_transfer,
+          **kwargs,
       )
 
     with mock.patch.object(
@@ -2097,6 +2101,224 @@ class PyTreeCheckpointHandlerTest(
     else:
       self.assertEqual(true_count, 0)
       self.assertGreater(false_count, 0)
+
+  def _create_multi_dtype_pytree(self):
+    mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+    pspec = jax.sharding.PartitionSpec('x')
+    base = np.arange(16 * 128).reshape((16, 128))
+    tree = {
+        k: test_utils.create_sharded_array(base.astype(dt), mesh, pspec)
+        for k, dt in (
+            ('bf16', jnp.bfloat16),
+            ('f32', np.float32),
+            ('i32', np.int32),
+        )
+    }
+    restore_args = jax.tree.map(
+        lambda a: ArrayRestoreArgs(
+            restore_type=jax.Array, mesh=mesh, mesh_axes=pspec
+        ),
+        tree,
+    )
+    return tree, restore_args
+
+  async def _verify_async_untile_save(
+      self, handler, async_dir, tree, restore_args, use_ocdbt
+  ):
+    allow_untile = threading.Event()
+    untile_threads: list[str] = []
+    main_thread = threading.current_thread().name
+    main_asarray_calls = 0
+    orig_untile = replica_slices.untile_pinned_slices_to_numpy
+    orig_asarray = np.asarray
+
+    def gated_untile(rslices_list, *args, **kwargs):
+      allow_untile.wait(timeout=10.0)
+      untile_threads.append(threading.current_thread().name)
+      return orig_untile(rslices_list, *args, **kwargs)
+
+    def spy_asarray(a, *args, **kwargs):
+      nonlocal main_asarray_calls
+      if (
+          isinstance(a, jax.Array)
+          and threading.current_thread().name == main_thread
+      ):
+        main_asarray_calls += 1
+      return orig_asarray(a, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices, 'untile_pinned_slices_to_numpy', new=gated_untile
+    ), mock.patch.object(replica_slices.np, 'asarray', new=spy_asarray):
+      commit_futures = await handler.async_save(
+          async_dir, args=PyTreeSaveArgs(tree)
+      )
+      if replica_slices._has_pinned_host_memory(jax.local_devices()[0]):
+        self.assertEqual(main_asarray_calls, 0)
+      self.assertEmpty(untile_threads)
+      allow_untile.set()
+      for f in commit_futures or []:
+        f.result()
+
+    test_utils.sync_global_processes(f'async_untile_saved_{use_ocdbt}')
+    if use_ocdbt and multihost.process_index() == 0:
+      handler.finalize(async_dir)
+    test_utils.sync_global_processes(f'async_untile_finalized_{use_ocdbt}')
+    if replica_slices._has_pinned_host_memory(jax.local_devices()[0]):
+      self.assertNotEmpty(untile_threads)
+      self.assertNotIn(main_thread, untile_threads)
+    restored = handler.restore(
+        async_dir, args=PyTreeRestoreArgs(restore_args=restore_args)
+    )
+    test_utils.assert_tree_equal(self, tree, restored)
+
+  @parameterized.parameters(False, True)
+  async def test_enable_async_host_untile(self, use_ocdbt: bool):
+    if utils.is_pathways_backend():
+      self.skipTest('Disabled on Pathways.')
+    with self.assertRaises(ValueError):
+      PyTreeCheckpointHandler(
+          enable_pinned_host_transfer=False, enable_async_host_untile=True
+      )
+    tree, restore_args = self._create_multi_dtype_pytree()
+    sync_dir = self.directory / f'sync_{use_ocdbt}'
+    async_dir = self.directory / f'async_{use_ocdbt}'
+    if multihost.process_index() == 0:
+      sync_dir.mkdir(parents=True, exist_ok=True)
+      async_dir.mkdir(parents=True, exist_ok=True)
+    test_utils.sync_global_processes(f'async_untile_dirs_{use_ocdbt}')
+
+    with self.ocdbt_checkpoint_handler(
+        use_ocdbt=use_ocdbt, enable_async_host_untile=True
+    ) as handler:
+      handler.save(sync_dir, args=PyTreeSaveArgs(tree))
+      restored_sync = handler.restore(
+          sync_dir, args=PyTreeRestoreArgs(restore_args=restore_args)
+      )
+      test_utils.assert_tree_equal(self, tree, restored_sync)
+      await self._verify_async_untile_save(
+          handler, async_dir, tree, restore_args, use_ocdbt
+      )
+
+  async def _save_on_subset_process_zero(self, subset_dir, tree):
+    subset_registry = type_handler_registry.create_type_handler_registry((
+        jax.Array,
+        type_handlers.ArrayHandler(
+            use_replica_parallel=False, array_metadata_store=None
+        ),
+    ))
+    subset_handler = PyTreeCheckpointHandler(
+        use_ocdbt=True,
+        enable_async_host_untile=True,
+        type_handler_registry=subset_registry,
+        multiprocessing_options=options_lib.MultiprocessingOptions(
+            primary_host=0,
+            active_processes={0},
+            barrier_sync_key_prefix='subset_p0',
+        ),
+    )
+    try:
+      futs = await subset_handler.async_save(
+          subset_dir, args=PyTreeSaveArgs(tree)
+      )
+      for f in futs or []:
+        f.result()
+      subset_handler.finalize(subset_dir)
+    finally:
+      subset_handler.close()
+
+  async def test_enable_async_host_untile_subset_processes_and_cleanup(self):
+    if utils.is_pathways_backend():
+      self.skipTest('Disabled on Pathways.')
+    mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+    replicated = jax.sharding.PartitionSpec()
+    arr = test_utils.create_sharded_array(
+        np.arange(128, dtype=jnp.bfloat16), mesh, replicated
+    )
+    tree = {'replicated': arr}
+    restore_args = {
+        'replicated': ArrayRestoreArgs(
+            restore_type=jax.Array, mesh=mesh, mesh_axes=replicated
+        )
+    }
+    subset_dir = self.directory / 'subset_proc0'
+    prefix_dir = self.directory / 'prefixed_all'
+    if multihost.process_index() == 0:
+      subset_dir.mkdir(parents=True, exist_ok=True)
+      prefix_dir.mkdir(parents=True, exist_ok=True)
+      await self._save_on_subset_process_zero(subset_dir, tree)
+    test_utils.sync_global_processes('subset_proc0_saved')
+
+    active = set(range(jax.process_count()))
+    all_handler = PyTreeCheckpointHandler(
+        use_ocdbt=True,
+        enable_async_host_untile=True,
+        multiprocessing_options=options_lib.MultiprocessingOptions(
+            primary_host=0,
+            active_processes=active,
+            barrier_sync_key_prefix='custom_pfx',
+        ),
+    )
+    try:
+      restored = all_handler.restore(
+          subset_dir, args=PyTreeRestoreArgs(restore_args=restore_args)
+      )
+      test_utils.assert_tree_equal(self, tree, restored)
+      await self._verify_barrier_prefix_and_error_cleanup(
+          all_handler, prefix_dir, tree, active
+      )
+    finally:
+      all_handler.close()
+
+  async def _verify_barrier_prefix_and_error_cleanup(
+      self, handler, prefix_dir, tree, active_procs
+  ):
+    seen_keys: list[tuple[str, str | None, str | None]] = []
+    orig_unique_key = multihost.unique_barrier_key
+
+    def spy_key(key, *, prefix=None, suffix=None):
+      if key == 'async_host_untile:d2h_complete':
+        seen_keys.append((key, prefix, suffix))
+      return orig_unique_key(key, prefix=prefix, suffix=suffix)
+
+    with future.signals_namespace('custom_ns'), mock.patch.object(
+        multihost, 'unique_barrier_key', side_effect=spy_key
+    ):
+      futs = await handler.async_save(prefix_dir, args=PyTreeSaveArgs(tree))
+      for f in futs or []:
+        f.result()
+    test_utils.sync_global_processes('prefixed_all_saved')
+    if jax.process_count() > 1:
+      expected_tag = '-'.join(map(str, sorted(active_procs)))
+      self.assertEqual(
+          seen_keys,
+          [(
+              'async_host_untile:d2h_complete',
+              'custom_pfx',
+              f'{expected_tag}.0',
+          )],
+      )
+
+    released_counts: list[int] = []
+    orig_release = replica_slices.release_pinned_slices
+
+    def spy_release(rslices_list):
+      released_counts.append(len(rslices_list))
+      return orig_release(rslices_list)
+
+    err_dir = self.directory / 'err_cleanup'
+    if multihost.process_index() == 0:
+      err_dir.mkdir(parents=True, exist_ok=True)
+    test_utils.sync_global_processes('err_cleanup_dir')
+    with mock.patch.object(
+        replica_slices, 'release_pinned_slices', side_effect=spy_release
+    ), mock.patch.object(
+        type_handlers.jax_array_handlers,
+        '_on_batch_callback',
+        side_effect=RuntimeError('callback failed'),
+    ):
+      with self.assertRaisesRegex(RuntimeError, 'callback failed'):
+        await handler.async_save(err_dir, args=PyTreeSaveArgs(tree))
+    self.assertEqual(released_counts, [1])
 
   def test_custom_metadata(self):
     custom_metadata = {'foo': 1}

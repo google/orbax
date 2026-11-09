@@ -204,6 +204,50 @@ def check_input_arguments(*args):
       raise ValueError('Found input args with mismatched lengths.')
 
 
+def resolve_pinned_host_transfer(
+    enable_pinned_host_transfer: bool | None,
+    enable_async_host_untile: bool,
+) -> bool:
+  """Resolves `enable_pinned_host_transfer` and validates async untile.
+
+  Args:
+    enable_pinned_host_transfer: Optional explicit pinned-host transfer flag.
+    enable_async_host_untile: Whether background host untiling is enabled.
+
+  Returns:
+    Resolved boolean value for `enable_pinned_host_transfer`.
+
+  Raises:
+    ValueError: If `enable_async_host_untile=True` and
+      `enable_pinned_host_transfer=False`.
+  """
+  if (
+      enable_async_host_untile
+      and enable_pinned_host_transfer is not None
+      and not enable_pinned_host_transfer
+  ):
+    raise ValueError(
+        '`enable_async_host_untile=True` cannot be used when '
+        '`enable_pinned_host_transfer=False`.'
+    )
+  if enable_pinned_host_transfer is None:
+    return True if enable_async_host_untile else jax.default_backend() == 'gpu'
+  return enable_pinned_host_transfer
+
+
+def _maybe_warn_missing_ts_context(
+    name: str, ts_context: ts.Context | None
+) -> None:
+  """Logs a warning when `ParamInfo` is constructed without a `ts.Context`."""
+  if ts_context is None:
+    logging.warning(
+        'ParamInfo(name=%r) created with ts_context=None. Passing unshared or'
+        ' default TensorStore contexts across multiple parameters can'
+        ' duplicate OCDBT driver and B-tree node caches in memory.',
+        name,
+    )
+
+
 class ParamInfo:
   """Information describing a parameter in a PyTree.
 
@@ -237,6 +281,12 @@ class ParamInfo:
     ts_context: Tensorstore context to use for reading/writing.
     value_typestr: Stores the original value's typestr (from TypeHandler).
     enable_pinned_host_transfer: If False, disables transfer to pinned host.
+    enable_async_host_untile: If True, stages raw device shards to pinned_host
+      memory during the blocking transfer phase and offloads host untiling to
+      background worker threads.
+    active_processes: Optional set of active distributed process indices
+      participating in this save operation.
+    barrier_sync_key_prefix: Optional prefix for distributed barrier keys.
     raise_array_data_missing_error: Only used for restoring.
     write_shape: Shape of the array shard. Used in the subchunking context.
     is_prioritized_key_fn: See ``IsPrioritizedKeyFn`` definition.
@@ -263,6 +313,9 @@ class ParamInfo:
       ts_context: Optional[ts.Context] = None,
       value_typestr: Optional[str] = None,
       enable_pinned_host_transfer: bool = False,
+      enable_async_host_untile: bool = False,
+      active_processes: set[int] | None = None,
+      barrier_sync_key_prefix: str | None = None,
       raise_array_data_missing_error: bool = True,
       write_shape: arrays_types.Shape | None = None,
       is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
@@ -279,16 +332,13 @@ class ParamInfo:
     self.use_compression = use_compression
     self.use_zarr3 = use_zarr3
     self.ocdbt_target_data_file_size = ocdbt_target_data_file_size
-    if ts_context is None:
-      logging.warning(
-          'ParamInfo(name=%r) created with ts_context=None. Passing unshared or'
-          ' default TensorStore contexts across multiple parameters can'
-          ' duplicate OCDBT driver and B-tree node caches in memory.',
-          name,
-      )
+    _maybe_warn_missing_ts_context(name, ts_context)
     self.ts_context = ts_context
     self.value_typestr = value_typestr
     self.enable_pinned_host_transfer = enable_pinned_host_transfer
+    self.enable_async_host_untile = enable_async_host_untile
+    self.active_processes = active_processes
+    self.barrier_sync_key_prefix = barrier_sync_key_prefix
     self.raise_array_data_missing_error = raise_array_data_missing_error
     self.write_shape = write_shape
     self.is_prioritized_key_fn = is_prioritized_key_fn

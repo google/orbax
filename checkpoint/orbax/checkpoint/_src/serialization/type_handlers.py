@@ -35,6 +35,7 @@ from orbax.checkpoint._src.serialization import types
 import tensorstore as ts
 
 ParamInfo: TypeAlias = types.ParamInfo
+resolve_pinned_host_transfer = types.resolve_pinned_host_transfer
 SaveArgs: TypeAlias = types.SaveArgs
 RestoreArgs: TypeAlias = types.RestoreArgs
 TypeHandler: TypeAlias = types.TypeHandler

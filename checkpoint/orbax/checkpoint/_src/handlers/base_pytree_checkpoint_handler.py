@@ -397,6 +397,7 @@ class BasePyTreeCheckpointHandler(
           array_metadata_store_lib.Validator()
       ),
       enable_pinned_host_transfer: Optional[bool] = None,
+      enable_async_host_untile: bool = False,
       is_prioritized_key_fn: Optional[types.IsPrioritizedKeyFn] = None,
       copy_device_arrays_for_async_transfer: bool = False,
   ):
@@ -415,8 +416,8 @@ class BasePyTreeCheckpointHandler(
         transferred from device to host memory at once when saving. When the
         limit is reached, arrays must be finished writing to the checkpoint
         before a new array can start being transferred. Can be "auto".
-      memory_limit_options: Options for configuring memory limits for save.
-        Can help to reduce the possibility of OOM's when checkpoints are saved.
+      memory_limit_options: Options for configuring memory limits for save. Can
+        help to reduce the possibility of OOM's when checkpoints are saved.
       use_ocdbt: Whether to use OCDBT format for saving.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2.
       use_compression: If True, use zstd compression.
@@ -431,6 +432,12 @@ class BasePyTreeCheckpointHandler(
         transfer from device to host memory. Passing None will enable
         pinned_host memory depending on the platform used (currently only
         enables it for the GPU backend).
+      enable_async_host_untile: Whether to offload host untiling and sub-32-bit
+        lane deinterleaving of staged pinned_host buffers to background threads
+        after the blocking device-to-host transfer. Automatically enables
+        `enable_pinned_host_transfer` when None; raises ValueError if
+        `enable_pinned_host_transfer` is explicitly False; and falls back to
+        host numpy conversion on backends without pinned_host memory.
       is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
         using jax.tree.map_with_path) that should be scheduled for D2H transfer
         before other keys. The transfer is scheduled before returning to the
@@ -444,16 +451,16 @@ class BasePyTreeCheckpointHandler(
         lightweight, and `save_device_host_concurrent_gb` will be ignored for
         them.
       copy_device_arrays_for_async_transfer: Whether to copy `jax.Array` leaves
-        on device, instead of transferring them to host, before returning to
-        the caller. The copies are transferred to host in the background (in
-        batches of at most `save_device_host_concurrent_bytes`, if set) and
-        released as their transfers complete, so the caller may donate or
-        mutate the originals without waiting for the transfer. Defaults to
-        False. Warning: this can double peak device memory usage, since a
-        second copy of every array may be held until its transfer completes.
-        Arrays that already reside in host memory (e.g. `pinned_host`) are
-        never copied, so the caller must not donate or mutate them until the
-        save finishes, or the checkpoint may fail or be corrupted.
+        on device, instead of transferring them to host, before returning to the
+        caller. The copies are transferred to host in the background (in batches
+        of at most `save_device_host_concurrent_bytes`, if set) and released as
+        their transfers complete, so the caller may donate or mutate the
+        originals without waiting for the transfer. Defaults to False. Warning:
+        this can double peak device memory usage, since a second copy of every
+        array may be held until its transfer completes. Arrays that already
+        reside in host memory (e.g. `pinned_host`) are never copied, so the
+        caller must not donate or mutate them until the save finishes, or the
+        checkpoint may fail or be corrupted.
     """
     self._save_concurrent_bytes = save_concurrent_bytes
     self._restore_concurrent_bytes = restore_concurrent_bytes
@@ -484,6 +491,10 @@ class BasePyTreeCheckpointHandler(
     self._use_zarr3 = use_zarr3
     self._use_compression = use_compression
     self._primary_host = multiprocessing_options.primary_host
+    self._active_processes = multiprocessing_options.active_processes
+    self._barrier_sync_key_prefix = (
+        multiprocessing_options.barrier_sync_key_prefix
+    )
     self._type_handler_registry = type_handler_registry
     self._enable_post_merge_validation = enable_post_merge_validation
     self._pytree_metadata_options = pytree_metadata_options
@@ -498,9 +509,10 @@ class BasePyTreeCheckpointHandler(
       self._array_metadata_store.set_primary_host(self._primary_host)
     self._array_metadata_validator = array_metadata_validator
 
-    if enable_pinned_host_transfer is None:
-      enable_pinned_host_transfer = jax.default_backend() == 'gpu'
-    self._enable_pinned_host_transfer = enable_pinned_host_transfer
+    self._enable_pinned_host_transfer = types.resolve_pinned_host_transfer(
+        enable_pinned_host_transfer, enable_async_host_untile
+    )
+    self._enable_async_host_untile = enable_async_host_untile
     self._is_prioritized_key_fn = is_prioritized_key_fn
     if self._is_prioritized_key_fn:
       jax.monitoring.record_event(
@@ -516,7 +528,7 @@ class BasePyTreeCheckpointHandler(
     logging.info(
         'Created BasePyTreeCheckpointHandler: use_ocdbt=%s, use_zarr3=%s,'
         ' pytree_metadata_options=%s, array_metadata_store=%s,'
-        ' enable_pinned_host_transfer=%s,'
+        ' enable_pinned_host_transfer=%s, enable_async_host_untile=%s,'
         ' copy_device_arrays_for_async_transfer=%s,'
         ' save_concurrent_bytes: %s, restore_concurrent_bytes: %s',
         self._use_ocdbt,
@@ -524,6 +536,7 @@ class BasePyTreeCheckpointHandler(
         self._pytree_metadata_options,
         self._array_metadata_store,
         self._enable_pinned_host_transfer,
+        self._enable_async_host_untile,
         self._copy_device_arrays_for_async_transfer,
         _format_bytes(self._save_concurrent_bytes),
         _format_bytes(self._restore_concurrent_bytes),
@@ -588,6 +601,9 @@ class BasePyTreeCheckpointHandler(
           use_compression=use_compression,
           use_zarr3=use_zarr3,
           enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+          enable_async_host_untile=self._enable_async_host_untile,
+          active_processes=self._active_processes,
+          barrier_sync_key_prefix=self._barrier_sync_key_prefix,
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           byte_limiter=byte_limiter,
           device_host_byte_limiter=device_host_byte_limiter,

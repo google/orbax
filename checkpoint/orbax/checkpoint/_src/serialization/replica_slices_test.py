@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import threading
 from typing import cast
-
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 import jax
+import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.serialization import replica_slices
 
@@ -29,7 +31,9 @@ def is_pow_of_two(n):
   return True
 
 
-def make_multi_device_array(shape, partitioned, pinned_host=False):
+def make_multi_device_array(
+    shape, partitioned, pinned_host=False, dtype=jnp.float32
+):
   """Creates a partially- or fully-replicated array."""
   num_devices = len(jax.devices())
   assert is_pow_of_two(num_devices)
@@ -51,7 +55,10 @@ def make_multi_device_array(shape, partitioned, pinned_host=False):
   if pinned_host:
     sharding = sharding.with_memory_kind('pinned_host')
 
-  x = jax.random.normal(jax.random.PRNGKey(0), shape)
+  if jnp.issubdtype(dtype, jnp.integer):
+    x = jax.random.randint(jax.random.PRNGKey(0), shape, -100, 100, dtype=dtype)
+  else:
+    x = jax.random.normal(jax.random.PRNGKey(0), shape, dtype=dtype)
   data = jax.device_put(x, sharding)
 
   return data, num_partitions, num_replicas
@@ -715,6 +722,216 @@ class ReplicaSlicesTest(parameterized.TestCase):
     self.assertEqual(
         [rslice.index for rslice in rslices.replica_slices],
         [rslice.index for rslice in expected.replica_slices],
+    )
+
+  def _assert_slices_equal(self, rslices, expected):
+    combined = np.empty(expected.shape, dtype=expected.dtype)
+    for rslice in rslices.replica_slices:
+      self.assertIsInstance(rslice.unsliced_data, np.ndarray)
+      combined[rslice.index] = rslice.data()
+    np.testing.assert_array_equal(combined, expected)
+
+  @parameterized.product(
+      partitioned=[False, True],
+      use_replica_parallel=[False, True],
+      dtype=[jnp.bfloat16, jnp.float32, jnp.int32],
+      caller_pinned=[False, True],
+  )
+  def test_transfer_async_host_untile(
+      self, partitioned, use_replica_parallel, dtype, caller_pinned
+  ):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    has_pinned = replica_slices._has_pinned_host_memory(jax.local_devices()[0])
+    if caller_pinned and not has_pinned:
+      self.skipTest('Backend does not support pinned_host memory.')
+    arr, _, _ = make_multi_device_array(
+        (64, 128),
+        partitioned=partitioned,
+        pinned_host=caller_pinned,
+        dtype=dtype,
+    )
+    expected = np.asarray(arr)
+    thread_names: list[str] = []
+    lock = threading.Lock()
+    orig_asarray = np.asarray
+
+    def spy_asarray(a, *args, **kwargs):
+      if isinstance(a, jax.Array):
+        with lock:
+          thread_names.append(threading.current_thread().name)
+      return orig_asarray(a, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices.np, 'asarray', side_effect=spy_asarray
+    ):
+      rslices = replica_slices.transfer_arrays_to_host(
+          [arr],
+          replica_ids=[0],
+          use_replica_parallel=use_replica_parallel,
+          enable_pinned_host_transfer=True,
+          async_host_untile=True,
+      )[0]
+      if has_pinned and not caller_pinned:
+        self.assertEmpty(thread_names)
+        staged = [s.unsliced_data for s in rslices.replica_slices]
+        self.assertTrue(all(isinstance(d, jax.Array) for d in staged))
+        self.assertTrue(all(not d.is_deleted() for d in staged))
+      untiled = replica_slices.untile_pinned_slices_to_numpy([rslices])[0]
+
+    if has_pinned and not caller_pinned:
+      self.assertLen(thread_names, len(rslices.replica_slices))
+      if len(rslices.replica_slices) > 1:
+        self.assertTrue(all(t.startswith('orbax_untile') for t in thread_names))
+      self.assertTrue(all(d.is_deleted() for d in staged))
+    if caller_pinned:
+      self.assertFalse(arr.is_deleted())
+      self.assertTrue(
+          all(not s.data.is_deleted() for s in arr.addressable_shards)
+      )
+      np.testing.assert_array_equal(np.asarray(arr), expected)
+    self._assert_slices_equal(untiled, expected)
+
+  def test_untile_pinned_slices_parallel_workers(self):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    if not replica_slices._has_pinned_host_memory(jax.local_devices()[0]):
+      self.skipTest('Backend does not support pinned_host memory.')
+    arr0, _, _ = make_multi_device_array(
+        (64, 128), partitioned=False, dtype=jnp.bfloat16
+    )
+    arr1, _, _ = make_multi_device_array(
+        (64, 128), partitioned=False, dtype=jnp.bfloat16
+    )
+    staged_list = replica_slices.transfer_arrays_to_host(
+        [arr0, arr1],
+        replica_ids=[0, 0],
+        use_replica_parallel=False,
+        async_host_untile=True,
+    )
+    with self.assertRaises(ValueError):
+      replica_slices.untile_pinned_slices_to_numpy(staged_list, max_workers=0)
+
+    barrier = threading.Barrier(2, timeout=5.0)
+    orig_asarray = np.asarray
+
+    def concurrent_asarray(a, *args, **kwargs):
+      if isinstance(a, jax.Array):
+        try:
+          barrier.wait()
+        except threading.BrokenBarrierError:
+          pass
+      return orig_asarray(a, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices.np, 'asarray', side_effect=concurrent_asarray
+    ):
+      untiled = replica_slices.untile_pinned_slices_to_numpy(staged_list)
+    self.assertLen(untiled, 2)
+    self.assertFalse(barrier.broken)
+
+  def test_untile_slice_copies_external_base_view_before_delete(self):
+    shard = jax.device_put(np.arange(16, dtype=np.float32), jax.devices()[0])
+    rslice = replica_slices.ReplicaSlice(
+        index=(slice(None),),
+        unsliced_data=shard,
+        slice_args=None,
+        _is_on_host=True,
+        _owns_pinned_buffer=True,
+    )
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(16,),
+        local_shape=(16,),
+        sharding=shard.sharding,
+        dtype=np.dtype(np.float32),
+        is_on_host=True,
+        replica_slices=[rslice],
+    )
+    capsule_owner = np.arange(16, dtype=np.float32)
+    zero_copy_view = capsule_owner[:]
+    self.assertIsNot(zero_copy_view.base, shard)
+    self.assertFalse(zero_copy_view.flags.owndata)
+
+    with mock.patch.object(
+        replica_slices.np, 'asarray', return_value=zero_copy_view
+    ):
+      untiled = replica_slices.untile_pinned_slices_to_numpy([rslices])[0]
+    capsule_owner[:] = -1.0
+
+    self.assertTrue(shard.is_deleted())
+    out = untiled.replica_slices[0].unsliced_data
+    self.assertIsInstance(out, np.ndarray)
+    self.assertTrue(out.flags.owndata)
+    np.testing.assert_array_equal(out, np.arange(16, dtype=np.float32))
+
+  @parameterized.parameters(None, 2)
+  def test_staged_slices_to_fragments_and_error_cleanup(self, max_workers):
+    dev = jax.devices()[0]
+    owned0 = jax.device_put(np.arange(8, dtype=np.float32), dev)
+    owned1 = jax.device_put(np.arange(8, 16, dtype=np.float32), dev)
+    caller = jax.device_put(np.arange(16, 24, dtype=np.float32), dev)
+    slices = [
+        replica_slices.ReplicaSlice(
+            index=(slice(i * 8, (i + 1) * 8),),
+            unsliced_data=arr,
+            slice_args=None,
+            _is_on_host=True,
+            _owns_pinned_buffer=owns,
+        )
+        for i, (arr, owns) in enumerate(
+            [(owned0, True), (owned1, True), (caller, False)]
+        )
+    ]
+    rslices = replica_slices.ReplicaSlices(
+        global_shape=(24,),
+        local_shape=(8,),
+        sharding=owned0.sharding,
+        dtype=np.dtype(np.float32),
+        is_on_host=True,
+        replica_slices=slices,
+    )
+    with self.assertRaises(ValueError):
+      rslices.to_fragments()
+
+    orig_asarray = np.asarray
+
+    def fail_first(a, *args, **kwargs):
+      if a is owned0:
+        raise RuntimeError('untile failed')
+      return orig_asarray(a, *args, **kwargs)
+
+    with mock.patch.object(
+        replica_slices.np, 'asarray', side_effect=fail_first
+    ):
+      with self.assertRaisesRegex(RuntimeError, 'untile failed'):
+        replica_slices.untile_pinned_slices_to_numpy(
+            [rslices], max_workers=max_workers
+        )
+    self.assertTrue(owned0.is_deleted())
+    self.assertTrue(owned1.is_deleted())
+    self.assertFalse(caller.is_deleted())
+
+  def test_transfer_async_host_untile_fallback_without_pinned_host(self):
+    if jax.device_count() < 4:
+      self.skipTest('Not enough devices to test.')
+    arr, _, _ = make_multi_device_array(
+        (64, 128), partitioned=True, dtype=jnp.bfloat16
+    )
+    expected = np.asarray(arr)
+    with mock.patch.object(
+        replica_slices, '_has_pinned_host_memory', return_value=False
+    ):
+      rslices = replica_slices.transfer_arrays_to_host(
+          [arr],
+          replica_ids=[0],
+          use_replica_parallel=False,
+          enable_pinned_host_transfer=True,
+          async_host_untile=True,
+      )[0]
+    self._assert_slices_equal(rslices, expected)
+    self.assertFalse(arr.is_deleted())
+    self._assert_slices_equal(
+        replica_slices.untile_pinned_slices_to_numpy([rslices])[0], expected
     )
 
 
