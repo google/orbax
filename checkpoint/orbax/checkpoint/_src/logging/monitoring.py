@@ -17,10 +17,36 @@
 from __future__ import annotations
 
 import abc
+import enum
 import logging
 import os
 import threading
-from typing import Any
+import time
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+  from orbax.checkpoint.proto import checkpoint_operation_pb2  # pylint: disable=g-import-not-at-top
+
+  OperationType = checkpoint_operation_pb2.CheckpointOperation.OperationType
+else:
+  try:
+    from orbax.checkpoint.proto import checkpoint_operation_pb2  # pylint: disable=g-import-not-at-top
+
+    OperationType = checkpoint_operation_pb2.CheckpointOperation.OperationType
+  except ImportError:
+
+    class OperationType(enum.IntEnum):
+      """Fallback enum when compiled protobuf bindings are unavailable."""
+
+      OPERATION_TYPE_UNSPECIFIED = 0
+      OPERATION_TYPE_SAVE = 1
+      OPERATION_TYPE_PARTIAL_SAVE = 2
+      OPERATION_TYPE_LOAD = 3
+
+      @classmethod
+      def Name(cls, value: int) -> str:  # pylint: disable=invalid-name
+        return cls(value).name
+
 
 _DEFAULT_PROMETHEUS_PORT = 9431
 
@@ -46,6 +72,25 @@ class MetricRecorder(abc.ABC):
   ) -> None:
     """Records an event duration in seconds with optional metadata."""
     pass
+
+  def record_operation(
+      self,
+      event: str,
+      operation_id: str,
+      operation_type: OperationType,
+      timestamp: float,
+      **kwargs: Any,
+  ) -> None:
+    """Records an operation lifecycle event ('begin' or 'end').
+
+    Args:
+      event: Lifecycle event ('begin' or 'end').
+      operation_id: Operation identifier.
+      operation_type: Protobuf OperationType enum value.
+      timestamp: Event timestamp in epoch seconds.
+      **kwargs: Optional metadata.
+    """
+    del event, operation_id, operation_type, timestamp, kwargs
 
 
 _recorders: list[MetricRecorder] = []  # Protected by _init_lock
@@ -93,6 +138,75 @@ def initialize(recorder: MetricRecorder) -> None:
 
     _initialized = True
     logging.info('Installed JAX monitoring proxy listeners for Orbax.')
+
+
+def unregister_recorders_by_type(recorder_type: type[MetricRecorder]) -> None:
+  """Removes all registered recorders matching the given recorder type.
+
+  Args:
+    recorder_type: The MetricRecorder subclass to unregister.
+  """
+  global _recorders
+  with _init_lock:
+    _recorders = [r for r in _recorders if not isinstance(r, recorder_type)]
+
+
+def record_operation(
+    event: str,
+    operation_id: str,
+    operation_type: OperationType,
+    timestamp: float | None = None,
+    **kwargs: Any,
+) -> None:
+  """Records an operation lifecycle event ('begin' or 'end').
+
+  Operation ids go only to recorders, never as jax.monitoring fields, to keep
+  metric cardinality bounded.
+
+  Args:
+    event: Lifecycle event name, such as 'begin' or 'end'.
+    operation_id: Unique identifier for the operation.
+    operation_type: Protobuf OperationType enum value.
+    timestamp: Optional event timestamp in seconds; defaults to current time if
+      None.
+    **kwargs: Additional metadata forwarded to registered recorders.
+  """
+  if timestamp is None:
+    timestamp = time.time()
+  with _init_lock:
+    recorders_snapshot = _recorders[:]
+  for recorder in recorders_snapshot:
+    recorder.record_operation(
+        event, operation_id, operation_type, timestamp, **kwargs
+    )
+
+
+def format_operation_id(
+    operation_type: OperationType,
+    step: int,
+    job_id: int | str | None = None,
+    sub_operation: str | None = None,
+) -> str:
+  """Returns an operation id shared across workers.
+
+  Args:
+    operation_type: Protobuf OperationType enum value.
+    step: Checkpoint step number.
+    job_id: Optional job UID prefix, or None to omit it.
+    sub_operation: Optional id appended as `#<id>`, or None to omit it.
+
+  Returns:
+    Formatted operation ID string.
+  """
+  op_name = (
+      OperationType.Name(operation_type).removeprefix('OPERATION_TYPE_').lower()
+  )
+  base_id = (
+      f'{job_id}.{op_name}.{step}'
+      if job_id is not None
+      else f'{op_name}.{step}'
+  )
+  return f'{base_id}#{sub_operation}' if sub_operation else base_id
 
 
 def initialize_from_env() -> None:
