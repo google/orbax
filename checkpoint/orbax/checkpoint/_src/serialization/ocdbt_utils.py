@@ -174,14 +174,13 @@ async def merge_ocdbt_per_process_files(
       and values separately.
   """
   start_time = time.time()
-  open_ops = []
-  for process_dir in directory.glob(f'{ocdbt_process_spec.PROCESS_PREFIX}*'):
-    child_kvstore_tspec = ts_utils.build_kvstore_tspec(
-        process_dir.as_posix(), use_ocdbt=True
-    )
-    logging.vlog(1, 'child_kvstore_tspec: %s', child_kvstore_tspec)
-    open_ops.append(ts_utils.open_kv_store(child_kvstore_tspec, ts_context))
-  if not open_ops:  # No per-process OCDBT checkpoint found!
+  process_specs = [
+      ocdbt_process_spec.OcdbtProcessSpec.parse(process_dir.name)
+      for process_dir in sorted(
+          directory.glob(f'{ocdbt_process_spec.PROCESS_PREFIX}*')
+      )
+  ]
+  if not process_specs:  # No per-process OCDBT checkpoint found!
     logging.warning(
         '[process=%s][thread=%s] Skipping merge of OCDBT checkpoints: No'
         ' per-process OCDBT checkpoint subdirs found in %s, ',
@@ -191,27 +190,39 @@ async def merge_ocdbt_per_process_files(
     )
     return
 
-  parent_kvstore_tspec = ts_utils.build_kvstore_tspec(
-      directory.as_posix(),
-      use_ocdbt=True,
-      ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
-          mode=ts_utils.OcdbtWriteMode.MERGE,
-          store_ocdbt_metadata_and_values_separately=(
-              store_ocdbt_metadata_and_values_separately
-          ),
+  merge_write_options = ts_utils.OcdbtKvStoreWriteOptions(
+      mode=ts_utils.OcdbtWriteMode.MERGE,
+      store_ocdbt_metadata_and_values_separately=(
+          store_ocdbt_metadata_and_values_separately
       ),
   )
-  open_ops.append(ts_utils.open_kv_store(parent_kvstore_tspec, ts_context))
 
-  opened = await asyncio.gather(*open_ops)
-  parent, children = opened[-1], opened[:-1]
-  copy_ops = []
-  txn = ts.Transaction(atomic=True)
-  for child in children:
-    copy_ops.append(
-        child.experimental_copy_range_to(parent.with_transaction(txn))
+  def _open_merge_kvstore(
+      process_spec: ocdbt_process_spec.OcdbtProcessSpec | None = None,
+  ):
+    kvstore_tspec = ts_utils.build_kvstore_tspec(
+        directory.as_posix(),
+        use_ocdbt=True,
+        ocdbt_process_spec=process_spec,
+        ocdbt_write_options=merge_write_options,
     )
-  await asyncio.gather(*copy_ops)
+    logging.vlog(
+        1,
+        'merge_kvstore_tspec (process=%s): %s',
+        process_spec,
+        kvstore_tspec,
+    )
+    return ts_utils.open_kv_store(kvstore_tspec, ts_context)
+
+  *children, parent = await asyncio.gather(
+      *(_open_merge_kvstore(spec) for spec in process_specs),
+      _open_merge_kvstore(),
+  )
+  txn = ts.Transaction(atomic=True)
+  await asyncio.gather(*(
+      child.experimental_copy_range_to(parent.with_transaction(txn))
+      for child in children
+  ))
 
   # Validate merged params.
   if enable_validation:

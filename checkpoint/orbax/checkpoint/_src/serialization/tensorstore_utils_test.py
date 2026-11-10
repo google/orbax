@@ -627,6 +627,70 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     )
 
   @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(False, True),
+  )
+  def test_ocdbt_kvstore_merge_mode(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='13')
+    merge_options = ts_utils.OcdbtKvStoreWriteOptions(
+        mode=ts_utils.OcdbtWriteMode.MERGE,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+
+    with self.subTest('child'):
+      child_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=process_spec,
+          ocdbt_write_options=merge_options,
+      )
+      self.assertEqual(
+          child_merge_spec['base']['path'],
+          f'{self.directory}/{process_spec}/',
+      )
+      # Child merge spec should not contain write-specific fields.
+      self.assertNotIn('btree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('version_tree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('value_data_prefix', child_merge_spec)
+      self.assertNotIn('config', child_merge_spec)
+      self.assertNotIn('assume_config', child_merge_spec)
+      self.assertNotIn('target_data_file_size', child_merge_spec)
+
+    with self.subTest('parent'):
+      parent_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=merge_options,
+      )
+      self.assertEqual(
+          parent_merge_spec['base']['path'],
+          f'{self.directory}/',
+      )
+      # Parent merge spec should contain write-specific fields.
+      self.assertIn('config', parent_merge_spec)
+      self.assertTrue(parent_merge_spec['assume_config'])
+      self.assertEqual(
+          parent_merge_spec['target_data_file_size'],
+          ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      )
+      if store_ocdbt_metadata_and_values_separately:
+        self.assertEqual(
+            parent_merge_spec['btree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(
+            parent_merge_spec['version_tree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(parent_merge_spec['value_data_prefix'], 'ocdbt_data/')
+      else:
+        self.assertNotIn('btree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('version_tree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('value_data_prefix', parent_merge_spec)
+
+  @parameterized.product(
       use_zarr3=(True, False),
       use_ocdbt=(True, False),
   )
@@ -1154,6 +1218,7 @@ class BuildArrayTSpecForReadTest(parameterized.TestCase):
     )
 
 
+
 class GetTsContextTest(parameterized.TestCase):
 
   @parameterized.product(
@@ -1380,6 +1445,34 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     # kvstack spec is independent of the mode and write options.
     self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
 
+  def test_commit_temporary_metadata_mode_requires_context(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'OCDBT commit mode requires temporary metadata context.',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+              mode=ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+          ),
+          ocdbt_temporary_metadata_context=None,
+      )
+
+  def test_merge_mode_raises_error(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'OCDBT merge mode does not support temporary metadata context.',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+              mode=ts_utils.OcdbtWriteMode.MERGE,
+          ),
+          ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+      )
+
   @parameterized.product(
       gcs_backend=('gcs', 'gcs_grpc'),
       use_process_spec=(True, False),
@@ -1447,6 +1540,7 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     )
     # Ensure TensorStore accepts the KvStore spec without error.
     self.assertIsNotNone(ts.KvStore.Spec(kvstore_tspec))
+
 
 
 class GetTensorStoreRawBytesTest(parameterized.TestCase):

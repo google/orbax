@@ -19,7 +19,6 @@ from collections.abc import Sequence
 import copy
 import dataclasses
 import enum
-
 import json
 import math
 import os
@@ -223,6 +222,8 @@ def _normalize_path(path: str) -> str:
   return os.path.normpath(path).replace('gs:/', 'gs://')
 
 
+
+
 @dataclasses.dataclass(frozen=True)
 class _OcdbtKvSpecParameters:
   """OCDBT KvStore spec key parameters.
@@ -238,11 +239,16 @@ class _OcdbtKvSpecParameters:
       `version_tree_node_data_prefix` will be set to this value.
     value_prefix_override: [Optional] The value prefix override of the KvStore.
       If set, `value_data_prefix` will be set to this value.
+    kvstack_layers: Additional prefix-routed layers to mount on top of
+      `base_driver_spec` in a `kvstack` driver. In `kvstack`, later layers take
+      precedence when key ranges overlap.
   """
+
   base_driver_spec: JsonSpec
   manifest_spec_override: JsonSpec | str | None = None
   metadata_prefix_override: str | None = None
   value_prefix_override: str | None = None
+  kvstack_layers: Sequence[JsonSpec] = ()
 
 
 def _override_ocdbt_kvspec_parameters_for_temporary_metadata(
@@ -268,61 +274,30 @@ def _override_ocdbt_kvspec_parameters_for_temporary_metadata(
 
   base_tmp_dir_spec = f'{DEFAULT_DRIVER}://{temporary_metadata_context.path}/'
 
-  # Ensure routing of metadata-related files' writes and reads to the temporary
-  # directory. We achieve this by:
-  #  1) using the kvstack driver
-  #  2) when in writing mode, overriding the metadata prefix to match the prefix
-  #     of the layer backed by the temporary directory
-  #  3) overriding the manifest spec to point to the temporary metadata
-  #     directory (unless in COMMIT_TEMPORARY mode)
-  # Notes on COMMIT_TEMPORARY mode (used for copying metadata from temporary
-  # to persistent location):
-  #   1) we don't set manifest or metadata prefix overrides: this ensures that
-  #      the target kvstore is correctly opened as empty initially, and any
-  #      writes of metadata are now routed to the layer backed by the persistent
-  #      directory
-  #   2) kvstack driver's implementation of `experimental_copy_range_to` (used
-  #      by `commit_temporary_ocdbt_metadata` to copy metadata to persistent
-  #      location) is very strict about the base_driver_spec of the source
-  #      and destination kvstores, requiring them to be identical. This defines
-  #      how the base_driver_spec is constructed below, to look the same
-  #      regardless of the mode used (read or commit).
+  # Route metadata reads/writes to the temporary directory by:
+  #  1) mounting a `kvstack` layer for `_OCDBT_TMP_METADATA_PREFIX` (included
+  #     in all modes so `experimental_copy_range_to` sees identical `kvstack`
+  #     layers on source and destination)
+  #  2) in `WRITE` mode, overriding `metadata_prefix` to match the temporary
+  #     layer's prefix so new nodes land in the temporary directory
+  #  3) pointing `manifest` to the temporary directory (except in
+  #     `COMMIT_TEMPORARY` mode, where the target kvstore opens empty and
+  #     commits the final manifest and metadata to persistent storage)
   if write_mode != OcdbtWriteMode.COMMIT_TEMPORARY:
     manifest_spec = f'{base_tmp_dir_spec}{_OCDBT_TMP_METADATA_PREFIX}'
   if write_mode == OcdbtWriteMode.WRITE:
     metadata_prefix = _OCDBT_TMP_METADATA_PREFIX
 
-  persistent_base = current_parameters.base_driver_spec
-  if (
-      isinstance(persistent_base, dict)
-      and persistent_base.get('path')
-      and not str(persistent_base['path']).endswith('/')
-  ):
-    persistent_base = {
-        **persistent_base,
-        'path': f"{persistent_base['path']}/",
-    }
-
-  base_driver_spec = {
-      'driver': 'kvstack',
-      'layers': [
-          # Write to the real persistent checkpoint directory by default.
-          {'base': persistent_base},
-          # Per-process metadata is stored in the separate local temporary
-          # directory. `prefix` ensures that writes and reads of
-          # metadata-related files are routed to the temporary directory.
-          {
-              'prefix': _OCDBT_TMP_METADATA_PREFIX,
-              'base': base_tmp_dir_spec,
-          },
-      ],
-  }
+  tmp_layers = [{
+      'prefix': _OCDBT_TMP_METADATA_PREFIX,
+      'base': base_tmp_dir_spec,
+  }]
 
   return dataclasses.replace(
       current_parameters,
-      base_driver_spec=base_driver_spec,
       manifest_spec_override=manifest_spec,
       metadata_prefix_override=metadata_prefix,
+      kvstack_layers=[*current_parameters.kvstack_layers, *tmp_layers],
   )
 
 
@@ -356,16 +331,37 @@ def _build_ocdbt_kvstore_tspec(
   if not is_gcs_path and not os.path.isabs(directory):
     raise ValueError(f'Checkpoint path should be absolute. Got {directory}')
 
-  if process_spec is not None:
-    directory = os.path.join(directory, str(process_spec))
+  write_mode = None if write_options is None else write_options.mode
+  is_merge_child = (
+      write_mode == OcdbtWriteMode.MERGE and process_spec is not None
+  )
+  # Use `kvstack` when metadata needs a separate KvStore layer from value data
+  # (e.g., for local temporary metadata storage).
+  use_kvstack = temporary_metadata_context is not None
+
+  # During `MERGE` (`experimental_copy_range_to`), parent and child `kvstack`
+  # drivers must share identical `layers` rooted at the checkpoint root
+  # `directory`, with the child's process subdirectory set via `kvstack.path`
+  # instead. `process_directory` always includes `process_spec` for the
+  # per-process `manifest` (which sits outside `base`).
+  process_directory = (
+      os.path.join(directory, str(process_spec))
+      if process_spec is not None
+      else directory
+  )
+  if not (is_merge_child and use_kvstack):
+    directory = process_directory
 
   # Base KVStore spec (nested within OCDBT KVStore spec).
   if is_gcs_path:
-    base_driver_spec = gcs_utils.get_kvstore_for_gcs(directory)
+    base_driver_spec = gcs_utils.get_kvstore_for_gcs(
+        f'{directory}/' if use_kvstack else directory
+    )
   else:
     base_driver_spec = {
         'driver': DEFAULT_DRIVER,
-        'path': str(directory) + '/',  # explicit slash required for kvstack
+        # Explicit slash required for kvstack but is no-op otherwise.
+        'path': f'{directory}/',
     }
 
   # For OCDBT on local filesystems (including GCSFuse), we can safely use
@@ -386,7 +382,8 @@ def _build_ocdbt_kvstore_tspec(
   kvspec_params = _OcdbtKvSpecParameters(base_driver_spec=base_driver_spec)
 
   if (
-      write_options is not None
+      not is_merge_child
+      and write_options is not None
       and write_options.store_ocdbt_metadata_and_values_separately
   ):
     kvspec_params = dataclasses.replace(
@@ -408,12 +405,28 @@ def _build_ocdbt_kvstore_tspec(
         manifest_spec_override=resolved_base_spec,
     )
 
-  write_mode = None if write_options is None else write_options.mode
   kvspec_params = _override_ocdbt_kvspec_parameters_for_temporary_metadata(
       temporary_metadata_context=temporary_metadata_context,
       write_mode=write_mode,
       current_parameters=kvspec_params,
   )
+
+  if use_kvstack:
+    # Assemble the `kvstack` driver from the persistent catch-all base layer
+    # and the collected prefix-scoped override layers (later layers shadow
+    # earlier ones). For merge children, scope keys to `process_spec/` at the
+    # `kvstack` level so `layers` remain identical to the merge parent.
+    kvspec_params = dataclasses.replace(
+        kvspec_params,
+        base_driver_spec={
+            'driver': 'kvstack',
+            'layers': [
+                {'base': kvspec_params.base_driver_spec},
+                *kvspec_params.kvstack_layers,
+            ],
+            **({'path': f'{process_spec}/'} if is_merge_child else {}),
+        },
+    )
 
   kv_spec = {'driver': 'ocdbt', 'base': kvspec_params.base_driver_spec}
 
@@ -427,7 +440,7 @@ def _build_ocdbt_kvstore_tspec(
   if kvspec_params.value_prefix_override is not None:
     kv_spec['value_data_prefix'] = kvspec_params.value_prefix_override
 
-  if write_options is not None:
+  if write_options is not None and not is_merge_child:
     _add_ocdbt_write_options(
         kv_spec,
         target_data_file_size=write_options.target_data_file_size,
