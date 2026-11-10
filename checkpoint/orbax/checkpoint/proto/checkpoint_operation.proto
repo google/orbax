@@ -1,0 +1,148 @@
+// Telemetry protocol buffer definitions for Orbax checkpoint operations.
+
+edition = "2024";
+
+package orbax.checkpoint.logging;
+
+import "google/protobuf/timestamp.proto";
+
+
+option features.default_symbol_visibility = STRICT;
+
+
+// Log record for a single checkpoint save/load operation on one worker.
+export message CheckpointOperation {
+  // Type of checkpoint operation.
+  enum OperationType {
+    OPERATION_TYPE_UNSPECIFIED = 0;
+    OPERATION_TYPE_SAVE = 1;
+    OPERATION_TYPE_PARTIAL_SAVE = 2;
+    OPERATION_TYPE_LOAD = 3;
+  }
+
+  // Execution status of an operation or span.
+  // STATUS_IN_PROGRESS is reserved for flushing hung ops.
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_IN_PROGRESS = 1;
+    STATUS_SUCCESS = 2;
+    STATUS_FAILURE = 3;
+    STATUS_CANCELLED = 4;
+    STATUS_TIMED_OUT = 5;
+  }
+
+  // Runtime environment executing the checkpoint operation.
+  enum Runtime {
+    RUNTIME_UNSPECIFIED = 0;
+    RUNTIME_MCJAX = 1;
+    RUNTIME_PATHWAYS = 2;
+  }
+
+  // Storage backend type for the checkpoint directory.
+  enum StorageType {
+    STORAGE_TYPE_UNSPECIFIED = 0;
+    // Tag numbers 1 to 100 are reserved for Google-internal use.
+    reserved 1 to 100;
+    STORAGE_TYPE_GCS = 101;
+    STORAGE_TYPE_OTHER = 102;
+  }
+
+  // Proximity between compute and checkpoint storage.
+  enum StorageLocality {
+    STORAGE_LOCALITY_UNSPECIFIED = 0;
+    STORAGE_LOCALITY_SAME_CLUSTER = 1;
+    STORAGE_LOCALITY_SAME_METRO = 2;
+    STORAGE_LOCALITY_DIFFERENT_METRO = 3;
+    STORAGE_LOCALITY_DIFFERENT_CONTINENT = 4;
+  }
+
+  // Compression algorithm used for checkpoint tensor data.
+  enum CompressionAlgorithm {
+    COMPRESSION_ALGORITHM_UNSPECIFIED = 0;
+    // Tag numbers 1 to 100 are reserved for Google-internal use.
+    reserved 1 to 100;
+    COMPRESSION_ALGORITHM_NONE = 101;
+    COMPRESSION_ALGORITHM_ZSTD = 102;
+  }
+
+  // A single frame in a call stack backtrace.
+  message StackFrame {
+    string file_name = 1;
+    int32 line_number = 2;
+    string function_name = 3;
+  }
+
+  // Details about an error or exception, including a truncated backtrace.
+  message ErrorInfo {
+    string error_type = 1;
+    string error_message = 2;
+    repeated StackFrame stack_frames = 3;
+  }
+
+  // Single execution span within an operation.
+  message Span {
+    string name = 1;
+    string thread_name = 2;
+    // Native OS thread id (XProf/Perfetto alignment).
+    int64 thread_id = 3;
+    google.protobuf.Timestamp start_time = 4;
+    google.protobuf.Timestamp end_time = 5;
+    Status status = 6;
+    ErrorInfo error_info = 7;
+    // Optional span ID (0 = unset). Links parent and child spans when async
+    // coroutines interleave on one thread or work crosses threads, where
+    // (thread_id, start_time, end_time) alone cannot infer nesting.
+    int64 span_id = 8;
+    // Parent's span_id (0 = unset or root span).
+    int64 parent_span_id = 9;
+    // True on the innermost span where the error originated (distinguishes
+    // origin from ancestor spans that unwound).
+    bool is_error_origin = 10;
+    // Lightweight key-value metadata (e.g., barrier_key, checkpointable_name).
+    map<string, string> attributes = 11;
+  }
+
+
+  // Platform-specific task and job metadata.
+  message JobMetadata {
+
+    // Field numbers 1 to 100 are reserved for Google-internal use.
+    reserved 1 to 100;
+  }
+
+  // Runtime and multi-process context for the worker executing this operation.
+  message RuntimeMetadata {
+    Runtime runtime = 1;
+    int64 process_index = 2;
+    // Number of processes in the job. On the Pathways controller this is the
+    // number of Pathways workers, since jax.process_count() is 1 there.
+    int64 process_count = 3;
+    // True only for the Pathways controller. The controller and worker 0 both
+    // report process_index 0, so this field tells them apart.
+    bool is_controller = 4;
+  }
+
+  // Storage backend, proximity, and size metadata for the checkpoint directory.
+  message StorageMetadata {
+    string directory = 1;
+    StorageType type = 2;
+    StorageLocality locality = 3;
+    int64 raw_bytes = 4;
+    int64 logical_bytes = 5;
+    CompressionAlgorithm compression_algorithm = 6;
+    int32 compression_level = 7;
+  }
+
+  JobMetadata job_metadata = 1;
+  RuntimeMetadata runtime_metadata = 2;
+  StorageMetadata storage_metadata = 3;
+  // Operation ID shared across hosts.
+  string operation_id = 4;
+  OperationType operation_type = 5;
+  int64 step = 6;
+  google.protobuf.Timestamp start_time = 7;
+  google.protobuf.Timestamp end_time = 8;
+  Status status = 9;
+  ErrorInfo error_info = 10;
+  repeated Span spans = 11;
+}
