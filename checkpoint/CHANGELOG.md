@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `CheckpointManager` no longer calls `reached_preemption()` from the async
+  finalize thread. That call could move JAX's preemption sync counter back to
+  an older step, so a process could miss the preemption save step.
 - `CheckpointManager` retains previously saved steps when an asynchronous save
   fails, instead of dropping them from `all_steps()` / `latest_step()`.
 - Free intermediate globalized array buffers after each broadcast chunk in
