@@ -296,7 +296,13 @@ class Checkpointer(epy.ContextManager):
         return checkpoint
     raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
 
-  def _should_save(self, step: int, *, replacing: bool = False) -> bool:
+  def _should_save(
+      self,
+      step: int,
+      *,
+      replacing: bool = False,
+      cancel_in_progress_save: Callable[[], None] = lambda: None,
+  ) -> bool:
     """Returns whether the save decision policy allows saving at `step`.
 
     Args:
@@ -304,6 +310,8 @@ class Checkpointer(epy.ContextManager):
       replacing: True only when `step` already exists and the caller passed
         `overwrite=True`. `step` is then excluded from the previous steps, so
         the decision is made as if `step` did not exist.
+      cancel_in_progress_save: Callback invoked by the policy when an
+        in-progress background save should be cancelled.
     """
     previous_steps = [
         info
@@ -315,8 +323,10 @@ class Checkpointer(epy.ContextManager):
       return False
     context = save_decision_policies.DecisionContext(
         is_saving_in_progress=self._manager.is_saving_in_progress(),
+        in_progress_step=self._manager._in_progress_step(),  # pylint: disable=protected-access
         reached_preemption=self._manager.reached_preemption(step),
         multiprocessing_options=self._context.multiprocessing_options.v0(),
+        cancel_in_progress_save=cancel_in_progress_save,
     )
     current_step = checkpoint_info.CheckpointInfo(
         step=step,
@@ -627,10 +637,21 @@ class Checkpointer(epy.ContextManager):
         raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
       replacing = step_exists and overwrite
 
+      cancel_in_progress = False
+
+      def _request_cancel():
+        nonlocal cancel_in_progress
+        cancel_in_progress = True
+
       # Decide exactly once, before touching any existing checkpoint, so a
       # skipped save never deletes the step it would have replaced.
-      if not force and not self._should_save(step, replacing=replacing):
+      if not force and not self._should_save(
+          step, replacing=replacing, cancel_in_progress_save=_request_cancel
+      ):
         return None
+
+      if cancel_in_progress:
+        self._manager.cancel()
 
       if replacing:
         logging.info(

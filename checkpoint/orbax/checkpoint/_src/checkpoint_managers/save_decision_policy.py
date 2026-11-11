@@ -16,8 +16,9 @@
 
 import dataclasses
 import datetime
+import enum
 import typing
-from typing import Container, Protocol, Sequence
+from typing import Callable, Container, Protocol, Sequence
 from absl import logging
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint._src.checkpoint_managers import policy_checkpoint_info
@@ -43,17 +44,30 @@ class DecisionContext:
       save operation is currently running in the background. Policies (like
       `ContinuousCheckpointingPolicy`) use this to avoid triggering overlapping
       save operations.
+    in_progress_step: Step index of the asynchronous checkpoint save operation
+      currently running in the background, or `None` if no save is in progress.
     reached_preemption: Indicates whether a preemption signal has been
       received from the cluster manager, meaning the training job is about to
       be terminated.
     multiprocessing_options: Configuration details for distributed multihost
       training. This provides information such as primary host identification
       for synchronization barriers.
+    cancel_in_progress_save: Callback invoked by a policy during `save` when an
+      in-progress background save should be cancelled to make way for the
+      current step (or a no-op when `should_save` is queried without saving).
   """
 
   is_saving_in_progress: bool
+  in_progress_step: int | None
   reached_preemption: bool
   multiprocessing_options: options_lib.MultiprocessingOptions
+  cancel_in_progress_save: Callable[[], None]
+
+
+class _ContinuousSaveDecision(enum.IntEnum):
+  SKIP = 0
+  SAVE = 1
+  CANCEL_AND_SAVE = 2
 
 
 @typing.runtime_checkable
@@ -183,13 +197,25 @@ class SpecificStepsPolicy(SaveDecisionPolicy):
 class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
   """Checkpoint as often as possible, as long as a save is not ongoing.
 
-  This policy evaluates to True as often as possible. It enforces two primary
-  constraints to prevent blocking training or causing other regressions.
+  This policy evaluates to True as often as possible. It enforces primary
+  constraints to prevent blocking training or causing other regressions, while
+  optionally aligning saves with a target step interval.
 
-  1. It will never trigger a new save if a save is currently in progress
-     (checked via the provided `DecisionContext`); this prevents blocking on an
-     ongoing save, which would hurt accelerator utilization.
-  2. It optionally respects a minimum time interval between saves if
+  1. It will never trigger a new opportunistic continuous save if a save is
+     currently in progress (checked via the provided `DecisionContext`); this
+     prevents blocking on an ongoing save, which would hurt accelerator
+     utilization.
+  2. When `target_interval_steps` is configured, exact multiples of
+     `target_interval_steps` strictly evaluate to True (behaving like
+     `FixedIntervalPolicy` at target steps and bypassing `minimum_interval_secs`
+     and `is_saving_in_progress`), while opportunistic saves within
+     `deferral_window_steps` before the next target step are deferred so the
+     background writer stays free for the target step. If an opportunistic
+     continuous save is still in progress when a target step arrives,
+     `CheckpointManager.save` cancels the ongoing continuous save; if a previous
+     target step is still in progress, `CheckpointManager.save` blocks until it
+     completes.
+  3. It optionally respects a minimum time interval between saves if
      `minimum_interval_secs` is configured. This sets a floor on how
      frequently checkpoints are saved, which can be used to avoid excessive
      burden on the filesystem, or blocking too frequently (due to
@@ -205,8 +231,19 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
   Attributes:
     minimum_interval_secs (int | None): The minimum time in seconds that must
       elapse between the timestamp of the previous checkpoint and the current
-      step. If `None` (the default), back-to-back saves are permitted as soon
-      as the ongoing save completes.
+      step. If `None` (the default), back-to-back saves are permitted as soon as
+      the ongoing save completes.
+    target_interval_steps (int | None): Optional target step interval with which
+      continuous checkpoints must strictly align. When set, steps where
+      `step.step % target_interval_steps == 0` always evaluate to True, and
+      opportunistic saves within `deferral_window_steps` steps before a target
+      step are deferred.
+    deferral_window_steps (int | None): Optional number of steps before each
+      multiple of `target_interval_steps` during which new continuous saves are
+      deferred to keep the background writer free for the upcoming target step.
+      Only used when `target_interval_steps` is set. If `None` (the default), no
+      saves are deferred prior to target steps (any in-progress opportunistic
+      save is cancelled if still running when a target step arrives).
 
   Methods:
     should_save(step, previous_steps, *, context):
@@ -216,14 +253,34 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       Args:
         step (PolicyCheckpointInfo): Information about the current training
           step, including the step index and timestamp.
-        previous_steps (Sequence[PolicyCheckpointInfo]): A chronological list
-          of metadata for all steps where a checkpoint was successfully saved.
-        context (DecisionContext): A container for auxiliary information,
-          such as the current saving state (`is_saving_in_progress`) and
+        previous_steps (Sequence[PolicyCheckpointInfo]): A chronological list of
+          metadata for all steps where a checkpoint was successfully saved.
+        context (DecisionContext): A container for auxiliary information, such
+          as the current saving state (`is_saving_in_progress`) and
           multiprocessing configuration used to inform the decision.
   """
 
   minimum_interval_secs: int | None = None
+  target_interval_steps: int | None = None
+  deferral_window_steps: int | None = None
+
+  def __post_init__(self):
+    if (
+        self.target_interval_steps is not None
+        and self.target_interval_steps <= 0
+    ):
+      raise ValueError(
+          "target_interval_steps must be positive, got"
+          f" {self.target_interval_steps}."
+      )
+    if (
+        self.deferral_window_steps is not None
+        and self.deferral_window_steps < 0
+    ):
+      raise ValueError(
+          "deferral_window_steps must be non-negative, got"
+          f" {self.deferral_window_steps}."
+      )
 
   def should_save(
       self,
@@ -232,14 +289,37 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
       *,
       context: DecisionContext,
   ) -> bool:
-    def _get_should_save_result() -> bool:
+    def _get_decision() -> _ContinuousSaveDecision:
+      if (
+          self.target_interval_steps is not None
+          and step.step % self.target_interval_steps == 0
+      ):
+        if (
+            context.in_progress_step is not None
+            and context.in_progress_step % self.target_interval_steps != 0
+        ):
+          return _ContinuousSaveDecision.CANCEL_AND_SAVE
+        return _ContinuousSaveDecision.SAVE
       if context.is_saving_in_progress:
-        return False
-      if not previous_steps or self.minimum_interval_secs is None:
-        return True
-      return step.time - previous_steps[-1].time >= datetime.timedelta(
+        return _ContinuousSaveDecision.SKIP
+      if not previous_steps:
+        return _ContinuousSaveDecision.SAVE
+      if (
+          self.target_interval_steps is not None
+          and self.deferral_window_steps is not None
+      ):
+        steps_until_target = self.target_interval_steps - (
+            step.step % self.target_interval_steps
+        )
+        if steps_until_target <= self.deferral_window_steps:
+          return _ContinuousSaveDecision.SKIP
+      if self.minimum_interval_secs is None:
+        return _ContinuousSaveDecision.SAVE
+      if step.time - previous_steps[-1].time >= datetime.timedelta(
           seconds=self.minimum_interval_secs
-      )
+      ):
+        return _ContinuousSaveDecision.SAVE
+      return _ContinuousSaveDecision.SKIP
 
     is_primary_host = multihost.is_primary_host(
         context.multiprocessing_options.primary_host
@@ -250,26 +330,33 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
     # Make time based and save in progress based decision only on primary host
     # and broadcast to all hosts.
     if is_primary_host:
-      save_result = int(_get_should_save_result())
+      save_result = int(_get_decision())
       client.key_value_set(
           result_barrier_key,
           str(save_result),
           allow_overwrite=True,
       )
 
-    save_result = int(
-        client.blocking_key_value_get(
-            result_barrier_key,
-            timeout_secs=multihost.coordination_timeout(),
+    decision = _ContinuousSaveDecision(
+        int(
+            client.blocking_key_value_get(
+                result_barrier_key,
+                timeout_secs=multihost.coordination_timeout(),
+            )
         )
     )
+    if decision == _ContinuousSaveDecision.CANCEL_AND_SAVE:
+      context.cancel_in_progress_save()
+    should_save_result = decision != _ContinuousSaveDecision.SKIP
     _log_save_decision(
         "ContinuousCheckpointingPolicy"
-        f" (minimum_interval_secs={self.minimum_interval_secs})",
+        f" (minimum_interval_secs={self.minimum_interval_secs},"
+        f" target_interval_steps={self.target_interval_steps},"
+        f" deferral_window_steps={self.deferral_window_steps})",
         step,
-        bool(save_result),
+        should_save_result,
     )
-    return bool(save_result)
+    return should_save_result
 
 
 class PreemptionCheckpointingPolicy(SaveDecisionPolicy):

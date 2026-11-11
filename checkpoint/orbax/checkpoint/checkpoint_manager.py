@@ -1291,6 +1291,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         continuous_checkpointing_enabled=cc_enabled,
     )
 
+  def _in_progress_step(self) -> int | None:
+    finalize_thread = self._finalize_thread.get()
+    if finalize_thread is None or finalize_thread.is_cancel_handled():
+      return None
+    return finalize_thread.step()
+
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
 
@@ -1302,6 +1308,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Returns:
       True if the checkpoint should be saved.
     """
+    return self._should_save(step)
+
+  def _should_save(
+      self,
+      step: int,
+      *,
+      cancel_in_progress_save: Callable[[], None] = lambda: None,
+  ) -> bool:
+    """Evaluates whether `step` should be saved, optionally recording cancel intent."""
     current_time = datetime.datetime.now(tz=datetime.timezone.utc)
     if self._options.read_only:
       logging.warning('%s is read only, save will be skipped', self.directory)
@@ -1330,8 +1345,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     )
     context = save_decision_policy_lib.DecisionContext(
         is_saving_in_progress=is_saving_in_progress,
+        in_progress_step=self._in_progress_step(),
         reached_preemption=reached_preemption,
         multiprocessing_options=self._multiprocessing_options,
+        cancel_in_progress_save=cancel_in_progress_save,
     )
     should_save_result = self._save_decision_policy.should_save(
         current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
@@ -1511,7 +1528,15 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       raise ValueError('Must provide `args` for `save`.')
     self._default_item.set_if_none(determine_default_item_mode_from_args(args))  # pyrefly: ignore[bad-argument-type]
     self._validate_args(items, args)
-    if not force and not self.should_save(step):
+    cancel_in_progress = False
+
+    def _request_cancel():
+      nonlocal cancel_in_progress
+      cancel_in_progress = True
+
+    if not force and not self._should_save(
+        step, cancel_in_progress_save=_request_cancel
+    ):
       return False
     validation_duration = time.time() - validation_start_time
     # Wait for any ongoing temporary path cleanup before starting the save.
@@ -1554,6 +1579,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           ),
       )
     in_save_wait_start_time = time.time()
+    if cancel_in_progress:
+      self.cancel()
     self._wait_until_finished()
     # Only the wait inside this call falls within the blocking save envelope.
     # `_wait_for_prev_save_duration` also accumulates `wait_until_finished()`
