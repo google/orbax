@@ -486,6 +486,9 @@ def broadcast_one_replica_to_all(
     )
     out_tree.extend(out_subtree)
     jax.block_until_ready(out_subtree)
+    for x in globalized_sharded_subtree:
+      x.delete()
+    del globalized_sharded_subtree
 
   num_broadcasts = len(chunks)
   if is_source:

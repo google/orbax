@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `CheckpointManager` retains previously saved steps when an asynchronous save
   fails, instead of dropping them from `all_steps()` / `latest_step()`.
+- Free intermediate globalized array buffers after each broadcast chunk in
+  `multislice.broadcast_one_replica_to_all` to prevent HBM retention across
+  multi-chunk single-replica restores.
 
 ## [0.12.9] - 2026-11-02
 
