@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Multi-Tier Checkpointing: `ReplicatorCheckpointManager.save(..., backup=True)`
+  asks for that step to be backed up to persistent storage (recorded as an
+  empty `_BACKUP_REQUESTED` file in the local step directory). Requires a
+  Multi-Tier Checkpointing release that supports `_BACKUP_REQUESTED`. On
+  Pathways, upgrade Orbax in the workload and `colocated-python-sidecar`
+  images together.
+
 ### Changed
 
 - Multi-tier checkpointing: step 0 is now saved and restored like any other

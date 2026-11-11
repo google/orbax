@@ -43,6 +43,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     state = {'weights': np.arange(4)}
     step_array = jnp.asarray(7, dtype=np.int32)
     force_array = jnp.asarray(True)
+    backup_array = jnp.asarray(False)
     packed_result = object()
     self.manager._rcm.save.return_value = True
 
@@ -51,22 +52,40 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
         'make_scalar_on_like',
         return_value=packed_result,
     ) as mock_make_scalar:
-      result = self.manager.save(step_array, force_array, state)
+      result = self.manager.save(step_array, force_array, backup_array, state)
 
     self.assertIs(result, packed_result)
     self.manager._rcm.save.assert_called_once()
     args, kwargs = self.manager._rcm.save.call_args
     self.assertEqual(args[0], 7)
     self.assertTrue(kwargs['force'])
+    self.assertFalse(kwargs['backup'])
     self.assertIsInstance(kwargs['args'], args_lib.Composite)
     self.assertIsInstance(kwargs['args']['state'], args_lib.PyTreeSave)
     self.assertIs(kwargs['args']['state'].item, state)
     mock_make_scalar.assert_called_once_with(True, step_array, dtype=jnp.bool_)
 
+  def test_save_forwards_backup_to_rcm(self):
+    state = {'weights': np.arange(4)}
+    step_array = jnp.asarray(7, dtype=np.int32)
+    force_array = jnp.asarray(False)
+    backup_array = jnp.asarray(True)
+    self.manager._rcm.save.return_value = True
+
+    with mock.patch.object(
+        sidecar_lib.colocated_utils, 'make_scalar_on_like'
+    ):
+      self.manager.save(step_array, force_array, backup_array, state)
+
+    _, kwargs = self.manager._rcm.save.call_args
+    self.assertTrue(kwargs['backup'])
+    self.assertFalse(kwargs['force'])
+
   def test_save_returns_handoff_ack_when_local_rcm_does_not_save(self):
     state = {'weights': np.arange(4)}
     step_array = jnp.asarray(7, dtype=np.int32)
     force_array = jnp.asarray(False)
+    backup_array = jnp.asarray(False)
     packed_result = object()
     self.manager._rcm.save.return_value = False
 
@@ -75,7 +94,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
         'make_scalar_on_like',
         return_value=packed_result,
     ) as mock_make_scalar:
-      result = self.manager.save(step_array, force_array, state)
+      result = self.manager.save(step_array, force_array, backup_array, state)
 
     self.assertIs(result, packed_result)
     self.manager._rcm.save.assert_called_once()
@@ -85,12 +104,13 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
     state = {'weights': np.arange(4)}
     step_array = jnp.asarray(0, dtype=np.int32)
     force_array = jnp.asarray(True)
+    backup_array = jnp.asarray(False)
     self.manager._rcm.save.return_value = True
 
     with mock.patch.object(
         sidecar_lib.colocated_utils, 'make_scalar_on_like'
     ) as mock_make_scalar:
-      self.manager.save(step_array, force_array, state)
+      self.manager.save(step_array, force_array, backup_array, state)
 
     self.manager._rcm.save.assert_called_once()
     args, _ = self.manager._rcm.save.call_args
@@ -102,6 +122,7 @@ class SidecarWorkerCheckpointManagerTest(absltest.TestCase):
       self.manager.save(
           jnp.asarray(-1, dtype=np.int32),
           jnp.asarray(True),
+          jnp.asarray(False),
           {'weights': np.arange(4)},
       )
 

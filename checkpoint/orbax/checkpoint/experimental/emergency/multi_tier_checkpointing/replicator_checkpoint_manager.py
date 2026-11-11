@@ -398,8 +398,11 @@ class _ReplicatorLocalCheckpointEngine:
       *,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
+      backup: bool = False,
   ) -> bool:
     """Local save path shared by standard and sidecar execution."""
+    # A step Multi-Tier Checkpointing is asked to back up must exist locally.
+    force = force or backup
     if not force and not self.should_save(step):
       return False
 
@@ -416,6 +419,7 @@ class _ReplicatorLocalCheckpointEngine:
     process_metadata_args = (
         process_metadata_checkpoint_handler.ProcessMetadataSaveArgs(
             global_mesh=self._global_mesh,
+            backup_requested=backup,
         )
     )
     args_dict = dict(args.items())
@@ -788,7 +792,10 @@ class ReplicatorCheckpointManager(
   Users can control a few properties of the checkpointing behavior like the save
   interval. The period at which checkpoints are persisted to global storage, or
   the period at which they are
-  garbage-collected, must be controlled by the replicator service.
+  garbage-collected, must be controlled by the replicator service. In addition
+  to the periodic backups, Multi-Tier Checkpointing backs up any step saved
+  with `save(..., backup=True)`; the request is recorded as an empty
+  `_BACKUP_REQUESTED` file in the step directory.
 
   Attributes:
     local_directory: The local directory used for saving replicated states.
@@ -1038,14 +1045,33 @@ class ReplicatorCheckpointManager(
       *,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
+      backup: bool = False,
   ) -> bool:
+    """Saves the checkpoint to process-local storage.
+
+    Args:
+      step: The training step.
+      args: Composite save args; see `_validate_and_standardize_args`.
+      force: Save even if the save interval would skip this step.
+      custom_metadata: User-provided metadata written to the step directory.
+      backup: Ask Multi-Tier Checkpointing to back up this step to persistent
+        storage, independently of the periodic backup interval. Implies
+        `force`.
+
+    Returns:
+      Whether a save happened.
+    """
     args = self._validate_and_standardize_args(args)
     if self._colocated_controller is not None:
       return self._colocated_controller.save(
-          step, args, force=force, custom_metadata=custom_metadata
+          step,
+          args,
+          force=force,
+          custom_metadata=custom_metadata,
+          backup=backup,
       )
     return self._non_null_local_engine.save(
-        step, args, force=force, custom_metadata=custom_metadata
+        step, args, force=force, custom_metadata=custom_metadata, backup=backup
     )
 
   def _standard_save(
@@ -1055,10 +1081,11 @@ class ReplicatorCheckpointManager(
       *,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
+      backup: bool = False,
   ) -> bool:
     """Standard (multi-controller) save path."""
     return self._non_null_local_engine.save(
-        step, args, force=force, custom_metadata=custom_metadata
+        step, args, force=force, custom_metadata=custom_metadata, backup=backup
     )
 
   def _get_mesh_consistent_args(

@@ -198,6 +198,7 @@ class WorkerCheckpointManagerRaw:
       self,
       step_array: jax.Array,
       force_array: jax.Array,
+      backup_array: jax.Array,
       state: PyTree,
   ) -> jax.Array:
     """Saves checkpoint on the worker, returning whether a save occurred.
@@ -205,6 +206,8 @@ class WorkerCheckpointManagerRaw:
     Args:
       step_array: The training step encoded as a scalar JAX array.
       force_array: Boolean encoded as array forcing the save.
+      backup_array: Boolean encoded as array asking Multi-Tier Checkpointing
+        to back up this step to persistent storage.
       state: The PyTree payload.
 
     Returns:
@@ -219,6 +222,7 @@ class WorkerCheckpointManagerRaw:
           f'Pathways colocated MTC sidecar cannot save negative step {step}.'
       )
     force = bool(np.asarray(force_array))
+    backup = bool(np.asarray(backup_array))
     save_args = args_lib.Composite(
         state=args_lib.PyTreeSave(state),
     )
@@ -228,10 +232,13 @@ class WorkerCheckpointManagerRaw:
         else None
     )
     with TimeBlock(
-        f'Pathways colocated MTC sidecar save step={step} force={force}',
+        f'Pathways colocated MTC sidecar save step={step} force={force}'
+        f' backup={backup}',
         level=python_logging.INFO,
     ) as timer:
-      saved = self._rcm.save(step, args=save_args, force=force)
+      saved = self._rcm.save(
+          step, args=save_args, force=force, backup=backup
+      )
       timer.append_data('saved', str(saved))
       timer.append_data(
           'async_checkpointing', str(self._enable_async_checkpointing)

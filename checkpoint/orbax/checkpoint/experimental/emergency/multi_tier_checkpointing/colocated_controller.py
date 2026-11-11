@@ -944,6 +944,7 @@ class ColocatedController:
       *,
       force: bool = False,
       custom_metadata: dict[str, Any] | None = None,
+      backup: bool = False,
   ) -> bool:
     """Saves state and returns whether a new save occurred.
 
@@ -952,6 +953,8 @@ class ColocatedController:
       args: Replicator arguments for saving.
       force: If True, bypasses the normal save schedule.
       custom_metadata: Optional dictionary of custom metadata.
+      backup: If True, asks Multi-Tier Checkpointing to back up this step to
+        persistent storage. Implies `force`.
 
     Returns:
       True if the step was dispatched for saving, False otherwise.
@@ -964,6 +967,7 @@ class ColocatedController:
       raise ValueError(
           f'Pathways colocated MTC cannot save negative step {step}.'
       )
+    force = force or backup
     if not force:
       should_save = self.should_save(step)
       logging.vlog(
@@ -987,9 +991,10 @@ class ColocatedController:
         self._finish_pending_save()
     logging.vlog(
         2,
-        'Pathways colocated MTC save step=%s force=%s: begin.',
+        'Pathways colocated MTC save step=%s force=%s backup=%s: begin.',
         step,
         force,
+        backup,
     )
     state = self._prepare_state_for_save(step, args)
     payload_bytes = colocated_utils.addressable_array_bytes(state)
@@ -997,21 +1002,26 @@ class ColocatedController:
     force_arr = jax.device_put(
         jnp.array(force, dtype=jnp.bool_), step_arr.sharding
     )
+    backup_arr = jax.device_put(
+        jnp.array(backup, dtype=jnp.bool_), step_arr.sharding
+    )
     with TimeBlock(
         f'Pathways colocated MTC save step={step}: specialize worker call',
         level=_VLOG2_LEVEL,
     ):
-      save_call = self._get_worker_save_call(step_arr, force_arr, state)
+      save_call = self._get_worker_save_call(
+          step_arr, force_arr, backup_arr, state
+      )
     with TimeBlock(
         f'Pathways colocated MTC save step={step}: dispatch worker call',
         level=python_logging.INFO,
     ):
-      result = save_call(step_arr, force_arr, state)
+      result = save_call(step_arr, force_arr, backup_arr, state)
     pending_save = _PendingSave(
         step=step,
         force=force,
         result=result,
-        keepalive=(step_arr, force_arr, state),
+        keepalive=(step_arr, force_arr, backup_arr, state),
         dataset_args=dataset_args,
         payload_bytes=payload_bytes,
         custom_metadata=custom_metadata,
@@ -1271,6 +1281,7 @@ class ColocatedController:
       self,
       step_arr: jax.Array,
       force_arr: jax.Array,
+      backup_arr: jax.Array,
       state: PyTree,
   ) -> Any:
     """Returns specialized call for worker save."""
@@ -1278,6 +1289,7 @@ class ColocatedController:
         (
             colocated_transport.shape_dtype_struct_for_array(step_arr),
             colocated_transport.shape_dtype_struct_for_array(force_arr),
+            colocated_transport.shape_dtype_struct_for_array(backup_arr),
             jax.tree.map(
                 colocated_transport.shape_dtype_struct_for_array, state
             ),
@@ -1296,7 +1308,7 @@ class ColocatedController:
     )
     self._worker_save_call = self._worker_manager.save.specialize(
         in_specs=in_specs,
-        out_specs_fn=lambda step_spec, _force_spec, _state_spec: (
+        out_specs_fn=lambda step_spec, _force_spec, _backup_spec, _state_spec: (
             jax.ShapeDtypeStruct(
                 (), dtype=jnp.bool_, sharding=step_spec.sharding
             )

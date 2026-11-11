@@ -34,6 +34,7 @@ from orbax.checkpoint._src.path import gcs_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint.experimental.emergency import mesh_consistency
+from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import process_metadata_checkpoint_handler
 from orbax.checkpoint.experimental.emergency.multi_tier_checkpointing import replicator_checkpoint_manager
 from orbax.checkpoint.experimental.emergency.test_utils import dataset_iterator_checkpoint_handler
 from orbax.checkpoint.path import atomicity
@@ -400,6 +401,44 @@ class ReplicatorCheckpointManagerTest(
     self.assertEqual(manager.all_steps(), expected_steps)
     for i in expected_steps:
       self.assert_process_metadata_files_exist(i, global_mesh)
+
+  def _backup_requested(self, step: int) -> bool:
+    return (
+        self.local_directory
+        / str(step)
+        / process_metadata_checkpoint_handler.BACKUP_REQUESTED_FILE
+    ).is_file()
+
+  def test_save_backup_writes_marker(self):
+    global_mesh = self.make_global_mesh()
+    pytree, restore_args = self.setup_pytree(global_mesh)
+    options = ReplicatorCheckpointManagerOptions(
+        save_interval_steps=3,
+    )
+    manager = ReplicatorCheckpointManager(
+        self.local_directory,
+        options=options,
+        global_mesh=global_mesh,
+    )
+
+    self.assertTrue(manager.save(0, args=get_composite_save_args(pytree)))
+    # Off-interval steps are skipped, unless a backup is requested.
+    self.assertFalse(manager.save(1, args=get_composite_save_args(pytree)))
+    self.assertTrue(
+        manager.save(2, args=get_composite_save_args(pytree), backup=True)
+    )
+    manager.wait_until_finished()
+
+    self.assertEqual(manager.all_steps(), [0, 2])
+    self.assertFalse(self._backup_requested(0))
+    self.assertTrue(self._backup_requested(2))
+    self.assertEmpty(list(step_lib.all_temporary_paths(self.local_directory)))
+
+    # The marker does not get in the way of restoring the state.
+    restored = manager.restore(
+        2, args=get_composite_restore_args(restore_args=restore_args)
+    )
+    test_utils.assert_tree_equal(self, pytree, restored.state)
 
   @parameterized.parameters((0,), (1,))
   def test_save_restore(self, replica_axis_index: int):
