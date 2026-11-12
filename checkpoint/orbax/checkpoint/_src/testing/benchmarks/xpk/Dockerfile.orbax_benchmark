@@ -8,7 +8,9 @@ WORKDIR /app
 # common utils + git (needed for checkout)
 # --no-install-recommends limits bloat
 # python3-pip is standard in python images, no need to install
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     git \
     dnsutils \
     ca-certificates \
@@ -56,11 +58,15 @@ RUN pip uninstall -y orbax-checkpoint orbax || true
 
 # Force upgrade dependencies to fix security vulnerabilities
 RUN pip install -U --no-cache-dir \
+    "pip" \
+    "setuptools" \
     "wheel>=0.46.2" \
     "aiohttp>=3.13.4" \
     "urllib3>=2.6.3" \
     "cryptography>=46.0.7" \
-    "requests>=2.33.0"
+    "requests>=2.33.0" \
+    "oauthlib>=4.0.1" \
+    "pyasn1>=0.6.5"
 
 ARG JAX_VERSION=newest
 # tpu, gpu, cpu, or simdevice. simdevice builds on a SimDevice base image
@@ -114,7 +120,7 @@ RUN if [ "$DEVICE" = "simdevice" ]; then \
 # 4. Install Orbax from Source
 WORKDIR /app/orbax_repo/checkpoint
 RUN pip install --no-cache-dir .
-RUN pip install pathwaysutils tensorboard cloudpickle
+RUN pip install --no-cache-dir pathwaysutils tensorboard cloudpickle
 
 # 5. Environment Setup
 # Set PYTHONPATH so 'import orbax' works from the correctly mapped directory.
