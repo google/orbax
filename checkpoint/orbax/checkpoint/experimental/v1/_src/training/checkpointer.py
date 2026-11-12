@@ -327,6 +327,7 @@ class Checkpointer(epy.ContextManager):
         reached_preemption=self._manager.reached_preemption(step),
         multiprocessing_options=self._context.multiprocessing_options.v0(),
         cancel_in_progress_save=cancel_in_progress_save,
+        save_durations_secs=tuple(self._manager._save_durations_secs),  # pylint: disable=protected-access
     )
     current_step = checkpoint_info.CheckpointInfo(
         step=step,

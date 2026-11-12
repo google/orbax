@@ -961,6 +961,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     self._last_save_time = None
     self._wait_for_prev_save_duration = 0.0
+    self._save_durations_secs: list[float] = []
     # Timestamp of the most recently started checkpoint save (step N); used by
     # `should_save()` to measure `duration_lost_secs` when a preemption save is
     # skipped.
@@ -1349,6 +1350,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         reached_preemption=reached_preemption,
         multiprocessing_options=self._multiprocessing_options,
         cancel_in_progress_save=cancel_in_progress_save,
+        save_durations_secs=tuple(self._save_durations_secs),
     )
     should_save_result = self._save_decision_policy.should_save(
         current_step_info, previous_steps=self._checkpoints, context=context  # pyrefly: ignore[bad-argument-type]
@@ -1758,7 +1760,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             step=step,
             name=finalize_thread_name,
             target=self._finalize,
-            args=(step, steps_to_remove),
+            args=(
+                step,
+                steps_to_remove,
+                step_stats.checkpointer_blocking_start_time,
+            ),
         )
         finalize_thread.start()
         return finalize_thread
@@ -1766,7 +1772,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       self._finalize_thread.set_from(launch_finalize_thread)
 
     else:
-      self._finalize(step, steps_to_remove)
+      self._finalize(
+          step,
+          steps_to_remove,
+          step_stats.checkpointer_blocking_start_time,
+      )
       logging.info(
           '[process=%s][thread=%s][step=%s] Finished synchronous save.',
           process_index,
@@ -2414,7 +2424,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             ),
         )
 
-  def _finalize(self, step: int, steps_to_remove: List[int]):
+  def _finalize(
+      self,
+      step: int,
+      steps_to_remove: List[int],
+      save_start_time: float | None = None,
+  ):
     """Finalizes individual items and starts garbage collection."""
     process_index = multihost.process_index()
     current_thread = threading.current_thread()
@@ -2437,6 +2452,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # If an error is encountered while waiting for commit futures to complete,
       # we will not proceed past this point.
       self._finalize_checkpoint(step)
+      if save_start_time is not None:
+        self._save_durations_secs.append(
+            max(0.0, time.time() - save_start_time)
+        )
       remove_steps_start_time = time.time()
       self._checkpoint_deleter.delete_steps(steps_to_remove)
       jax.monitoring.record_event_duration_secs(

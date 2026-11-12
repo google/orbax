@@ -3472,6 +3472,38 @@ class CheckpointManagerTest(
       self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
       self.assertEqual(manager.all_steps(), [0, 4])
 
+  def test_constrained_continuous_checkpointing_dynamic_deferral(self):
+    policy = save_decision_policy_lib.ContinuousCheckpointingPolicy(
+        target_interval_steps=4,
+    )
+    with CheckpointManager(
+        self.directory,
+        options=CheckpointManagerOptions(
+            save_interval_steps=5,  # ignored
+            enable_async_checkpointing=False,
+            save_decision_policy=policy,
+        ),
+    ) as manager:
+      # Step 0 saves (initial save).
+      self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+      # Simulate historical save duration of 20s and 10s per training step:
+      # p90 save duration = 20s -> steps 2 (20s to target) and 3 (10s to target)
+      # are dynamically deferred, while step 1 (30s to target) and target step 4
+      # save.
+      manager._save_durations_secs = [20.0]
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertTrue(manager.save(1, args=args.StandardSave(self.pytree)))
+      manager._save_durations_secs = [20.0]
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertFalse(manager.save(2, args=args.StandardSave(self.pytree)))
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertFalse(manager.save(3, args=args.StandardSave(self.pytree)))
+      self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
+      self.assertEqual(manager.all_steps(), [0, 1, 4])
+
   def test_async_constrained_continuous_checkpointing_cancels_ongoing_continuous_save(
       self,
   ):
@@ -3494,6 +3526,7 @@ class CheckpointManagerTest(
               enable_async_checkpointing=True,
               save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
                   target_interval_steps=4,
+                  deferral_window_steps=0,
               ),
           ),
       ) as manager:
