@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `orbax.checkpoint.experimental.conversion` (`convert_checkpoint`,
+  `safetensors_to_orbax`, and `orbax_to_safetensors`, plus async variants and a
+  CLI) for bounded-memory streaming format conversion between HuggingFace
+  Safetensors and Orbax PyTree checkpoints.
 - Multi-Tier Checkpointing: `ReplicatorCheckpointManager.save(..., backup=True)`
   asks for that step to be backed up to persistent storage (recorded as an
   empty `_BACKUP_REQUESTED` file in the local step directory). Requires a
