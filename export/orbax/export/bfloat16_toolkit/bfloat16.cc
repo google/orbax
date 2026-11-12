@@ -31,6 +31,7 @@ limitations under the License.
 #include "third_party/absl/flags/flag.h"
 #include "third_party/absl/log/check.h"
 #include "third_party/absl/status/status.h"
+#include "third_party/absl/status/statusor.h"
 #include "third_party/absl/strings/match.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/string_view.h"
@@ -74,6 +75,25 @@ ABSL_FLAG(bool, experimental_remove_all_chained_casts_for_obm, false,
 
 namespace tensorflow {
 namespace orbax {
+namespace {
+
+constexpr absl::string_view kTracedSaveSubstring = "traced_save";
+constexpr absl::string_view kTracedRestoreSubstring = "traced_restore";
+
+// Returns true if `function_info` should be checked against the TPU XLA
+// filterlist.
+bool UsesTpuFilterlist(const FunctionInfo& function_info,
+                       const ConverterOptions& options) {
+  if (function_info.ExecutesOnTpu()) return true;
+  // In ALL mode, root's inference child functions run on TPU via TF2XLA even
+  // when called through StatefulPartitionedCall.
+  return options.bfloat16_scope() == ::orbax::BFloat16Scope::ALL &&
+         !function_info.IsRoot() && function_info.parent()->IsRoot() &&
+         !absl::StrContains(function_info.name(), kTracedSaveSubstring) &&
+         !absl::StrContains(function_info.name(), kTracedRestoreSubstring);
+}
+
+}  // namespace
 
 constexpr absl::string_view kXlaOutsideCompilationAttr =
     "_xla_outside_compilation";
@@ -313,6 +333,10 @@ absl::Status BuildMirrorBfloat16Variable(Graph* graph, Node* var_handle_node,
 }
 // copybara:strip_end
 
+absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
+                                    DataType src_dtype,
+                                    DataType desired_dst_dtype);
+
 absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
                                 const VarHandleCollection& var_handles,
                                 const ConverterOptions& options) {
@@ -387,10 +411,13 @@ absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
       if (!options.convert_checkpoint_bfloat16() ||
           (rval_edge->src()->type_string() != "RestoreV2" &&
            !absl::StrContains(assign_node_info.func->name(),
-                              "traced_restore"))) {
-        TF_RETURN_IF_ERROR(CastFloatTensor(assign_node_info.func->get_graph(),
-                                           rval_edge->src(),
-                                           rval_edge->src_output()));
+                              kTracedRestoreSubstring))) {
+        if (rval_edge->src()->output_type(rval_edge->src_output()) ==
+            DT_FLOAT) {
+          TF_RETURN_IF_ERROR(CastFloatEdge(assign_node_info.func->get_graph(),
+                                           rval_edge, DT_FLOAT, DT_BFLOAT16)
+                                 .status());
+        }
       }
 
       TF_RETURN_IF_ERROR(assign_node_info.func->MarkMutated(kOptimFuncSuffix));
@@ -1161,8 +1188,8 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
   std::vector<FunctionInfo*> children_ptrs;
   TF_RETURN_IF_ERROR(func->get_children_ptrs(&children_ptrs));
   for (FunctionInfo* child : children_ptrs) {
-    if (absl::StrContains(child->name(), "traced_restore") ||
-        absl::StrContains(child->name(), "traced_save")) {
+    if (absl::StrContains(child->name(), kTracedRestoreSubstring) ||
+        absl::StrContains(child->name(), kTracedSaveSubstring)) {
       TF_RETURN_IF_ERROR(FixRestoreAndSaveDtypes(child, options));
     }
   }
@@ -1286,6 +1313,7 @@ absl::Status GenerateFilterlists(
     ::gtl::linked_hash_set<std::string>& cpu_filterlist) {
   ::gtl::linked_hash_set<std::string> general_filterlist({
       // clang-format off
+    "AnonymousHashTable",
     "Assert",  // Unexpected behaviour if try to modify Assert.
     "Bucketize",
     "Const",
@@ -1293,7 +1321,30 @@ absl::Status GenerateFilterlists(
     "FakeQuantWithMinMaxVars",
     "FusedBatchNorm",
     "FusedBatchNormV3",
+    "HashTable",
+    "HashTableV2",
+    "InitializeTable",
+    "InitializeTableV2",
+    "InitializeTableFromTextFile",
+    "InitializeTableFromTextFileV2",
+    "LookupTableExport",
+    "LookupTableExportV2",
+    "LookupTableFind",
+    "LookupTableFindV2",
+    "LookupTableImport",
+    "LookupTableImportV2",
+    "LookupTableInsert",
+    "LookupTableInsertV2",
+    "LookupTableRemoveV2",
+    "LookupTableSize",
+    "LookupTableSizeV2",
     "MatrixSolve",
+    "MutableDenseHashTable",
+    "MutableDenseHashTableV2",
+    "MutableHashTable",
+    "MutableHashTableV2",
+    "MutableHashTableOfTensors",
+    "MutableHashTableOfTensorsV2",
     "NonMaxSuppressionV5",
     // Parse example related ops: "Tdense" does not support bfloat16.
     "ParseExample",
@@ -1345,6 +1396,7 @@ absl::Status GenerateFilterlists(
   }
 
   if (!auto_generate_filterlist) return absl::OkStatus();
+  XlaOpRegistry::RegisterCompilationKernels();
 
   // Auto-generate filter list by checking kernel definitions.
   absl::string_view tpu_xla_jit_device = DEVICE_TPU_XLA_JIT;
@@ -1352,10 +1404,11 @@ absl::Status GenerateFilterlists(
   std::vector<FunctionInfo*> funcs;
   TF_RETURN_IF_ERROR(bfloat16_func->Find(
       [&](FunctionInfo* func) {
-        bool executes_on_tpu = func->ExecutesOnTpu();
+        const bool uses_tpu_filterlist = UsesTpuFilterlist(*func, options);
         absl::string_view xla_jit_device =
-            executes_on_tpu ? tpu_xla_jit_device : cpu_xla_jit_device;
-        auto& filterlist = executes_on_tpu ? tpu_filterlist : cpu_filterlist;
+            uses_tpu_filterlist ? tpu_xla_jit_device : cpu_xla_jit_device;
+        ::gtl::linked_hash_set<std::string>& filterlist =
+            uses_tpu_filterlist ? tpu_filterlist : cpu_filterlist;
 
         for (Node* node : func->get_graph()->nodes()) {
           if (filterlist.contains(node->type_string())) continue;
@@ -1523,9 +1576,9 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
-        if (filterlist.contains("XlaCallModule")) {
+        if ((UsesTpuFilterlist(*func, options) ? tpu_filterlist
+                                               : cpu_filterlist)
+                .contains("XlaCallModule")) {
           VLOG(4) << "Skip XlaCallModule Op, node is in filterlist";
           return absl::OkStatus();
         }
@@ -1536,8 +1589,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const ::gtl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(*func, options) ? tpu_filterlist : cpu_filterlist;
         return ConvertGraphNodesToBfloat16(func->get_graph(), [&](Node* node) {
           // If the node type is in filterlist, or if the node is an _Arg or
           // _Retval node for While / If. _Arg and _Retval nodes for While / If
@@ -1586,9 +1639,10 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
-        return WrapBfloat16IncompatibleNodes(func->get_graph(), filterlist);
+        return WrapBfloat16IncompatibleNodes(func->get_graph(),
+                                             UsesTpuFilterlist(*func, options)
+                                                 ? tpu_filterlist
+                                                 : cpu_filterlist);
       }));
 
   // 10. Remove duplicate casts.
