@@ -90,14 +90,13 @@ class TensorFlowExport(export_base.ExportBase):
 
     converter_options = kwargs.get('inference_converter_options')
     if converter_options:
-      # Save the temporary pre-conversion model unsharded and shard the
-      # converted model instead: Inference Converter V2 cannot read tensors
-      # sliced across shards (e.g. by `MaxShardSizePolicy`) when
-      # `convert_checkpoint` is enabled.
+      # Save the temporary pre-conversion model unsharded so redundant sharding
+      # work is avoided before conversion, and forward `save_options` so
+      # `convert_saved_model` reshards the converted checkpoint directly.
       pre_conversion_save_options = copy.copy(save_options)
       pre_conversion_save_options.experimental_sharding_callback = None
       with tempfile.TemporaryDirectory() as tmpdir:
-        tf_model_path = tmpdir
+        tf_model_path = os.path.join(tmpdir, 'unconverted')
         tf.saved_model.save(
             self._tf_module,
             tf_model_path,

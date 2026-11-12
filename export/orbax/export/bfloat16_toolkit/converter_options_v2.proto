@@ -145,6 +145,9 @@ message ConverterOptionsV2 {
 
   reserved 301;
   reserved "external_feature_configs";
+
+  // DO NOT USE. Internal use only.
+  InternalOptions internal_options = 302;
 }
 
 message XlaFunctionSpec {
@@ -620,4 +623,14 @@ message ExperimentalOptions {
   // If it causes issues, please leave a comment under b/342436826, or file a
   // bug at
   ConverterOptionsV2.State graph_pruning = 1;
+}
+
+// Internal options populated by the SavedModel converter wrapper.
+// Users must not set these fields directly.
+message InternalOptions {
+  // Internally populated directory of the input model.
+  string input_model_dir = 1;
+
+  // Internally populated directory of the output model.
+  string output_model_dir = 2;
 }
