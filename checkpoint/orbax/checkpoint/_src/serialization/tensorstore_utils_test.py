@@ -2270,5 +2270,113 @@ class ResolveCompressionSettingsTest(parameterized.TestCase):
     )
 
 
+class ResolveCompressionSpecTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='defaults_to_zstd',
+          compression_spec=None,
+          use_compression=None,
+          expected=ts_utils.ZstdCompression(),
+      ),
+      dict(
+          testcase_name='use_compression_true',
+          compression_spec=None,
+          use_compression=True,
+          expected=ts_utils.ZstdCompression(),
+      ),
+      dict(
+          testcase_name='use_compression_false',
+          compression_spec=None,
+          use_compression=False,
+          expected=ts_utils.NoCompression(),
+      ),
+      dict(
+          testcase_name='explicit_no_compression',
+          compression_spec=ts_utils.NoCompression(),
+          use_compression=None,
+          expected=ts_utils.NoCompression(),
+      ),
+      dict(
+          testcase_name='explicit_zstd_with_level',
+          compression_spec=ts_utils.ZstdCompression(level=5),
+          use_compression=None,
+          expected=ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_resolves_spec(
+      self,
+      compression_spec: ts_utils.CompressionSpec | None,
+      use_compression: bool | None,
+      expected: ts_utils.CompressionSpec,
+  ):
+    self.assertEqual(
+        serialization_types.resolve_compression_spec(
+            compression_spec=compression_spec,
+            use_compression=use_compression,
+        ),
+        expected,
+    )
+
+  def test_rejects_both_arguments(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression_spec'
+    ):
+      serialization_types.resolve_compression_spec(
+          compression_spec=ts_utils.ZstdCompression(),
+          use_compression=False,
+      )
+
+
+class BuildArrayWriteSpecFromParamInfoTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path)
+
+  def test_default_compression_spec(self):
+    info = serialization_types.ParamInfo(
+        name='params/a', parent_dir=self.directory
+    )
+    self.assertEqual(info.compression_spec, ts_utils.ZstdCompression())
+    self.assertTrue(info.use_compression)
+    spec = ts_utils.build_array_write_spec(
+        info,
+        global_shape=(4, 4),
+        local_shape=(4, 4),
+        dtype=np.dtype(np.float32),
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.metadata.compression_algorithm, 'zstd')
+
+  def test_explicit_compression_spec(self):
+    info = serialization_types.ParamInfo(
+        name='params/a',
+        parent_dir=self.directory,
+        compression_spec=ts_utils.ZstdCompression(level=5),
+    )
+    self.assertTrue(info.use_compression)
+    spec = ts_utils.build_array_write_spec(
+        info,
+        global_shape=(4, 4),
+        local_shape=(4, 4),
+        dtype=np.dtype(np.float32),
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.metadata.compression_algorithm, 'zstd')
+    self.assertEqual(spec.metadata.compression_level, 5)
+
+  def test_rejects_both_use_compression_and_compression_spec(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression_spec'
+    ):
+      serialization_types.ParamInfo(
+          name='params/a',
+          parent_dir=self.directory,
+          use_compression=False,
+          compression_spec=ts_utils.NoCompression(),
+      )
+
+
 if __name__ == '__main__':
   absltest.main()

@@ -2419,7 +2419,59 @@ class ParamInfoTest(parameterized.TestCase):
     self.assertEqual(new_info.name, 'param')
     self.assertEqual(new_info.parent_dir, path)
     self.assertFalse(new_info.use_compression)
+    self.assertEqual(new_info.compression_spec, ts_utils.NoCompression())
     self.assertTrue(new_info.use_zarr3)
+
+  def test_compression_spec_and_use_compression_conflict(self):
+    path = epath.Path('/tmp/test')
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression_spec'
+    ):
+      ParamInfo(
+          name='param',
+          parent_dir=path,
+          use_compression=True,
+          compression_spec=ts_utils.ZstdCompression(),
+      )
+
+  def test_replace_compression_spec_and_use_compression_conflict(self):
+    path = epath.Path('/tmp/test')
+    info = ParamInfo(name='param', parent_dir=path)
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression_spec'
+    ):
+      info.replace(
+          use_compression=False,
+          compression_spec=ts_utils.ZstdCompression(),
+      )
+
+  def test_replace_compression_spec_none_normalizes_to_default(self):
+    path = epath.Path('/tmp/test')
+    info = ParamInfo(name='param', parent_dir=path, use_compression=False)
+    self.assertEqual(info.compression_spec, ts_utils.NoCompression())
+
+    with self.subTest('compression_spec_none_defaults_to_zstd'):
+      replaced = info.replace(compression_spec=None)
+      self.assertEqual(replaced.compression_spec, ts_utils.ZstdCompression())
+      self.assertTrue(replaced.use_compression)
+
+    with self.subTest('compression_spec_none_with_use_compression_false'):
+      replaced_false = info.replace(
+          compression_spec=None, use_compression=False
+      )
+      self.assertEqual(
+          replaced_false.compression_spec, ts_utils.NoCompression()
+      )
+      self.assertFalse(replaced_false.use_compression)
+
+    with self.subTest('explicit_compression_spec_with_use_compression_none'):
+      replaced_spec = info.replace(
+          compression_spec=ts_utils.ZstdCompression(level=5),
+          use_compression=None,
+      )
+      self.assertEqual(
+          replaced_spec.compression_spec, ts_utils.ZstdCompression(level=5)
+      )
 
   def test_replace_updates_multiple_fields(self):
     path = epath.Path('/tmp/test')
