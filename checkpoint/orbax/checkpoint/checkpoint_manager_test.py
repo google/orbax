@@ -1520,10 +1520,8 @@ class CheckpointManagerTest(
 
   @mock.patch.object(multihost_utils, 'reached_preemption_sync_point')
   @mock.patch.object(jax.monitoring, 'record_event_duration_secs')
-  @mock.patch.object(jax.monitoring, 'record_event')
   def test_preemption_metrics_on_save_and_skip(
       self,
-      mock_record_event,
       mock_record_duration,
       mock_reached_preemption_sync_point,
   ):
@@ -1554,7 +1552,6 @@ class CheckpointManagerTest(
     # Case 2: ContinuousCheckpointingPolicy skips save on preemption step due
     # to minimum_interval_secs.
     mock_record_duration.reset_mock()
-    mock_record_event.reset_mock()
     cc_options = CheckpointManagerOptions(
         save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
             minimum_interval_secs=3600
@@ -1569,11 +1566,6 @@ class CheckpointManagerTest(
 
       self.assertFalse(manager.save(1, args=args.PyTreeSave(self.pytree)))
       if multihost.process_index() == 0:
-        mock_record_event.assert_any_call(
-            '/jax/checkpoint/write/preempt/save_skipped',
-            reason='minimum_interval_not_met',
-            continuous_checkpointing_enabled=1,
-        )
         duration_calls = [
             call
             for call in mock_record_duration.call_args_list

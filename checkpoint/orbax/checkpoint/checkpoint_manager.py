@@ -1285,11 +1285,6 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         reason=reason,
         continuous_checkpointing_enabled=cc_enabled,
     )
-    jax.monitoring.record_event(
-        '/jax/checkpoint/write/preempt/save_skipped',
-        reason=reason,
-        continuous_checkpointing_enabled=cc_enabled,
-    )
 
   def _in_progress_step(self) -> int | None:
     finalize_thread = self._finalize_thread.get()
