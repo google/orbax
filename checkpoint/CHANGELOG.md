@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #v1 Export `MemoryProfiler`, `SerializationStatusCallback`, and
   `TransferPriority` in `orbax.checkpoint.v1.options`.
 
+- Added `CompressionPreset` (`NONE`, `ZSTD`) to `orbax.checkpoint.options`,
+  and added `compression` options to `PyTreeCheckpointHandler` and
+  `PyTreeCheckpointer` (deprecating `use_compression: bool`).
+
 ### Changed
 
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now

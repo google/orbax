@@ -45,6 +45,7 @@ from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.path import types as path_types
+from orbax.checkpoint._src.serialization import compression_options
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as handler_registry
@@ -505,7 +506,8 @@ class PyTreeCheckpointHandler(
       memory_limit_options: options_lib.MemoryLimitOptions | None = None,
       use_ocdbt: bool = True,
       use_zarr3: bool = False,
-      use_compression: bool = True,
+      use_compression: bool | None = None,
+      compression: options_lib.CompressionPreset | None = None,
       multiprocessing_options: options_lib.MultiprocessingOptions = options_lib.MultiprocessingOptions(),
       type_handler_registry: TypeHandlerRegistry = (
           handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY
@@ -553,7 +555,10 @@ class PyTreeCheckpointHandler(
         different checkpoint format which is faster to read and write, as well
         as more space efficient.
       use_zarr3: If True, use Zarr ver3 otherwise Zarr ver2
-      use_compression: If True and zarr2 is used, use zstd compression.
+      use_compression: Deprecated. If True, use zstd compression. Prefer
+        `compression`.
+      compression: Preset compression configuration for saving arrays. Defaults
+        to `CompressionPreset.ZSTD`.
       multiprocessing_options: See orbax.checkpoint.options
       type_handler_registry: a type_handlers.TypeHandlerRegistry. If not
         specified, the global type handler registry will be used.
@@ -609,6 +614,12 @@ class PyTreeCheckpointHandler(
         'save_device_host_concurrent_bytes=%s',
         self._save_device_host_concurrent_bytes,
     )
+    compression_spec = compression_options.compression_spec_from_preset(
+        compression_options.resolve_compression_preset(
+            compression=compression,
+            use_compression=use_compression,
+        )
+    )
     self._handler_impl = handler_impl or BasePyTreeCheckpointHandler(
         save_concurrent_bytes=self._save_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
         restore_concurrent_bytes=self._restore_concurrent_bytes,  # pyrefly: ignore[bad-argument-type]
@@ -616,7 +627,7 @@ class PyTreeCheckpointHandler(
         memory_limit_options=memory_limit_options,
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
-        use_compression=use_compression,
+        compression_spec=compression_spec,
         multiprocessing_options=multiprocessing_options,
         type_handler_registry=self._type_handler_registry,
         pytree_metadata_options=pytree_metadata_options,
