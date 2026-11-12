@@ -27,6 +27,13 @@ class FunctionTreeTest(googletest.TestCase):
     # initialized.
     self.assertIsNone(graph)
 
+  def test_uninitialized_function_info_accessors(self):
+    func_info = function_tree.FunctionInfo("root")
+    self.assertEqual(func_info.name(), "root")
+    self.assertFalse(func_info.is_top_level_tpu_function())
+    self.assertFalse(func_info.is_top_level_gpu_function())
+    self.assertEmpty(func_info.get_children())
+
 
 if __name__ == "__main__":
   absltest.main()
