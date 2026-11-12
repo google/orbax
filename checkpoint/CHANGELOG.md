@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-tier checkpointing: step 0 is now saved and restored like any other
   step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
   Orbax in the workload and `colocated-python-sidecar` images together.
+- `ContinuousCheckpointingPolicy` raises `ValueError` for a negative
+  `minimum_interval_secs`. `EveryNSteps` raises `ValueError` for a `max_to_keep`
+  below 1.
 
 ### Fixed
 

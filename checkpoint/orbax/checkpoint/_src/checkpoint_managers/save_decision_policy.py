@@ -266,6 +266,14 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
 
   def __post_init__(self):
     if (
+        self.minimum_interval_secs is not None
+        and self.minimum_interval_secs < 0
+    ):
+      raise ValueError(
+          "minimum_interval_secs must be non-negative, got"
+          f" {self.minimum_interval_secs}."
+      )
+    if (
         self.target_interval_steps is not None
         and self.target_interval_steps <= 0
     ):

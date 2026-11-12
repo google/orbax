@@ -63,14 +63,7 @@ def continuous_checkpointing_options(
   Raises:
     ValueError: If an argument is out of range.
   """
-  # `ContinuousCheckpointingPolicy` validates `target_interval_steps` and
-  # `deferral_window_steps`.
-  if minimum_interval_secs is not None and minimum_interval_secs < 0:
-    raise ValueError(
-        f'minimum_interval_secs must be >= 0, got {minimum_interval_secs}.'
-    )
-  if max_to_keep is not None and max_to_keep < 1:
-    raise ValueError(f'max_to_keep must be >= 1, got {max_to_keep}.')
+  # The policies check the arguments.
 
   # `InitialSavePolicy` decides the same way on every host, so all hosts skip
   # or reach `ContinuousCheckpointingPolicy` together.
