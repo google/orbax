@@ -311,6 +311,7 @@ class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
     )
 
 
+
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
   def setUp(self):
@@ -533,6 +534,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         use_ocdbt=False,
     )
     self.assertEqual(spec.metadata.chunk_shape, expected_chunk_shape)
+
 
   @parameterized.product(
       use_zarr3=(True, False),
