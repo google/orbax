@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Multi-Tier Checkpointing release that supports `_BACKUP_REQUESTED`. On
   Pathways, upgrade Orbax in the workload and `colocated-python-sidecar`
   images together.
+- Add `checkpoint_managers.continuous_checkpointing_options()` for continuous
+  checkpointing. It saves at every multiple of `target_interval_steps` and, in
+  between, whenever no write is running.
 
 ### Changed
 
