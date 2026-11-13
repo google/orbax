@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `ArrayHandler(..., balance_arrays_across_replicas=True)` with a colocated
+  Python dispatcher now selects each array's assigned replica shards on device
+  before host transfer (avoiding redundant D2H copies on unselected replicas)
+  and caps whole-array balancing to `max_replicas_for_replica_parallel` when
+  specified. On Pathways, upgrade Orbax in the workload and
+  `colocated-python-sidecar` images together before enabling
+  `balance_arrays_across_replicas=True`.
 - Multi-tier checkpointing: step 0 is now saved and restored like any other
   step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
   Orbax in the workload and `colocated-python-sidecar` images together.

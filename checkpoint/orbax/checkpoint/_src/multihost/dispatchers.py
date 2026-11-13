@@ -71,6 +71,10 @@ def _make_dummy_result_array(
 ) -> jax.Array | jax.ShapeDtypeStruct:
   """Returns a dummy array with replicated across the devices in the pytree.
 
+  When a single `NamedSharding` mesh covers every device in `pytree`, the dummy
+  result's mesh preserves that mesh's flattened device order; otherwise devices
+  are ordered by `device.id`.
+
   Args:
     pytree: The pytree to use to determine the devices.
     abstract: Whether to return a jax.ShapeDtypeStruct instead of a jax.Array.
@@ -79,9 +83,29 @@ def _make_dummy_result_array(
     A dummy array with replicated sharding across the devices in the pytree.
     If abstract is True, returns a jax.ShapeDtypeStruct instead.
   """
+  device_lists = set()
   devices = set()
-  jax.tree.map(lambda x: devices.update(x.sharding.device_set), pytree)
-  device_list: list[jax.Device] = sorted(list(devices), key=lambda d: d.id)
+  seen_meshes = set()
+  seen_other_shardings = set()
+
+  def _collect(x):
+    sharding = x.sharding
+    if isinstance(sharding, jax.sharding.NamedSharding):
+      mesh = sharding.mesh
+      if mesh not in seen_meshes:
+        seen_meshes.add(mesh)
+        flat_devices = tuple(mesh.devices.flatten())
+        device_lists.add(flat_devices)
+        devices.update(flat_devices)
+    elif sharding not in seen_other_shardings:
+      seen_other_shardings.add(sharding)
+      devices.update(sharding.device_set)
+
+  jax.tree.map(_collect, pytree)
+  if len(device_lists) == 1 and len(devices) == len(next(iter(device_lists))):
+    device_list = list(device_lists.pop())
+  else:
+    device_list = sorted(list(devices), key=lambda d: d.id)
   replicated_sharding = jax.sharding.NamedSharding(
       jax.sharding.Mesh(device_list, ('d',)),
       jax.sharding.PartitionSpec(),
