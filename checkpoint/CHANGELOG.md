@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve the PRNG implementation when saving and restoring typed JAX random
+  keys with `JaxRandomKeyCheckpointHandler`, regardless of the default PRNG.
+
 - `CheckpointManager` retains previously saved steps when an asynchronous save
   fails, instead of dropping them from `all_steps()` / `latest_step()`.
 - Free intermediate globalized array buffers after each broadcast chunk in
