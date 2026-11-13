@@ -290,6 +290,17 @@ class CheckpointerTestBase:
       assert checkpointer.latest is not None
       self.assertEqual(checkpointer.latest.step, 0)
 
+    def test_default_save_decision_policy(self):
+      checkpointer = Checkpointer(self.directory)
+      self.enter_context(checkpointer)
+      self.assertIsInstance(
+          checkpointer._save_decision_policy,
+          save_decision_policies.ContinuousCheckpointingPolicy,
+      )
+      self.assertIsNone(
+          checkpointer._save_decision_policy.target_interval_steps
+      )
+
     def test_skips_when_ongoing_save(self):
       checkpointer = Checkpointer(self.directory)
       self.enter_context(checkpointer)
@@ -308,9 +319,7 @@ class CheckpointerTestBase:
       policy = save_decision_policies.ContinuousCheckpointingPolicy(
           target_interval_steps=4,
       )
-      checkpointer = Checkpointer(
-          self.directory, save_decision_policy=policy
-      )
+      checkpointer = Checkpointer(self.directory, save_decision_policy=policy)
       self.enter_context(checkpointer)
 
       self.assertTrue(checkpointer.save(0, self.pytree))
@@ -345,6 +354,129 @@ class CheckpointerTestBase:
         )
         self.assertFalse((self.directory / '3').exists())
         self.assertTrue((self.directory / '4').exists())
+
+    def test_constrained_continuous_checkpointing_ignores_ongoing_save(self):
+      policy = save_decision_policies.ContinuousCheckpointingPolicy(
+          target_interval_steps=2
+      )
+      checkpointer = Checkpointer(self.directory, save_decision_policy=policy)
+      self.enter_context(checkpointer)
+      self.assertTrue(checkpointer.save(0, self.pytree))
+
+      # Simulate an ongoing save for all subsequent save decisions.
+      with mock.patch.object(
+          checkpointer._manager, 'is_saving_in_progress', return_value=True
+      ):
+        for step in range(1, 5):
+          expected = step % 2 == 0
+          self.assertEqual(checkpointer.should_save(step), expected)
+          self.assertEqual(checkpointer.save(step, self.pytree), expected)
+
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [0, 2, 4]
+      )
+
+    def test_constrained_continuous_checkpointing_ignores_minimum_interval(
+        self,
+    ):
+      policy = save_decision_policies.ContinuousCheckpointingPolicy(
+          minimum_interval_secs=3600,
+          target_interval_steps=4,
+      )
+      checkpointer = Checkpointer(
+          self.directory,
+          save_decision_policy=policy,
+          preservation_policy=preservation_policies.PreserveAll(),
+      )
+      self.enter_context(checkpointer)
+      expected_steps = [0, 4, 8]
+      for step in range(10):
+        self.assertEqual(checkpointer.should_save(step), step in expected_steps)
+        self.assertEqual(
+            checkpointer.save(step, self.pytree), step in expected_steps
+        )
+
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], expected_steps
+      )
+
+    @parameterized.named_parameters(
+        dict(
+            testcase_name='continuous',
+            policy=save_decision_policies.ContinuousCheckpointingPolicy(
+                target_interval_steps=3
+            ),
+        ),
+        dict(
+            testcase_name='nested_in_any_save_policy',
+            policy=save_decision_policies.AnySavePolicy([
+                save_decision_policies.InitialSavePolicy(),
+                save_decision_policies.ContinuousCheckpointingPolicy(
+                    target_interval_steps=3
+                ),
+                save_decision_policies.PreemptionCheckpointingPolicy(),
+            ]),
+        ),
+    )
+    def test_constrained_continuous_checkpointing_default_preservation(
+        self, policy
+    ):
+      checkpointer = Checkpointer(self.directory, save_decision_policy=policy)
+      self.enter_context(checkpointer)
+      for step in range(10):
+        # Saves are synchronous, so every step is saved.
+        self.assertTrue(checkpointer.save(step, self.pytree))
+
+      # All steps at `target_interval_steps`, plus the latest 2 steps.
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [0, 3, 6, 8, 9]
+      )
+
+    @parameterized.named_parameters(
+        dict(
+            testcase_name='no_target_interval',
+            save_decision_policy=(
+                save_decision_policies.ContinuousCheckpointingPolicy()
+            ),
+            preservation_policy=None,
+        ),
+        dict(
+            testcase_name='explicit_preservation_policy',
+            save_decision_policy=(
+                save_decision_policies.ContinuousCheckpointingPolicy(
+                    target_interval_steps=3
+                )
+            ),
+            preservation_policy=preservation_policies.PreserveAll(),
+        ),
+    )
+    def test_continuous_checkpointing_preserves_all(
+        self, save_decision_policy, preservation_policy
+    ):
+      checkpointer = Checkpointer(
+          self.directory,
+          save_decision_policy=save_decision_policy,
+          preservation_policy=preservation_policy,
+      )
+      self.enter_context(checkpointer)
+      for step in range(10):
+        self.assertTrue(checkpointer.save(step, self.pytree))
+
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], range(10)
+      )
+
+    def test_multiple_target_intervals_raises(self):
+      policy = save_decision_policies.AnySavePolicy([
+          save_decision_policies.ContinuousCheckpointingPolicy(
+              target_interval_steps=4
+          ),
+          save_decision_policies.ContinuousCheckpointingPolicy(
+              target_interval_steps=5
+          ),
+      ])
+      with self.assertRaisesRegex(ValueError, 'At most one'):
+        Checkpointer(self.directory, save_decision_policy=policy)
 
     def test_save_async(self):
       checkpointer = Checkpointer(self.directory)
@@ -916,9 +1048,7 @@ class CheckpointerTestBase:
             cleanup_tmp_directories=False,
         ),
     )
-    def test_cleanup_tmp_directories(
-        self, cleanup_tmp_directories
-    ):
+    def test_cleanup_tmp_directories(self, cleanup_tmp_directories):
       checkpointer = Checkpointer(
           self.directory, cleanup_tmp_directories=cleanup_tmp_directories
       )
