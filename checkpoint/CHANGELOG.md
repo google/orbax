@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Colocated Python dispatch: when the dispatched function's output is discarded
+  (as in checkpoint saves), the dummy array that signals completion now keeps
+  the device order of the input mesh if a single `NamedSharding` mesh covers
+  all input devices, instead of sorting devices by id. On Pathways, upgrade
+  Orbax in the workload and `colocated-python-sidecar` images together.
+
 ### Fixed
 
 - Avoid `jax.devices()` calls in Pathways multihost backend detection,
