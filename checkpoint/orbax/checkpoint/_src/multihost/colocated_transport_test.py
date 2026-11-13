@@ -88,6 +88,20 @@ class ColocatedTransportTest(absltest.TestCase):
     self.assertIsInstance(cpu_sharding, jax.sharding.NamedSharding)
     self.mock_cp_devices.assert_called_once_with(self.arr.sharding.mesh)
 
+  def test_colocated_cpu_sharding_normalizes_pinned_host_memory_kind(self):
+    sharding, device = self.arr.sharding, jax.devices()[0]
+    named_mock = mock.Mock(jax.sharding.NamedSharding, mesh=sharding.mesh)
+    single_mock = mock.Mock(
+        jax.sharding.SingleDeviceSharding, device_set={device}
+    )
+    for mock_sharding in (named_mock, single_mock):
+      mock_sharding.spec, mock_sharding.memory_kind = (
+          sharding.spec,
+          'pinned_host',
+      )
+      cpu_sharding = colocated_transport.colocated_cpu_sharding(mock_sharding)
+      self.assertNotEqual(cpu_sharding.memory_kind, 'pinned_host')
+
   def test_transform_tree_shardings(self):
     restore_args = type_handlers.ArrayRestoreArgs(sharding=self.arr.sharding)
     sharding_meta = sharding_metadata.NamedShardingMetadata.from_jax_sharding(
