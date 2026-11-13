@@ -606,26 +606,28 @@ async def open_kv_store(
 
 ### Building Zarr array metadata.
 
+CompressionSpec = types.CompressionSpec
+NoCompression = types.NoCompression
+ZstdCompression = types.ZstdCompression
+
 
 def _build_zarr2_metadata(
     global_shape: Shape,
     chunk_shape: Shape,
-    use_compression: bool,
+    compression_spec: CompressionSpec,
 ) -> JsonSpec:
   """Constructs Zarr v2 metadata."""
-  # Use default level 1 straight from TensorStore.
-  compressor = {'id': 'zstd', 'level': 1} if use_compression else None
   return {
       'shape': global_shape,
       'chunks': chunk_shape,
-      'compressor': compressor,
+      'compressor': compression_spec.zarr2_compressor(),
   }
 
 
 def _build_zarr3_metadata(
     global_shape: Shape,
     chunk_shape: Shape,
-    use_compression: bool,
+    compression_spec: CompressionSpec,
 ) -> JsonSpec:
   """Constructs Zarr v3 metadata."""
   codecs: list[JsonSpec] = [{
@@ -642,11 +644,8 @@ def _build_zarr3_metadata(
           'index_location': 'end',
       },
   }]
-  if use_compression:
-    # Use default level 3 straight from TensorStore.
-    codecs[0]['configuration']['codecs'].append(
-        {'name': 'zstd', 'configuration': {'level': 3}}
-    )
+  if (codec := compression_spec.zarr3_codec()) is not None:
+    codecs[0]['configuration']['codecs'].append(codec)
 
   return {
       'shape': global_shape,
@@ -662,7 +661,7 @@ def _build_zarr_shard_and_chunk_metadata(
     *,
     global_shape: Shape,
     shard_shape: Shape,
-    use_compression: bool = True,
+    compression_spec: CompressionSpec = ZstdCompression(),
     use_zarr3: bool,
     chunk_shape: Shape,
 ) -> tuple[JsonSpec, str, int | None]:
@@ -671,13 +670,18 @@ def _build_zarr_shard_and_chunk_metadata(
   # read shape equal to chosen chunk shape would be a better setting.
   del shard_shape  # Currently unused.
   if use_zarr3:
-    metadata = _build_zarr3_metadata(global_shape, chunk_shape, use_compression)
-    level = 3 if use_compression else None
+    metadata = _build_zarr3_metadata(
+        global_shape, chunk_shape, compression_spec
+    )
   else:
-    metadata = _build_zarr2_metadata(global_shape, chunk_shape, use_compression)
-    level = 1 if use_compression else None
-  algo = 'zstd' if use_compression else 'none'
-  return metadata, algo, level
+    metadata = _build_zarr2_metadata(
+        global_shape, chunk_shape, compression_spec
+    )
+  return (
+      metadata,
+      compression_spec.algorithm,
+      compression_spec.resolved_level(use_zarr3=use_zarr3),
+  )
 
 
 def calculate_chunk_byte_size(
@@ -811,7 +815,9 @@ class ArrayWriteSpec:
       target_dtype: DType | None = None,
       chunk_byte_size: int | None = None,
       shard_axes: tuple[int, ...] = (),
-      use_compression: bool = True,
+      # Deprecated: prefer compression_spec.
+      use_compression: bool | None = None,
+      compression_spec: CompressionSpec | None = None,
       use_zarr3: bool = False,
       use_ocdbt: bool,
       ocdbt_target_data_file_size: int | None = None,
@@ -885,11 +891,21 @@ class ArrayWriteSpec:
           write_shape,
           chunk_shape,
       )
+    if use_compression is not None and compression_spec is not None:
+      raise ValueError(
+          'Cannot specify both use_compression and compression_spec.'
+      )
+    if compression_spec is None:
+      compression_spec = (
+          ZstdCompression()
+          if (use_compression is None or use_compression)
+          else NoCompression()
+      )
     # Construct Zarr chunk metadata.
     tspec['metadata'], algo, level = _build_zarr_shard_and_chunk_metadata(
         global_shape=global_shape,
         shard_shape=write_shape,
-        use_compression=use_compression,
+        compression_spec=compression_spec,
         use_zarr3=use_zarr3,
         chunk_shape=chunk_shape,
     )
@@ -1108,7 +1124,9 @@ def build_array_write_spec(
       target_dtype=(arg.dtype if arg is not None else None),
       chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
       shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      use_compression=info.use_compression,  # pyrefly: ignore[bad-argument-type]
+      compression_spec=(
+          ZstdCompression() if info.use_compression else NoCompression()
+      ),
       use_zarr3=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       use_ocdbt=use_ocdbt,
       process_id=process_index,

@@ -20,7 +20,7 @@ import abc
 import copy
 import dataclasses
 import enum
-from typing import Any, Callable, Optional, Protocol, Sequence
+from typing import Any, Callable, Optional, Protocol, Sequence, TypeAlias
 
 from absl import logging
 from etils import epath
@@ -202,6 +202,84 @@ def check_input_arguments(*args):
       l = len(arg)
     elif len(arg) != l:
       raise ValueError('Found input args with mismatched lengths.')
+
+
+JsonSpec: TypeAlias = dict[str, Any]
+
+
+class CompressionSpec(abc.ABC):
+  """Base class for Zarr array compression configurations."""
+
+  @property
+  @abc.abstractmethod
+  def algorithm(self) -> str:
+    """Returns the compression algorithm name."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def resolved_level(self, *, use_zarr3: bool) -> int | None:
+    """Returns the compression level used for the given Zarr version."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def zarr2_compressor(self) -> JsonSpec | None:
+    """Returns the Zarr v2 compressor spec."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def zarr3_codec(self) -> JsonSpec | None:
+    """Returns the Zarr v3 codec spec."""
+    raise NotImplementedError()
+
+
+@dataclasses.dataclass(frozen=True)
+class NoCompression(CompressionSpec):
+  """Disables array compression."""
+
+  @property
+  def algorithm(self) -> str:
+    return 'none'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int | None:
+    del use_zarr3
+    return None
+
+  def zarr2_compressor(self) -> JsonSpec | None:
+    return None
+
+  def zarr3_codec(self) -> JsonSpec | None:
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class ZstdCompression(CompressionSpec):
+  """Zstd compression configuration.
+
+  Attributes:
+    level: Zstd compression level. If None, uses TensorStore's default level
+      for the Zarr version (1 for Zarr v2, 3 for Zarr v3).
+  """
+
+  level: int | None = None
+
+  @property
+  def algorithm(self) -> str:
+    return 'zstd'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int:
+    if self.level is not None:
+      return self.level
+    # Use default levels straight from TensorStore.
+    return 3 if use_zarr3 else 1
+
+  def zarr2_compressor(self) -> JsonSpec:
+    return {'id': 'zstd', 'level': self.resolved_level(use_zarr3=False)}
+
+  def zarr3_codec(self) -> JsonSpec:
+    return {
+        'name': 'zstd',
+        'configuration': {'level': self.resolved_level(use_zarr3=True)},
+    }
 
 
 class ParamInfo:
