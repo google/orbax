@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
   initialization so Pathways workloads work when devices or slices are down
   during elasticity.
+- Support `bool` and `float16` dtypes and validate sharding in
+  `CloudPathwaysArrayHandler` persistence helper.
 
 ## [0.12.10] - 2026-11-12
 
