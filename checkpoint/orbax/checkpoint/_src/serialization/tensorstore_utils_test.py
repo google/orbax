@@ -205,6 +205,7 @@ class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
       self.assertEqual(zstd_codec['configuration']['level'], expected_level)
 
 
+
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
   def setUp(self):
@@ -282,6 +283,7 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       )
       self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
       self.assertEqual(tspec.metadata.compression_level, expected_level)
+
 
   @parameterized.product(
       use_zarr3=(True, False),
