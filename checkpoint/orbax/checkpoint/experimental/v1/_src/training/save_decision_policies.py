@@ -20,7 +20,8 @@ from typing import Protocol, Sequence
 from orbax.checkpoint._src.checkpoint_managers import save_decision_policy
 from orbax.checkpoint.experimental.v1._src.training.metadata import types
 
-# Checkpoint as often as possible, as long as a save is not ongoing.
+# Checkpoint as often as possible, as long as a save is not ongoing. Optionally
+# guarantees saves at a fixed step interval via `target_interval_steps`.
 ContinuousCheckpointingPolicy = (
     save_decision_policy.ContinuousCheckpointingPolicy
 )
