@@ -716,6 +716,45 @@ class MultiTierCheckpointingInitializationTest(
     )
     mock_jax_distributed_initialize.assert_not_called()
 
+  @mock.patch.object(initialization.multislice, "slice_count", autospec=True)
+  @mock.patch.object(initialization, "_initialize_mtc_colocated", autospec=True)
+  def test_initialize_multi_tier_checkpointing_infers_num_slices_from_devices(
+      self,
+      mock_init_mtc_colocated,
+      mock_slice_count,
+  ):
+    tmp_dir_path = epath.Path(self.create_tempdir().full_path)
+    active_devices = (
+        mock.Mock(spec=jax.Device, id=4, virtual_task_index=0, slice_index=1),
+        mock.Mock(spec=jax.Device, id=5, virtual_task_index=1, slice_index=1),
+    )
+
+    with mock.patch.object(
+        jax,
+        "devices",
+        side_effect=AssertionError("should not call jax.devices"),
+    ):
+      initialization.initialize_multi_tier_checkpointing(
+          tmp_dir_path,
+          run_name="test-colocated-run",
+          num_slices=None,
+          data_parallelism=None,
+          use_colocated_python=True,
+          devices=active_devices,
+      )
+
+    mock_slice_count.assert_not_called()
+    mock_init_mtc_colocated.assert_called_once_with(
+        local_checkpoint_directory=tmp_dir_path,
+        backup_interval_minutes=30,
+        backup_interval_steps=None,
+        num_slices=1,
+        run_name="test-colocated-run",
+        data_parallelism=1,
+        timeout_seconds=900,
+        devices=active_devices,
+    )
+
   def test_initialize_multi_tier_checkpointing_rejects_devices_without_colocated_python(
       self,
   ):

@@ -28,7 +28,10 @@ from orbax.checkpoint._src.serialization import types
 
 
 @functools.lru_cache(maxsize=1)
-def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
+def _device_to_worker_ids(
+    dispatcher: dispatchers.Dispatcher,
+    devices: tuple[jax.Device, ...] | None = None,
+) -> dict[int, int]:
   """Returns a mapping from device ID to worker ID.
 
   Works by using a remote Python function to obtain `multihost.process_index()`
@@ -42,12 +45,15 @@ def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
 
   Args:
     dispatcher: The dispatcher instance to use.
+    devices: Optional devices to query. Defaults to `jax.devices()`.
 
   Returns:
     A mapping from device ID to worker ID.
   """
+  if devices is None:
+    devices = tuple(jax.devices())
   fully_sharded_sharding = jax.sharding.NamedSharding(
-      jax.sharding.Mesh(jax.devices(), 'x'),
+      jax.sharding.Mesh(devices, 'x'),
       jax.sharding.PartitionSpec(
           'x',
       ),
@@ -64,7 +70,7 @@ def _device_to_worker_ids(dispatcher: dispatchers.Dispatcher) -> dict[int, int]:
     )
 
   device_ids = jax.device_put(
-      np.asarray([d.id for d in jax.devices()]),
+      np.asarray([d.id for d in devices]),
       device=fully_sharded_sharding,
   )
   result_specs = jax.ShapeDtypeStruct(
@@ -179,7 +185,11 @@ def next_memory_budgeted_batch(
         d.id: multihost.process_index_from_device(d) for d in jax.devices()
     }
   else:
-    device_to_worker_ids_map = _device_to_worker_ids(dispatcher)
+    active_devices = set()
+    for arr in arrays:
+      active_devices.update(arr.sharding.device_set)
+    devices = tuple(sorted(active_devices, key=lambda d: d.id))
+    device_to_worker_ids_map = _device_to_worker_ids(dispatcher, devices)
     # NOTE: We only transfer save shards with replica_id == replica_id, but we
     # are actually redundantly transferring all shards, thanks to remote python
     # / colocated python. So we set replica_ids to None, to estimate memory

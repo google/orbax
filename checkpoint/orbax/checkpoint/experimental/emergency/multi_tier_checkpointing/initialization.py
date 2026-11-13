@@ -486,11 +486,18 @@ def initialize_multi_tier_checkpointing(
 
   def _resolve_parallelism_args():
     nonlocal num_slices, data_parallelism
-    num_slices = (
-        multislice.slice_count()
-        if num_slices is None or num_slices <= 0
-        else num_slices
-    )
+    if num_slices is None or num_slices <= 0:
+      if devices is not None:
+        slice_indices = {
+            worker.key[1]
+            for worker in pathways_topology.Topology.from_devices(
+                devices
+            ).workers
+            if len(worker.key) == 2
+        }
+        num_slices = len(slice_indices) or 1
+      else:
+        num_slices = multislice.slice_count()
     data_parallelism = (
         num_slices
         if data_parallelism is None or data_parallelism <= 0

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Avoid `jax.devices()` calls in Pathways multihost backend detection,
+  preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
+  initialization so Pathways workloads work when devices or slices are down
+  during elasticity.
+
 ## [0.12.10] - 2026-11-12
 
 ### Added

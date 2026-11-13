@@ -23,6 +23,7 @@ from absl import flags
 from absl import logging
 import jax
 from jax.experimental import multihost_utils
+from jax.extend import backend
 import numpy as np
 
 # Default timeout in seconds.
@@ -63,7 +64,7 @@ def coordination_timeout() -> int:
 
 
 def is_proxy_pathways_backend() -> bool:
-  return jax.devices()[0].client.runtime_type == 'proxy/pathways'
+  return backend.get_backend().runtime_type == 'proxy/pathways'
 
 
 def is_cloud_pathways_persistence_enabled() -> bool:
@@ -91,10 +92,8 @@ def is_cloud_pathways_persistence_enabled() -> bool:
 
 
 def is_native_pathways_backend() -> bool:
-  return (
-      hasattr(jax.devices()[0].client, 'pathways')
-      or jax.devices()[0].client.runtime_type == 'pathways'
-  )
+  client = backend.get_backend()
+  return hasattr(client, 'pathways') or client.runtime_type == 'pathways'
 
 
 def is_pathways_backend() -> bool:
@@ -103,7 +102,7 @@ def is_pathways_backend() -> bool:
 
 
 def is_pathways_controller() -> bool:
-  return jax.local_devices()[0].client.runtime_type == 'pathways'
+  return backend.get_backend().runtime_type == 'pathways'
 
 
 def mark_pathways_colocated_runtime_active() -> None:
@@ -218,6 +217,8 @@ def runtime_to_distributed_process_id(pid: int) -> int:
 
 def broadcast_one_to_all(in_tree, is_source: Optional[bool] = None):
   """Broadcast data from a source host to all other hosts."""
+  if is_pathways_backend():
+    return in_tree  # Pathways is single-host.
   if is_source is None:
     is_source = process_index() == 0
   return multihost_utils.broadcast_one_to_all(in_tree, is_source=is_source)
@@ -227,6 +228,8 @@ def should_skip_process_sync(processes: Optional[Set[int]] = None) -> bool:
   if processes and len(processes) == 1 and process_index() in processes:
     return True
   if jax.process_count() == 1:
+    return True
+  if is_pathways_backend():
     return True
   return False
 

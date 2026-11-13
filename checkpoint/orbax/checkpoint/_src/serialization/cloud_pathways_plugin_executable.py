@@ -18,6 +18,7 @@ from collections.abc import Sequence
 import concurrent.futures
 import threading
 import jax
+from jax.extend import backend
 from jax.extend import ifrt_programs
 from jax.interpreters import pxla
 
@@ -29,7 +30,7 @@ class PluginExecutable:
   """Class for running compiled IFRT program over the IFRT Proxy."""
 
   def __init__(self, prog_str: str):
-    ifrt_client = jax.local_devices()[0].client
+    ifrt_client = backend.get_backend()
     program = ifrt_programs.make_plugin_program(prog_str)  # pyrefly: ignore[missing-attribute]
     options = ifrt_programs.make_plugin_compile_options()  # pyrefly: ignore[missing-attribute]
     self.compiled = ifrt_client.compile_ifrt_program(program, options)

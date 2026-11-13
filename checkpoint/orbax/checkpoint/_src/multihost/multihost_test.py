@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import time
+import types
 from unittest import mock
 
 from absl.testing import flagsaver
@@ -277,6 +278,64 @@ class ReachedPreemptionTest(parameterized.TestCase):
     # Calling with a new preemption step logs again.
     self.assertTrue(multihost.reached_preemption(step=11))
     self.assertEqual(mock_record_event.call_count, 2)
+
+
+class BackendDetectionTest(parameterized.TestCase):
+
+  def test_pathways_backend_detection_uses_default_backend(self):
+    tree = {'bar': [5, 12]}
+    with (
+        mock.patch.object(
+            jax,
+            'devices',
+            side_effect=AssertionError('should not call jax.devices'),
+        ),
+        mock.patch.object(
+            jax,
+            'local_devices',
+            side_effect=AssertionError('should not call jax.local_devices'),
+        ),
+        mock.patch.object(jax, 'process_count', return_value=2),
+        mock.patch.object(multihost.backend, 'get_backend') as mock_get_backend,
+    ):
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='proxy/pathways'
+      )
+      self.assertTrue(multihost.is_proxy_pathways_backend())
+      self.assertFalse(multihost.is_native_pathways_backend())
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertFalse(multihost.is_pathways_controller())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertTrue(multihost.should_skip_process_sync())
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='pathways'
+      )
+      self.assertFalse(multihost.is_proxy_pathways_backend())
+      self.assertTrue(multihost.is_native_pathways_backend())
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertTrue(multihost.is_pathways_controller())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertTrue(multihost.should_skip_process_sync())
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='tpu', pathways=object()
+      )
+      self.assertFalse(multihost.is_proxy_pathways_backend())
+      self.assertTrue(multihost.is_native_pathways_backend())
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertFalse(multihost.is_pathways_controller())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertTrue(multihost.should_skip_process_sync())
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='pjrt_ifrt'
+      )
+      self.assertFalse(multihost.is_proxy_pathways_backend())
+      self.assertFalse(multihost.is_native_pathways_backend())
+      self.assertFalse(multihost.is_pathways_backend())
+      self.assertFalse(multihost.is_pathways_controller())
+
 
 
 if __name__ == '__main__':
