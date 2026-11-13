@@ -141,6 +141,10 @@ class EveryNSteps(PreservationPolicy):
   exact_interval: bool = True
   max_to_keep: int | None = None
 
+  def __post_init__(self):
+    if self.max_to_keep is not None and self.max_to_keep < 1:
+      raise ValueError(f"max_to_keep must be positive, got {self.max_to_keep}.")
+
   def should_preserve(
       self,
       checkpoints: Sequence[PolicyCheckpointInfo],
