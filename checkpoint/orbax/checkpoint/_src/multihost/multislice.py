@@ -334,7 +334,7 @@ def _sum_over_replica_axis(
 ) -> tuple[jax.Array, ...]:
   # Module-level so JAX's jit cache, keyed on the function object, can hit
   # across chunks and across calls instead of recompiling each one.
-  return jax.tree.map(functools.partial(jnp.sum, axis=0), tree)
+  return jax.tree.map(lambda x: jnp.sum(x, axis=0, dtype=x.dtype), tree)
 
 
 def _merge_program(
