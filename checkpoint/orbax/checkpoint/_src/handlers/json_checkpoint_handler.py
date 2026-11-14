@@ -54,10 +54,12 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
     self._filename = filename or 'metadata'
     self._primary_host = multiprocessing_options.primary_host
 
-  async def _save_fn(self, x, directory):
+  async def _save_fn(self, x: str | Exception, directory):
     if utils.is_primary_host(self._primary_host):
+      if isinstance(x, Exception):
+        raise x
       path = directory / self._filename
-      path.write_text(json.dumps(x))
+      path.write_text(x)
 
   async def async_save(
       self,
@@ -82,9 +84,17 @@ class JsonCheckpointHandler(async_checkpoint_handler.AsyncCheckpointHandler):
       )
     if args is not None:
       item = args.item
+    # Capture exactly what JSON serializes before the caller can mutate item.
+    serialized_item: str | Exception = ''
+    if utils.is_primary_host(self._primary_host):
+      try:
+        serialized_item = json.dumps(item)
+      except Exception as error:  # pylint: disable=broad-exception-caught
+        # Preserve serialization errors on the commit future, after signals.
+        serialized_item = error
     return [
         future.CommitFutureAwaitingContractedSignals(
-            self._save_fn(item, directory), name='json_ch_save'
+            self._save_fn(serialized_item, directory), name='json_ch_save'
         )
     ]
 
