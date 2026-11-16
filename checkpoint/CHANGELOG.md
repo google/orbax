@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Use the supplied device count when constructing maximal shardings so a
+  smaller device set is not unnecessarily replicated.
 - Avoid `jax.devices()` calls in Pathways multihost backend detection,
   preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
   initialization so Pathways workloads work when devices or slices are down
