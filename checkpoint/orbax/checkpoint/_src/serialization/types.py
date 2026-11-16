@@ -231,6 +231,11 @@ class CompressionSpec(abc.ABC):
     """Returns the Zarr v3 codec spec."""
     raise NotImplementedError()
 
+  @property
+  def max_chunk_byte_size(self) -> int | None:
+    """Maximum uncompressed chunk byte size supported by the codec, if any."""
+    return None
+
 
 @dataclasses.dataclass(frozen=True)
 class NoCompression(CompressionSpec):
@@ -280,6 +285,111 @@ class ZstdCompression(CompressionSpec):
         'name': 'zstd',
         'configuration': {'level': self.resolved_level(use_zarr3=True)},
     }
+
+
+class BloscShuffle(str, enum.Enum):
+  """Shuffle mode for Blosc compression."""
+
+  AUTO = 'auto'
+  NOSHUFFLE = 'noshuffle'
+  SHUFFLE = 'shuffle'
+  BITSHUFFLE = 'bitshuffle'
+
+  @property
+  def zarr2_value(self) -> int:
+    return _BLOSC_SHUFFLE_ZARR2[self]
+
+  @property
+  def zarr3_value(self) -> str | None:
+    return None if self is BloscShuffle.AUTO else self.value
+
+
+_BLOSC_SHUFFLE_ZARR2: dict[BloscShuffle, int] = {
+    BloscShuffle.AUTO: -1,
+    BloscShuffle.NOSHUFFLE: 0,
+    BloscShuffle.SHUFFLE: 1,
+    BloscShuffle.BITSHUFFLE: 2,
+}
+
+_VALID_BLOSC_CNAMES: frozenset[str] = frozenset({
+    'blosclz',
+    'lz4',
+    'lz4hc',
+    'snappy',
+    'zlib',
+    'zstd',
+})
+
+# C-Blosc stores buffer sizes as signed 32-bit ints minus BLOSC_MAX_OVERHEAD
+# (16 bytes): INT32_MAX - 16 = 2^31 - 17 bytes.
+BLOSC_MAX_BUFFERSIZE = 2**31 - 17
+
+
+@dataclasses.dataclass(frozen=True)
+class BloscCompression(CompressionSpec):
+  """Blosc meta-compressor configuration.
+
+  Attributes:
+    cname: Underlying compressor name ('blosclz', 'lz4', 'lz4hc', 'snappy',
+      'zlib', or 'zstd'). Defaults to 'lz4'.
+    clevel: Compression level in [0, 9]. Defaults to 5.
+    shuffle: Byte or bit shuffle filter mode. Defaults to `BloscShuffle.AUTO`.
+    blocksize: Requested size of compressed blocks in bytes (0 = automatic).
+  """
+
+  cname: str = 'lz4'
+  clevel: int = 5
+  shuffle: BloscShuffle = BloscShuffle.AUTO
+  blocksize: int = 0
+
+  def __post_init__(self):
+    if self.cname not in _VALID_BLOSC_CNAMES:
+      raise ValueError(
+          f'Blosc cname must be one of {sorted(_VALID_BLOSC_CNAMES)},'
+          f' got {self.cname!r}.'
+      )
+    if not 0 <= self.clevel <= 9:
+      raise ValueError(
+          f'Blosc clevel must be in [0, 9], got {self.clevel}.'
+      )
+    if self.blocksize < 0:
+      raise ValueError(
+          f'Blosc blocksize must be >= 0, got {self.blocksize}.'
+      )
+
+  @property
+  def algorithm(self) -> str:
+    return f'blosc_{self.cname}'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int:
+    del use_zarr3
+    return self.clevel
+
+  def zarr2_compressor(self) -> JsonSpec:
+    return {
+        'id': 'blosc',
+        'cname': self.cname,
+        'clevel': self.clevel,
+        'shuffle': self.shuffle.zarr2_value,
+        'blocksize': self.blocksize,
+    }
+
+  def zarr3_codec(self) -> JsonSpec:
+    config: JsonSpec = {
+        'cname': self.cname,
+        'clevel': self.clevel,
+        'blocksize': self.blocksize,
+    }
+    if self.shuffle.zarr3_value is not None:
+      config['shuffle'] = self.shuffle.zarr3_value
+    return {
+        'name': 'blosc',
+        'configuration': config,
+    }
+
+  @property
+  def max_chunk_byte_size(self) -> int | None:
+    return BLOSC_MAX_BUFFERSIZE
 
 
 class ParamInfo:
