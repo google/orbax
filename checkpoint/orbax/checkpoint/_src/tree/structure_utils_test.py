@@ -290,6 +290,46 @@ class TreeDifferenceTest(parameterized.TestCase):
     )
 
 
+class FormatTreeDiffTest(parameterized.TestCase):
+
+  def test_formats_missing_values(self):
+    diff = structure_utils.tree_difference({'a': 1, 'b': 2}, {'a': 1})
+
+    formatted = structure_utils.format_tree_diff(
+        diff, source_label='Item', target_label='Metadata'
+    )
+
+    self.assertEqual(
+        formatted, 'b:\n    - Item: 2\n    - Metadata: MISSING'
+    )
+
+  def test_nested_diffs_use_labels(self):
+    diff = structure_utils.tree_difference({'a': {'b': 1}}, {'a': {}})
+
+    formatted = structure_utils.format_tree_diff(
+        diff, source_label='Item', target_label='Metadata'
+    )
+
+    self.assertEqual(
+        formatted, 'a.b:\n    - Item: 1\n    - Metadata: MISSING'
+    )
+
+  @parameterized.named_parameters(
+      ('numpy', np.arange),
+      ('jax', jax.numpy.arange),
+  )
+  def test_formats_array_values(self, make_array):
+    array = make_array(3)
+    diff = structure_utils.tree_difference({'a': array}, {})
+
+    formatted = structure_utils.format_tree_diff(diff)
+
+    assert formatted is not None
+    self.assertIn('a:', formatted)
+    self.assertIn(f'    - Source: {array}', formatted)
+    self.assertIn('    - Target: MISSING', formatted)
+
+
 class TreeTrimTest(parameterized.TestCase):
 
   @parameterized.parameters(
