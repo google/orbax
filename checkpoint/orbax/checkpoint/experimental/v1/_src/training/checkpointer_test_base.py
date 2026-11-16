@@ -302,11 +302,38 @@ class CheckpointerTestBase:
       assert checkpointer.latest is not None
       self.assertEqual(checkpointer.latest.step, 0)
 
+    def test_constrained_continuous_checkpointing_dynamic_deferral(self):
+      policy = save_decision_policies.ContinuousCheckpointingPolicy(
+          target_interval_steps=4,
+      )
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=policy  # pyrefly: ignore[bad-argument-type]
+      )
+      self.enter_context(checkpointer)
+
+      self.assertTrue(checkpointer.save(0, self.pytree))  # pyrefly: ignore[bad-argument-type]
+      checkpointer._manager._save_durations_secs = [20.0]
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertTrue(checkpointer.save(1, self.pytree))  # pyrefly: ignore[bad-argument-type]
+      checkpointer._manager._save_durations_secs = [20.0]
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertFalse(checkpointer.save(2, self.pytree))  # pyrefly: ignore[bad-argument-type]
+      policy._step_durations_secs = [10.0]
+      policy._last_observed_step_time = None
+      self.assertFalse(checkpointer.save(3, self.pytree))  # pyrefly: ignore[bad-argument-type]
+      self.assertTrue(checkpointer.save(4, self.pytree))  # pyrefly: ignore[bad-argument-type]
+      self.assertSequenceEqual(
+          [c.step for c in checkpointer.checkpoints], [0, 1, 4]
+      )
+
     def test_constrained_continuous_checkpointing_cancels_ongoing_continuous_save(
         self,
     ):
       policy = save_decision_policies.ContinuousCheckpointingPolicy(
           target_interval_steps=4,
+          deferral_window_steps=0,
       )
       checkpointer = Checkpointer(
           self.directory, save_decision_policy=policy

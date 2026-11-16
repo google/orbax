@@ -40,21 +40,24 @@ class DecisionContext:
   decisions.
 
   Attributes:
-    is_saving_in_progress: Indicates whether an asynchronous checkpoint
-      save operation is currently running in the background. Policies (like
+    is_saving_in_progress: Indicates whether an asynchronous checkpoint save
+      operation is currently running in the background. Policies (like
       `ContinuousCheckpointingPolicy`) use this to avoid triggering overlapping
       save operations.
     in_progress_step: Step index of the asynchronous checkpoint save operation
       currently running in the background, or `None` if no save is in progress.
-    reached_preemption: Indicates whether a preemption signal has been
-      received from the cluster manager, meaning the training job is about to
-      be terminated.
+    reached_preemption: Indicates whether a preemption signal has been received
+      from the cluster manager, meaning the training job is about to be
+      terminated.
     multiprocessing_options: Configuration details for distributed multihost
       training. This provides information such as primary host identification
       for synchronization barriers.
     cancel_in_progress_save: Callback invoked by a policy during `save` when an
       in-progress background save should be cancelled to make way for the
       current step (or a no-op when `should_save` is queried without saving).
+    save_durations_secs: Historical durations in seconds of completed checkpoint
+      save operations, used to dynamically estimate deferral windows before
+      target steps.
   """
 
   is_saving_in_progress: bool
@@ -62,12 +65,28 @@ class DecisionContext:
   reached_preemption: bool
   multiprocessing_options: options_lib.MultiprocessingOptions
   cancel_in_progress_save: Callable[[], None]
+  save_durations_secs: Sequence[float]
 
 
 class _ContinuousSaveDecision(enum.IntEnum):
   SKIP = 0
   SAVE = 1
   CANCEL_AND_SAVE = 2
+
+
+def _compute_percentile(values: Sequence[float], q: float) -> float:
+  """Computes the q-th quantile (in (0.0, 1.0]) of values via linear interpolation."""
+  sorted_values = sorted(values)
+  if len(sorted_values) == 1:
+    return sorted_values[0]
+  pos = q * (len(sorted_values) - 1)
+  lower_idx = int(pos)
+  upper_idx = min(lower_idx + 1, len(sorted_values) - 1)
+  weight = pos - lower_idx
+  return (
+      sorted_values[lower_idx] * (1.0 - weight)
+      + sorted_values[upper_idx] * weight
+  )
 
 
 @typing.runtime_checkable
@@ -241,9 +260,19 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
     deferral_window_steps (int | None): Optional number of steps before each
       multiple of `target_interval_steps` during which new continuous saves are
       deferred to keep the background writer free for the upcoming target step.
-      Only used when `target_interval_steps` is set. If `None` (the default), no
-      saves are deferred prior to target steps (any in-progress opportunistic
-      save is cancelled if still running when a target step arrives).
+      Only used when `target_interval_steps` is set. If `None` (the default),
+      deferral is determined dynamically using `deferral_save_time_percentile`
+      when historical save durations are available, or defaults to no deferral
+      (`0`) otherwise.
+    deferral_save_time_percentile (float | None): Optional percentile in `(0.0,
+      1.0]` of historical checkpoint save durations
+      (`context.save_durations_secs`) used to dynamically defer opportunistic
+      saves before each multiple of `target_interval_steps` when
+      `deferral_window_steps` is `None`. When historical save durations and step
+      duration estimates are available, no opportunistic save is triggered if
+      the estimated time to the next target step is within this percentile of
+      historical save times. Defaults to `0.9` (the 90th percentile). Set to
+      `None` (or set `deferral_window_steps=0`) to disable deferral.
 
   Methods:
     should_save(step, previous_steps, *, context):
@@ -263,6 +292,13 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
   minimum_interval_secs: int | None = None
   target_interval_steps: int | None = None
   deferral_window_steps: int | None = None
+  deferral_save_time_percentile: float | None = 0.9
+  _step_durations_secs: list[float] = dataclasses.field(
+      default_factory=list, init=False, repr=False, compare=False
+  )
+  _last_observed_step_time: tuple[int, datetime.datetime] | None = (
+      dataclasses.field(default=None, init=False, repr=False, compare=False)
+  )
 
   def __post_init__(self):
     if (
@@ -281,6 +317,55 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
           "deferral_window_steps must be non-negative, got"
           f" {self.deferral_window_steps}."
       )
+    if self.deferral_save_time_percentile is not None and not (
+        0.0 < self.deferral_save_time_percentile <= 1.0
+    ):
+      raise ValueError(
+          "deferral_save_time_percentile must be in (0.0, 1.0], got"
+          f" {self.deferral_save_time_percentile}."
+      )
+
+  def _get_step_duration_secs(
+      self,
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
+  ) -> float | None:
+    """Returns the estimated duration in seconds of a single training step."""
+    if self._step_durations_secs:
+      return sum(self._step_durations_secs) / len(self._step_durations_secs)
+    if previous_steps and step.step > previous_steps[-1].step:
+      elapsed_secs = (step.time - previous_steps[-1].time).total_seconds()
+      if elapsed_secs > 0:
+        return elapsed_secs / (step.step - previous_steps[-1].step)
+    return None
+
+  def _should_defer_for_target_step(
+      self,
+      step: PolicyCheckpointInfo,
+      previous_steps: Sequence[PolicyCheckpointInfo],
+      context: DecisionContext,
+  ) -> bool:
+    """Returns True if an opportunistic save should be deferred for a target step."""
+    if self.target_interval_steps is None:
+      return False
+    steps_until_target = self.target_interval_steps - (
+        step.step % self.target_interval_steps
+    )
+    if self.deferral_window_steps is not None:
+      return steps_until_target <= self.deferral_window_steps
+    if (
+        self.deferral_save_time_percentile is not None
+        and context.save_durations_secs
+    ):
+      step_duration_secs = self._get_step_duration_secs(step, previous_steps)
+      if step_duration_secs is not None:
+        save_time_threshold_secs = _compute_percentile(
+            context.save_durations_secs, self.deferral_save_time_percentile
+        )
+        return (
+            steps_until_target * step_duration_secs <= save_time_threshold_secs
+        )
+    return False
 
   def should_save(
       self,
@@ -304,15 +389,8 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
         return _ContinuousSaveDecision.SKIP
       if not previous_steps:
         return _ContinuousSaveDecision.SAVE
-      if (
-          self.target_interval_steps is not None
-          and self.deferral_window_steps is not None
-      ):
-        steps_until_target = self.target_interval_steps - (
-            step.step % self.target_interval_steps
-        )
-        if steps_until_target <= self.deferral_window_steps:
-          return _ContinuousSaveDecision.SKIP
+      if self._should_defer_for_target_step(step, previous_steps, context):
+        return _ContinuousSaveDecision.SKIP
       if self.minimum_interval_secs is None:
         return _ContinuousSaveDecision.SAVE
       if step.time - previous_steps[-1].time >= datetime.timedelta(
@@ -330,6 +408,22 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
     # Make time based and save in progress based decision only on primary host
     # and broadcast to all hosts.
     if is_primary_host:
+      if (
+          self._last_observed_step_time is not None
+          and step.step > self._last_observed_step_time[0]
+      ):
+        elapsed_secs = (
+            step.time - self._last_observed_step_time[1]
+        ).total_seconds()
+        if elapsed_secs > 0:
+          self._step_durations_secs.append(
+              elapsed_secs / (step.step - self._last_observed_step_time[0])
+          )
+      if (
+          self._last_observed_step_time is None
+          or step.step > self._last_observed_step_time[0]
+      ):
+        self._last_observed_step_time = (step.step, step.time)
       save_result = int(_get_decision())
       client.key_value_set(
           result_barrier_key,
