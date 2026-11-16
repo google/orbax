@@ -95,6 +95,15 @@ def _background_wait_for_commit_futures(
         )
         or is_cancel_requested()
     ):
+      # ChainedFuture stops at the first cancellation. Drain the remaining
+      # writers before the callback removes their temporary directory.
+      for commit_future in commit_futures:
+        try:
+          commit_future.result(timeout=future.get_remaining_time(
+              thread_start_time, timeout_secs
+          ))
+        except (concurrent.futures.CancelledError, asyncio.CancelledError):
+          pass
       logging.info(
           '[process=%s][thread=%s] Handler Commit operations were cancelled.',
           current_process,
@@ -482,6 +491,7 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       if not utils.is_primary_host(self._primary_host):
         return
       try:
+        self._metadata_store.wait_until_finished()
         tmp_path = tmpdir.get()
         if tmp_path.exists():
           logging.info(
