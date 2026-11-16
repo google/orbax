@@ -609,6 +609,10 @@ async def open_kv_store(
 CompressionSpec = types.CompressionSpec
 NoCompression = types.NoCompression
 ZstdCompression = types.ZstdCompression
+BLOSC_MAX_BUFFERSIZE = types.BLOSC_MAX_BUFFERSIZE
+BLOSC_MAX_BLOCKSIZE = types.BLOSC_MAX_BLOCKSIZE
+BloscShuffle = types.BloscShuffle
+BloscCompression = types.BloscCompression
 
 
 def _build_zarr2_metadata(
@@ -684,6 +688,38 @@ def _build_zarr_shard_and_chunk_metadata(
   )
 
 
+def _clamp_chunk_byte_size(
+    write_shape: Shape,
+    dtype: DType,
+    *,
+    chunk_byte_size: int | None,
+    max_chunk_byte_size: int | None,
+) -> int | None:
+  """Clamps `chunk_byte_size` so chunks do not exceed `max_chunk_byte_size`.
+
+  Args:
+    write_shape: Shape of the shard being written by the current process.
+    dtype: Storage dtype of the array.
+    chunk_byte_size: Requested target chunk size in bytes, or `None` if unset.
+    max_chunk_byte_size: Upper bound on chunk size in bytes, or `None` if
+      unbounded.
+
+  Returns:
+    The clamped chunk byte size, or `None` when no subchunking limit applies
+    (either both `chunk_byte_size` and `max_chunk_byte_size` are `None`, or
+    `chunk_byte_size` is `None` and the write shard fits within
+    `max_chunk_byte_size`).
+  """
+  if max_chunk_byte_size is None:
+    return chunk_byte_size
+  if chunk_byte_size is None:
+    write_nbytes = math.prod(write_shape) * dtype.itemsize
+    if write_nbytes > max_chunk_byte_size:
+      return max_chunk_byte_size
+    return None
+  return min(chunk_byte_size, max_chunk_byte_size)
+
+
 def calculate_chunk_byte_size(
     write_shape: Shape,
     dtype: DType,
@@ -703,16 +739,12 @@ def calculate_chunk_byte_size(
     # No limit.
     return chunk_byte_size
 
-  if chunk_byte_size is None:
-    write_nbytes = math.prod(write_shape) * dtype.itemsize
-    if write_nbytes > ocdbt_target_data_file_size:
-      chunk_byte_size = ocdbt_target_data_file_size
-    else:
-      # Let chunk_byte_size stay None.
-      chunk_byte_size = None
-  else:
-    chunk_byte_size = min(chunk_byte_size, ocdbt_target_data_file_size)
-  return chunk_byte_size
+  return _clamp_chunk_byte_size(
+      write_shape,
+      dtype,
+      chunk_byte_size=chunk_byte_size,
+      max_chunk_byte_size=ocdbt_target_data_file_size,
+  )
 
 
 ### Building TensorStore array specs.
@@ -865,6 +897,17 @@ class ArrayWriteSpec:
 
     target_storage_dtype = target_dtype or dtype
 
+    if use_compression is not None and compression_spec is not None:
+      raise ValueError(
+          'Cannot specify both use_compression and compression_spec.'
+      )
+    if compression_spec is None:
+      compression_spec = (
+          ZstdCompression()
+          if (use_compression is None or use_compression)
+          else NoCompression()
+      )
+
     # Choose target file and chunk byte sizes.
     if use_ocdbt:
       chunk_byte_size = calculate_chunk_byte_size(
@@ -874,6 +917,12 @@ class ArrayWriteSpec:
           ocdbt_target_data_file_size=ocdbt_target_data_file_size,
           kvstore_spec=tspec['kvstore'],
       )
+    chunk_byte_size = _clamp_chunk_byte_size(
+        write_shape,
+        target_storage_dtype,
+        chunk_byte_size=chunk_byte_size,
+        max_chunk_byte_size=compression_spec.max_chunk_byte_size,
+    )
     # Choose chunk shape.
     chunk_shape = subchunking.choose_chunk_shape(
         global_shape,
@@ -890,16 +939,6 @@ class ArrayWriteSpec:
           global_shape,
           write_shape,
           chunk_shape,
-      )
-    if use_compression is not None and compression_spec is not None:
-      raise ValueError(
-          'Cannot specify both use_compression and compression_spec.'
-      )
-    if compression_spec is None:
-      compression_spec = (
-          ZstdCompression()
-          if (use_compression is None or use_compression)
-          else NoCompression()
       )
     # Construct Zarr chunk metadata.
     tspec['metadata'], algo, level = _build_zarr_shard_and_chunk_metadata(
