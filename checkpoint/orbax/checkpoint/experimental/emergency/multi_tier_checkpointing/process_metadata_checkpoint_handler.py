@@ -19,8 +19,9 @@ Implementation of CheckpointHandler interface.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
-from typing import Callable, List, Tuple
+from typing import Callable, Coroutine, List, Tuple
 
 from absl import logging
 from etils import epath
@@ -33,11 +34,37 @@ from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint.experimental.emergency import mesh_consistency
 
+# Empty marker file that a step saved with `backup=True` carries directly in
+# its step directory; Multi-Tier Checkpointing backs such a step up regardless
+# of its backup interval.
+BACKUP_REQUESTED_FILE = '_BACKUP_REQUESTED'
+
 
 CheckpointArgs = checkpoint_args.CheckpointArgs
 PreviousDistributedToDeviceIds = List[List[int]]
 PreviousDeviceIds = List[int]
 register_with_handler = checkpoint_args.register_with_handler
+
+
+async def _save_and_request_backup(
+    save: Coroutine[None, None, None], directory: epath.Path
+) -> None:
+  """Runs the process metadata `save` and then marks the step for backup.
+
+  The marker belongs directly in the step directory, i.e. the parent of this
+  item's directory. The process metadata item is saved on every process for
+  every step, so it is a convenient place to write the marker while the step is
+  still being assembled. Writing it after `save` keeps it behind the same
+  directory-creation signal, since directories may be created asynchronously.
+
+  Args:
+    save: The coroutine saving the process metadata item.
+    directory: The process metadata item directory.
+  """
+  await save
+  marker = directory.parent / BACKUP_REQUESTED_FILE
+  logging.info('Requesting a backup of %s via %s', directory.parent, marker)
+  await asyncio.to_thread(marker.touch)
 
 
 class ProcessMetadataCheckpointHandler(
@@ -72,13 +99,16 @@ class ProcessMetadataCheckpointHandler(
       A list of commit futures.
     """
     logging.vlog(2, 'Saving process metadata to %s', directory)
+    save = mesh_consistency.save_process_metadata(
+        directory,
+        args.global_mesh,
+        self._distributed_to_device_ids_fn(),
+    )
+    if args.backup_requested:
+      save = _save_and_request_backup(save, directory)
     return [
         future.CommitFutureAwaitingContractedSignals(
-            mesh_consistency.save_process_metadata(
-                directory,
-                args.global_mesh,
-                self._distributed_to_device_ids_fn(),
-            ),
+            save,
             name='process_metadata_ch_save',
         )
     ]
@@ -124,9 +154,12 @@ class ProcessMetadataSaveArgs(CheckpointArgs):
 
   Attributes:
     global_mesh: the global mesh.
+    backup_requested: whether to mark the step for backup by Multi-Tier
+      Checkpointing (see `BACKUP_REQUESTED_FILE`).
   """
 
   global_mesh: jax.sharding.Mesh
+  backup_requested: bool = False
 
 
 @register_with_handler(ProcessMetadataCheckpointHandler, for_restore=True)

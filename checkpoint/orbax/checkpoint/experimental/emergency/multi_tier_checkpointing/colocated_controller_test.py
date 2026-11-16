@@ -362,6 +362,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
     step_arr = jax.device_put(jnp.array(1, dtype=jnp.int32), sharding)
     force_arr = jax.device_put(jnp.array(True, dtype=jnp.bool_), sharding)
+    backup_arr = jax.device_put(jnp.array(False, dtype=jnp.bool_), sharding)
     state = {'x': jax.device_put(jnp.arange(2, dtype=jnp.int32), sharding)}
 
     captured = {}
@@ -376,7 +377,9 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     controller._worker_manager = mock.Mock()
     controller._worker_manager.save.specialize = _specialize_fn
 
-    result = controller._get_worker_save_call(step_arr, force_arr, state)
+    result = controller._get_worker_save_call(
+        step_arr, force_arr, backup_arr, state
+    )
 
     self.assertIs(result, sentinel)
     self.assertEqual(captured['devices'], controller._worker_cpu_devices)
@@ -401,6 +404,7 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
     step_arr = jax.device_put(jnp.array(1, dtype=jnp.int32), sharding)
     force_arr = jax.device_put(jnp.array(True, dtype=jnp.bool_), sharding)
+    backup_arr = jax.device_put(jnp.array(False, dtype=jnp.bool_), sharding)
     state = {'x': jax.device_put(jnp.arange(2, dtype=jnp.int32), sharding)}
     changed_state = {
         'x': jax.device_put(jnp.arange(3, dtype=jnp.int32), sharding)
@@ -412,10 +416,14 @@ class ColocatedControllerInternalTest(parameterized.TestCase):
         side_effect=[first_call, second_call]
     )
 
-    result_1 = controller._get_worker_save_call(step_arr, force_arr, state)
-    result_2 = controller._get_worker_save_call(step_arr, force_arr, state)
+    result_1 = controller._get_worker_save_call(
+        step_arr, force_arr, backup_arr, state
+    )
+    result_2 = controller._get_worker_save_call(
+        step_arr, force_arr, backup_arr, state
+    )
     result_3 = controller._get_worker_save_call(
-        step_arr, force_arr, changed_state
+        step_arr, force_arr, backup_arr, changed_state
     )
 
     self.assertIs(result_1, first_call)

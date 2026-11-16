@@ -16,6 +16,7 @@
 
 # pylint: disable=missing-class-docstring,protected-access,missing-function-docstring
 
+import asyncio
 import datetime
 import threading
 from typing import Any, Sequence
@@ -24,6 +25,7 @@ from unittest import mock
 from absl.testing import parameterized
 from etils import epath
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization
 import orbax.checkpoint.experimental.v1 as ocp
 from orbax.checkpoint.experimental.v1._src.layout import checkpoint_layout
@@ -299,6 +301,50 @@ class CheckpointerTestBase:
       self.assertLen(checkpointer.checkpoints, 1)
       assert checkpointer.latest is not None
       self.assertEqual(checkpointer.latest.step, 0)
+
+    def test_constrained_continuous_checkpointing_cancels_ongoing_continuous_save(
+        self,
+    ):
+      policy = save_decision_policies.ContinuousCheckpointingPolicy(
+          target_interval_steps=4,
+      )
+      checkpointer = Checkpointer(
+          self.directory, save_decision_policy=policy
+      )
+      self.enter_context(checkpointer)
+
+      self.assertTrue(checkpointer.save(0, self.pytree))
+
+      step_3_commit_started = threading.Event()
+      original_on_commit_callback = atomicity.on_commit_callback
+
+      async def mock_on_commit_callback(tmpdir, *args, **kwargs):
+        if tmpdir.get_final().name == '3':
+          step_3_commit_started.set()
+          await asyncio.sleep(10)
+        return await original_on_commit_callback(tmpdir, *args, **kwargs)
+
+      with mock.patch.object(
+          atomicity, 'on_commit_callback', new=mock_on_commit_callback
+      ):
+        response_3 = checkpointer.save_async(3, self.pytree)
+        self.assertIsNotNone(response_3)
+        if multihost.is_primary_host(0):
+          self.assertTrue(step_3_commit_started.wait(timeout=5.0))
+        test_utils.sync_global_processes('v1_step_3_in_flight')
+
+        # Querying should_save(4) is side-effect-free and must not cancel the
+        # ongoing opportunistic save at step 3.
+        self.assertTrue(checkpointer.should_save(4))
+        self.assertTrue(checkpointer._manager.is_saving_in_progress())
+
+        # Saving target step 4 cancels the ongoing save at step 3 and saves 4.
+        self.assertTrue(checkpointer.save(4, self.pytree))
+        self.assertSequenceEqual(
+            [c.step for c in checkpointer.checkpoints], [0, 4]
+        )
+        self.assertFalse((self.directory / '3').exists())
+        self.assertTrue((self.directory / '4').exists())
 
     def test_save_async(self):
       checkpointer = Checkpointer(self.directory)

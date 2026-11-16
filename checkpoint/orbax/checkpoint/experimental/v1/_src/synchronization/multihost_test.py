@@ -14,7 +14,9 @@
 
 import asyncio
 import time
+import types
 import unittest
+from unittest import mock
 
 from absl.testing import parameterized
 from etils import epath
@@ -319,6 +321,49 @@ class MultihostTest(
     else:
       self.assertTrue((self.tmpdir / 'dummy_0').exists())
       self.assertTrue((self.tmpdir / 'dummy_1').exists())
+
+
+class BackendDetectionTest(parameterized.TestCase):
+
+  def test_is_pathways_backend_uses_default_backend(self):
+    tree = {'bar': [5, 12]}
+    with (
+        mock.patch.object(
+            jax,
+            'devices',
+            side_effect=AssertionError('should not call jax.devices'),
+        ),
+        mock.patch.object(jax, 'process_count', return_value=2),
+        mock.patch.object(multihost.backend, 'get_backend') as mock_get_backend,
+    ):
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='proxy/pathways'
+      )
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertTrue(multihost.should_skip_process_sync())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertIs(multihost.process_allgather(tree), tree)
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='pathways'
+      )
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertTrue(multihost.should_skip_process_sync())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertIs(multihost.process_allgather(tree), tree)
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='tpu', pathways=object()
+      )
+      self.assertTrue(multihost.is_pathways_backend())
+      self.assertTrue(multihost.should_skip_process_sync())
+      self.assertIs(multihost.broadcast_one_to_all(tree), tree)
+      self.assertIs(multihost.process_allgather(tree), tree)
+
+      mock_get_backend.return_value = types.SimpleNamespace(
+          runtime_type='pjrt_ifrt'
+      )
+      self.assertFalse(multihost.is_pathways_backend())
 
 
 if __name__ == '__main__':

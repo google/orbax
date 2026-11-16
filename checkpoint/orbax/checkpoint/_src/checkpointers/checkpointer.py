@@ -450,9 +450,7 @@ class Checkpointer(
             'handler type will be saved.',
             directory,
         )
-        item_handler = (
-            f'{self._handler.__module__}.{self._handler.__class__.__qualname__}'
-        )
+        item_handler = checkpoint_handler.default_typestr(type(self._handler))
       update_dict['item_handlers'] = item_handler  # pyrefly: ignore[bad-assignment]
     self._metadata_store.update(
         file_path=checkpoint.step_metadata_file_path(directory),

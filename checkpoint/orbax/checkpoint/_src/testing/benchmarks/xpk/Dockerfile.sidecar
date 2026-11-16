@@ -1,4 +1,4 @@
-FROM us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/sidecar:20260423-python_3.12-jax_0.10.0
+FROM us-docker.pkg.dev/cloud-tpu-v2-images/cloud-pathways/colocated_python_sidecar:20261110-jax_0.10.1
 
 WORKDIR /app
 

@@ -303,17 +303,17 @@ _ENABLE_PATHWAYS = flags.DEFINE_boolean(
 )
 _PATHWAYS_SERVER_IMAGE = flags.DEFINE_string(
     'pathways_server_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/cloud-pathways/server:latest',
     'Pathways server image (manages TPU chips).',
 )
 _PATHWAYS_PROXY_IMAGE = flags.DEFINE_string(
     'pathways_proxy_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/cloud-pathways/proxy_server:latest',
     'Pathways proxy image (bridges user code to server).',
 )
 _PATHWAYS_SIDECAR_IMAGE = flags.DEFINE_string(
     'pathways_sidecar_image',
-    'us-docker.pkg.dev/cloud-tpu-v2-images/pathways-colocated-python/sidecar:20260423-python_3.12-jax_0.10.0',
+    'us-docker.pkg.dev/cloud-tpu-v2-images/cloud-pathways/colocated_python_sidecar:20261110-jax_0.10.1',
     'Pathways sidecar that runs colocated-python codes)',
 )
 

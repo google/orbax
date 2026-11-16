@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest import mock
+
 from absl.testing import absltest
 import google.cloud.logging as google_cloud_logging
-import mock
 from orbax.checkpoint._src.logging import cloud_logger
 
 

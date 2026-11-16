@@ -32,7 +32,7 @@ pip install --upgrade xpk
 
 ### Build both benchmark & sidecar images.
 
-- Use `--jax-version 0.10.0` for Benchmark image build. This has to match
+- Use `--jax-version 0.10.1` for Benchmark image build. This has to match
   with `Dockerfile.sidecar`'s source image.
 - Use `--base-image python:3.12-slim` for the Benchmark image build, the python
   version also has with `Dockerfile.sidecar`'s source image.
@@ -48,7 +48,7 @@ bash build_image.sh  \
   --local-repo ./ \
   --tag $IMG_TAG \
   --device tpu \
-  --jax-version 0.10.0 \
+  --jax-version 0.10.1 \
   --base-image python:3.12-slim \
   --no-cache \
   --build-benchmark true \

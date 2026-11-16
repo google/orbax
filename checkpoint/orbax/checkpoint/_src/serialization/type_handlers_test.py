@@ -1350,6 +1350,51 @@ class WorkerMemoryUtilsTest(parameterized.TestCase):
           [['a_0', 'a_1'], ['a_2', 'a_3']],
       )
 
+  def test_next_memory_budgeted_batch_with_dispatcher_uses_array_devices(self):
+    worker_memory_utils._device_to_worker_ids.cache_clear()
+    self.addCleanup(worker_memory_utils._device_to_worker_ids.cache_clear)
+    directory = epath.Path(self.create_tempdir().full_path)
+    active_devices = tuple(jax.local_devices()[1:])
+    sharding = jax.sharding.NamedSharding(
+        jax.sharding.Mesh(active_devices, 'x'),
+        jax.sharding.PartitionSpec('x'),
+    )
+    arr = jax.device_put(
+        np.arange(len(active_devices), dtype=np.float32),
+        device=sharding,
+    )
+    params = [(arr, get_param_info('a_0', directory), types.SaveArgs())]
+    dispatcher = mock.Mock(spec=dispatchers.Dispatcher)
+    dispatcher.dispatch.side_effect = (
+        lambda fn, *, input_arrays, result_specs: jax.device_put(
+            np.arange(result_specs.shape[0], dtype=result_specs.dtype),
+            device=result_specs.sharding,
+        )
+    )
+
+    with mock.patch.object(
+        jax,
+        'devices',
+        side_effect=AssertionError('should not call jax.devices'),
+    ):
+      batches = list(
+          worker_memory_utils.next_memory_budgeted_batch(
+              params,
+              worker_memory_budget=1024 * 1024,
+              replica_ids=[0],
+              dispatcher=dispatcher,
+          )
+      )
+
+    self.assertLen(batches, 1)
+    self.assertLen(batches[0], 1)
+    dispatcher.dispatch.assert_called_once()
+    dispatched_input = dispatcher.dispatch.call_args.kwargs['input_arrays']
+    self.assertEqual(
+        tuple(dispatched_input.sharding.mesh.devices.flat),
+        active_devices,
+    )
+
 
 class CopyDeviceArraysForAsyncTransferTest(
     parameterized.TestCase, unittest.IsolatedAsyncioTestCase

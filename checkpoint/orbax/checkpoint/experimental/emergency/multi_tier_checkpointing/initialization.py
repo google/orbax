@@ -486,11 +486,18 @@ def initialize_multi_tier_checkpointing(
 
   def _resolve_parallelism_args():
     nonlocal num_slices, data_parallelism
-    num_slices = (
-        multislice.slice_count()
-        if num_slices is None or num_slices <= 0
-        else num_slices
-    )
+    if num_slices is None or num_slices <= 0:
+      if devices is not None:
+        slice_indices = {
+            worker.key[1]
+            for worker in pathways_topology.Topology.from_devices(
+                devices
+            ).workers
+            if len(worker.key) == 2
+        }
+        num_slices = len(slice_indices) or 1
+      else:
+        num_slices = multislice.slice_count()
     data_parallelism = (
         num_slices
         if data_parallelism is None or data_parallelism <= 0
@@ -679,9 +686,13 @@ def _block_and_process_restore_dir(
 
   Raises:
     TimeoutError: if no .restore marker is found within the timeout.
+    ValueError: if a .restore marker is neither a symlink to a directory nor
+      an empty regular file.
 
-  MTC creates a `*.restore` symlink to the directory and Orbax renames it into
-  the numeric step directory the backend already understands.
+  MTC creates a `*.restore` symlink to the checkpoint directory to restore (any
+  step, including step 0), or an empty `*.restore` file when there is no
+  checkpoint to restore. Orbax renames the symlink into the numeric step
+  directory the backend already understands.
   """
   local_checkpoint_directory = epath.Path(local_checkpoint_directory)
 
@@ -716,13 +727,24 @@ def _block_and_process_restore_dir(
       restore_markers = []
       no_checkpoint_markers = []
       for marker_path in marker_paths:
-        step = _extract_step(marker_path.name)
-        # Replicator writes a zero-sized file for "no checkpoint" and a symlink
-        # for an actual restore marker.
-        if step == '0' and marker_path.is_file():
+        step = int(_extract_step(marker_path.name))
+        # Replicator writes a symlink to the checkpoint directory to restore,
+        # or an empty file when there is no checkpoint to restore.
+        if os.path.islink(marker_path):
+          if not marker_path.is_dir():
+            raise ValueError(
+                f'Unexpected MTC restore marker {marker_path}: symlink does not'
+                ' point to a checkpoint directory.'
+            )
+          restore_markers.append((step, marker_path))
+        elif marker_path.is_file() and marker_path.stat().length == 0:
           no_checkpoint_markers.append(marker_path)
         else:
-          restore_markers.append((int(step), marker_path))
+          raise ValueError(
+              f'Unexpected MTC restore marker {marker_path}: expected a symlink'
+              ' to a checkpoint directory (restore) or an empty file (no'
+              ' checkpoint).'
+          )
 
       if restore_markers:
         step, marker_path = max(restore_markers, key=lambda item: item[0])

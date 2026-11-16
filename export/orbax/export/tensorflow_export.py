@@ -15,6 +15,7 @@
 """Export class that implements the save and load abstract class defined in Export Base for use with the TensorFlow SavedModel export format."""
 
 from collections.abc import Callable, Mapping, Sequence
+import copy
 import os
 import tempfile
 from typing import Any
@@ -89,13 +90,19 @@ class TensorFlowExport(export_base.ExportBase):
 
     converter_options = kwargs.get('inference_converter_options')
     if converter_options:
+      # Save the temporary pre-conversion model unsharded and shard the
+      # converted model instead: Inference Converter V2 cannot read tensors
+      # sliced across shards (e.g. by `MaxShardSizePolicy`) when
+      # `convert_checkpoint` is enabled.
+      pre_conversion_save_options = copy.copy(save_options)
+      pre_conversion_save_options.experimental_sharding_callback = None
       with tempfile.TemporaryDirectory() as tmpdir:
         tf_model_path = tmpdir
         tf.saved_model.save(
             self._tf_module,
             tf_model_path,
             serving_signatures,
-            options=save_options,
+            options=pre_conversion_save_options,
         )
     else:
       tf_model_path = model_path

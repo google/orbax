@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore function-local named tuples when rich PyTree metadata is enabled.
+
+## [0.12.11] - 2026-11-16
+
+### Fixed
+
+- Avoid `jax.devices()` calls in Pathways multihost backend detection,
+  preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
+  initialization so Pathways workloads work when devices or slices are down
+  during elasticity.
+- Support `bool` and `float16` dtypes and validate sharding in
+  `CloudPathwaysArrayHandler` persistence helper.
+
+## [0.12.10] - 2026-11-12
+
+### Added
+
+- Multi-Tier Checkpointing: `ReplicatorCheckpointManager.save(..., backup=True)`
+  asks for that step to be backed up to persistent storage (recorded as an
+  empty `_BACKUP_REQUESTED` file in the local step directory). Requires a
+  Multi-Tier Checkpointing release that supports `_BACKUP_REQUESTED`. On
+  Pathways, upgrade Orbax in the workload and `colocated-python-sidecar`
+  images together.
+- Add `checkpoint_managers.continuous_checkpointing_options()` for continuous
+  checkpointing. It saves at every multiple of `target_interval_steps` and, in
+  between, whenever no write is running.
+
 ### Changed
 
 - Multi-tier checkpointing: step 0 is now saved and restored like any other
@@ -17,7 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `CheckpointManager` retains previously saved steps when an asynchronous save
   fails, instead of dropping them from `all_steps()` / `latest_step()`.
-- Restore function-local named tuples when rich PyTree metadata is enabled.
+- Free intermediate globalized array buffers after each broadcast chunk in
+  `multislice.broadcast_one_replica_to_all` to prevent HBM retention across
+  multi-chunk single-replica restores.
 
 ## [0.12.9] - 2026-11-02
 
