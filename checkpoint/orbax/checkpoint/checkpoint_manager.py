@@ -940,6 +940,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
 
     # TODO: b/359854428 - Move Finalize biz logic to a separate class/module.
     self._finalize_thread = threading_lib.OptionalRef[_FinalizeThread]()
+    # Steps that `save()` saved because of a preemption. `_finalize_checkpoint`
+    # reads this instead of calling `reached_preemption()`.
+    self._preemption_save_steps: set[int] = set()
 
     self._checkpoint_deleter: deleter.CheckpointDeleter = (
         deleter.create_checkpoint_deleter(
@@ -1545,7 +1548,8 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         processes=self._multiprocessing_options.active_processes,
     )
     cm_start_sync_duration = time.time() - cm_start_sync_start_time
-    if self.reached_preemption(step):
+    is_preemption_save = self.reached_preemption(step)
+    if is_preemption_save:
       logging.info(
           '[process=%s] Saving checkpoint at step %d due to preemption.',
           process_index,
@@ -1729,6 +1733,10 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         processes=self._multiprocessing_options.active_processes,
     )
 
+    # Record the step only after the previous finalize has finished and right
+    # before this save's finalize starts. `_finalize` clears it.
+    if is_preemption_save:
+      self._preemption_save_steps.add(step)
     current_thread = threading.current_thread()
     if is_async_checkpointer(self._checkpointer):
 
@@ -2382,6 +2390,11 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     Args:
       step: finalized checkpoint step.
     """
+    # Do not call `reached_preemption()` here. This runs on the finalize thread
+    # for an older step, and JAX would record that step as this process's
+    # preemption sync counter. A preemption notice could then pick a sync step
+    # that this process has already passed.
+    is_preemption_save = step in self._preemption_save_steps
     if utils.is_primary_host(self._multiprocessing_options.primary_host):
       try:
         self.check_for_errors()
@@ -2398,7 +2411,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       # This represents training time that would otherwise have been wasted.
       # If another checkpoint has not been previously saved, measures the time
       # since program start.
-      if self.reached_preemption(step):
+      if is_preemption_save:
         assert not self._checkpoints.empty()
         duration = self._checkpoints[-1].time - self._prior_checkpoint_time
         jax.monitoring.record_event_duration_secs(
@@ -2439,6 +2452,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
           time.time() - remove_steps_start_time,
       )
     finally:
+      # Clear on every path, including a cancelled or failed save, so a later
+      # normal save of the same step is not counted as a preemption save.
+      self._preemption_save_steps.discard(step)
       logging.info(
           '[process=%s][thread=%s][step=%s] CheckpointManager Save Finalize is'
           ' syncing with other hosts...',

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `CheckpointManager` no longer calls `reached_preemption()` from the async
+  finalize thread. That call could move JAX's preemption sync counter back to
+  an older step, so a process could miss the preemption save step.
+
 ## [0.12.11] - 2026-11-16
 
 ### Fixed
