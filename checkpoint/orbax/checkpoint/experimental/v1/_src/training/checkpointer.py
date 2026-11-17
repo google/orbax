@@ -87,6 +87,56 @@ def _resolve_integer_step(
   return step.step
 
 
+# Number of latest checkpoints preserved for recovery when continuous
+# checkpointing with `target_interval_steps` is used without an explicit
+# preservation policy.
+_NUM_RECOVERY_CHECKPOINTS = 2
+
+
+def _get_default_preservation_policy(
+    save_decision_policy: save_decision_policies.SaveDecisionPolicy,
+) -> (
+    preservation_policies.PreserveAll
+    | preservation_policies.AnyPreservationPolicy
+):
+  """Returns the preservation policy used if none is provided.
+
+  If `save_decision_policy` is (or directly contains, via `AnySavePolicy`) a
+  `ContinuousCheckpointingPolicy` with `target_interval_steps`, preserves all
+  checkpoints at `target_interval_steps`, as well as the latest
+  `_NUM_RECOVERY_CHECKPOINTS` checkpoints for recovery. Otherwise, preserves all
+  checkpoints.
+
+  Args:
+    save_decision_policy: The resolved save decision policy.
+
+  Raises:
+    ValueError: If more than one `ContinuousCheckpointingPolicy` configures
+      `target_interval_steps`.
+  """
+  if isinstance(save_decision_policy, save_decision_policies.AnySavePolicy):
+    candidates = save_decision_policy.policies
+  else:
+    candidates = [save_decision_policy]
+  target_intervals = [
+      p.target_interval_steps
+      for p in candidates
+      if isinstance(p, save_decision_policies.ContinuousCheckpointingPolicy)
+      and p.target_interval_steps is not None
+  ]
+  if len(target_intervals) > 1:
+    raise ValueError(
+        'At most one `ContinuousCheckpointingPolicy` may configure'
+        f' `target_interval_steps`, got {target_intervals}.'
+    )
+  if not target_intervals:
+    return preservation_policies.PreserveAll()
+  return preservation_policies.AnyPreservationPolicy([
+      preservation_policies.LatestN(_NUM_RECOVERY_CHECKPOINTS),
+      preservation_policies.EveryNSteps(target_intervals[0]),
+  ])
+
+
 @typing.final
 class Checkpointer(epy.ContextManager):
   """An object that manages a sequence of checkpoints in a training loop."""
@@ -116,14 +166,32 @@ class Checkpointer(epy.ContextManager):
     all available processes, from the main thread.
 
     The Checkpointer is intended for use in a training loop, where a sequence
-    of checkpoints are saved at regular intervals. Example usage::
+    of checkpoints are saved at regular intervals. For a balance of training
+    efficiency and checkpointing predictability, we recommend using "continuous
+    checkpointing" to save at a predictable - *infrequent* - step interval (just
+    enough for evals and worst-case rollbacks), while also saving more frequent
+    recovery checkpoints. For more details, see `Choosing Checkpointing Policies
+    <https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/training.html#choosing-checkpointing-policies>`_.
+
+    Continuous checkpointing::
+
+      policies = ocp.training.save_decision_policies
+      save_decision_policy = policies.ContinuousCheckpointingPolicy(
+          target_interval_steps=10000,
+      )
+      # preservation_policy automatically is set to preserve all checkpoints
+      # at `target_interval_steps`, while also ensuring the latest 2 checkpoints
+      # are available for recovery.
+
+    Users may also have the flexibility to specify their own policies, for
+    example::
 
       # Configure the frequency at which checkpoints are saved.
       save_decision_policies = ocp.training.save_decision_policies
       # Save every 1000 steps, or when a preemption is detected.
       save_decision_policy = save_decision_policies.AnySavePolicy([
           save_decision_policies.FixedIntervalPolicy(1000),
-          save_decision_policies.PreemptionPolicy(),
+          save_decision_policies.PreemptionCheckpointingPolicy(),
       ])
 
       # Configure the checkpoints to preserve (avoid garbage collection).
@@ -133,6 +201,8 @@ class Checkpointer(epy.ContextManager):
           preservation_policies.LatestN(10),
           preservation_policies.EveryNSteps(10000),
       ])
+
+    Example usage::
 
       with ocp.training.Checkpointer(
           directory,
@@ -162,12 +232,15 @@ class Checkpointer(epy.ContextManager):
       context: A :py:class:`~orbax.checkpoint.v1.Context` object that will be
         used to wrap all function calls for this `Checkpointer`.
       save_decision_policy: A policy used to determine when a checkpoint should
-        be saved. If not provided, the `Checkpointer` saves as often as possible
-        by default (assuming no checkpoint is currently being saved), and saves
-        when a preemption is detected by the JAX distributed system.
+        be saved. If not provided, defaults to `ContinuousCheckpointingPolicy`,
+        which saves as often as possible (assuming no checkpoint is currently
+        being saved).
       preservation_policy: A policy used to determine when a checkpoint should
         be preserved. Any checkpoints not preserved are garbage collected. If
-        not provided,
+        not provided, and `save_decision_policy` includes a
+        `ContinuousCheckpointingPolicy` with `target_interval_steps`, all
+        checkpoints at `target_interval_steps` are preserved, as well as the
+        latest 2 checkpoints. Otherwise, all checkpoints are preserved.
       step_name_format: An object used to specify the format for step paths. By
         default, steps are rendered as simple integers, like
         `/root/directory/<step>`.
@@ -187,16 +260,16 @@ class Checkpointer(epy.ContextManager):
     self._context = context_lib.Context(context or context_lib.get_context())
     self._logger = logger or standard_logger.StandardLogger()
 
-    default_save_decision_policy = save_decision_policies.AnySavePolicy([
-        save_decision_policies.InitialSavePolicy(),
-        save_decision_policies.ContinuousCheckpointingPolicy(),
-        save_decision_policies.PreemptionCheckpointingPolicy(),
-    ])
+    default_save_decision_policy = (
+        save_decision_policies.ContinuousCheckpointingPolicy()
+    )
     save_decision_policy = save_decision_policy or default_save_decision_policy  # pyrefly: ignore[bad-assignment]
     self._save_decision_policy: save_decision_policies.SaveDecisionPolicy = (
         save_decision_policy  # pyrefly: ignore[bad-assignment]
     )
-    default_preservation_policy = preservation_policies.PreserveAll()
+    default_preservation_policy = _get_default_preservation_policy(
+        self._save_decision_policy
+    )
     preservation_policy = preservation_policy or default_preservation_policy  # pyrefly: ignore[bad-assignment]
 
     self._step_name_format = (

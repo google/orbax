@@ -206,14 +206,9 @@ translated into a policy as shown above.
 
 **Default Behavior**:
 
-If no `save_decision_policy` is provided, Orbax v1 defaults to an
-`AnySavePolicy` that combines:
-
-1. `InitialSavePolicy()`: Saves a checkpoint at step 0 if none exist.
-2. `ContinuousCheckpointingPolicy()`: Saves as frequently as possible
-   (useful for async).
-3. `PreemptionCheckpointingPolicy()`: Saves immediately when a preemption
-   signal is detected.
+If no `save_decision_policy` is provided, Orbax v1 defaults to
+`ContinuousCheckpointingPolicy()`, which saves on the first step and then as
+frequently as possible whenever no save is currently in progress.
 
 #### Custom SaveDecisionPolicy Example
 If you have a custom saving rule, you can implement the `SaveDecisionPolicy`

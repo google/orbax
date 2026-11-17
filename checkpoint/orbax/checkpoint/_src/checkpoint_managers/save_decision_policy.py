@@ -114,6 +114,9 @@ class FixedIntervalPolicy(SaveDecisionPolicy):
   It makes its decision purely based on the current step index, strictly
   ignoring previous save history or external context.
 
+  Useful when absolute predictability is preferred. Too short an interval can
+  block training on queued saves; too long loses more progress on interruption.
+
   Attributes:
     interval: The frequency at which checkpoints should be saved. For example,
       an interval of 100 means a save is triggered at steps 100, 200, 300, etc.
@@ -220,6 +223,10 @@ class ContinuousCheckpointingPolicy(SaveDecisionPolicy):
      frequently checkpoints are saved, which can be used to avoid excessive
      burden on the filesystem, or blocking too frequently (due to
      synchronous D2H).
+
+  Useful for most training workloads. Set `target_interval_steps` to an
+  infrequent interval (e.g. for evals and rollbacks) that is much longer than
+  the checkpoint write time, so recovery saves are rarely cancelled.
 
   In a distributed training environment, to ensure perfect synchronization
   and avoid race conditions, the time and state-based save decision is
@@ -380,7 +387,12 @@ class PreemptionCheckpointingPolicy(SaveDecisionPolicy):
   example, if continuous checkpointing is employed, and checkpoints are saved
   frequently enough, the cost of re-computing some amount of steps can be
   cheaper than the cost of waiting for a checkpoint to complete after
-  preemption.
+  preemption. Saving on preemption is often less resource-efficient, since the
+  job must wait for a slow write before exiting. It is recommended when regular
+  checkpoints are infrequent and a save fits comfortably within the preemption
+  grace period. If the system cannot reliably finish a save between preemption
+  notice and exit, saving on preemption is not a reliable checkpointing
+  mechanism.
 
   Methods:
     should_save(step, previous_steps, *, context):

@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- #v1 `v1.training.Checkpointer` now defaults `save_decision_policy` to
+  `ContinuousCheckpointingPolicy()` alone (without `InitialSavePolicy` or
+  `PreemptionCheckpointingPolicy`), and when `save_decision_policy` configures
+  `ContinuousCheckpointingPolicy(target_interval_steps=...)` with no explicit
+  `preservation_policy`, defaults `preservation_policy` to preserving all
+  `target_interval_steps` checkpoints plus the latest 2 recovery checkpoints.
 - `ContinuousCheckpointingPolicy` raises `ValueError` for a negative
   `minimum_interval_secs`. `EveryNSteps` raises `ValueError` for a `max_to_keep`
   below 1.
