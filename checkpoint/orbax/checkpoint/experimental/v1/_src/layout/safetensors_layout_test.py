@@ -158,7 +158,11 @@ class SafetensorsLayoutTest(
     )
     self.assertEqual(metadata.custom_metadata, self.custom_metadata)
     self.assertIsInstance(metadata.commit_timestamp_nsecs, int)
-    self.assertGreater(metadata.commit_timestamp_nsecs, 0)
+    expected_nsecs = int(self.safetensors_path.stat().mtime * 1_000_000_000)
+    self.assertEqual(metadata.commit_timestamp_nsecs, expected_nsecs)
+    self.assertGreater(
+        metadata.commit_timestamp_nsecs, 1_000_000_000_000_000_000
+    )
 
   async def test_checkpointables_metadata_raises(self):
     layout = SafetensorsLayout()

@@ -15,6 +15,7 @@
 """Tests for pytree metadata."""
 
 import json
+import unittest
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -32,7 +33,9 @@ PyTreeSaveArgs = pytree_checkpoint_handler.PyTreeSaveArgs
 
 # TODO: b/438823853 - This test should accompany an independent PyTree metadata
 # writer, which is currently tightly coupled to PyTreeCheckpointHandler.
-class PyTreeMetadataTest(parameterized.TestCase):
+class PyTreeMetadataTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
 
   @parameterized.product(use_ocdbt=(True, False), use_zarr3=(True, False))
   def test_metadata_properties(self, use_ocdbt: bool, use_zarr3: bool):
@@ -56,7 +59,7 @@ class PyTreeMetadataTest(parameterized.TestCase):
     self.assertEqual(internal_metadata.use_zarr3, use_zarr3)
 
   @parameterized.product(use_ocdbt=(True, False), use_zarr3=(True, False))
-  def test_as_custom_metadata(self, use_ocdbt: bool, use_zarr3: bool):
+  async def test_as_custom_metadata(self, use_ocdbt: bool, use_zarr3: bool):
     directory = epath.Path(self.create_tempdir().full_path)
     item = {'a': np.array([1, 2, 3]), 'b': {'c': 'test'}}
     custom_metadata = {'key1': 'value1', 'key2': 123}
@@ -72,7 +75,7 @@ class PyTreeMetadataTest(parameterized.TestCase):
         metadata_json
     )
 
-    metadata_tree = internal_metadata.as_custom_metadata(
+    metadata_tree = await internal_metadata.as_custom_metadata(
         directory, handler._handler_impl._type_handler_registry
     )
     self.assertEqual(metadata_tree['a'].shape, (3,))

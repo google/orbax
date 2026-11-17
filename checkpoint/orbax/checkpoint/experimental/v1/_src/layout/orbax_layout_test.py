@@ -345,6 +345,19 @@ class V1ValidationTest(
     with self.assertRaises(FileNotFoundError):
       await OrbaxLayout()._validate(self.directory, STATE_CHECKPOINTABLE_KEY)
 
+  async def test_ignores_internal_storage_dirs_and_detects_zarr3(self):
+    ckpt = epath.Path(self.create_tempdir().full_path)
+    (ckpt / 'state' / 'param').mkdir(parents=True)
+    (ckpt / 'state' / 'param' / 'zarr.json').write_text('{}')
+    (ckpt / 'ocdbt.process_0').mkdir()
+    (ckpt / 'd').mkdir()
+    (ckpt / 'array_metadatas').mkdir()
+    names = await OrbaxLayout().get_checkpointable_names(ckpt)
+    self.assertEqual(names, ['state'])
+    self.assertTrue(
+        await orbax_layout.has_tensorstore_data_files(ckpt / 'state')
+    )
+
 
 class IsOrbaxV1CheckpointTest(parameterized.TestCase):
 

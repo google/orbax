@@ -876,7 +876,9 @@ class SafetensorsLayout(CheckpointLayout):
         *[async_path.async_stat(file_path) for file_path, _, _ in entries]
     )
     commit_timestamp_nsecs = (
-        max(int(stat.mtime) for stat in stats) if stats else None
+        max(int(stat.mtime * 1_000_000_000) for stat in stats)
+        if stats
+        else None
     )
     item_metadata: dict[str, jax.ShapeDtypeStruct] = {}
     custom_metadata: dict[str, Any] = {}
