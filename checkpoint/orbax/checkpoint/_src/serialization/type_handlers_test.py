@@ -2007,6 +2007,250 @@ class SingleReplicaArrayHandlerTest(
     )
     await self.single_replica_serialize_deserialize(config)
 
+  @parameterized.product(
+      primary_replica_id=(0, 1),
+      use_array_metadata_store=(True, False),
+      is_ocdbt=(True, False),
+  )
+  async def test_single_replica_serialize_deserialize_prng_keys(
+      self,
+      primary_replica_id: int,
+      use_array_metadata_store: bool,
+      is_ocdbt: bool,
+  ):
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape(2, 4), ('x', 'y')
+    )
+
+    def _make_sharded_prng_key(
+        seed: int,
+        shape: tuple[int, ...],
+        pspec: jax.sharding.PartitionSpec,
+        impl: str,
+    ) -> jax.Array:
+      key = jax.random.key(seed, impl=impl)
+      if shape:
+        key = jax.random.split(key, num=shape)
+      raw_key_data = np.asarray(jax.random.key_data(key))
+      trailing = (None,) * (raw_key_data.ndim - len(shape))
+      physical_pspec = jax.sharding.PartitionSpec(*pspec, *trailing)
+      sharded_key_data = test_utils.create_sharded_array(
+          raw_key_data, mesh, physical_pspec
+      )
+      return jax.random.wrap_key_data(sharded_key_data, impl=impl)
+
+    regular_pspec = jax.sharding.PartitionSpec(None, 'y')
+    regular_arr = test_utils.create_sharded_array(
+        np.arange(64, dtype=np.int32).reshape(8, 8), mesh, regular_pspec
+    )
+    bool_arr = test_utils.create_sharded_array(
+        (np.arange(64).reshape(8, 8) % 2 == 0).astype(np.bool_),
+        mesh,
+        regular_pspec,
+    )
+    int8_arr = test_utils.create_sharded_array(
+        np.arange(64, dtype=np.int8).reshape(8, 8), mesh, regular_pspec
+    )
+    scalar_threefry_pspec = jax.sharding.PartitionSpec()
+    scalar_threefry_key = _make_sharded_prng_key(
+        1, (), scalar_threefry_pspec, 'threefry2x32'
+    )
+    scalar_rbg_pspec = jax.sharding.PartitionSpec()
+    scalar_rbg_key = _make_sharded_prng_key(2, (), scalar_rbg_pspec, 'rbg')
+    sharded_1d_pspec = jax.sharding.PartitionSpec(None)
+    sharded_1d_key = _make_sharded_prng_key(
+        3, (4,), sharded_1d_pspec, 'threefry2x32'
+    )
+    sharded_2d_pspec = jax.sharding.PartitionSpec(None, 'y')
+    sharded_2d_key = _make_sharded_prng_key(
+        4, (2, 4), sharded_2d_pspec, 'rbg'
+    )
+    legacy_pspec = jax.sharding.PartitionSpec(None)
+    legacy_key = test_utils.create_sharded_array(
+        np.asarray(jax.random.PRNGKey(5)), mesh, legacy_pspec
+    )
+
+    arrays = [
+        regular_arr,
+        bool_arr,
+        int8_arr,
+        scalar_threefry_key,
+        scalar_rbg_key,
+        sharded_1d_key,
+        sharded_2d_key,
+        legacy_key,
+    ]
+    mesh_axes = [
+        regular_pspec,
+        regular_pspec,
+        regular_pspec,
+        scalar_threefry_pspec,
+        scalar_rbg_pspec,
+        sharded_1d_pspec,
+        sharded_2d_pspec,
+        legacy_pspec,
+    ]
+
+    ts_context = ts_utils.get_ts_context(use_ocdbt=is_ocdbt)
+    directory = epath.Path(
+        self.multiprocess_create_tempdir(
+            name=(
+                f'prng_key_test_{primary_replica_id}_'
+                f'{use_array_metadata_store}_{is_ocdbt}'
+            )
+        )
+    )
+    param_infos = [
+        get_param_info(
+            f'param_{i}', directory, is_ocdbt=is_ocdbt, ts_context=ts_context
+        )
+        for i in range(len(arrays))
+    ]
+    store = (
+        array_metadata_store_lib.Store() if use_array_metadata_store else None
+    )
+    handler = type_handlers.SingleReplicaArrayHandler(
+        replica_axis_index=0,
+        primary_replica_id=primary_replica_id,
+        array_metadata_store=store,
+    )
+    await _create_param_save_dirs(param_infos)
+    commit_futures = await handler.serialize(arrays, param_infos)
+    for f in commit_futures:
+      f.result()
+    test_utils.sync_global_processes(
+        'SingleReplicaArrayHandlerTest:prng_serialized'
+    )
+    if is_ocdbt:
+      if multihost.process_index() == 0:
+        await ocdbt_utils.merge_ocdbt_per_process_files(
+            directory, ts_context=ts_context, use_zarr3=False
+        )
+      test_utils.sync_global_processes(
+          'SingleReplicaArrayHandlerTest:prng_merge_ocdbt_complete'
+      )
+
+    restore_args = [
+        test_utils.create_single_replica_restore_args(arr, mesh, axes)
+        for arr, axes in zip(arrays, mesh_axes)
+    ]
+    num_replicas = mesh.devices.shape[0]
+    with mock.patch.object(
+        multislice, 'slice_count', return_value=num_replicas
+    ):
+      restored = await handler.deserialize(param_infos, restore_args)
+    test_utils.sync_global_processes(
+        'SingleReplicaArrayHandlerTest:prng_deserialized'
+    )
+
+    self.validate_values(restored, arrays)
+    for restored_arr, expected_arr in zip(restored, arrays):
+      self.assertEqual(restored_arr.shape, expected_arr.shape)
+      self.assertEqual(restored_arr.dtype, expected_arr.dtype)
+      self.assertEqual(restored_arr.sharding, expected_arr.sharding)
+
+  @parameterized.product(
+      key_impl=('threefry2x32', 'rbg'),
+      use_array_metadata_store=(True, False),
+  )
+  async def test_single_replica_deserialize_prng_keys_with_dispatcher(
+      self,
+      key_impl: str,
+      use_array_metadata_store: bool,
+  ):
+    if multihost.process_index() != 0:
+      self.skipTest('Single-controller dispatcher test runs on process 0.')
+
+    devices = np.asarray(jax.local_devices()).reshape(2, 2)
+    mesh = jax.sharding.Mesh(devices, ('x', 'y'))
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec(None, 'y')
+    )
+    single_replica_mesh = jax.sharding.Mesh(devices[:1], ('x', 'y'))
+    single_replica_sharding = jax.sharding.NamedSharding(
+        single_replica_mesh, jax.sharding.PartitionSpec(None, 'y')
+    )
+
+    key = jax.device_put(
+        jax.random.split(jax.random.key(7, impl=key_impl), num=(2, 2)),
+        sharding,
+    )
+    key_data = jax.random.key_data(key)
+    single_replica_key_data = jax.device_put(
+        key_data,
+        jax.sharding.NamedSharding(
+            single_replica_mesh,
+            jax.sharding.PartitionSpec(None, 'y', None),
+        ),
+    )
+
+    mock_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+    dispatched_result_specs = []
+
+    def _fake_dispatch(func, *, input_arrays=None, result_specs=None, **kwargs):
+      del func, input_arrays, kwargs
+      dispatched_result_specs.append(result_specs)
+      return [single_replica_key_data]
+
+    mock_dispatcher.dispatch.side_effect = _fake_dispatch
+
+    mock_store = None
+    if use_array_metadata_store:
+      mock_store = mock.create_autospec(array_metadata_store_lib.Store)
+      mock_store.read = mock.AsyncMock(
+          return_value={
+              0: [
+                  ts_utils.SerializedArrayMetadata(
+                      param_name='rng',
+                      write_shape=key_data.shape,
+                      chunk_shape=key_data.shape,
+                      ext_metadata={'random_key_impl': key_impl},
+                  )
+              ]
+          }
+      )
+
+    handler = type_handlers.SingleReplicaArrayHandler(
+        replica_axis_index=0,
+        primary_replica_id=0,
+        dispatcher=mock_dispatcher,
+        array_metadata_store=mock_store,
+        thinmint_testing=True,
+    )
+    info = get_param_info('rng', self.directory)
+    restore_arg = SingleReplicaArrayRestoreArgs(
+        sharding=sharding,
+        single_replica_sharding=single_replica_sharding,
+        global_shape=key.shape,
+        dtype=key.dtype,
+    )
+
+    [restored] = await handler.deserialize([info], [restore_arg])
+
+    self.assertLen(dispatched_result_specs, 1)
+    [spec] = dispatched_result_specs[0]
+    self.assertEqual(spec.shape, key_data.shape)
+    self.assertEqual(spec.dtype, key_data.dtype)
+    self.assertEqual(
+        spec.sharding,
+        jax.sharding.NamedSharding(
+            single_replica_mesh, jax.sharding.PartitionSpec(None, 'y', None)
+        ),
+    )
+    test_utils.assert_array_equal(self, key, restored)
+    self.assertEqual(restored.shape, key.shape)
+    self.assertEqual(restored.dtype, key.dtype)
+    self.assertEqual(restored.sharding, sharding)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        'Restoring with a dispatcher requires `global_shape` and `dtype`',
+    ):
+      await handler.deserialize(
+          [info],
+          [SingleReplicaArrayRestoreArgs(sharding=sharding)],
+      )
+
 
 class RegistryTest(parameterized.TestCase):
 

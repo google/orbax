@@ -367,6 +367,59 @@ class UtilsTest(parameterized.TestCase):
       expected_shape = (2,) + sharded_arr.shape
       self.assertEqual(result.shape, expected_shape)
 
+  def test_broadcast_preserves_bool_and_narrow_int_dtypes(self):
+    if len(jax.devices()) < 2:
+      self.skipTest('Need at least 2 devices for this test')
+
+    num_devices_per_replica = len(jax.devices()) // 2
+    shape = (2, num_devices_per_replica)
+    raw_arrays = [
+        np.array([[True, False] * (num_devices_per_replica // 2 or 1)] * 2)[
+            :, :num_devices_per_replica
+        ].astype(np.bool_),
+        np.arange(np.prod(shape), dtype=np.int8).reshape(shape),
+        np.arange(np.prod(shape), dtype=np.int16).reshape(shape),
+        np.arange(np.prod(shape), dtype=np.int32).reshape(shape),
+        np.arange(np.prod(shape), dtype=np.uint8).reshape(shape),
+        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape),
+        np.arange(np.prod(shape), dtype=np.uint32).reshape(shape),
+    ]
+    arrays, mesh, mesh_axes = setup_replica_sharded_arrays(
+        raw_arrays, (2, num_devices_per_replica)
+    )
+    replica_axis_index = 0
+    single_replica_mesh = jax.sharding.Mesh(mesh.devices[:1], mesh.axis_names)
+    single_replica_sharding = jax.sharding.NamedSharding(
+        single_replica_mesh, mesh_axes
+    )
+    _, primary_replica_pids = multislice.get_primary_replica_ids_and_pids(
+        replica_axis_idx=replica_axis_index,
+        mesh=mesh,
+        primary_replica_id=0,
+    )
+    is_source = multihost.process_index() in primary_replica_pids
+    if is_source:
+      in_tree = tuple(
+          jax.device_put(raw, single_replica_sharding) for raw in raw_arrays
+      )
+    else:
+      in_tree = tuple(
+          jax.ShapeDtypeStruct(
+              raw.shape, raw.dtype, sharding=single_replica_sharding
+          )
+          for raw in raw_arrays
+      )
+
+    broadcasted, _ = multislice.broadcast_one_replica_to_all(
+        in_tree,
+        mesh,
+        replica_axis_index=replica_axis_index,
+        is_source=is_source,
+    )
+    for out_arr, expected_arr in zip(broadcasted, arrays):
+      self.assertEqual(out_arr.dtype, expected_arr.dtype)
+      test_utils.assert_array_equal(self, expected_arr, out_arr)
+
 
 class ProcessReplicaAssignmentTest(parameterized.TestCase):
 
