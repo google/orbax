@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add flag `experimental_orbax_use_host_global_max`. When set,
+  `multihost.global_max` gathers the values with `process_allgather` and takes
+  the max on the host instead of running a `pmax` collective, for backends
+  whose collectives do not return computed values.
+
 ### Changed
 
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now

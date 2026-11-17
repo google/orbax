@@ -233,6 +233,24 @@ class CheckpointManagerTestSuite:
       )
 
     @parameterized.parameters(
+        ([[0], [1], [2], [3]], [3]),
+        ([[0, -1], [1, 2], [0, 2], [-1, 2]], [1, 2]),
+        ([[False], [False], [False], [True]], [1]),
+    )
+    @flagsaver.flagsaver(experimental_orbax_use_host_global_max=True)
+    def test_global_max_on_host(self, inputs, expectation):
+      with mock.patch.object(
+          multihost.multihost_utils,
+          'process_allgather',
+          wraps=multihost.multihost_utils.process_allgather,
+      ) as mock_process_allgather:
+        self.assertEqual(
+            multihost.global_max(inputs[multihost.process_index()]),
+            expectation,
+        )
+      mock_process_allgather.assert_called_once()
+
+    @parameterized.parameters(
         (1, 2, 2, 4, 10, [2, 4, 6, 8, 9]),
         (1, 3, 2, 4, 10, [2, 4, 6, 7, 8, 9]),
         (1, 2, 2, 5, 10, [0, 2, 4, 6, 8, 9]),
