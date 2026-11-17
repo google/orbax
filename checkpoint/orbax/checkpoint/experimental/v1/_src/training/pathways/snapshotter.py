@@ -24,6 +24,8 @@ import jax
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
+_DEFAULT_JOIN_TIMEOUT_SECS = 120.0
+
 
 def is_shardable_array(x: ...) -> bool:  # pyrefly: ignore[invalid-annotation]
   """Returns True if x is a concrete shardable array."""
@@ -49,6 +51,13 @@ def _wrap_if_prng_key(x: Any, orig_x: Any) -> Any:
   if _is_prng_key(orig_x):
     return jax.random.wrap_key_data(x, dtype=orig_x.dtype)
   return x
+
+
+def _pin_host(array: Any) -> Any:
+  """Copies the unwrapped JAX `array` into pinned host memory."""
+  return jax.device_put(
+      array, array.sharding.with_memory_kind("pinned_host"), may_alias=False
+  )
 
 
 def _get_pathwaysutils():
@@ -125,9 +134,7 @@ class Snapshotter:
       else:
         mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
         data = _unwrap_if_prng_key(x)
-        pinned = jax.device_put(
-            data, data.sharding.with_memory_kind("pinned_host")
-        )
+        pinned = _pin_host(data)
         replicas = self._split_by_mesh_axis.split_by_mesh_axis(
             pinned,
             mesh_axis_name,
@@ -199,6 +206,7 @@ class Snapshotter:
     Raises:
       RuntimeError: If no snapshots are available to restore from.
     """
+    self.join()
     with self._lock:
       if self._latest_snapshot is None:
         raise RuntimeError("No snapshots available to restore from.")
@@ -268,9 +276,29 @@ class Snapshotter:
 
     return restored_state
 
-  def join(self) -> None:
-    """Blocks until all queued snapshot requests have been processed."""
-    self._queue.join()
+  def join(self, timeout: float | None = _DEFAULT_JOIN_TIMEOUT_SECS) -> bool:
+    """Blocks until all queued snapshot requests have been processed.
+
+    A processed request may have failed, so check `latest` for the saved step.
+    To take a blocking snapshot, call `join` before `save` so that the request
+    is not skipped, and again after `save` to wait for it.
+
+    Args:
+      timeout: The maximum number of seconds to wait. Defaults to 120.0 seconds.
+        If None, waits until all queued requests have been processed.
+
+    Returns:
+      True if all queued requests have been processed, or False if `timeout`
+      elapsed first.
+    """
+    if timeout is None:
+      self._queue.join()
+      return True
+    with self._queue.all_tasks_done:
+      return self._queue.all_tasks_done.wait_for(
+          lambda: not self._queue.unfinished_tasks,
+          timeout=max(timeout, 0.0),
+      )
 
   @property
   def latest(self) -> training_metadata_types.CheckpointMetadata[None] | None:
