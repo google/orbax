@@ -55,6 +55,14 @@ EXPERIMENTAL_ORBAX_USE_DISTRIBUTED_BARRIER = flags.DEFINE_bool(
     ' timeouts. Otherwise, uses collectives-based barriers.',
 )
 
+EXPERIMENTAL_ORBAX_USE_HOST_GLOBAL_MAX = flags.DEFINE_bool(
+    'experimental_orbax_use_host_global_max',
+    False,
+    'If True, `global_max` gathers the values with'
+    ' `multihost_utils.process_allgather` and takes the max on the host.'
+    ' Otherwise, uses a `pmax` collective.',
+)
+
 
 def coordination_timeout() -> int:
   """Returns the timeout for coordination operations."""
@@ -525,8 +533,22 @@ def unique_processes_from_devices(device_array: np.ndarray) -> Set[int]:
   return set(get_pids_from_devices(device_array).flat)
 
 
+def _use_host_global_max() -> bool:
+  try:
+    return EXPERIMENTAL_ORBAX_USE_HOST_GLOBAL_MAX.value
+  except flags.UnparsedFlagAccessError:
+    return False
+
+
 def global_max(values: list[int]) -> list[int]:
   """Computes the global max of a list of integers across all hosts."""
+  if _use_host_global_max():
+    # A backend whose collectives do not compute values can serve
+    # `process_allgather` from the host, but not the jitted `pmax` below.
+    gathered = multihost_utils.process_allgather(
+        np.array(values, dtype=np.int32)
+    )
+    return list(np.max(gathered, axis=0).astype(int))
   host_mesh = jax.sharding.Mesh(
       np.asarray(jax.devices()).reshape(
           process_count(), jax.local_device_count()
