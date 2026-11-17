@@ -204,6 +204,112 @@ class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
       zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
       self.assertEqual(zstd_codec['configuration']['level'], expected_level)
 
+  @parameterized.product(
+      (
+          dict(
+              shuffle=ts_utils.BloscShuffle.AUTO,
+              expected_zarr2_shuffle=-1,
+              expected_zarr3_shuffle=None,
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.NOSHUFFLE,
+              expected_zarr2_shuffle=0,
+              expected_zarr3_shuffle='noshuffle',
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.SHUFFLE,
+              expected_zarr2_shuffle=1,
+              expected_zarr3_shuffle='shuffle',
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.BITSHUFFLE,
+              expected_zarr2_shuffle=2,
+              expected_zarr3_shuffle='bitshuffle',
+          ),
+      ),
+      use_zarr3=(True, False),
+  )
+  def test_build_zarr_shard_and_chunk_metadata_with_blosc_compression(
+      self,
+      shuffle: ts_utils.BloscShuffle,
+      expected_zarr2_shuffle: int,
+      expected_zarr3_shuffle: str | None,
+      use_zarr3: bool,
+  ):
+    shape = (10, 6, 32)
+    chunk_shape = (5, 6, 8)
+    spec = ts_utils.BloscCompression(
+        cname='lz4', clevel=1, shuffle=shuffle, blocksize=0
+    )
+    metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
+        global_shape=shape,
+        shard_shape=chunk_shape,
+        compression_spec=spec,
+        use_zarr3=use_zarr3,
+        chunk_shape=chunk_shape,
+    )
+    self.assertEqual(algo, 'blosc_lz4')
+    self.assertEqual(level, 1)
+    self.assertEqual(metadata['shape'], shape)
+    if not use_zarr3:
+      self.assertEqual(metadata['chunks'], chunk_shape)
+      self.assertEqual(
+          metadata['compressor'],
+          {
+              'id': 'blosc',
+              'cname': 'lz4',
+              'clevel': 1,
+              'shuffle': expected_zarr2_shuffle,
+              'blocksize': 0,
+          },
+      )
+    else:
+      self.assertEqual(
+          metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
+      )
+      codecs = metadata['codecs'][0]['configuration']['codecs']
+      expected_config: dict[str, int | str] = {
+          'cname': 'lz4',
+          'clevel': 1,
+          'blocksize': 0,
+      }
+      if expected_zarr3_shuffle is not None:
+        expected_config['shuffle'] = expected_zarr3_shuffle
+      self.assertIn(
+          {'name': 'blosc', 'configuration': expected_config}, codecs
+      )
+
+  def test_blosc_compression_validation(self):
+    self.assertEqual(ts_utils.BloscShuffle.BITSHUFFLE.value, 'bitshuffle')
+    self.assertEqual(ts_utils.BLOSC_MAX_BUFFERSIZE, 2_147_483_631)
+    self.assertEqual(ts_utils.BLOSC_MAX_BLOCKSIZE, 715_827_542)
+    self.assertEqual(ts_utils.BloscCompression(clevel=0).clevel, 0)
+    self.assertEqual(ts_utils.BloscCompression(clevel=9).clevel, 9)
+    self.assertEqual(
+        ts_utils.BloscCompression(
+            blocksize=ts_utils.BLOSC_MAX_BLOCKSIZE
+        ).blocksize,
+        ts_utils.BLOSC_MAX_BLOCKSIZE,
+    )
+    with self.assertRaisesRegex(ValueError, 'Blosc cname must be one of'):
+      ts_utils.BloscCompression(cname='LZ4')
+    with self.assertRaisesRegex(ValueError, 'Blosc clevel must be in'):
+      ts_utils.BloscCompression(clevel=10)
+    with self.assertRaisesRegex(ValueError, 'Blosc clevel must be in'):
+      ts_utils.BloscCompression(clevel=-1)
+    with self.assertRaisesRegex(ValueError, 'Blosc blocksize must be in'):
+      ts_utils.BloscCompression(blocksize=-1)
+    with self.assertRaisesRegex(ValueError, 'Blosc blocksize must be in'):
+      ts_utils.BloscCompression(blocksize=ts_utils.BLOSC_MAX_BLOCKSIZE + 1)
+
+  def test_max_chunk_byte_size_property(self):
+    self.assertIsNone(ts_utils.NoCompression().max_chunk_byte_size)
+    self.assertIsNone(ts_utils.ZstdCompression().max_chunk_byte_size)
+    self.assertEqual(
+        ts_utils.BloscCompression().max_chunk_byte_size,
+        ts_utils.BLOSC_MAX_BUFFERSIZE,
+    )
+
 
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
 
@@ -282,6 +388,151 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
       )
       self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
       self.assertEqual(tspec.metadata.compression_level, expected_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      shuffle=tuple(ts_utils.BloscShuffle),
+      dtype_str=('int32', 'int4'),
+  )
+  def test_blosc_write_and_read_roundtrip(
+      self,
+      use_zarr3: bool,
+      shuffle: ts_utils.BloscShuffle,
+      dtype_str: str,
+  ):
+    dtype = np.dtype(dtype_str)
+    spec = ts_utils.BloscCompression(
+        cname='lz4',
+        clevel=1,
+        shuffle=shuffle,
+    )
+    write_spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=dtype,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        compression_spec=spec,
+    )
+    self.assertEqual(write_spec.metadata.compression_algorithm, 'blosc_lz4')
+    self.assertEqual(write_spec.metadata.compression_level, 1)
+
+    raw_vals = (np.arange(math.prod(self.shape)) % 7) - 3
+    arr = raw_vals.astype(dtype).reshape(self.shape)
+    t_write = ts.open(write_spec.json, create=True, open=True).result()
+    t_write.write(arr).result()
+
+    read_spec = ts_utils.ArrayReadSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+    )
+    t_read = ts.open(read_spec.json, open=True).result()
+    np.testing.assert_array_equal(t_read.read().result(), arr)
+
+  @parameterized.product(
+      (
+          dict(
+              # 2 GiB (2^31 B) int4 shard exceeds BLOSC_MAX_BUFFERSIZE by 17 B.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # 4 GiB int4 shard with 4 GiB OCDBT target file size (e.g. CNS).
+              write_shape=(64, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=4 * GIB,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # 1 GiB int4 shard fits within BLOSC_MAX_BUFFERSIZE untouched.
+              write_shape=(16, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # Explicit smaller chunk_byte_size (256 MiB) is preserved.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=256 * 1024**2,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(4, 4096, 16384),
+          ),
+          dict(
+              # Explicit oversized chunk_byte_size (3 GiB) is clamped safely.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=3 * GIB,
+              ocdbt_target_data_file_size=4 * GIB,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+      ),
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_blosc_clamps_chunk_byte_size_to_max_buffersize(
+      self,
+      write_shape: types.Shape,
+      chunk_byte_size: int | None,
+      ocdbt_target_data_file_size: int | None,
+      expected_chunk_shape: types.Shape,
+      use_zarr3: bool,
+      use_ocdbt: bool,
+  ):
+    dtype = np.dtype('int4')
+    spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=(256, 4096, 16384),
+        write_shape=write_shape,
+        dtype=dtype,
+        chunk_byte_size=chunk_byte_size,
+        compression_spec=ts_utils.BloscCompression(
+            cname='lz4',
+            clevel=1,
+            shuffle=ts_utils.BloscShuffle.BITSHUFFLE,
+        ),
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        process_id=0 if use_ocdbt else None,
+    )
+    self.assertEqual(spec.metadata.chunk_shape, expected_chunk_shape)
+    self.assertLessEqual(
+        math.prod(spec.metadata.chunk_shape) * dtype.itemsize,
+        ts_utils.BLOSC_MAX_BUFFERSIZE,
+    )
+
+  @parameterized.parameters(
+      dict(
+          nbytes=ts_utils.BLOSC_MAX_BUFFERSIZE,
+          expected_chunk_shape=(ts_utils.BLOSC_MAX_BUFFERSIZE,),
+      ),
+      dict(
+          nbytes=ts_utils.BLOSC_MAX_BUFFERSIZE + 1,
+          expected_chunk_shape=((ts_utils.BLOSC_MAX_BUFFERSIZE + 1) // 2,),
+      ),
+  )
+  def test_blosc_exact_max_buffersize_boundary(
+      self,
+      nbytes: int,
+      expected_chunk_shape: types.Shape,
+  ):
+    spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=(nbytes,),
+        write_shape=(nbytes,),
+        dtype=np.dtype(np.uint8),
+        compression_spec=ts_utils.BloscCompression(),
+        use_zarr3=False,
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.metadata.chunk_shape, expected_chunk_shape)
 
   @parameterized.product(
       use_zarr3=(True, False),

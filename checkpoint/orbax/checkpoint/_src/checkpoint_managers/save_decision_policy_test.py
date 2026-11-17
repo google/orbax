@@ -60,6 +60,12 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
+          testcase_name="negative_minimum_interval",
+          target_interval_steps=10,
+          deferral_window_steps=None,
+          minimum_interval_secs=-1,
+      ),
+      dict(
           testcase_name="zero_target_interval",
           target_interval_steps=0,
           deferral_window_steps=None,
@@ -79,9 +85,11 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
       self,
       target_interval_steps: int | None,
       deferral_window_steps: int | None,
+      minimum_interval_secs: int | None = None,
   ):
     with self.assertRaises(ValueError):
       ContinuousCheckpointingPolicy(
+          minimum_interval_secs=minimum_interval_secs,
           target_interval_steps=target_interval_steps,
           deferral_window_steps=deferral_window_steps,
       )

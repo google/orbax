@@ -229,6 +229,15 @@ class PreservationPolicyTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       self.get_preserved_checkpoints(self.get_checkpoints(), policy)
 
+  @parameterized.parameters(0, -1)
+  def test_every_n_steps_policy_invalid_max_to_keep_raises_error(
+      self, max_to_keep
+  ):
+    with self.assertRaises(ValueError):
+      preservation_policy_lib.EveryNSteps(
+          interval_steps=1, max_to_keep=max_to_keep
+      )
+
   @parameterized.parameters(
       dict(
           steps=[0, 2, 3],

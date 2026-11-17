@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `ContinuousCheckpointingPolicy` raises `ValueError` for a negative
+  `minimum_interval_secs`. `EveryNSteps` raises `ValueError` for a `max_to_keep`
+  below 1.
+
 ### Fixed
 
 - Restore function-local named tuples when rich PyTree metadata is enabled.
