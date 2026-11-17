@@ -88,6 +88,75 @@ class ColocatedTransportTest(absltest.TestCase):
     self.assertIsInstance(cpu_sharding, jax.sharding.NamedSharding)
     self.mock_cp_devices.assert_called_once_with(self.arr.sharding.mesh)
 
+  def test_colocated_cpu_sharding_uses_default_memory_kind(self):
+    device = jax.devices()[0]
+    for memory_kind in ('device', 'pinned_host', 'unpinned_host'):
+      with self.subTest(memory_kind=memory_kind):
+        named = self.arr.sharding.with_memory_kind(memory_kind)
+        self.assertEqual(
+            colocated_transport.colocated_cpu_sharding(named),
+            jax.sharding.NamedSharding(named.mesh, named.spec),
+        )
+        single = jax.sharding.SingleDeviceSharding(
+            device, memory_kind=memory_kind
+        )
+        self.assertEqual(
+            colocated_transport.colocated_cpu_sharding(single),
+            jax.sharding.SingleDeviceSharding(device),
+        )
+
+  def test_normalize_single_device_sharding_uses_default_memory_kind(self):
+    tpu = mock.Mock(platform='tpu')
+    cpu = jax.devices()[0]
+
+    class _FakeSingleDeviceSharding:
+      device_set = {tpu}
+      memory_kind = 'pinned_host'
+
+    with mock.patch.object(
+        colocated_transport, '_to_serializable_cpu_device', return_value=cpu
+    ):
+      result = colocated_transport._normalize_single_device_sharding_to_colocated_cpu(  # pylint: disable=protected-access
+          _FakeSingleDeviceSharding()  # pyrefly: ignore[bad-argument-type]
+      )
+
+    self.assertEqual(result, jax.sharding.SingleDeviceSharding(cpu))
+
+  def test_validate_single_device_list_allows_empty(self):
+    colocated_transport.validate_single_device_list([], [])
+
+  def test_validate_single_device_list_truncates_more_than_five_names(self):
+    device_list_a = object()
+    device_list_b = object()
+
+    class _FakeSharding:
+
+      def __init__(self, device_list, num_devices):
+        self._internal_device_list = device_list
+        self.device_set = {object() for _ in range(num_devices)}
+
+    class _FakeArray:
+
+      def __init__(self, sharding):
+        self.sharding = sharding
+
+    sharding_a = _FakeSharding(device_list_a, num_devices=4)
+    sharding_b = _FakeSharding(device_list_b, num_devices=1)
+    arrays = [_FakeArray(sharding_a) for _ in range(7)] + [
+        _FakeArray(sharding_b)
+    ]
+    names = [f'p{i}' for i in range(7)] + ['step']
+
+    with self.assertRaises(ValueError) as cm:
+      colocated_transport.validate_single_device_list(
+          arrays, names  # pyrefly: ignore[bad-argument-type]
+      )
+
+    message = str(cm.exception)
+    self.assertIn('4 device(s): p0, p1, p2, p3, p4 (+2 more)', message)
+    self.assertNotIn('p5', message)
+    self.assertIn('1 device(s): step', message)
+
   def test_transform_tree_shardings(self):
     restore_args = type_handlers.ArrayRestoreArgs(sharding=self.arr.sharding)
     sharding_meta = sharding_metadata.NamedShardingMetadata.from_jax_sharding(

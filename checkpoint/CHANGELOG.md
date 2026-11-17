@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ArrayHandler(dispatcher_restore_concurrent_bytes=...)` (configurable via
+  `ocp.pathways.register_type_handlers`) bounds per-worker staging memory when
+  restoring `jax.Array`s through a dispatcher (e.g. Pathways colocated Python)
+  by restoring in memory-budgeted batches. It is off by default; colocated
+  Python restores of host-offloaded arrays without it log a warning.
+
 ### Changed
 
 - `ContinuousCheckpointingPolicy` raises `ValueError` for a negative
@@ -17,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the device order of the input mesh if a single `NamedSharding` mesh covers
   all input devices, instead of sorting devices by id. On Pathways, upgrade
   Orbax in the workload and `colocated-python-sidecar` images together.
+- Colocated Python now raises an error naming the affected parameters, instead
+  of a generic JAX error, when arrays on different device lists are saved or
+  restored together (even if save or restore batching would split them across
+  calls).
+
+### Fixed
+
+- Colocated Python no longer copies accelerator memory kinds (e.g.
+  `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
+  broke saving and restoring such arrays.
 
 ## [0.12.11] - 2026-11-16
 ### Fixed
