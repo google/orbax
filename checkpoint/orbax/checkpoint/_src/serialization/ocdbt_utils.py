@@ -38,6 +38,8 @@ _ZARR_META_SUFFIX_RE = re.compile(r'(?:^|/)(?:\.zarray|zarr\.json)$')
 _ZARR2_CHUNK_SUFFIX_RE = re.compile(_SHARDING_SUFFIX_RE)
 _CHUNK_SUFFIX_RE = re.compile(r'\d+(?:\.\d+)*')
 _ZARR3_CHUNK_SUFFIX_RE = re.compile(r'(?:^|/)c(?:/\d+)*$')
+_ZARR2_REL_CHUNK_RE = re.compile(r'\d+(?:[./]\d+)*')
+_ZARR3_REL_CHUNK_RE = re.compile(r'c(?:/\d+)*')
 
 
 async def _validate_params(
@@ -373,6 +375,27 @@ async def _collect_ocdbt_node_entries(
   return list(itertools.chain.from_iterable(child_lists))
 
 
+def _resolve_ocdbt_tensor_name(
+    key: str,
+    meta_names: set[str],
+    rel_chunk_re: re.Pattern[str],
+    fallback_chunk_re: re.Pattern[str],
+) -> str | None:
+  """Maps an OCDBT B-tree key to its owning tensor name, or None."""
+  if _ZARR_META_SUFFIX_RE.search(key):
+    return _ZARR_META_SUFFIX_RE.sub('', key)
+  sep_idx = len(key)
+  while (sep_idx := key.rfind('/', 0, sep_idx)) != -1:
+    candidate = key[:sep_idx]
+    if candidate in meta_names and rel_chunk_re.fullmatch(key[sep_idx + 1 :]):
+      return candidate
+  if '' in meta_names and rel_chunk_re.fullmatch(key):
+    return ''
+  if fallback_chunk_re.search(key):
+    return fallback_chunk_re.sub('', key)
+  return None
+
+
 async def get_tensor_raw_bytes(directory: epath.Path) -> dict[str, int]:
   """Sums on-disk bytes per tensor from the OCDBT B-tree.
 
@@ -406,13 +429,17 @@ async def get_tensor_raw_bytes(directory: epath.Path) -> dict[str, int]:
   # Determine if it's using zarr2 or zarr3.
   is_zarr3 = any(key.rsplit('/', 1)[-1] == 'zarr.json' for key, _ in entries)
   chunk_re = _ZARR3_CHUNK_SUFFIX_RE if is_zarr3 else _ZARR2_CHUNK_SUFFIX_RE
+  rel_chunk_re = _ZARR3_REL_CHUNK_RE if is_zarr3 else _ZARR2_REL_CHUNK_RE
+  meta_names = {
+      _ZARR_META_SUFFIX_RE.sub('', key)
+      for key, _ in entries
+      if _ZARR_META_SUFFIX_RE.search(key)
+  }
   result: dict[str, int] = {}
 
   # Iterate over all entries in the OCDBT B-tree to determine ondisk size.
   for key, entry in entries:
-    for suffix_re in (_ZARR_META_SUFFIX_RE, chunk_re):
-      if suffix_re.search(key):
-        name = suffix_re.sub('', key)
-        result[name] = result.get(name, 0) + _entry_byte_size(entry)
-        break
+    name = _resolve_ocdbt_tensor_name(key, meta_names, rel_chunk_re, chunk_re)
+    if name is not None:
+      result[name] = result.get(name, 0) + _entry_byte_size(entry)
   return result

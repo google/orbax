@@ -31,12 +31,12 @@ from typing import Any, Dict, Hashable, List, Optional, Protocol, Tuple, TypeAli
 from absl import logging
 from etils import epath
 import jax
-from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
 from orbax.checkpoint._src.metadata import tree_rich_types
 from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.metadata import value_metadata_entry
+from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types
@@ -488,7 +488,7 @@ class InternalTreeMetadata:
         for entry in filtered_entries
     ])
 
-  def as_custom_metadata(
+  async def as_custom_metadata(
       self,
       directory: epath.Path,
       type_handler_registry: types.TypeHandlerRegistry,
@@ -504,12 +504,15 @@ class InternalTreeMetadata:
       type_handler_registry: `TypeHandlerRegistry` whose registered
         TypeHandlers' metadata are used to build the `ValueMetadataEntry`
         leaves. See `TypeHandler.metadata()`.
+
+    Returns:
+      A PyTree matching `self` whose leaves are `ValueMetadataEntry` instances.
     """
-    use_ocdbt = (
-        self.use_ocdbt
-        if self.use_ocdbt is not None
-        else format_utils.is_ocdbt_checkpoint(directory)
-    )
+    use_ocdbt = self.use_ocdbt
+    if use_ocdbt is None:
+      use_ocdbt = await async_path.exists(
+          directory / format_utils.OCDBT_MANIFEST_FILE
+      )
     flat_param_infos = {}
     flat_restore_types = {}
     reference_metadata_tree = self.as_nested_tree()
@@ -570,10 +573,7 @@ class InternalTreeMetadata:
       handler = type_handler_registry.get(restore_type)
       metadata_ops.append(handler.metadata(param_infos))
 
-    async def _get_metadata():
-      return await asyncio.gather(*metadata_ops)
-
-    batched_metadatas = asyncio_utils.run_sync(_get_metadata())
+    batched_metadatas = await asyncio.gather(*metadata_ops)
     for keypath_batch, metadata_batch in zip(
         batched_keypaths.values(), batched_metadatas
     ):

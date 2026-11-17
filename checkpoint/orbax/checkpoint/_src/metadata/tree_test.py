@@ -22,6 +22,7 @@ import jax
 import numpy as np
 import optax
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
+from orbax.checkpoint._src.metadata import value as value_metadata_lib
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing import test_tree_utils
@@ -541,6 +542,28 @@ class TreeMetadataTest(parameterized.TestCase):
     )
     flat_with_keys, _ = jax.tree_util.tree_flatten_with_path(metadata)
     self.assertEmpty(flat_with_keys)
+
+
+class ZarrMetadataDtypeTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      ('endian_float32', '<f4', 'float32'),
+      ('endian_int64', '<i8', 'int64'),
+      ('bool_byte', '|b1', 'bool'),
+      ('bfloat16', 'bfloat16', 'bfloat16'),
+      ('void16', '|V2', 'void16'),
+      ('unknown_custom_fallback', 'custom_fp4', 'custom_fp4'),
+      ('empty', '', ''),
+  )
+  def test_zarr2_normalizes_dtype_strings(self, raw_dtype, expected_dtype):
+    meta = value_metadata_lib.ZarrMetadata.from_json({
+        'zarr_format': 2,
+        'shape': [4, 8],
+        'chunks': [4, 8],
+        'dtype': raw_dtype,
+    })
+    self.assertIsNotNone(meta)
+    self.assertEqual(meta.dtype, expected_dtype)
 
 
 if __name__ == '__main__':

@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shards (for example an array on a sub-mesh of other processes' devices),
   which previously raised `IndexError` during save and `ValueError` during
   restore.
+- Normalize Zarr v2 endianness dtype strings (e.g. `<f4` to `float32`) in
+  `Zarr2Metadata` and resolve multi-dimensional `'/'`-separated Zarr v2 chunk
+  keys in `ocdbt_utils.get_tensor_raw_bytes`.
+- #v1 Convert `SafetensorsLayout.metadata()` `commit_timestamp_nsecs` from
+  seconds to nanoseconds.
+- #v1 Recognize Zarr v3 `zarr.json` metadata with batched probing when
+  validating TensorStore data files, materialize `async_path.iterdir`/`glob`
+  off the event loop, and read PyTree/composite metadata asynchronously in
+  parallel.
 
 ## [0.12.12] - 2026-11-18
 
