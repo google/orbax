@@ -163,6 +163,32 @@ class PyTreeCheckpointableResolutionAsyncTest(
     self.assertIsNone(resolved_name)
     self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
 
+  async def test_v0_flat_auto_skips_ocdbt_process_dirs(self):
+    flat_directory = self.root_directory / 'v0_flat_multihost'
+    ckptr = checkpointer.Checkpointer(
+        standard_checkpoint_handler.StandardCheckpointHandler()
+    )
+    ckptr.save(
+        flat_directory,
+        standard_checkpoint_handler.StandardSaveArgs({'a': 1, 'b': 2}),
+    )
+    for idx in range(4):
+      (flat_directory / f'ocdbt.process_{idx}').mkdir(exist_ok=True)
+    with mock.patch.object(
+        orbax_v0_layout.OrbaxV0Layout,
+        'validate',
+        wraps=orbax_v0_layout.OrbaxV0Layout().validate,
+    ) as spy_validate:
+      layout, resolved_name = await get_pytree_spec(
+          flat_directory,
+          CheckpointLayoutEnum.ORBAX,
+          checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+      )
+    self.assertIsNone(resolved_name)
+    self.assertIsInstance(layout, orbax_v0_layout.OrbaxV0Layout)
+    validated_names = [call.args[1] for call in spy_validate.call_args_list]
+    self.assertEqual(validated_names, [None])
+
   async def test_v1_flat_errors(self):
     flat_directory = self.root_directory / 'v1_flat'
     ckptr = checkpointer.Checkpointer(

@@ -41,6 +41,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Colocated Python no longer copies accelerator memory kinds (e.g.
   `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
   broke saving and restoring such arrays.
+- Normalize Zarr v2 endianness dtype strings (e.g. `<f4` to `float32`) in
+  `Zarr2Metadata` and resolve multi-dimensional `'/'`-separated Zarr v2 chunk
+  keys in `ocdbt_utils.get_tensor_raw_bytes`.
+- #v1 Convert `SafetensorsLayout.metadata()` `commit_timestamp_nsecs` from
+  seconds to nanoseconds.
+- #v1 Skip internal TensorStore/OCDBT subdirectories (`d`, `array_metadatas`,
+  `ocdbt.process_*`) during checkpointable discovery, recognize Zarr v3
+  `zarr.json` metadata when validating TensorStore data files, and read
+  PyTree/composite metadata asynchronously in parallel.
 
 ## [0.12.11] - 2026-11-16
 ### Fixed

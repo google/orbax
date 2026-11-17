@@ -17,6 +17,8 @@
 import asyncio
 import contextlib
 import dataclasses
+import json
+import math
 import tempfile
 from typing import TypeAlias
 import unittest
@@ -460,6 +462,60 @@ class OcdbtSpecsE2eTest(
         store_ocdbt_metadata_and_values_separately,
     )
     await _verify_array_data(test_data, test_dir)
+
+  async def test_get_tensor_raw_bytes_slash_dimension_separator(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      store_dir = epath.Path(tmpdir) / "slash_ocdbt"
+      store_dir.mkdir(parents=True, exist_ok=True)
+      ocdbt_kv = await ts.KvStore.open({
+          "driver": "ocdbt",
+          "base": {"driver": "file", "path": store_dir.as_posix()},
+      })
+      dtype = np.dtype("<f4")
+      shape_2d = (4, 4)
+      chunks_2d = (2, 2)
+      zarray_2d = json.dumps({
+          "zarr_format": 2,
+          "shape": list(shape_2d),
+          "chunks": list(chunks_2d),
+          "dtype": dtype.str,
+          "dimension_separator": "/",
+      }).encode("utf-8")
+      shape_1d = (4,)
+      chunks_1d = (2,)
+      zarray_1d = json.dumps({
+          "zarr_format": 2,
+          "shape": list(shape_1d),
+          "chunks": list(chunks_1d),
+          "dtype": dtype.str,
+          "dimension_separator": "/",
+      }).encode("utf-8")
+      chunk_2d_bytes = math.prod(chunks_2d) * dtype.itemsize
+      chunk_1d_bytes = math.prod(chunks_1d) * dtype.itemsize
+      await ocdbt_kv.write(b"weights/matrix/.zarray", zarray_2d)
+      for row_idx in range(shape_2d[0] // chunks_2d[0]):
+        for col_idx in range(shape_2d[1] // chunks_2d[1]):
+          await ocdbt_kv.write(
+              f"weights/matrix/{row_idx}/{col_idx}".encode("utf-8"),
+              b"\x00" * chunk_2d_bytes,
+          )
+      await ocdbt_kv.write(b"params/0/.zarray", zarray_1d)
+      for idx in range(shape_1d[0] // chunks_1d[0]):
+        await ocdbt_kv.write(
+            f"params/0/{idx}".encode("utf-8"),
+            b"\x00" * chunk_1d_bytes,
+        )
+
+      sizes = await ocdbt_utils.get_tensor_raw_bytes(store_dir)
+      self.assertEqual(set(sizes), {"weights/matrix", "params/0"})
+      self.assertEqual(
+          sizes["weights/matrix"],
+          len(zarray_2d) + math.prod(shape_2d) * dtype.itemsize,
+      )
+      self.assertEqual(
+          sizes["params/0"],
+          len(zarray_1d) + math.prod(shape_1d) * dtype.itemsize,
+      )
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses
 import time
 import typing
-from typing import Any, Awaitable, get_args, Sequence
+from typing import Any, Awaitable, Sequence, get_args
 
 from absl import logging
 import jax
@@ -30,6 +30,7 @@ from orbax.checkpoint._src.futures import synchronization
 from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import partial_save_utils
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
+from orbax.checkpoint._src.metadata import tree as tree_metadata
 from orbax.checkpoint._src.serialization import type_handlers as type_handlers_v0
 from orbax.checkpoint._src.serialization import types as v0_serialization_types
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
@@ -461,7 +462,18 @@ class PyTreeHandler(CheckpointableHandler[PyTree, PyTree]):
   async def metadata(
       self, directory: path_types.Path
   ) -> metadata_types.PyTreeMetadata:
-    v0_metadata = self._handler_impl.metadata(directory).tree
+    impl = self._handler_impl
+    internal_tree_metadata = await (
+        impl._metadata_manager.read_metadata_file(directory)  # pylint: disable=protected-access
+    )
+    v0_metadata = tree_metadata.build_default_tree_metadata(
+        await internal_tree_metadata.as_custom_metadata(
+            directory,
+            impl._type_handler_registry,  # pylint: disable=protected-access
+        ),
+        custom_metadata=internal_tree_metadata.custom_metadata,
+        use_zarr3=internal_tree_metadata.use_zarr3,
+    ).tree
 
     def _unwrap(metadata):
       # unwrap the V0Metadata to get the V1 metadata
