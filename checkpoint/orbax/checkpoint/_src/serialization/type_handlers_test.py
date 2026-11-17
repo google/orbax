@@ -1935,6 +1935,54 @@ class SingleReplicaArrayHandlerTest(
     )
     await self.single_replica_serialize_deserialize(config)
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='four_replicas_2d',
+          device_indices=[[0, 1], [2, 3], [4, 5], [6, 7]],
+          primary_replica_id=1,
+      ),
+      dict(
+          testcase_name='interleaved_hosts_2x4',
+          device_indices=[[0, 2, 4, 6], [1, 3, 5, 7]],
+          primary_replica_id=1,
+      ),
+      dict(
+          testcase_name='host0_in_both_host1_in_primary',
+          device_indices=[[0, 2], [1, 4]],
+          primary_replica_id=1,
+      ),
+      dict(
+          testcase_name='host0_in_both_primary_wholly_on_host0',
+          device_indices=[[0, 4], [1, 2]],
+          primary_replica_id=1,
+      ),
+  )
+  async def test_single_replica_serialize_deserialize_host_spanning_replicas(
+      self,
+      device_indices,
+      primary_replica_id,
+  ):
+    devices = jax.devices()
+    mesh_devices = np.array(
+        [[devices[i] for i in row] for row in device_indices]
+    )
+    mesh = jax.sharding.Mesh(mesh_devices, ('x', 'y'))
+    arrays = [
+        np.arange(1, 65).reshape(8, 8),
+        np.arange(1, 33),
+    ]
+    mesh_axes = [
+        jax.sharding.PartitionSpec(None, 'y'),
+        jax.sharding.PartitionSpec(None),
+    ]
+    config = SingleReplicaTestConfig(
+        mesh=mesh,
+        np_arrays=arrays,
+        partition_specs=mesh_axes,
+        primary_replica_id=primary_replica_id,
+    )
+    await self.single_replica_serialize_deserialize(config)
+
   async def test_validate_sharding_not_named_sharding_throws_error(self):
     with self.assertRaisesRegex(
         type_handlers.InvalidShardingError,
@@ -1946,11 +1994,35 @@ class SingleReplicaArrayHandlerTest(
           sharding=make_single_device_sharding(jax.devices()[0]),
       )
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='full_mesh_axis_0',
+          devices_slice=slice(None),
+          mesh_shape=(1, 8),
+          replica_axis_index=0,
+      ),
+      dict(
+          testcase_name='submesh_axis_0',
+          devices_slice=slice(0, 4),
+          mesh_shape=(1, 4),
+          replica_axis_index=0,
+      ),
+      dict(
+          testcase_name='submesh_axis_1',
+          devices_slice=slice(0, 4),
+          mesh_shape=(4, 1),
+          replica_axis_index=1,
+      ),
+  )
   async def test_validate_sharding_all_devices_in_primary_replica_throws_error(
       self,
+      devices_slice,
+      mesh_shape,
+      replica_axis_index,
   ):
     mesh = jax.sharding.Mesh(
-        np.asarray(jax.devices()).reshape(1, 8), ('x', 'y')
+        np.asarray(jax.devices()[devices_slice]).reshape(mesh_shape),
+        ('x', 'y'),
     )
     sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
     with self.assertRaisesRegex(
@@ -1958,16 +2030,82 @@ class SingleReplicaArrayHandlerTest(
         'All devices are in the primary replica',
     ):
       jax_array_handlers._validate_sharding_and_get_primary_replica_processes(
-          replica_axis_index=0,
+          replica_axis_index=replica_axis_index,
           primary_replica_id=0,
           sharding=sharding,
       )
 
-  async def test_validate_sharding_success(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='direct_axis_0',
+          replica_axis_index=0,
+          spec=jax.sharding.PartitionSpec('x', 'y'),
+      ),
+      dict(
+          testcase_name='tuple_axis_0',
+          replica_axis_index=0,
+          spec=jax.sharding.PartitionSpec(('x', 'y')),
+      ),
+      dict(
+          testcase_name='direct_axis_1',
+          replica_axis_index=1,
+          spec=jax.sharding.PartitionSpec('x', 'y'),
+      ),
+      dict(
+          testcase_name='tuple_axis_1',
+          replica_axis_index=1,
+          spec=jax.sharding.PartitionSpec(None, ('x', 'y')),
+      ),
+  )
+  async def test_validate_sharding_replica_axis_in_spec_throws_error(
+      self,
+      replica_axis_index,
+      spec,
+  ):
     mesh = jax.sharding.Mesh(
         np.asarray(jax.devices()).reshape(2, 4), ('x', 'y')
     )
-    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+    sharding = jax.sharding.NamedSharding(mesh, spec)
+    with self.assertRaisesRegex(
+        type_handlers.InvalidShardingError,
+        'must not be present in sharding.spec',
+    ):
+      jax_array_handlers._validate_sharding_and_get_primary_replica_processes(
+          replica_axis_index=replica_axis_index,
+          primary_replica_id=0,
+          sharding=sharding,
+      )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='fully_replicated',
+          mesh_shape=(2, 4),
+          axis_names=('x', 'y'),
+          spec=jax.sharding.PartitionSpec(),
+      ),
+      dict(
+          testcase_name='sharded_on_non_replica_axis',
+          mesh_shape=(2, 4),
+          axis_names=('x', 'y'),
+          spec=jax.sharding.PartitionSpec(None, 'y'),
+      ),
+      dict(
+          testcase_name='sharded_on_non_replica_tuple_axes',
+          mesh_shape=(2, 2, 2),
+          axis_names=('x', 'y', 'z'),
+          spec=jax.sharding.PartitionSpec(None, ('y', 'z')),
+      ),
+  )
+  async def test_validate_sharding_success(
+      self,
+      mesh_shape,
+      axis_names,
+      spec,
+  ):
+    mesh = jax.sharding.Mesh(
+        np.asarray(jax.devices()).reshape(mesh_shape), axis_names
+    )
+    sharding = jax.sharding.NamedSharding(mesh, spec)
     pids = (
         jax_array_handlers._validate_sharding_and_get_primary_replica_processes(
             replica_axis_index=0,
