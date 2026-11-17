@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Export `MemoryProfiler`, `SerializationStatusCallback`,
+  `DefaultSerializationStatusCallback`, and `TransferPriority` in
+  `orbax.checkpoint.v1.options`.
+
 ## [0.12.12] - 2026-11-18
 
 ### Added
