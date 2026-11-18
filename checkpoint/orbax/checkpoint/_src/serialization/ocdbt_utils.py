@@ -34,9 +34,9 @@ import tensorstore as ts
 # parses correctly: its keys are prefix-less (`.zarray`, `0`, …) rather
 # than `name/.zarray`, `name/0`. Both strip to the empty param name ''.
 _SHARDING_SUFFIX_RE = r'(?:^|/)\d+(\.\d+)*$'
-_ZARRAY_SUFFIX_RE = r'(?:^|/)\.zarray$'
 _ZARR_META_SUFFIX_RE = re.compile(r'(?:^|/)(?:\.zarray|zarr\.json)$')
 _ZARR2_CHUNK_SUFFIX_RE = re.compile(_SHARDING_SUFFIX_RE)
+_CHUNK_SUFFIX_RE = re.compile(r'\d+(?:\.\d+)*')
 _ZARR3_CHUNK_SUFFIX_RE = re.compile(r'(?:^|/)c(?:/\d+)*$')
 
 
@@ -75,13 +75,15 @@ async def _validate_params(
 
   process_index = multihost.process_index()
   current_thread_name = threading.current_thread().name
+  is_vlog_on = logging.vlog_is_on(1)
+  chunk_fullmatch = _CHUNK_SUFFIX_RE.fullmatch
   # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, d}
   with_zarray = set()
   # [a/.zarray, a/0, b.zarray, b/0.0, b/0.1, c/0, d/.zarray] -> {a, b, c}
   without_zarray = set()
-  for ts_param in raw_ts_params:
-    ts_param = ts_param.decode('utf-8')
-    if logging.vlog_is_on(1):
+  for raw_param in raw_ts_params:
+    ts_param = raw_param.decode('utf-8')
+    if is_vlog_on:
       logging.vlog(
           1,
           '[process=%s][thread=%s] Validating raw param: %s',
@@ -90,26 +92,26 @@ async def _validate_params(
           ts_param,
       )
     # Classify params as either having a .zarray suffix or not.
-    # For a bare leaf (`.zarray`), `name` strips to `''`. For a container
-    # (`a/.zarray`), `name` strips to `'a'`.
-    if re.search(_ZARRAY_SUFFIX_RE, ts_param):
-      name = re.sub(_ZARRAY_SUFFIX_RE, '', ts_param)
-      with_zarray.add(name)
-      if logging.vlog_is_on(1):
+    # For a bare leaf (`.zarray`), `head` is `''`. For a container
+    # (`a/.zarray`), `head` is `'a'`.
+    head, _, tail = ts_param.rpartition('/')
+    if tail == '.zarray':
+      with_zarray.add(head)
+      if is_vlog_on:
         logging.vlog(
             1,
             '[process=%s][thread=%s] Collecting param with .zarray: %s',
             process_index,
             current_thread_name,
-            name,
+            head,
         )
     else:
       # Extract parameter name from data chunks. For a bare leaf chunk (`0`),
-      # `_SHARDING_SUFFIX_RE` strips `^0$` to `''`. For a container chunk
-      # (`a/0`), it strips `/0$` to `'a'`.
-      name = re.sub(_SHARDING_SUFFIX_RE, '', ts_param)
+      # `head` is `''` and `tail` matches `_CHUNK_SUFFIX_RE`. For a container
+      # chunk (`a/0`), `head` is `'a'`.
+      name = head if chunk_fullmatch(tail) else ts_param
       without_zarray.add(name)
-      if logging.vlog_is_on(1):
+      if is_vlog_on:
         logging.vlog(
             1,
             '[process=%s][thread=%s] Collecting param without .zarray: %s',
@@ -119,12 +121,13 @@ async def _validate_params(
         )
 
   unique = with_zarray | without_zarray
-  logging.vlog(
-      1,
-      '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
-      process_index,
-      current_thread_name,
-  )
+  if is_vlog_on:
+    logging.vlog(
+        1,
+        '[process=%s][thread=%s] Validating params in TensorStore KvStore.',
+        process_index,
+        current_thread_name,
+    )
   missing_params = unique - without_zarray
   if missing_params:
     formatted_missing_params = ' \n'.join(sorted(missing_params))
