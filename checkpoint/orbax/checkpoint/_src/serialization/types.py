@@ -43,21 +43,26 @@ PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
 
 
 class TransferPriority(enum.Enum):
-  """Prioritization of arrays for saving.
+  """Prioritization of arrays for device-to-host transfer during saving.
 
-  NOTE: If the option is ASYNCHRONOUS_*, values may be altered if updated
-  concurrently before transfer.
+  .. note::
+    For ``ASYNCHRONOUS_*`` priorities, array transfers happen in the background
+    after the blocking save call returns. Values may be corrupted if updated or
+    donated concurrently before their transfer completes.
 
-  SYNCHRONOUS: The device to host transfer is scheduled and executed
-    synchronously before returning to the caller. This ensures values are
-    never corrupted by concurrent updates or donations.
-  ASYNCHRONOUS_PRIORITIZED: The device to host transfer is scheduled
-    asynchronously in the background, but prioritized ahead of deprioritized
-    transfers.
-  ASYNCHRONOUS_DEPRIORITIZED: The device to host transfer is scheduled
-    asynchronously in the background after all prioritized transfers have
-    completed.
-  UNKNOWN: The transfer priority is unknown or unspecified.
+  Attributes:
+    SYNCHRONOUS: The device-to-host transfer is scheduled and executed
+      synchronously before returning to the caller. This ensures values are
+      never corrupted by concurrent updates or donations, and bypasses the
+      device-to-host concurrency limit (intended for lightweight arrays).
+    ASYNCHRONOUS_PRIORITIZED: The device-to-host transfer is scheduled
+      asynchronously in the background, prioritized ahead of deprioritized
+      transfers, subject to the device-to-host concurrency limit.
+    ASYNCHRONOUS_DEPRIORITIZED: The device-to-host transfer is scheduled
+      asynchronously in the background after all prioritized transfers have
+      completed, subject to the device-to-host concurrency limit.
+    UNKNOWN: The transfer priority is unknown or unspecified (raises
+      ``ValueError`` if returned during serialization).
   """
 
   SYNCHRONOUS = 0
@@ -72,34 +77,34 @@ class IoDirection(enum.Enum):
 
 
 class SerializationStatusCallback(Protocol):
-  """Callback for tracking serialization status of PyTree parameters.
+  """Callback for tracking and prioritizing serialization of PyTree parameters.
 
-  NOTE: Callback methods can be called concurrently from parallel background
-  threads. Implementations must ensure thread safety if they access or modify
-  shared state.
+  .. note::
+    Callback methods can be called concurrently from parallel background
+    threads. Implementations must ensure thread safety (for example, using a
+    ``threading.Lock``) if they access or modify shared state.
 
-  Usage:
-    Users can implement this protocol to customize parameter serialization
-    behavior, such as transfer prioritization from device to host or to
-    receive notifications about transfer and write completion.
+  Implement this protocol (or subclass
+  :py:class:`DefaultSerializationStatusCallback`) to control device-to-host
+  transfer prioritization per keypath and receive per-parameter completion
+  notifications for transfers and storage writes.
 
-    To use a custom callback, implement the protocol and register it with
-    `ArrayHandler` for `jax.Array` type before saving:
+  Example usage::
 
-    ```
+    import jax
+    import orbax.checkpoint as ocp
     from orbax.checkpoint._src.serialization import types as serialization_types
-    from orbax.checkpoint._src.tree import types as tree_types
 
-    class MyCallback(serialization_types.SerializationStatusCallback):
-      def key_priority(self, keypath: tree_types.PyTreePath):
-        if 'large_param' in jax.tree_util.keystr(keypath):
+    class MyCallback(serialization_types.DefaultSerializationStatusCallback):
+      def key_priority(self, keypath):
+        if 'opt_state' in jax.tree_util.keystr(keypath):
           return serialization_types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
         return serialization_types.TransferPriority.ASYNCHRONOUS_PRIORITIZED
 
-      def on_transfer_end(self, keypath: tree_types.PyTreePath):
+      def on_transfer_end(self, keypath):
         print(f'Transfer ended for {jax.tree_util.keystr(keypath)}')
 
-      def on_write_end(self, keypath: tree_types.PyTreePath):
+      def on_write_end(self, keypath):
         print(f'Write ended for {jax.tree_util.keystr(keypath)}')
 
     ocp.type_handlers.register_type_handler(
@@ -107,59 +112,76 @@ class SerializationStatusCallback(Protocol):
         ocp.type_handlers.ArrayHandler(callback=MyCallback()),
         override=True,
     )
-    ```
   """
 
   def key_priority(self, keypath: tree_types.PyTreePath) -> TransferPriority:
-    """Callback for when the parameter is checked for transfer priority.
+    """Returns the transfer priority for a parameter.
 
-    Must return a TransferPriority indicating how the transfer will be
-    scheduled.
+    Called during save initialization when a device-to-host transfer concurrency
+    limit is configured (via ``transfer_concurrent_bytes`` or
+    ``regulator_options``).
 
     Args:
-      keypath: The keypath of the parameter being checked.
+      keypath: The PyTree keypath of the parameter being checked.
+
+    Returns:
+      A :py:class:`TransferPriority` indicating how the transfer should be
+      scheduled.
     """
     ...
 
   def on_transfer_start(self, keypath: tree_types.PyTreePath) -> None:
     """Callback for when the parameter transfer to host starts.
 
-    Note: Currently not wired up. Reserved for future use.
+    .. note::
+      Currently not wired up. Reserved for future use.
 
     Args:
-      keypath: The keypath of the parameter being transferred.
+      keypath: The PyTree keypath of the parameter being transferred.
     """
     ...
 
   def on_transfer_end(self, keypath: tree_types.PyTreePath) -> None:
-    """Callback for when the parameter transfer to host ends.
+    """Callback invoked after the parameter's device-to-host transfer ends.
+
+    Once invoked for a parameter, its device buffer is no longer needed by the
+    in-flight save and may safely be mutated or donated.
 
     Args:
-      keypath: The keypath of the parameter whose transfer has ended.
+      keypath: The PyTree keypath of the parameter whose transfer has ended.
     """
     ...
 
   def on_write_start(self, keypath: tree_types.PyTreePath) -> None:
     """Callback for when the parameter write starts.
 
-    Note: Currently not wired up. Reserved for future use.
+    .. note::
+      Currently not wired up. Reserved for future use.
 
     Args:
-      keypath: The keypath of the parameter being written.
+      keypath: The PyTree keypath of the parameter being written.
     """
     ...
 
   def on_write_end(self, keypath: tree_types.PyTreePath) -> None:
-    """Callback for when the parameter write ends.
+    """Callback invoked after the parameter's storage write completes.
+
+    Note that checkpoint finalization may still be in progress after all
+    ``on_write_end`` callbacks fire; always await the save response before
+    assuming the checkpoint is committed on storage.
 
     Args:
-      keypath: The keypath of the parameter whose write has ended.
+      keypath: The PyTree keypath of the parameter whose write has ended.
     """
     ...
 
 
 class DefaultSerializationStatusCallback(SerializationStatusCallback):
-  """Default no-op callback for serialization and deserialization."""
+  """Default callback returning ``TransferPriority.SYNCHRONOUS`` with no-op hooks.
+
+  Subclass this when you only need to override a subset of
+  :py:class:`SerializationStatusCallback` methods.
+  """
 
   def key_priority(self, _: tree_types.PyTreePath) -> TransferPriority:
     """Callback for when the parameter is checked for transfer priority."""

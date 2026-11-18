@@ -30,23 +30,42 @@ _BYTES_TO_GIB = 1024.0**3
 
 
 class MemoryProfiler(abc.ABC):
-  """A memory profiler providing feedback for memory regulation."""
+  """Abstract interface for measuring host memory usage during checkpoint saves.
+
+  Subclasses provide peak host memory usage and total host memory capacity as
+  feedback for dynamic memory regulation
+  (:py:class:`~orbax.checkpoint.v1.options.MemoryOptions.RegulatorOptions`).
+
+  Subclasses must implement:
+
+  - :py:meth:`profiler_start`: Begin measuring host memory (resetting
+    ``self._peak_usage_bytes`` for the new measurement window).
+  - :py:meth:`profiler_end`: Stop measuring and finalize
+    ``self._peak_usage_bytes``.
+  - :py:attr:`total_memory_gib`: Return the total host/container memory limit
+    in GiB.
+
+  Subclasses may optionally override :py:meth:`get_expected_surge_gib` to report
+  anticipated temporary memory spikes (in GiB) and
+  :py:meth:`get_prev_blocking_time_sec`.
+  """
 
   def __init__(self):
     self._peak_usage_bytes = 0
 
   @property
   def peak_usage_bytes(self) -> int:
+    """Peak memory usage observed in bytes."""
     return self._peak_usage_bytes
 
   @abc.abstractmethod
   def profiler_start(self) -> None:
-    """Starts the memory profiler."""
+    """Starts the memory profiler for a save measurement window."""
     raise NotImplementedError
 
   @abc.abstractmethod
   def profiler_end(self) -> None:
-    """Stops the profiler."""
+    """Stops the memory profiler and finalizes ``peak_usage_bytes``."""
     raise NotImplementedError
 
   @property
@@ -64,7 +83,7 @@ class MemoryProfiler(abc.ABC):
 
   @property
   def total_memory_gib(self) -> float:
-    """Total system capacity in GiB, if available."""
+    """Total host or container memory capacity in GiB."""
     raise NotImplementedError
 
 
@@ -122,28 +141,39 @@ class MemoryRegulator:
 
   For setting up the coefficients, we have the following guidelines:
 
-  | Coefficient | Suggested Range | Justification |
-  | :--- | :--- | :--- |
-  | kp | 0.30 - 0.60 | A moderate Kp (~0.4) safely scales the limit (e.g.,
-  opening by 4 GiB for a 10 GiB gap). |
-  | ki | <= 0.08 | Must be kept low to mitigate integral windup. |
-  | kd | 0.10 - 0.30 | Acts as a brake against the rate of growth. A higher Kd
-  (e.g., 0.2) can overpower Kp during rapid memory spikes, capping the limit to
-  ensure a soft landing at the target. |
+  .. list-table::
+     :header-rows: 1
+
+     * - Coefficient
+       - Suggested Range
+       - Justification
+     * - ``kp``
+       - 0.30 - 0.60
+       - A moderate ``kp`` (~0.4) safely scales the limit (e.g., opening by
+         4 GiB for a 10 GiB gap).
+     * - ``ki``
+       - <= 0.08
+       - Must be kept low to mitigate integral windup.
+     * - ``kd``
+       - 0.10 - 0.30
+       - Acts as a brake against the rate of growth. A higher ``kd`` (e.g.,
+         0.2) can overpower ``kp`` during rapid memory spikes, capping the
+         limit to ensure a soft landing at the target.
 
   Attributes:
-    max_memory_limit_gib: The maximum host memory limit in GiB
-    target_ratio: The target ratio of host memory limit to use for peak memory
-    min_memory_limit_gib: The minimum memory limit in GiB allowed for regulation
-    kp: Proportional coefficient
-    ki: Integral coefficient
-    kd: Derivative coefficient
-    profiler: Optional memory profiler providing feedback to this regulator
-    integral: Integral term accumulated over time
-    prev_error: Error term from the previous step
+    max_memory_limit_gib: The maximum host memory limit in GiB.
+    target_ratio: The target ratio of host memory limit to use for peak memory.
+    min_memory_limit_gib: The minimum memory limit in GiB allowed for
+      regulation.
+    kp: Proportional coefficient.
+    ki: Integral coefficient.
+    kd: Derivative coefficient.
+    profiler: Optional memory profiler providing feedback to this regulator.
+    integral: Integral term accumulated over time.
+    prev_error: Error term from the previous step.
     integral_windup_limit: Upper and lower bounds for the integral term to
-      prevent windup
-    current_limit_bytes: Current memory limit in bytes
+      prevent windup.
+    current_limit_bytes: Current memory limit in bytes.
   """
 
   max_memory_limit_gib: float
