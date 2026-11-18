@@ -14,10 +14,9 @@
 
 """Public symbols for checkpointers module."""
 
-# pylint: disable=g-importing-member, g-bad-import-order, unused-import, g-multiple-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import checkpointers as _mod
+from orbax.checkpoint.v0.checkpointers import *
 
-from orbax.checkpoint._src.checkpointers.abstract_checkpointer import AbstractCheckpointer
-from orbax.checkpoint._src.checkpointers.async_checkpointer import AsyncCheckpointer
-from orbax.checkpoint._src.checkpointers.checkpointer import Checkpointer
-from orbax.checkpoint._src.checkpointers.pytree_checkpointer import PyTreeCheckpointer
-from orbax.checkpoint._src.checkpointers.standard_checkpointer import StandardCheckpointer
+sys.modules[__name__] = _mod

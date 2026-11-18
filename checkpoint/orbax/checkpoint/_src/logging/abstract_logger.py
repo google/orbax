@@ -14,21 +14,9 @@
 
 """AbstractLogger."""
 
-import abc
-from typing import Any
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.logging import abstract_logger as _mod
+from orbax.checkpoint.v0._src.logging.abstract_logger import *
 
-
-class AbstractLogger(abc.ABC):
-  """Abstract base class for structured loggers.
-  """
-
-  @abc.abstractmethod
-  def log_entry(self, msg: Any, *args: Any, **kwargs: Any):
-    """Logs an informational message.
-
-    Args:
-        msg (Any): The main log message.
-        *args(Any):  Additional data to be included in the log record.
-        **kwargs: Additional structured data to be included in the log record.
-    """
-    pass
+sys.modules[__name__] = _mod

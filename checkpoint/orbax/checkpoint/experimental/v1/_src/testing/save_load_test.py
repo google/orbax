@@ -38,7 +38,6 @@ import optax
 from orbax.checkpoint import test_utils
 from orbax.checkpoint._src.multihost import multihost as multihost_v0
 from orbax.checkpoint._src.path import async_path
-from orbax.checkpoint._src.path import atomicity
 from orbax.checkpoint._src.serialization import serialization as serialization_v0
 from orbax.checkpoint._src.testing import multiprocess_test
 from orbax.checkpoint._src.tree import utils as tree_utils
@@ -53,6 +52,7 @@ from orbax.checkpoint.experimental.v1._src.testing import array_utils as array_t
 from orbax.checkpoint.experimental.v1._src.testing import handler_utils
 from orbax.checkpoint.experimental.v1._src.testing import tree_utils as tree_test_utils
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
+from orbax.checkpoint.v0._src.path import atomicity
 
 
 FLAGS = flags.FLAGS

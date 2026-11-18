@@ -14,11 +14,9 @@
 
 """Defines exported symbols from orbax.checkpoint.path package."""
 
-# pylint: disable=unused-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import path as _mod
+from orbax.checkpoint.v0.path import *
 
-from orbax.checkpoint._src.path import atomicity
-from orbax.checkpoint._src.path import atomicity_defaults
-from orbax.checkpoint._src.path import atomicity_types
-from orbax.checkpoint._src.path import deleter
-from orbax.checkpoint._src.path import format_utils
-from orbax.checkpoint._src.path import step
+sys.modules[__name__] = _mod

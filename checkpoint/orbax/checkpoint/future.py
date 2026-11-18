@@ -14,9 +14,9 @@
 
 """Orbax Future class used for duck typing."""
 
-# pylint: disable=g-importing-member, unused-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import future as _mod
+from orbax.checkpoint.v0.future import *
 
-from orbax.checkpoint._src.futures.future import ChainedFuture
-from orbax.checkpoint._src.futures.future import CommitFutureAwaitingContractedSignals
-from orbax.checkpoint._src.futures.future import Future
-from orbax.checkpoint._src.futures.future import NoopFuture
+sys.modules[__name__] = _mod

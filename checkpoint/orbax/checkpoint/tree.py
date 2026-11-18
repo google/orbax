@@ -14,27 +14,9 @@
 
 """Public symbols for tree module."""
 
-# pylint: disable=g-importing-member, g-multiple-import, g-bad-import-order, unused-import
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0 import tree as _mod
+from orbax.checkpoint.v0.tree import *
 
-from orbax.checkpoint._src.tree.types import (
-    PyTree,
-    PyTreeOf,
-    PyTreeKey,
-    PyTreePath,
-    JsonType,
-)
-from orbax.checkpoint._src.tree.utils import (
-    str_keypath,
-    get_param_names,
-    serialize_tree,
-    deserialize_tree,
-    to_flat_dict,
-    from_flat_dict,
-    is_flat_dict,
-    to_shape_dtype_struct,
-)
-from orbax.checkpoint._src.tree.structure_utils import (
-    tree_difference,
-    tree_trim,
-    merge_trees,
-)
+sys.modules[__name__] = _mod

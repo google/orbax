@@ -14,36 +14,9 @@
 
 """Shorthand for `Checkpointer(PyTreeCheckpointHandler())`."""
 
-from typing import Optional
-from orbax.checkpoint import options as options_lib
-from orbax.checkpoint._src.checkpointers import checkpointer
-from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
+# pylint: disable=g-bad-import-order,g-importing-member,unused-import,unused-wildcard-import,wildcard-import
+import sys
+from orbax.checkpoint.v0._src.checkpointers import pytree_checkpointer as _mod
+from orbax.checkpoint.v0._src.checkpointers.pytree_checkpointer import *
 
-
-class PyTreeCheckpointer(checkpointer.Checkpointer):
-  """Shorthand class.
-
-  Instead of::
-    ckptr = Checkpointer(PyTreeCheckpointHandler())
-
-  we can use::
-    ckptr = PyTreeCheckpointer()
-  """
-
-  def __init__(
-      self,
-      primary_host: Optional[int] = 0,
-      use_ocdbt: bool = True,
-      use_zarr3=False,
-      use_compression: bool = True,
-  ):
-    super().__init__(
-        pytree_checkpoint_handler.PyTreeCheckpointHandler(
-            use_ocdbt=use_ocdbt,
-            use_zarr3=use_zarr3,
-            use_compression=use_compression,
-        ),
-        multiprocessing_options=options_lib.MultiprocessingOptions(
-            primary_host=primary_host
-        ),
-    )
+sys.modules[__name__] = _mod
