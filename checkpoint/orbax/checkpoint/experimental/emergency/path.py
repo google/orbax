@@ -21,7 +21,6 @@ from absl import logging
 from etils import epath
 import jax
 from jax.experimental import multihost_utils
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
@@ -42,21 +41,18 @@ def sync_global_data(
   # 1. Serialize
   json_str = json.dumps(local_data)
   local_bytes = np.frombuffer(json_str.encode('utf-8'), dtype=np.uint8)
-  local_len = jnp.array([len(local_bytes)], dtype=jnp.int32)
+  local_len = np.array([len(local_bytes)], dtype=np.int32)
 
   # 2. Exchange Lengths
   all_lens = multihost_utils.process_allgather(local_len, tiled=False)
-  max_len = int(jnp.max(all_lens))
+  max_len = int(np.max(all_lens))
 
   # 3. Pad to Max Length
   padded_bytes = np.zeros(max_len, dtype=np.uint8)
   padded_bytes[: len(local_bytes)] = local_bytes
-  padded_bytes_jax = jnp.array(padded_bytes)
 
   # 4. Exchange Data
-  all_padded_data = multihost_utils.process_allgather(
-      padded_bytes_jax, tiled=False
-  )
+  all_padded_data = multihost_utils.process_allgather(padded_bytes, tiled=False)
 
   # 5. Decode
   global_data = []
