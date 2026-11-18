@@ -15,11 +15,14 @@
 """Managed deletion lifecycle, compatibility, and recovery tests."""
 
 import concurrent.futures
+import contextlib
+import logging as std_logging
 import threading
 import typing
 from typing import Any
 from unittest import mock
 
+from absl import logging as absl_logging
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -30,6 +33,30 @@ from orbax.checkpoint.experimental.v1._src.deletion import execution
 from orbax.checkpoint.experimental.v1._src.deletion import metadata
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import step as step_lib
+
+
+class _RollbackWarningCollector(std_logging.Handler):
+  """Collects rollback skip warnings emitted to the root logger."""
+
+  def __init__(self):
+    super().__init__(level=std_logging.WARNING)
+    self.messages: list[str] = []
+
+  def emit(self, record: std_logging.LogRecord) -> None:
+    message = record.getMessage()
+    if 'Skipping save at step' in message:
+      self.messages.append(message)
+
+
+@contextlib.contextmanager
+def _capture_rollback_warnings():
+  logger = std_logging.getLogger()
+  handler = _RollbackWarningCollector()
+  logger.addHandler(handler)
+  try:
+    yield handler.messages
+  finally:
+    logger.removeHandler(handler)
 
 
 class ManagedDeletionTest(parameterized.TestCase):
@@ -426,6 +453,68 @@ class ManagedReplacementTest(parameterized.TestCase):
     self.assertFalse(self.ckptr.should_save(0))
     self.assertFalse(self.ckptr.should_save(2))
     self.assertTrue(self.ckptr.should_save(4))
+
+  def test_warns_once_when_newer_step_exists(self):
+    policy = ocp.training.save_decision_policies.FixedIntervalPolicy(2)
+    with ocp.training.Checkpointer(
+        self.directory / 'rollback',
+        save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+    ) as run_a:
+      for step in (2, 4, 6):
+        self.assertTrue(run_a.save(step, self.state))
+
+    with (
+        mock.patch.object(absl_logging, '_log_counter_per_token', {}),
+        ocp.training.Checkpointer(
+            self.directory / 'rollback',
+            save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+        ) as run_b,
+    ):
+      # Loading an older step or checking step == latest must not warn.
+      with _capture_rollback_warnings() as warnings:
+        run_b.load(2)
+        self.assertFalse(run_b.should_save(6))
+      self.assertEmpty(warnings)
+
+      # First skipped save below latest warns about resuming step 6.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_b.save(3, self.updated))
+      self.assertLen(warnings, 1)
+      self.assertRegex(
+          warnings[0],
+          r'Skipping save at step 3.*step 6.*resume step 6',
+      )
+
+      # Subsequent skipped saves/checks do not re-warn.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_b.save(4, self.updated, overwrite=True))
+        self.assertFalse(run_b.save(5, self.updated, overwrite=True))
+        self.assertFalse(run_b.should_save(4))
+      self.assertEmpty(warnings)
+
+    # Deleting newer steps allows in-place rollback without warnings.
+    with (
+        mock.patch.object(absl_logging, '_log_counter_per_token', {}),
+        ocp.training.Checkpointer(
+            self.directory / 'rollback',
+            save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+        ) as run_c,
+    ):
+      for ckpt in reversed(run_c.checkpoints):
+        if ckpt.step > 2:
+          run_c.delete(ckpt)
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_c.save(3, self.updated))
+        self.assertTrue(run_c.save(4, self.updated))
+      self.assertEmpty(warnings)
+
+    with ocp.training.Checkpointer(self.directory / 'rollback') as restarted:
+      assert restarted.latest is not None
+      self.assertEqual(restarted.latest.step, 4)
+      np.testing.assert_array_equal(
+          typing.cast(dict[str, Any], restarted.load())['weights'],
+          self.updated['weights'],
+      )
 
 
 if __name__ == '__main__':

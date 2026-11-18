@@ -15,7 +15,9 @@
 import ast
 import asyncio
 from concurrent import futures
+import contextlib
 import datetime
+import logging as std_logging
 import os
 import threading
 import time
@@ -105,6 +107,30 @@ def build_storage_metadata(
       chunk_shape=chunk_shape,
       write_shape=chunk_shape if is_array_metadata_store_enabled else None,
   )
+
+
+class _RollbackWarningCollector(std_logging.Handler):
+  """Collects rollback skip warnings emitted to the root logger."""
+
+  def __init__(self):
+    super().__init__(level=std_logging.WARNING)
+    self.messages: list[str] = []
+
+  def emit(self, record: std_logging.LogRecord) -> None:
+    message = record.getMessage()
+    if 'Skipping save at step' in message:
+      self.messages.append(message)
+
+
+@contextlib.contextmanager
+def _capture_rollback_warnings():
+  logger = std_logging.getLogger()
+  handler = _RollbackWarningCollector()
+  logger.addHandler(handler)
+  try:
+    yield handler.messages
+  finally:
+    logger.removeHandler(handler)
 
 
 @test_utils.barrier_compatible_test
@@ -3754,6 +3780,82 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
       restored = self.restore_params(0, manager)
       test_utils.assert_tree_equal(self, self.pytree, restored)
+
+  def test_warns_once_when_newer_step_exists(self):
+    directory = self.directory / 'rollback_warning'
+    options = CheckpointManagerOptions(
+        save_interval_steps=2,
+        enable_async_checkpointing=False,
+        check_storage_locality=False,
+    )
+    with CheckpointManager(directory, options=options) as run_a:
+      for step in (2, 4, 6):
+        self.assertTrue(run_a.save(step, args=args.PyTreeSave(self.pytree)))
+
+    with (
+        mock.patch.object(logging, '_log_counter_per_token', {}),
+        CheckpointManager(directory, options=options) as run_b,
+    ):
+      # Restoring an older step or saving/checking at latest_step() (as in an
+      # ordinary resume loop starting at latest_step()) must not warn.
+      with _capture_rollback_warnings() as warnings:
+        run_b.restore(
+            2,
+            args=args.PyTreeRestore(restore_args=self.pytree_restore_args),
+        )
+        self.assertFalse(run_b.should_save(6))
+        self.assertFalse(
+            run_b.save(6, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertEmpty(warnings)
+
+      # First skipped save with step < latest_step() warns once.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_b.save(3, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertLen(warnings, 1)
+      self.assertRegex(
+          warnings[0],
+          r'Skipping save at step 3.*step 6.*resume step 6',
+      )
+
+      # Subsequent skipped saves/checks do not warn again.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_b.save(4, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertFalse(
+            run_b.save(5, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertFalse(run_b.should_save(4))
+      self.assertEmpty(warnings)
+
+    # Deleting steps newer than the rollback target lets training continue
+    # cleanly without warnings.
+    with (
+        mock.patch.object(logging, '_log_counter_per_token', {}),
+        CheckpointManager(directory, options=options) as run_c,
+    ):
+      for step in sorted(run_c.all_steps(), reverse=True):
+        if step > 2:
+          run_c.delete(step)
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_c.save(3, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertTrue(
+            run_c.save(4, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertEmpty(warnings)
+
+    with CheckpointManager(directory, options=options) as restarted:
+      self.assertEqual(restarted.latest_step(), 4)
+      restored = restarted.restore(
+          restarted.latest_step(),
+          args=args.PyTreeRestore(restore_args=self.pytree_restore_args),
+      )
+      test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
 
 
 if __name__ == '__main__':

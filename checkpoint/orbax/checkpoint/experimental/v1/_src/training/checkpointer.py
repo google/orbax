@@ -393,6 +393,22 @@ class Checkpointer(epy.ContextManager):
     ]
     # Steps are expected to increase; never save at or before the latest step.
     if previous_steps and previous_steps[-1].step >= step:
+      latest_step = previous_steps[-1].step
+      if latest_step > step:
+        logging.log_first_n(
+            logging.WARNING,
+            'Skipping save at step %d because a newer checkpoint at step %d'
+            ' already exists in %s. Until a step greater than %d is saved, a'
+            ' restart restoring the latest step will resume step %d. To roll'
+            ' back, start a new checkpoint directory or delete checkpoints'
+            ' newer than the restored step before continuing training.',
+            1,
+            step,
+            latest_step,
+            self.directory,
+            latest_step,
+            latest_step,
+        )
       return False
     context = save_decision_policies.DecisionContext(
         is_saving_in_progress=self._manager.is_saving_in_progress(),
@@ -411,7 +427,15 @@ class Checkpointer(epy.ContextManager):
     )
 
   def should_save(self, step: int) -> bool:
-    """Returns whether a checkpoint should be saved at the given step."""
+    """Returns whether a checkpoint should be saved at the given step.
+
+    Evaluates the configured :py:class:`.SaveDecisionPolicy`. Steps are expected
+    to strictly increase, so this always returns `False` when `step` is at or
+    before the latest saved step.
+
+    Args:
+      step: The step number to check.
+    """
     with context_lib.get_context(self._context):
       step = _resolve_integer_step(step)
       return self._should_save(step)
@@ -490,12 +514,14 @@ class Checkpointer(epy.ContextManager):
       state: The PyTree to save.
       checkpointable_name: The name of the checkpointable to save a pytree
         under. Defaults to 'pytree'.
-      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
-        always decides to save a checkpoint.
+      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks and the
+        requirement that steps strictly increase beyond the latest saved step,
+        and always decides to save a checkpoint.
       overwrite: If True, replaces any existing checkpoint at the given step.
-        The existing checkpoint is deleted only if the save proceeds; if the
-        :py:class:`.SaveDecisionPolicy` skips the save, it is left intact.
-        Otherwise, raises an error if the checkpoint already exists.
+        Unless `force=True`, the save is still skipped if any checkpoint newer
+        than `step` exists or if the :py:class:`.SaveDecisionPolicy` skips the
+        save, leaving the existing checkpoint intact. Otherwise, raises an error
+        if the checkpoint already exists.
       metrics: A PyTree of metrics to be saved with the checkpoint.
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the checkpoint
@@ -581,12 +607,14 @@ class Checkpointer(epy.ContextManager):
       step: The step number to save.
       checkpointables: A dictionary mapping string names to the corresponding
         objects (checkpointables) that need to be saved.
-      force: If True, ignores all policy checks and always decides to save a
-        checkpoint.
+      force: If True, ignores all policy checks and the requirement that steps
+        strictly increase beyond the latest saved step, and always decides to
+        save a checkpoint.
       overwrite: If True, replaces any existing checkpoint at the given step.
-        The existing checkpoint is deleted only if the save proceeds; if the
-        :py:class:`.SaveDecisionPolicy` skips the save, it is left intact.
-        Otherwise, raises an error if the checkpoint already exists.
+        Unless `force=True`, the save is still skipped if any checkpoint newer
+        than `step` exists or if the :py:class:`.SaveDecisionPolicy` skips the
+        save, leaving the existing checkpoint intact. Otherwise, raises an error
+        if the checkpoint already exists.
       metrics: A dictionary of metrics to be saved with the checkpoint. Must be
         JSON-serializable.
       custom_metadata: A JSON dictionary representing user-specified custom

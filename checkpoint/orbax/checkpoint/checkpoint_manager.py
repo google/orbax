@@ -292,6 +292,8 @@ class CheckpointManagerOptions:
   save_interval_steps:
     The interval at which checkpoints should be saved.
     Ensures checkpoints will only be saved every n steps. Defaults to 1.
+    Steps are expected to strictly increase: saves at or before `latest_step()`
+    are always skipped unless `force=True` is passed to `save()`.
   max_to_keep:
     deprecated, do not use. use `preservation_policy` instead.
   keep_time_interval:
@@ -1295,7 +1297,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
   def should_save(self, step: int) -> bool:
     """Returns True if a checkpoint should be saved for the current step.
 
-    This depends the previous step and SaveDecisionPolicy.
+    This depends on the previous step and SaveDecisionPolicy. Steps are expected
+    to strictly increase, so this always returns False when
+    `step <= latest_step()`.
 
     Args:
       step: int
@@ -1322,6 +1326,21 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # Ensure current step is between the last step and next step (accounting for
     # save interval).
     if last_checkpoint_step is not None and last_checkpoint_step >= step:
+      if last_checkpoint_step > step:
+        logging.log_first_n(
+            logging.WARNING,
+            'Skipping save at step %d because a newer checkpoint at step %d'
+            ' already exists in %s. Until a step greater than %d is saved, a'
+            ' restart restoring the latest step will resume step %d. To roll'
+            ' back, start a new checkpoint directory or delete checkpoints'
+            ' newer than the restored step before continuing training.',
+            1,
+            step,
+            last_checkpoint_step,
+            self.directory,
+            last_checkpoint_step,
+            last_checkpoint_step,
+        )
       if self.reached_preemption(step):
         self._record_preemption_save_skipped(
             step, current_time, 'step_already_saved'
@@ -1496,8 +1515,9 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
         of the result of `AbstractCheckpointManager.should_save(step)`. By
         default, `save` will only write a checkpoint to disk when the options
         permit, e.g. when `step` is in `options.save_interval_steps` or
-        `options.save_on_steps`. Setting `force=True` will not overwrite
-        existing checkpoints.
+        `options.save_on_steps`, and never at or before `latest_step()`. Setting
+        `force=True` bypasses these checks, including the `step > latest_step()`
+        check, but will not overwrite existing checkpoints.
       args: `CheckpointArgs` which is used to save checkpointable objects with
         the appropriate logic.
       custom_metadata: a dictionary of custom metadata to be written to the
