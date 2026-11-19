@@ -132,7 +132,7 @@ class ColocatedTransportTest(absltest.TestCase):
     class _FakeSharding:
 
       def __init__(self, device_list, num_devices):
-        self._internal_device_list = device_list
+        self._device_assignment = device_list
         self.device_set = {object() for _ in range(num_devices)}
 
     class _FakeArray:

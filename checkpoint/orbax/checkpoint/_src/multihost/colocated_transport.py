@@ -353,7 +353,7 @@ def validate_single_device_list(
   names_by_device_list: dict[Any, list[str]] = {}
   num_devices_by_device_list: dict[Any, int] = {}
   for arr, name in zip(arrays, names):
-    device_list = arr.sharding._internal_device_list  # pylint: disable=protected-access
+    device_list = arr.sharding._device_assignment  # pylint: disable=protected-access
     names_by_device_list.setdefault(device_list, []).append(str(name))
     num_devices_by_device_list[device_list] = len(arr.sharding.device_set)
   if len(names_by_device_list) <= 1:
