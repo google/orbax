@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now
+  raises `ValueError` for every `jax.Array`. Small `pinned_host` arrays
+  previously fell back to single-replica saving.
+- `ArrayHandler(..., balance_arrays_across_replicas=True)` now caps whole-array
+  balancing to `max_replicas_for_replica_parallel` when specified, and when a
+  `Dispatcher` (such as `ColocatedPythonDispatcher`) is configured, selects each
+  array's assigned replica shards on device before host transfer (avoiding
+  redundant D2H copies on unselected replicas). On Pathways, upgrade Orbax in
+  the workload and `colocated-python-sidecar` images together before enabling
+  `balance_arrays_across_replicas=True`.
+
+### Fixed
+
+- Fix saving and restoring a `jax.Array` on a process that holds none of its
+  shards (for example an array on a sub-mesh of other processes' devices),
+  which previously raised `IndexError` during save and `ValueError` during
+  restore.
+
 ## [0.12.12] - 2026-11-18
 
 ### Added
@@ -51,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   how to roll back to an earlier step.
 
 ## [0.12.11] - 2026-11-16
+
 ### Fixed
 
 - Avoid `jax.devices()` calls in Pathways multihost backend detection,
