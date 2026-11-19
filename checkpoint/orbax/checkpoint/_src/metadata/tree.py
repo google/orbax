@@ -919,13 +919,7 @@ class _TreeMetadataImpl(TreeMetadata):
 
     A bare leaf is a checkpointable that is a single value rather than a
     container (e.g. ``save_pytree(dir, jnp.arange(5))``). Its lone leaf has the
-    empty keypath ``()``. This is distinct from an *empty* registered pytree
-    (0 leaves, e.g. an empty flax module), which is not a leaf and remains
-    unsupported here.
-
-    None is explicitly excluded: JAX treats it as an empty pytree yet
-    treedef_is_leaf(tree_structure(None)) is True; None is not a valid
-    checkpointable and must not be held here.
+    empty keypath ``()``.
 
     Args:
       tree: A PyTree object to inspect.
@@ -938,9 +932,17 @@ class _TreeMetadataImpl(TreeMetadata):
     )
 
   def _validate_tree_type(self, tree: PyTree):
+    """Validates that the tree type is supported."""
     # Note: NamedTuple is a subclass of tuple.
-    if not isinstance(tree, (dict, list, tuple)) and not self._is_bare_leaf(
-        tree
+    # None is allowed as it represents an empty custom object when
+    # support_rich_types=False. An empty registered pytree (0 leaves, e.g.
+    # MyFlax) is allowed as it represents an empty custom object when
+    # support_rich_types=True.
+    if (
+        tree is not None
+        and not isinstance(tree, (dict, list, tuple))
+        and jax.tree.leaves(tree)
+        and not self._is_bare_leaf(tree)
     ):
       raise ValueError(f'Unsupported tree type: {type(tree)}')
 
