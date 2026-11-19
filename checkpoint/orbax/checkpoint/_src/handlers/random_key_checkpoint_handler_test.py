@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
 import jax
 import numpy as np
@@ -40,7 +41,7 @@ CompositeCheckpointHandler = (
 JsonCheckpointHandler = json_checkpoint_handler.JsonCheckpointHandler
 
 
-class RandomKeyCheckpointHandlerTest(absltest.TestCase):
+class RandomKeyCheckpointHandlerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -85,6 +86,79 @@ class RandomKeyCheckpointHandlerTest(absltest.TestCase):
         directory=self.directory, args=args_lib.JaxRandomKeyRestore()
     )
     self.assertTrue(jax.numpy.array_equal(typed_key, restore_typed_keys))
+
+  @parameterized.product(
+      implementations=(
+          ('threefry2x32', 'threefry2x32', 'threefry2x32'),
+          ('threefry2x32', 'threefry2x32', 'rbg'),
+          ('rbg', 'threefry2x32', 'rbg'),
+          ('unsafe_rbg', 'threefry2x32', 'rbg'),
+          ('rbg', 'rbg', 'threefry2x32'),
+          ('unsafe_rbg', 'unsafe_rbg', 'rbg'),
+          ('rbg', 'rbg', 'unsafe_rbg'),
+      ),
+      batched=(False, True),
+  )
+  def test_typed_key_preserves_implementation(self, implementations, batched):
+    impl, save_default, restore_default = implementations
+    key = jax.random.key(42, impl=impl)
+    if batched:
+      key = jax.random.split(key, 3)
+    handler = JaxRandomKeyCheckpointHandler('typed_key')
+    self.addCleanup(handler.close)
+    with jax.default_prng_impl(save_default):
+      handler.save(self.directory, args_lib.JaxRandomKeySave(item=key))
+      handler.finalize(self.directory)
+
+    restore_handler = JaxRandomKeyCheckpointHandler('typed_key')
+    self.addCleanup(restore_handler.close)
+    with jax.default_prng_impl(restore_default):
+      restored = restore_handler.restore(
+          self.directory, args_lib.JaxRandomKeyRestore()
+      )
+
+    self.assertEqual(jax.random.key_impl(restored), jax.random.key_impl(key))
+    self.assertEqual(restored.shape, key.shape)
+    np.testing.assert_array_equal(
+        jax.random.key_data(restored), jax.random.key_data(key)
+    )
+    for expected_key, restored_key in zip(
+        key.reshape(-1), restored.reshape(-1)
+    ):
+      expected_split = jax.random.split(expected_key)
+      restored_split = jax.random.split(restored_key)
+      np.testing.assert_array_equal(
+          jax.random.key_data(restored_split),
+          jax.random.key_data(expected_split),
+      )
+      np.testing.assert_array_equal(
+          jax.random.normal(restored_split[0], (8,)),
+          jax.random.normal(expected_split[0], (8,)),
+      )
+
+  @parameterized.parameters('threefry2x32', 'rbg', 'unsafe_rbg')
+  def test_restore_legacy_typed_key_metadata(self, impl):
+    key = jax.random.key(42, impl=impl)
+    handler = JaxRandomKeyCheckpointHandler('typed_key')
+    self.addCleanup(handler.close)
+    with jax.default_prng_impl(impl):
+      handler.save(self.directory, args_lib.JaxRandomKeySave(item=key))
+      handler.finalize(self.directory)
+
+    # Older checkpoints recorded only whether the key was typed.
+    (self.directory / 'typed_key_metadata' / 'metadata').write_text(
+        '{"typed": true}'
+    )
+    restore_handler = JaxRandomKeyCheckpointHandler('typed_key')
+    self.addCleanup(restore_handler.close)
+    with jax.default_prng_impl(impl):
+      restored = restore_handler.restore(
+          self.directory, args_lib.JaxRandomKeyRestore()
+      )
+    self.assertEqual(jax.random.key_impl(restored), jax.random.key_impl(key))
+    np.testing.assert_array_equal(
+        jax.random.key_data(restored), jax.random.key_data(key)
+    )
 
   def test_save_and_restore_jax_random_key_untyped(self):
     typed_key = jax.random.key(0)
