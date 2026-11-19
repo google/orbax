@@ -901,6 +901,7 @@ def _serialize_arrays(
         deprioritized_replica_ids,
     )
 
+
   if dispatcher is None:
     return _serialize_arrays_batches_without_dispatcher(
         prioritized,
