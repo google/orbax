@@ -18,6 +18,8 @@
 
 from orbax.checkpoint._src.arrays.abstract_arrays import to_shape_dtype_struct
 
+from orbax.checkpoint._src.arrays.sharding import construct_maximal_shardings
+
 from orbax.checkpoint._src.arrays.types import (
     Index,
     Shape,
