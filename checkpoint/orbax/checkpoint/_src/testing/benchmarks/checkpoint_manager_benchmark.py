@@ -14,10 +14,14 @@
 
 """Benchmarks for orbax.checkpoint.checkpoint_manager."""
 
+from collections.abc import Sequence
 import dataclasses
-from typing import Any, Sequence
+import gc
+import time
+from typing import Any
 
 from absl import logging
+from etils import epath
 import jax
 import numpy as np
 import orbax.checkpoint as ocp
@@ -25,7 +29,6 @@ from orbax.checkpoint import args as args_lib
 from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint import multihost
 from orbax.checkpoint import utils
-from orbax.checkpoint._src.testing.benchmarks.core import backends
 from orbax.checkpoint._src.testing.benchmarks.core import core as benchmarks_core
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
@@ -33,11 +36,27 @@ from orbax.checkpoint._src.testing.benchmarks.core import pytree_utils
 
 @dataclasses.dataclass(frozen=True)
 class CheckpointManagerBenchmarkOptions(benchmarks_core.BenchmarkOptions):
-  """Configuration options for benchmarks targeting CheckpointManager."""
+  """Configuration options for benchmarks targeting CheckpointManager.
+
+  Attributes:
+    save_interval_steps: Step interval at which checkpoints are saved.
+    max_to_keep: Maximum number of checkpoints to retain on storage.
+    train_steps: Number of training steps to benchmark in the save loop.
+    overwrite_existing_step: Whether to benchmark overwriting existing steps.
+    enable_background_delete: Whether to delete checkpoints in the background.
+    warmup_save: Whether to run an untimed step-0 save before timed steps.
+    verify_restore: Whether to restore and verify checkpoint correctness.
+    skip_sync_file_validations: Whether to skip sync file validation checks.
+  """
 
   save_interval_steps: int | Sequence[int] = 1
   max_to_keep: int | Sequence[int] = 1
   train_steps: int | Sequence[int] = 1
+  overwrite_existing_step: bool | Sequence[bool] = False
+  enable_background_delete: bool | Sequence[bool] = True
+  warmup_save: bool | Sequence[bool] = False
+  verify_restore: bool | Sequence[bool] = True
+  skip_sync_file_validations: bool | Sequence[bool] = False
 
 
 @benchmarks_core.benchmark_options(CheckpointManagerBenchmarkOptions)
@@ -47,6 +66,40 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
   def _get_pytree_for_restore(self, pytree: Any) -> Any:
     """Returns abstract pytree for restore."""
     return jax.tree.map(utils.to_shape_dtype_struct, pytree)
+
+  def _run_save_loop(
+      self,
+      mngr: checkpoint_manager.CheckpointManager,
+      composite_args: args_lib.Composite,
+      options: CheckpointManagerBenchmarkOptions,
+      metrics: metric_lib.Metrics,
+  ) -> int:
+    """Runs optional warmup and the timed save loop."""
+    # pylint: disable=protected-access
+    overwrite = bool(options.overwrite_existing_step)
+    use_warmup = bool(options.warmup_save or overwrite)
+    train_steps = int(options.train_steps)  # pyrefly: ignore[bad-argument-type]
+    if use_warmup:
+      mngr._maybe_await_cleanup_tmp_directory()
+      mngr.save(0, args=composite_args, force=True)
+      mngr.wait_until_finished()
+      mngr._wait_for_prev_save_duration = 0.0
+
+    step_saved = -1
+    for step_idx in range(train_steps):
+      multihost.sync_global_processes(f'cm_benchmark:step_start_{step_idx}')
+      step = 0 if overwrite else step_idx + int(use_warmup)
+      if overwrite and hasattr(mngr, '_checkpoints'):
+        # Clear in-memory step tracking while keeping physical 0/ on storage.
+        mngr._checkpoints.delete_if(lambda _: True)
+      logging.info('Saving checkpoint at step %d', step)
+      with metrics.measure(f'save_{step_idx}'):
+        if mngr.save(step, args=composite_args, force=overwrite):
+          step_saved = step
+      with metrics.measure(f'wait_until_finished_{step_idx}'):
+        mngr.wait_until_finished()
+      logging.info('Finished saving checkpoint at step %d', step)
+    return step_saved
 
   # TODO(nikhilbansall): Expand to full training loop with multiple steps,
   # including a step of training.
@@ -66,51 +119,43 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
           checkpointing_impl=checkpointing_impl,
       )
 
+    ckpt_path = context.path
+    if options.warmup_save or options.overwrite_existing_step:
+      attempt = int(multihost.broadcast_one_to_all(np.int64(time.time() * 1e3)))
+      ckpt_path = ckpt_path / f'attempt_{attempt}'
     cm_options = checkpoint_manager.CheckpointManagerOptions(
         save_interval_steps=options.save_interval_steps,  # pyrefly: ignore[bad-argument-type]
         max_to_keep=options.max_to_keep,  # pyrefly: ignore[bad-argument-type]
+        enable_background_delete=bool(options.enable_background_delete),
+        file_options=ocp.options.FileOptions(
+            skip_sync_file_validations=bool(options.skip_sync_file_validations)
+        ),
     )
-    mngr = checkpoint_manager.CheckpointManager(
-        context.path, options=cm_options
-    )
+    mngr = checkpoint_manager.CheckpointManager(ckpt_path, options=cm_options)
 
     json_data = {'a': 1, 'b': 'test'}
-    # `jax.random.key(0)` lives on one device of this process, and Orbax
-    # refuses to save such a host-local array when there are several processes.
-    # Replicate it on every device instead.
-    replicated = jax.sharding.NamedSharding(
-        jax.sharding.Mesh(np.asarray(jax.devices()), ('devices',)),
-        jax.sharding.PartitionSpec(),
-    )
-    random_key = jax.jit(lambda: jax.random.key(0), out_shardings=replicated)()
-    np_random_key = np.random.get_state()
     pytree_for_restore = self._get_pytree_for_restore(pytree)
 
-    save_kwargs = {
-        'pytree': args_lib.StandardSave(pytree),
-        'json_item': args_lib.JsonSave(json_data),
-        'np_random_key': args_lib.NumpyRandomKeySave(np_random_key),
-    }
-    restore_kwargs = {
-        'pytree': args_lib.StandardRestore(pytree_for_restore),
-        'json_item': args_lib.JsonRestore(),
-        'np_random_key': args_lib.NumpyRandomKeyRestore(),
-    }
-    composite_args = args_lib.Composite(**save_kwargs)
-    restore_args = args_lib.Composite(**restore_kwargs)
+    # Exclude RandomKeyCheckpointHandlers (sync directory creation blocks save).
+    composite_args = args_lib.Composite(
+        pytree=args_lib.StandardSave(pytree),
+        json_item=args_lib.JsonSave(json_data),
+    )
+    restore_args = args_lib.Composite(
+        pytree=args_lib.StandardRestore(pytree_for_restore),
+        json_item=args_lib.JsonRestore(),
+    )
 
-    step_saved = -1
-    for step in range(options.train_steps):  # pyrefly: ignore[bad-argument-type]
-      logging.info('Saving checkpoint at step %d', step)
-      with metrics.measure(f'save_{step}'):
-        if mngr.save(step, args=composite_args):
-          step_saved = step
-      with metrics.measure(f'wait_until_finished_{step}'):
-        mngr.wait_until_finished()
-      logging.info('Finished saving checkpoint at step %d', step)
-
+    step_saved = self._run_save_loop(mngr, composite_args, options, metrics)
     if step_saved == -1:
       raise AssertionError('No checkpoint was saved.')
+    if not options.verify_restore:
+      mngr.close()
+      for leaf in jax.tree.leaves(pytree):
+        if isinstance(leaf, jax.Array) and not leaf.is_deleted():
+          leaf.delete()
+      gc.collect()
+      return benchmarks_core.TestResult(metrics=metrics, path=ckpt_path)
 
     latest_step = mngr.latest_step()
     assert latest_step == step_saved, (
@@ -127,9 +172,6 @@ class CheckpointManagerBenchmark(benchmarks_core.BenchmarksGenerator):
       assert (
           json_data == restored['json_item']
       ), f"Expected {json_data}, got {restored['json_item']}"
-      jax.tree.map(
-          np.testing.assert_equal, np_random_key, restored['np_random_key']
-      )
 
     mngr.close()
-    return benchmarks_core.TestResult(metrics=metrics)
+    return benchmarks_core.TestResult(metrics=metrics, path=ckpt_path)
