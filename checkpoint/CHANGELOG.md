@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Normalize Zarr v2 endianness dtype strings (e.g. `<f4` to `float32`) in
   `Zarr2Metadata` and resolve multi-dimensional `'/'`-separated Zarr v2 chunk
   keys in `ocdbt_utils.get_tensor_raw_bytes`.
+- #v1 Convert `SafetensorsLayout.metadata()` `commit_timestamp_nsecs` from
+  seconds to nanoseconds.
 
 ## [0.12.12] - 2026-11-18
 
