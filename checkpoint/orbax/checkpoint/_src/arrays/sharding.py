@@ -52,7 +52,7 @@ def _construct_maximal_sharding(
         mesh=jax.sharding.Mesh(devices, ('a',)),
         spec=jax.sharding.PartitionSpec(),
     )
-  if np.max(shape) < jax.device_count():
+  if np.max(shape) < device_count:
     # Array is small - no sharding needed.
     return jax.sharding.NamedSharding(
         mesh=jax.sharding.Mesh(devices, ('a',)),
