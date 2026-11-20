@@ -145,6 +145,9 @@ def _get_dtypes() -> dict[str, Any]:
       "BF16": jnp.bfloat16,
       "F8_E5M2": jnp.float8_e5m2,
       "F8_E4M3": jnp.float8_e4m3fn,
+      "F8_E5M2FNUZ": jnp.float8_e5m2fnuz,
+      "F8_E4M3FNUZ": jnp.float8_e4m3fnuz,
+      "C64": np.complex64,
   }
 
 
