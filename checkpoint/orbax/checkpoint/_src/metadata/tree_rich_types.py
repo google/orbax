@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import collections
+from collections.abc import Iterable, Mapping, Sequence
 import functools
-from typing import Any, Iterable, Mapping, Sequence, Type, TypeAlias
+from typing import Any, TypeAlias
 
 import jax
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
@@ -34,7 +35,7 @@ def _new_namedtuple_type(
     module_name: str,
     class_name: str,
     fields: Sequence[str],
-) -> Type[tuple[Any, ...]]:
+) -> type[tuple[Any, ...]]:
   """Returns a namedtuple type created in the current module.
 
   NOTE: `module_name` and `class_name` are concatenated to create a unique
@@ -48,8 +49,9 @@ def _new_namedtuple_type(
   # TODO: b/365169723 - Return concrete NamedTuple if available in given module.
   arity = len(fields)
   unique_class_name = f'{module_name}_{class_name}_{arity}'
-  # Valid class name must not contain dots.
-  valid_class_name = unique_class_name.replace('.', '_')
+  # Function-local qualified names contain the non-identifier token <locals>.
+  valid_class_name = unique_class_name.replace('<locals>', 'locals')
+  valid_class_name = valid_class_name.replace('.', '_')
   return collections.namedtuple(valid_class_name, fields)
 
 

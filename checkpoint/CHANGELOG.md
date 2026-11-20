@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because a newer checkpoint step already exists in the directory, and document
   how to roll back to an earlier step.
 
+### Fixed
+
+- Restore function-local named tuples when rich PyTree metadata is enabled.
+
 ## [0.12.11] - 2026-11-16
 
 ### Fixed
