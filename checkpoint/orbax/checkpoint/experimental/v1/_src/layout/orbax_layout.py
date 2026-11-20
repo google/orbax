@@ -17,6 +17,7 @@
 import asyncio
 from collections.abc import Collection
 import enum
+import itertools
 from typing import Any, Awaitable
 
 from absl import logging
@@ -62,7 +63,9 @@ ORBAX_CHECKPOINT_INDICATOR_FILE = (
 CHECKPOINT_METADATA = metadata_serialization.CHECKPOINT_METADATA_FILENAME
 
 _OCDBT_MANIFEST_FILE = "manifest.ocdbt"
-_ZARRAY_FILE = ".zarray"
+_ZARR_V2_METADATA_FILE = ".zarray"
+_ZARR_V3_METADATA_FILE = "zarr.json"
+_ZARR_PROBE_BATCH_SIZE = 16
 
 
 async def matches_markers(index: fs_probe.DirectoryIndex) -> bool:
@@ -80,11 +83,6 @@ async def checkpoint_version(path: path_types.PathLike) -> CheckpointVersion:
     return CheckpointVersion.V1
   else:
     return CheckpointVersion.V0
-
-
-async def get_subpaths(directory: Path) -> list[Path]:
-  """Returns subdirectories up to a limit."""
-  return list(await async_path.iterdir(directory))
 
 
 def is_orbax_v1_checkpoint(path: path_types.PathLike) -> bool:
@@ -110,17 +108,28 @@ async def _has_ocdbt_manifest_file(path: Path) -> bool:
   return await async_path.exists(path / _OCDBT_MANIFEST_FILE)
 
 
-async def _has_zarray_files(path: Path) -> bool:
-  paths = await get_subpaths(path)
-  return any(
-      await asyncio.gather(
-          *[async_path.exists(p / _ZARRAY_FILE) for p in paths]
-      )
-  )
+async def _has_zarr_metadata_files(path: Path) -> bool:
+  """Checks whether Zarr v2 or v3 metadata files exist under `path`."""
+  if await async_path.exists(
+      path / _ZARR_V2_METADATA_FILE
+  ) or await async_path.exists(path / _ZARR_V3_METADATA_FILE):
+    return True
+  paths = await async_path.iterdir(path)
+  while batch := list(itertools.islice(paths, _ZARR_PROBE_BATCH_SIZE)):
+    if any(
+        await asyncio.gather(
+            *(async_path.exists(p / _ZARR_V2_METADATA_FILE) for p in batch),
+            *(async_path.exists(p / _ZARR_V3_METADATA_FILE) for p in batch),
+        )
+    ):
+      return True
+  return False
 
 
 async def has_tensorstore_data_files(path: Path) -> bool:
-  return await _has_ocdbt_manifest_file(path) or await _has_zarray_files(path)
+  return await _has_ocdbt_manifest_file(path) or await _has_zarr_metadata_files(
+      path
+  )
 
 
 async def has_pytree_metadata_file(path: Path) -> bool:
@@ -137,7 +146,7 @@ async def has_checkpoint_metadata_file(path: Path) -> bool:
 
 
 async def get_valid_pytree_names(path: Path) -> list[str]:
-  subpaths = await get_subpaths(path)
+  subpaths = list(await async_path.iterdir(path))
   is_pytree_checkpoints = await asyncio.gather(
       *[has_pytree_metadata_file(s) for s in subpaths]
   )
@@ -153,15 +162,16 @@ async def _existing_checkpointable_names(
     *,
     requested_names: Collection[str] | None = None,
 ) -> list[str]:
+  """Returns existing checkpointable subdirectory names under `directory`."""
   deleted_name = await deletion_metadata.check_read(directory, requested_names)
-  subpaths = await get_subpaths(directory)
+  candidates = [
+      p for p in await async_path.iterdir(directory) if p.name != deleted_name
+  ]
   is_dir_checks = await asyncio.gather(
-      *[async_path.is_dir(p) for p in subpaths]
+      *[async_path.is_dir(p) for p in candidates]
   )
   return [
-      subdir.name
-      for subdir, is_dir in zip(subpaths, is_dir_checks)
-      if is_dir and subdir.name != deleted_name
+      subdir.name for subdir, is_dir in zip(candidates, is_dir_checks) if is_dir
   ]
 
 
@@ -277,7 +287,8 @@ class OrbaxLayout(CheckpointLayout):
     abstract_checkpointables = {
         name: None
         for name in available_checkpointable_names
-        if requested_names is None or name in requested_names
+        if name not in checkpoint_layout.RESERVED_CHECKPOINTABLE_KEYS
+        and (requested_names is None or name in requested_names)
     }
     handlers_for_load = await handler_resolution.get_handlers_for_load(
         self._handler_registry,
@@ -289,10 +300,6 @@ class OrbaxLayout(CheckpointLayout):
         path, abstract_checkpointables, handlers_for_load
     )
 
-    # Exclude `metrics` if present. This is relevant only for
-    # `training.Checkpointer`, and is separately added to the
-    # `training.CheckpointMetadata` object.
-    item_metadata.pop("metrics", None)
 
     return metadata_types.CheckpointMetadata[dict[str, AbstractCheckpointable]](
         path=path,
@@ -614,14 +621,15 @@ class OrbaxLayout(CheckpointLayout):
     Returns:
       A mapping from checkpointable name to metadata.
     """
-    checkpointables_metadata = {}
-    for checkpointable_name in abstract_checkpointables.keys():
+    async def _read_one(checkpointable_name: str) -> tuple[str, Any]:
       handler = handlers[checkpointable_name]
       try:
-        checkpointable_metadata = await handler.metadata(
+        return checkpointable_name, await handler.metadata(
             path / checkpointable_name
         )
       except BaseException as e:  # pylint:disable=broad-exception-caught
+        if isinstance(e, asyncio.CancelledError):
+          raise
         logging.warning(
             "Failed to get metadata for checkpointable: %s due to incompatible"
             " handler: %s for abstract checkpointable: %s. Defaulting return"
@@ -631,9 +639,12 @@ class OrbaxLayout(CheckpointLayout):
             abstract_checkpointables[checkpointable_name],
             e,
         )
-        checkpointable_metadata = None
-      checkpointables_metadata[checkpointable_name] = checkpointable_metadata
-    return checkpointables_metadata
+        return checkpointable_name, None
+
+    pairs = await asyncio.gather(
+        *(_read_one(name) for name in abstract_checkpointables)
+    )
+    return dict(pairs)
 
   async def _process_load_awaitables(
       self,

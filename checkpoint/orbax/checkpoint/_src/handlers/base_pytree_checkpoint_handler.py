@@ -1128,14 +1128,19 @@ class BasePyTreeCheckpointHandler(
     Returns:
       tree containing metadata.
     """
-    internal_tree_metadata = asyncio_utils.run_sync(
-        self._metadata_manager.read_metadata_file(directory)
+    async def _get_metadata() -> tuple[tree_metadata.InternalTreeMetadata, Any]:
+      internal_meta = await self._metadata_manager.read_metadata_file(directory)
+      custom_meta = await internal_meta.as_custom_metadata(
+          directory,
+          self._type_handler_registry,
+      )
+      return internal_meta, custom_meta
+
+    internal_tree_metadata, custom_tree = asyncio_utils.run_sync(
+        _get_metadata()
     )
     return tree_metadata.build_default_tree_metadata(
-        internal_tree_metadata.as_custom_metadata(
-            directory,
-            self._type_handler_registry,
-        ),
+        custom_tree,
         custom_metadata=internal_tree_metadata.custom_metadata,
         use_zarr3=internal_tree_metadata.use_zarr3,
     )

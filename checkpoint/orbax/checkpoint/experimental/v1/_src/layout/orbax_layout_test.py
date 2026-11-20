@@ -14,6 +14,7 @@
 
 from typing import Any, cast
 import unittest
+from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -268,6 +269,21 @@ class OrbaxLayoutTest(unittest.IsolatedAsyncioTestCase, parameterized.TestCase):
     self.assertIsInstance(result_metadata.commit_timestamp_nsecs, int)
     self.assertGreater(result_metadata.commit_timestamp_nsecs, 0)
 
+  async def test_checkpointables_metadata_skips_reserved_keys(self):
+    ckpt_path = self.orbax_path / '0'
+    reserved_dirs = [
+        checkpoint_layout.METRICS_CHECKPOINTABLE_KEY,
+        checkpoint_layout.AUTO_CHECKPOINTABLE_KEY,
+    ]
+    for key in reserved_dirs:
+      (ckpt_path / key).mkdir(exist_ok=True)
+    result_metadata = await OrbaxLayout().checkpointables_metadata(ckpt_path)
+    for key in reserved_dirs:
+      self.assertNotIn(key, result_metadata.metadata)
+    self.assertCountEqual(
+        result_metadata.metadata.keys(), [STATE_CHECKPOINTABLE_KEY]
+    )
+
   async def test_metadata(self):
     """Tests the metadata() method for a single checkpointable."""
     layout = OrbaxLayout()
@@ -344,6 +360,37 @@ class V1ValidationTest(
 
     with self.assertRaises(FileNotFoundError):
       await OrbaxLayout()._validate(self.directory, STATE_CHECKPOINTABLE_KEY)
+
+  async def test_allows_d_checkpointable_and_zarr3_param(self):
+    ckpt = epath.Path(self.create_tempdir().full_path)
+    (ckpt / 'd' / 'd').mkdir(parents=True)
+    (ckpt / 'd' / 'd' / 'zarr.json').write_text('{}')
+    (ckpt / checkpoint_layout.METRICS_CHECKPOINTABLE_KEY).mkdir()
+    names = await OrbaxLayout().get_checkpointable_names(ckpt)
+    self.assertEqual(names, ['d'])
+    self.assertTrue(await orbax_layout.has_tensorstore_data_files(ckpt / 'd'))
+
+  async def test_has_zarr_metadata_files_short_circuits_in_batches(self):
+    pytree_dir = epath.Path(self.create_tempdir().full_path)
+    # pylint: disable-next=protected-access
+    batch_size = orbax_layout._ZARR_PROBE_BATCH_SIZE
+    for idx in range(batch_size * 3):
+      param_dir = pytree_dir / f'param_{idx:02d}'
+      param_dir.mkdir()
+      (param_dir / 'zarr.json').write_text('{}')
+
+    checked: list[epath.Path] = []
+    orig_exists = async_path.exists
+
+    async def _spy_exists(p: epath.Path) -> bool:
+      if str(p).startswith(str(pytree_dir)):
+        checked.append(p)
+      return await orig_exists(p)
+
+    with mock.patch.object(async_path, 'exists', side_effect=_spy_exists):
+      self.assertTrue(await orbax_layout.has_tensorstore_data_files(pytree_dir))
+    # 1 manifest check + 2 root zarr checks + 1 batch of batch_size * 2 checks.
+    self.assertLen(checked, 3 + 2 * batch_size)
 
 
 class IsOrbaxV1CheckpointTest(parameterized.TestCase):

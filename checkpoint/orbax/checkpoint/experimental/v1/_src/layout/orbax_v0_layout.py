@@ -78,7 +78,7 @@ class OrbaxV0Layout(CheckpointLayout):
 
     Checks all subdirectories and returns their names in an order that
     prioritizes the 'state' checkpointable name if present, and sorts the rest
-    alphabetically.
+    alphabetically. Returns an empty list for direct (flat) V0 checkpoints.
 
     Args:
       path: The path to the checkpoint directory.
@@ -86,6 +86,8 @@ class OrbaxV0Layout(CheckpointLayout):
     Returns:
       A list of candidate checkpointable names to use for loading.
     """
+    if await self._is_direct_checkpoint(path):
+      return []
     return await self._orbax_layout.get_checkpointable_names(path)
 
   async def _load_pytree_metadata(
@@ -223,7 +225,7 @@ class OrbaxV0Layout(CheckpointLayout):
         # top-level pytree checkpoint.
         return
 
-      subpaths = await orbax_layout.get_subpaths(path)
+      subpaths = list(await async_path.iterdir(path))
       awaitables = [
           orbax_layout.has_checkpoint_metadata_file(subdir)
           for subdir in subpaths

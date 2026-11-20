@@ -129,12 +129,12 @@ async def is_link(path: epath.Path):
   return await asyncio.to_thread(os.path.islink, path)
 
 
-async def iterdir(path: epath.Path):
-  return await asyncio.to_thread(path.iterdir)
+async def iterdir(path: epath.Path) -> Iterator[epath.Path]:
+  return iter(await asyncio.to_thread(lambda: list(path.iterdir())))
 
 
 async def glob(path: epath.Path, pattern: str) -> Iterator[epath.Path]:
-  return await asyncio.to_thread(path.glob, pattern)
+  return iter(await asyncio.to_thread(lambda: list(path.glob(pattern))))
 
 
 async def unlink(path: epath.Path, missing_ok: bool = False):

@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import asyncio
+from collections.abc import Iterator
 import io
+import threading
 import unittest
 
 from absl.testing import absltest
@@ -188,6 +190,57 @@ class AsyncPathTest(parameterized.TestCase):
       await async_path.rmtree(missing_dir, missing_ok=True)
       with self.assertRaisesRegex(FileNotFoundError, r'non_existent'):
         await async_path.rmtree(missing_dir, missing_ok=False)
+
+    asyncio.run(_test())
+
+  def test_iterdir_materializes_off_event_loop(self):
+    child = self.test_dir / 'item'
+    child.mkdir()
+    gen_threads: list[int] = []
+
+    def _lazy_iterdir():
+      gen_threads.append(threading.get_ident())
+      yield child
+
+    self.enter_context(
+        unittest.mock.patch.object(
+            self.test_dir, 'iterdir', side_effect=_lazy_iterdir
+        )
+    )
+
+    async def _test():
+      loop_thread = threading.get_ident()
+      entries = await async_path.iterdir(self.test_dir)
+      self.assertIsInstance(entries, Iterator)
+      self.assertLen(gen_threads, 1)
+      self.assertNotEqual(gen_threads[0], loop_thread)
+      self.assertEqual(list(entries), [child])
+
+    asyncio.run(_test())
+
+  def test_glob_materializes_off_event_loop(self):
+    child = self.test_dir / 'match.txt'
+    child.write_text('x')
+    gen_threads: list[int] = []
+
+    def _lazy_glob(pattern):
+      del pattern
+      gen_threads.append(threading.get_ident())
+      yield child
+
+    self.enter_context(
+        unittest.mock.patch.object(
+            self.test_dir, 'glob', side_effect=_lazy_glob
+        )
+    )
+
+    async def _test():
+      loop_thread = threading.get_ident()
+      matches = await async_path.glob(self.test_dir, '*.txt')
+      self.assertIsInstance(matches, Iterator)
+      self.assertLen(gen_threads, 1)
+      self.assertNotEqual(gen_threads[0], loop_thread)
+      self.assertEqual(list(matches), [child])
 
     asyncio.run(_test())
 

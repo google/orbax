@@ -212,9 +212,12 @@ async def _resolve_auto_pytree_name(
     InvalidLayoutError: If no valid PyTree checkpointable can be found.
   """
   names = await layout.get_checkpointable_names(path)
-  for name in names:
-    try:
-      await layout.validate(path, name)
+  results = await asyncio.gather(
+      *(layout.validate(path, name) for name in names),
+      return_exceptions=True,
+  )
+  for name, result in zip(names, results):
+    if result is None:
       logging.info(
           "AUTO resolution mode successfully identified a pytree with"
           " checkpointable name '%s' at path '%s'. Attempting to load with"
@@ -224,8 +227,8 @@ async def _resolve_auto_pytree_name(
           path,
       )
       return name
-    except InvalidLayoutError:
-      continue
+    if not isinstance(result, InvalidLayoutError):
+      raise result
 
   if not isinstance(layout, orbax_layout.OrbaxLayout):
     try:

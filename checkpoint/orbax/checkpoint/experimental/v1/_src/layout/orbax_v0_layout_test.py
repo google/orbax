@@ -299,6 +299,16 @@ class V0ValidationTest(
     with self.assertRaises(FileNotFoundError):
       await layout._validate(self.v0_pytree_directory, None)
 
+  async def test_get_checkpointable_names_direct_vs_composite(self):
+    layout = orbax_v0_layout.OrbaxV0Layout()
+    self.assertEqual(
+        await layout.get_checkpointable_names(self.v0_pytree_directory), []
+    )
+    self.assertEqual(
+        await layout.get_checkpointable_names(self.directory),
+        ['state', 'params'],
+    )
+
 
 class IsOrbaxV0CheckpointTest(parameterized.TestCase):
 
