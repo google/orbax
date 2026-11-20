@@ -1644,6 +1644,7 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
       self,
       actual_spec: ts_utils.JsonSpec,
       expected_base_path: str,
+      expected_base_layer_prefix: str | None = None,
   ) -> None:
     base_file_driver_spec = _base_file_driver_spec(expected_base_path)
     if _is_using_file_driver():
@@ -1652,14 +1653,16 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
           'file_io_locking': {'mode': 'non_atomic'}
       }
 
+    base_layer: ts_utils.JsonSpec = {'base': base_file_driver_spec}
+    if expected_base_layer_prefix is not None:
+      base_layer['prefix'] = expected_base_layer_prefix
+
     self.assertDictEqual(
         actual_spec,
         {
             'driver': 'kvstack',
             'layers': [
-                {
-                    'base': base_file_driver_spec,
-                },
+                base_layer,
                 {
                     'prefix': 'ocdbt_tmp_meta/',
                     'base': self.base_tmp_dir_spec,
@@ -1668,89 +1671,131 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
         },
     )
 
-  @parameterized.product(use_process_spec=(True, False))
-  def test_read_mode(self, use_process_spec: bool):
-    process_spec = None
-    if use_process_spec:
-      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+  @parameterized.product(
+      use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
+  )
+  def test_read_mode(
+      self,
+      use_process_spec: bool,
+      context_has_process_spec: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
+    )
 
     kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory=self.directory,
         use_ocdbt=True,
-        ocdbt_process_spec=process_spec,
-        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+        ocdbt_process_spec=process_spec if use_process_spec else None,
+        ocdbt_temporary_metadata_context=temporary_metadata_context,
     )
 
     # Manifest spec is set to the temporary metadata path, but prefixes are no
     # longer overridden.
-    self.assertEqual(
-        kvstore_tspec['manifest'],
-        f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/',
+    expected_manifest = (
+        f'{self.base_tmp_dir_spec}{process_spec}/ocdbt_tmp_meta/'
+        if context_has_process_spec
+        else f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/'
     )
+    self.assertEqual(kvstore_tspec['manifest'], expected_manifest)
     self.assertNotIn('btree_node_data_prefix', kvstore_tspec)
     self.assertNotIn('version_tree_node_data_prefix', kvstore_tspec)
     self.assertNotIn('value_data_prefix', kvstore_tspec)
 
     expected_base_path = (
-        f'{self.directory}/'
-        if not use_process_spec
-        else f'{self.directory}/{str(process_spec)}/'
+        f'{self.directory}/{process_spec}/'
+        if use_process_spec
+        else f'{self.directory}/'
     )
-    # kvstack spec is independent of the mode.
-    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+    self._verify_kvstack_spec(
+        kvstore_tspec['base'],
+        expected_base_path,
+        expected_base_layer_prefix=(
+            f'{process_spec}/' if context_has_process_spec else None
+        ),
+    )
 
   @parameterized.product(
       use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
       store_ocdbt_metadata_and_values_separately=(True, False),
   )
   def test_write_mode(
       self,
       use_process_spec: bool,
+      context_has_process_spec: bool,
       store_ocdbt_metadata_and_values_separately: bool,
   ):
-    process_spec = None
-    if use_process_spec:
-      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
+    )
 
     kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory=self.directory,
         use_ocdbt=True,
-        ocdbt_process_spec=process_spec,
+        ocdbt_process_spec=process_spec if use_process_spec else None,
         ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
             mode=ts_utils.OcdbtWriteMode.WRITE,
             store_ocdbt_metadata_and_values_separately=(
                 store_ocdbt_metadata_and_values_separately
             ),
         ),
-        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+        ocdbt_temporary_metadata_context=temporary_metadata_context,
     )
 
     # Manifest spec is set to the temporary metadata path, and prefixes are
     # overridden to match the routing prefix of kvstack layer configured with
     # temporary metadata path.
+    expected_manifest = (
+        f'{self.base_tmp_dir_spec}{process_spec}/ocdbt_tmp_meta/'
+        if context_has_process_spec
+        else f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/'
+    )
+    expected_metadata_prefix = (
+        f'ocdbt_tmp_meta/{process_spec}/'
+        if context_has_process_spec
+        else 'ocdbt_tmp_meta/'
+    )
+    self.assertEqual(kvstore_tspec['manifest'], expected_manifest)
     self.assertEqual(
-        kvstore_tspec['manifest'],
-        f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/',
+        kvstore_tspec['btree_node_data_prefix'], expected_metadata_prefix
     )
     self.assertEqual(
-        kvstore_tspec['btree_node_data_prefix'], 'ocdbt_tmp_meta/'
-    )
-    self.assertEqual(
-        kvstore_tspec['version_tree_node_data_prefix'], 'ocdbt_tmp_meta/'
+        kvstore_tspec['version_tree_node_data_prefix'],
+        expected_metadata_prefix,
     )
 
-    if store_ocdbt_metadata_and_values_separately:
+    if context_has_process_spec:
+      expected_value_prefix = (
+          f'{process_spec}/ocdbt_data/'
+          if store_ocdbt_metadata_and_values_separately
+          else f'{process_spec}/d/'
+      )
+      self.assertEqual(
+          kvstore_tspec['value_data_prefix'], expected_value_prefix
+      )
+    elif store_ocdbt_metadata_and_values_separately:
       self.assertEqual(kvstore_tspec['value_data_prefix'], 'ocdbt_data/')
     else:
       self.assertNotIn('value_data_prefix', kvstore_tspec)
 
     expected_base_path = (
-        f'{self.directory}/'
-        if not use_process_spec
-        else f'{self.directory}/{str(process_spec)}/'
+        f'{self.directory}/{process_spec}/'
+        if use_process_spec
+        else f'{self.directory}/'
     )
-    # kvstack spec is independent of the mode and write options.
-    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+    self._verify_kvstack_spec(
+        kvstore_tspec['base'],
+        expected_base_path,
+        expected_base_layer_prefix=(
+            f'{process_spec}/' if context_has_process_spec else None
+        ),
+    )
 
   @parameterized.product(
       use_process_spec=(True, False),
@@ -1823,45 +1868,193 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
           ocdbt_temporary_metadata_context=None,
       )
 
-  def test_merge_mode_raises_error(self):
+  @parameterized.product(
+      mode=(
+          ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+          ts_utils.OcdbtWriteMode.MERGE,
+      ),
+      use_process_spec=(False, True),
+  )
+  def test_commit_and_merge_modes_reject_process_spec_in_context(
+      self,
+      mode: ts_utils.OcdbtWriteMode,
+      use_process_spec: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='h0')
     with self.assertRaisesRegex(
         ValueError,
-        'OCDBT merge mode does not support temporary metadata context.',
+        f'OCDBT {mode.value} mode does not support per-process temporary',
     ):
       ts_utils.build_kvstore_tspec(
           directory=self.directory,
           use_ocdbt=True,
+          ocdbt_process_spec=process_spec if use_process_spec else None,
           ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
-              mode=ts_utils.OcdbtWriteMode.MERGE,
+              mode=mode,
           ),
-          ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+          ocdbt_temporary_metadata_context=(
+              ts_utils.OcdbtTemporaryMetadataContext(
+                  path=epath.Path(self.temporary_metadata_path),
+                  process_spec=process_spec,
+              )
+          ),
       )
+
+  @parameterized.product(
+      write_mode=(None, ts_utils.OcdbtWriteMode.WRITE),
+  )
+  def test_conflicting_process_specs_raises(
+      self,
+      write_mode: ts_utils.OcdbtWriteMode | None,
+  ):
+    write_options = (
+        ts_utils.OcdbtKvStoreWriteOptions(mode=write_mode)
+        if write_mode is not None
+        else None
+    )
+    with self.assertRaisesRegex(
+        ValueError,
+        'Conflicting process_spec',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=ts_utils.OcdbtProcessSpec(process_id='h0'),
+          ocdbt_write_options=write_options,
+          ocdbt_temporary_metadata_context=(
+              ts_utils.OcdbtTemporaryMetadataContext(
+                  path=epath.Path(self.temporary_metadata_path),
+                  process_spec=ts_utils.OcdbtProcessSpec(process_id='h1'),
+              )
+          ),
+      )
+
+  @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(True, False),
+  )
+  def test_merge_mode(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    child_process_spec = ts_utils.OcdbtProcessSpec(process_id='h0')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=None,
+    )
+
+    merge_options = ts_utils.OcdbtKvStoreWriteOptions(
+        mode=ts_utils.OcdbtWriteMode.MERGE,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+
+    expected_base_path = f'{self.directory}/'
+    base_file_driver_spec = _base_file_driver_spec(expected_base_path)
+    if _is_using_file_driver():
+      base_file_driver_spec = {
+          **base_file_driver_spec,
+          'file_io_locking': {'mode': 'non_atomic'},
+      }
+    expected_merge_layers = [
+        {'base': base_file_driver_spec},
+        {
+            'prefix': 'ocdbt_tmp_meta/',
+            'base': self.base_tmp_dir_spec,
+        },
+    ]
+
+    with self.subTest('child'):
+      child_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=child_process_spec,
+          ocdbt_write_options=merge_options,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
+      )
+      self.assertDictEqual(
+          child_merge_spec['base'],
+          {
+              'driver': 'kvstack',
+              'layers': expected_merge_layers,
+          },
+      )
+      self.assertEqual(
+          child_merge_spec['manifest'],
+          f'{self.base_tmp_dir_spec}{child_process_spec}/ocdbt_tmp_meta/',
+      )
+      self.assertNotIn('btree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('version_tree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('value_data_prefix', child_merge_spec)
+      self.assertNotIn('config', child_merge_spec)
+      self.assertNotIn('assume_config', child_merge_spec)
+      self.assertNotIn('target_data_file_size', child_merge_spec)
+      self.assertIsNotNone(ts.KvStore.Spec(child_merge_spec))
+
+    with self.subTest('parent'):
+      parent_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=merge_options,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
+      )
+      self.assertDictEqual(
+          parent_merge_spec['base'],
+          {
+              'driver': 'kvstack',
+              'layers': expected_merge_layers,
+          },
+      )
+      if _is_using_file_driver():
+        self.assertEqual(
+            parent_merge_spec['manifest'],
+            _base_file_driver_spec(expected_base_path),
+        )
+      else:
+        self.assertNotIn('manifest', parent_merge_spec)
+
+      if store_ocdbt_metadata_and_values_separately:
+        self.assertEqual(parent_merge_spec['value_data_prefix'], 'ocdbt_data/')
+        self.assertEqual(
+            parent_merge_spec['btree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(
+            parent_merge_spec['version_tree_node_data_prefix'], 'ocdbt_meta/'
+        )
+      else:
+        self.assertNotIn('value_data_prefix', parent_merge_spec)
+        self.assertNotIn('btree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('version_tree_node_data_prefix', parent_merge_spec)
+
+      self.assertIsNotNone(ts.KvStore.Spec(parent_merge_spec))
 
   @parameterized.product(
       gcs_backend=('gcs', 'gcs_grpc'),
       use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
       has_object_path=(True, False),
   )
   def test_gcs_path_with_temporary_metadata_context(
       self,
       gcs_backend: str,
       use_process_spec: bool,
+      context_has_process_spec: bool,
       has_object_path: bool,
   ):
     directory = (
         'gs://gcs_bucket/object_path' if has_object_path else 'gs://gcs_bucket'
     )
-    process_spec = (
-        ts_utils.OcdbtProcessSpec(process_id='w13')
-        if use_process_spec
-        else None
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
     )
     if has_object_path and use_process_spec:
-      expected_path = f'object_path/{str(process_spec)}/'
+      expected_path = f'object_path/{process_spec}/'
     elif has_object_path:
       expected_path = 'object_path/'
     elif use_process_spec:
-      expected_path = f'{str(process_spec)}/'
+      expected_path = f'{process_spec}/'
     else:
       expected_path = ''
 
@@ -1871,11 +2064,11 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
       kvstore_tspec = ts_utils.build_kvstore_tspec(
           directory=directory,
           use_ocdbt=True,
-          ocdbt_process_spec=process_spec,
+          ocdbt_process_spec=process_spec if use_process_spec else None,
           ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
               mode=ts_utils.OcdbtWriteMode.WRITE,
           ),
-          ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
       )
 
     self.assertEqual(
@@ -1883,18 +2076,21 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
         ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
     )
     self.assertTrue(ts_utils.is_remote_storage(kvstore_tspec))
+    expected_base_layer: ts_utils.JsonSpec = {
+        'base': {
+            'driver': gcs_backend,
+            'bucket': 'gcs_bucket',
+            'path': expected_path,
+        },
+    }
+    if context_has_process_spec:
+      expected_base_layer['prefix'] = f'{process_spec}/'
     self.assertDictEqual(
         kvstore_tspec['base'],
         {
             'driver': 'kvstack',
             'layers': [
-                {
-                    'base': {
-                        'driver': gcs_backend,
-                        'bucket': 'gcs_bucket',
-                        'path': expected_path,
-                    },
-                },
+                expected_base_layer,
                 {
                     'prefix': 'ocdbt_tmp_meta/',
                     'base': self.base_tmp_dir_spec,
