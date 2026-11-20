@@ -71,6 +71,17 @@ def make_replicated_array(shape, num_replicas):
   return jax.device_put(x, sharding)
 
 
+class _NoAddressableShards:
+  """An array as seen by a process that holds none of its shards."""
+
+  def __init__(self, arr):
+    self._arr = arr
+    self.addressable_shards = ()
+
+  def __getattr__(self, name):
+    return getattr(self._arr, name)
+
+
 class ReplicaSlicesTest(parameterized.TestCase):
 
   @parameterized.product(partitioned=[False, True])
@@ -559,27 +570,126 @@ class ReplicaSlicesTest(parameterized.TestCase):
         make_replicated_array((num_data, 3), 2),
     ]
 
-    class NoAddressableShards:
-      """An array as seen by a process that holds none of its shards."""
-
-      def __init__(self, arr):
-        self._arr = arr
-        self.addressable_shards = []
-
-      def __getattr__(self, name):
-        return getattr(self._arr, name)
-
     # Every process must agree on the replica ids, including processes that
     # hold no shards of some arrays (e.g. arrays on a submesh).
     self.assertEqual(
         replica_slices.get_balanced_replica_ids(
-            [cast(jax.Array, NoAddressableShards(arr)) for arr in arrays],
+            [cast(jax.Array, _NoAddressableShards(arr)) for arr in arrays],
             use_replica_parallel=True,
         ),
         replica_slices.get_balanced_replica_ids(
             arrays, use_replica_parallel=True
         ),
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='single_replica',
+          replica_id=0,
+          use_replica_parallel=False,
+      ),
+      dict(
+          testcase_name='local_checkpointing',
+          replica_id=None,
+          use_replica_parallel=False,
+      ),
+      dict(
+          testcase_name='replica_parallel_fallback',
+          replica_id=0,
+          use_replica_parallel=True,
+      ),
+  )
+  def test_transfer_without_addressable_shards(
+      self, replica_id, use_replica_parallel
+  ):
+    mesh = jax.sharding.Mesh(np.asarray(jax.devices()), ('x',))
+    sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec('x'))
+    arr = jax.device_put(
+        np.arange(4 * jax.device_count(), dtype=np.float32), sharding
+    )
+    stub = cast(jax.Array, _NoAddressableShards(arr))
+
+    rslices = replica_slices.transfer_arrays_to_host(
+        [stub],
+        replica_ids=[replica_id],
+        use_replica_parallel=use_replica_parallel,
+    )
+
+    self.assertLen(rslices, 1)
+    self.assertTrue(rslices[0].is_on_host)
+    self.assertEmpty(rslices[0].replica_slices)
+    self.assertEqual(rslices[0].local_shape, (4,))
+    self.assertEmpty(rslices[0].to_fragments().fragments)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='single_replica',
+          replica_id=0,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+      ),
+      dict(
+          testcase_name='local_checkpointing',
+          replica_id=None,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+      ),
+      dict(
+          testcase_name='replica_parallel',
+          replica_id=0,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+      ),
+  )
+  def test_transfer_replicated_without_addressable_shards(
+      self, replica_id, use_replica_parallel, expected_local_shape
+  ):
+    if jax.device_count() < 2:
+      self.skipTest('Test requires at least 2 devices.')
+    num_data = jax.device_count() // 2
+    arr = make_replicated_array((4 * num_data, 4), 2)
+    stub = cast(jax.Array, _NoAddressableShards(arr))
+
+    rslices = replica_slices.transfer_arrays_to_host(
+        [stub],
+        replica_ids=[replica_id],
+        use_replica_parallel=use_replica_parallel,
+    )
+
+    self.assertLen(rslices, 1)
+    self.assertTrue(rslices[0].is_on_host)
+    self.assertEmpty(rslices[0].replica_slices)
+    self.assertEqual(rslices[0].local_shape, expected_local_shape)
+    self.assertEmpty(rslices[0].to_fragments().fragments)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='device_memory', pinned_host=False),
+      dict(testcase_name='small_pinned_host', pinned_host=True),
+  )
+  def test_without_addressable_shards_rejects_local_replica_parallel(
+      self, pinned_host: bool
+  ):
+    if jax.device_count() < 4:
+      self.skipTest('Test requires at least 4 devices.')
+    # Shape 2 * 768 on pinned_host has `_is_safe_to_slice(arr) == False`, which
+    # must still reject `replica_id=None` with `use_replica_parallel=True`.
+    arr, _, _ = make_multi_device_array(
+        2 * 768, partitioned=False, pinned_host=pinned_host
+    )
+    stub = cast(jax.Array, _NoAddressableShards(arr))
+
+    with self.assertRaisesRegex(
+        ValueError, 'incompatible with local checkpointing'
+    ):
+      replica_slices.get_replica_slices(
+          stub, replica_id=None, use_replica_parallel=True
+      )
+    with self.assertRaisesRegex(
+        ValueError, 'incompatible with local checkpointing'
+    ):
+      replica_slices.transfer_arrays_to_host(
+          [stub], replica_ids=[None], use_replica_parallel=True
+      )
 
   def test_partition_into_k_groups_returns_sums(self):
     values = [5, 4, 3, 3, 1]

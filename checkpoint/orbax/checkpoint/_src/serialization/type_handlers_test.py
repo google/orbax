@@ -14,11 +14,13 @@
 
 import asyncio
 import collections
+import contextlib
 import dataclasses
 import threading
 import tracemalloc
 from typing import Any, Optional, Sequence
 import unittest
+import warnings
 
 from absl import flags
 from absl.testing import parameterized
@@ -72,6 +74,18 @@ PLACEHOLDER = type_handlers.PLACEHOLDER
 FLAGS = flags.FLAGS
 
 jax.config.update('jax_enable_x64', True)
+
+
+@contextlib.contextmanager
+def _x64_disabled(explicit_x64_dtypes: str):
+  """Disables x64 under the given `jax_explicit_x64_dtypes` mode."""
+  previous_mode = jax.config.jax_explicit_x64_dtypes
+  jax.config.update('jax_explicit_x64_dtypes', explicit_x64_dtypes)
+  try:
+    with jax.enable_x64(False):
+      yield
+  finally:
+    jax.config.update('jax_explicit_x64_dtypes', previous_mode)
 
 
 async def _create_param_save_dir(param_info: ParamInfo):
@@ -494,6 +508,291 @@ class SerializationTest(
         bytes_written, expected_bytes_by_process[multihost.process_index()]
     )
     test_utils.assert_tree_equal(self, arrays, restored)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='sharded_single_replica',
+          num_replicas=1,
+          replica_id=0,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+          expect_sliced=False,
+      ),
+      dict(
+          testcase_name='sharded_local_checkpointing',
+          num_replicas=1,
+          replica_id=None,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+          expect_sliced=False,
+      ),
+      dict(
+          testcase_name='sharded_replica_parallel_fallback',
+          num_replicas=1,
+          replica_id=0,
+          use_replica_parallel=True,
+          expected_local_shape=(4, 4),
+          expect_sliced=False,
+      ),
+      dict(
+          testcase_name='replicated_single_replica',
+          num_replicas=2,
+          replica_id=0,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+          expect_sliced=False,
+      ),
+      dict(
+          testcase_name='replicated_local_checkpointing',
+          num_replicas=2,
+          replica_id=None,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+          expect_sliced=False,
+      ),
+      dict(
+          testcase_name='replicated_replica_parallel',
+          num_replicas=2,
+          replica_id=0,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+          expect_sliced=True,
+      ),
+  )
+  def test_get_replica_slices_without_addressable_shards(
+      self,
+      num_replicas: int,
+      replica_id: Optional[int],
+      use_replica_parallel: bool,
+      expected_local_shape: tuple[int, ...],
+      expect_sliced: bool,
+  ):
+    if jax.process_count() < 2:
+      self.skipTest('Test requires at least 2 processes.')
+    other_devices = [d for d in jax.devices() if d.process_index == 1]
+    if len(other_devices) < num_replicas or len(other_devices) % num_replicas:
+      self.skipTest(
+          f'Test requires process 1 device count ({len(other_devices)}) to be'
+          f' divisible by {num_replicas}.'
+      )
+    num_partitions = len(other_devices) // num_replicas
+    mesh = jax.sharding.Mesh(
+        np.asarray(other_devices).reshape(num_partitions, num_replicas),
+        ('x', 'y'),
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec('x', None)
+    )
+    global_shape = (4 * num_partitions, 4)
+    inp = np.arange(np.prod(global_shape), dtype=np.float32).reshape(
+        global_shape
+    )
+    local_shards = [
+        jax.device_put(inp[index], d)
+        for d, index in sharding.devices_indices_map(global_shape).items()
+        if d.process_index == multihost.process_index()
+    ]
+    arr = jax.make_array_from_single_device_arrays(
+        global_shape, sharding, local_shards, dtype=np.float32
+    )
+    rslices = replica_slices.get_replica_slices(
+        arr, replica_id=replica_id, use_replica_parallel=use_replica_parallel
+    )
+    on_host = replica_slices.transfer_arrays_to_host(
+        [arr],
+        replica_ids=[replica_id],
+        use_replica_parallel=use_replica_parallel,
+    )[0]
+    self.assertEqual(rslices.local_shape, expected_local_shape)
+    self.assertEqual(on_host.local_shape, expected_local_shape)
+    self.assertTrue(on_host.is_on_host)
+    if multihost.process_index() != 1:
+      self.assertEmpty(arr.addressable_shards)
+      self.assertEmpty(rslices.replica_slices)
+      self.assertEmpty(on_host.replica_slices)
+    else:
+      expected_num_slices = (
+          len(other_devices) if expect_sliced else num_partitions
+      )
+      self.assertLen(rslices.replica_slices, expected_num_slices)
+      self.assertLen(on_host.replica_slices, expected_num_slices)
+      for rslice in rslices.replica_slices:
+        self.assertEqual(rslice.slice_args is not None, expect_sliced)
+      combined = np.full(global_shape, np.nan, dtype=np.float32)
+      for rslice in on_host.replica_slices:
+        self.assertTrue(np.all(np.isnan(combined[rslice.index])))
+        combined[rslice.index] = rslice.data()
+      np.testing.assert_array_equal(combined, inp)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='single_replica_no_ocdbt',
+          use_ocdbt=False,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+      ),
+      dict(
+          testcase_name='single_replica_ocdbt',
+          use_ocdbt=True,
+          use_replica_parallel=False,
+          expected_local_shape=(4, 4),
+      ),
+      dict(
+          testcase_name='replica_parallel_no_ocdbt',
+          use_ocdbt=False,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+      ),
+      dict(
+          testcase_name='replica_parallel_ocdbt',
+          use_ocdbt=True,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+      ),
+      dict(
+          testcase_name='cast_dtype_ocdbt',
+          use_ocdbt=True,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+          restore_dtype=jnp.bfloat16,
+      ),
+      dict(
+          testcase_name='int64_x64_disabled_warn',
+          use_ocdbt=True,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+          save_dtype=np.int64,
+          explicit_x64_dtypes='warn',
+      ),
+      dict(
+          testcase_name='int64_x64_disabled_allow',
+          use_ocdbt=True,
+          use_replica_parallel=True,
+          expected_local_shape=(2, 4),
+          save_dtype=np.int64,
+          restore_dtype=np.int64,
+          explicit_x64_dtypes='allow',
+      ),
+  )
+  async def test_serialize_and_deserialize_without_addressable_shards(
+      self,
+      use_ocdbt: bool,
+      use_replica_parallel: bool,
+      expected_local_shape: tuple[int, ...],
+      restore_dtype: Optional[jnp.dtype] = None,
+      save_dtype: type[np.generic] = np.float32,
+      explicit_x64_dtypes: Optional[str] = None,
+  ):
+    if jax.process_count() < 2:
+      self.skipTest('Test requires at least 2 processes.')
+    num_replicas = 2
+    other_devices = [d for d in jax.devices() if d.process_index == 1]
+    if len(other_devices) < num_replicas or len(other_devices) % num_replicas:
+      self.skipTest(
+          f'Test requires process 1 device count ({len(other_devices)}) to be'
+          f' divisible by {num_replicas}.'
+      )
+    num_partitions = len(other_devices) // num_replicas
+    mesh = jax.sharding.Mesh(
+        np.asarray(other_devices).reshape(num_partitions, num_replicas),
+        ('x', 'y'),
+    )
+    sharding = jax.sharding.NamedSharding(
+        mesh, jax.sharding.PartitionSpec('x', None)
+    )
+    global_shape = (4 * num_partitions, 4)
+    inp = np.arange(np.prod(global_shape), dtype=save_dtype).reshape(
+        global_shape
+    )
+    local_shards = [
+        jax.device_put(inp[index], d)
+        for d, index in sharding.devices_indices_map(global_shape).items()
+        if d.process_index == multihost.process_index()
+    ]
+    arr = jax.make_array_from_single_device_arrays(
+        global_shape, sharding, local_shards, dtype=save_dtype
+    )
+
+    store = array_metadata_store_lib.Store(
+        primary_host=0, write_timeout_secs=60
+    )
+    handler = type_handlers.ArrayHandler(
+        primary_host=0,
+        replica_id=0,
+        use_replica_parallel=use_replica_parallel,
+        array_metadata_store=store,
+    )
+    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
+    info = get_param_info(
+        'submesh_arr', self.directory, is_ocdbt=use_ocdbt, ts_context=ts_context
+    )
+    await _create_param_save_dirs([info])
+
+    # With 2 processes, a sub-mesh excluding process 0 lives solely on process 1
+    # (`arr.is_fully_addressable == True` on process 1), which
+    # `ArrayHandler.serialize` rejects as host-local; sub-meshes spanning >= 2
+    # of >= 3 processes reach `_serialize_arrays` directly.
+    commit_future = jax_array_handlers._serialize_arrays(
+        arrays=[arr],
+        infos=[info],
+        args=[SaveArgs()],
+        dispatcher=None,
+        replica_id=0,
+        use_replica_parallel=use_replica_parallel,
+        min_slice_bytes_for_replica_parallel=None,
+        max_replicas_for_replica_parallel=None,
+        primary_host=0,
+        metadata_key=None,
+        array_metadata_store=store,
+        enable_replica_parallel_separate_folder=False,
+        ext_metadata={},
+        callback=types.DefaultSerializationStatusCallback(),
+    )
+    commit_future.result()
+    test_utils.sync_global_processes(
+        'test_serialize_and_deserialize_without_addressable_shards:serialized'
+    )
+    if use_ocdbt:
+      await self._merge_ocdbt_files(ts_context)
+
+    restore_args = [ArrayRestoreArgs(sharding=sharding, dtype=restore_dtype)]
+    if explicit_x64_dtypes is None:
+      restored = await handler.deserialize([info], restore_args)
+      expected_dtype = (
+          jnp.dtype(restore_dtype) if restore_dtype is not None else arr.dtype
+      )
+    else:
+      # Without x64, `jax.device_put` narrows the int64 shards that process 1
+      # reads to int32. Process 0 holds no shards and must restore the same
+      # dtype, and neither process may request a 64-bit dtype from JAX, which
+      # warns about, rejects or keeps it depending on `jax_explicit_x64_dtypes`.
+      with _x64_disabled(explicit_x64_dtypes), warnings.catch_warnings():
+        warnings.filterwarnings('error', message='Explicitly requested dtype')
+        restored = await handler.deserialize([info], restore_args)
+      expected_dtype = jnp.dtype(jnp.int32)
+    metadatas = await handler.metadata([info])
+    stored_array_metadatas = await store.read(self.directory)
+
+    self.assertEqual(restored[0].dtype, expected_dtype)
+    if multihost.process_index() != 1:
+      self.assertEmpty(arr.addressable_shards)
+      self.assertEmpty(restored[0].addressable_shards)
+    elif expected_dtype != arr.dtype:
+      for shard_expected, shard_actual in zip(
+          arr.addressable_shards, restored[0].addressable_shards, strict=True
+      ):
+        np.testing.assert_array_equal(
+            shard_actual.data, shard_expected.data.astype(expected_dtype)
+        )
+    else:
+      test_utils.assert_array_equal(self, arr, restored[0])
+    self.assertEqual(metadatas[0].storage.chunk_shape, expected_local_shape)
+    self.assertIsInstance(stored_array_metadatas, dict)
+    assert isinstance(stored_array_metadatas, dict)
+    self.assertEqual(set(stored_array_metadatas.keys()), {0, 1})
+    for proc_metas in stored_array_metadatas.values():
+      self.assertEqual(proc_metas[0].write_shape, expected_local_shape)
+      self.assertEqual(proc_metas[0].chunk_shape, expected_local_shape)
 
   async def test_array_deserialization_with_custom_layout(self):
     handler = type_handlers.ArrayHandler()

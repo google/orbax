@@ -301,9 +301,9 @@ def get_replica_slices(
       `get_balanced_replica_ids` when balancing arrays across replicas. Ignored
       if `arr` is saved replica-parallel, in which case multiple replicas each
       save a slice of every shard. Omitting the replica id just picks the first
-      addressable shard's replica id so that the process writes each of its
-      addressable shards exactly once. (This is the desired behavior for local
-      checkpointing.)
+      addressable shard's replica id (if any) so that the process writes each
+      of its addressable shards exactly once. (This is the desired behavior for
+      local checkpointing.)
     use_replica_parallel: Whether to use replica-parallel serialization to allow
       arrays with replicated shards to be written cooperatively by different
       hosts.
@@ -314,14 +314,30 @@ def get_replica_slices(
       saving will be parallelized if use_replica_parallel is True.
 
   Returns:
-    ReplicaSlices object.
+    ReplicaSlices object. If the current process holds no addressable shards of
+    `arr`, `replica_slices` is empty while `local_shape` is still derived from
+    `arr`'s sharding and shape so all processes agree on serialization
+    metadata.
+
+  Raises:
+    ValueError: If `use_replica_parallel` is True and `replica_id` is None.
   """
+  if use_replica_parallel and replica_id is None:
+    raise ValueError(
+        '`use_replica_parallel` is incompatible with local checkpointing'
+    )
   Result = tuple[list[ReplicaSlice], Shape]
-  shard0 = arr.addressable_shards[0]
+  shard_shape = arr.sharding.shard_shape(arr.shape)
 
   # single-replica: a single replica saves an entire shard.
   def pick_single_replica() -> Result:
-    target_replica_id = shard0.replica_id if replica_id is None else replica_id
+    if not arr.addressable_shards:
+      return [], shard_shape
+    target_replica_id = (
+        arr.addressable_shards[0].replica_id
+        if replica_id is None
+        else replica_id
+    )
     rslices = [
         ReplicaSlice(
             index=shard.index,
@@ -331,8 +347,7 @@ def get_replica_slices(
         for shard in arr.addressable_shards
         if shard.replica_id == target_replica_id
     ]
-    local_shape = shard0.data.shape
-    return rslices, local_shape
+    return rslices, shard_shape
 
   # replica-parallel: every replica saves part of a shard.
   # Logic based on axlearn:
@@ -340,11 +355,6 @@ def get_replica_slices(
   # TODO(gspschmid): Support replica-parallel in arrays without any evenly-
   # divisible dimension. The last replica would transfer a smaller slice.
   def maybe_pick_replica_parallel() -> Optional[Result]:
-    if replica_id is None:
-      raise ValueError(
-          '`use_replica_parallel` is incompatible with local checkpointing'
-      )
-
     axis, local_shape, replica_count = (
         _get_replica_parallel_axis_and_local_shape(
             arr,
@@ -358,7 +368,7 @@ def get_replica_slices(
     rslices: list[ReplicaSlice] = []
     for shard in arr.addressable_shards:
       # Sanity check that all shards have the same shape.
-      assert shard.data.shape == shard0.data.shape
+      assert shard.data.shape == shard_shape
 
       # Parallelize saving across only `replica_count` replicas.
       if shard.replica_id >= replica_count:
@@ -400,7 +410,7 @@ def get_replica_slices(
   # we want to compute the correct local shape regardless of whether there
   # are any replica slices to save locally.
   candidate_slices = None
-  if use_replica_parallel and _is_safe_to_slice(arr):
+  if use_replica_parallel:
     candidate_slices = maybe_pick_replica_parallel()
   if candidate_slices is None:
     candidate_slices = pick_single_replica()
