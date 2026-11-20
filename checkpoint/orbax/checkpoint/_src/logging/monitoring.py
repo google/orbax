@@ -17,10 +17,31 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Iterator
+import contextlib
+import enum
 import logging
 import os
 import threading
+import time
 from typing import Any
+
+
+class OperationEvent(enum.Enum):
+  """Lifecycle event for a checkpoint operation."""
+
+  BEGIN = 'begin'
+  END = 'end'
+
+
+class OperationType(enum.IntEnum):
+  """Type of checkpoint operation."""
+
+  OPERATION_TYPE_UNSPECIFIED = 0
+  OPERATION_TYPE_SAVE = 1
+  OPERATION_TYPE_PARTIAL_SAVE = 2
+  OPERATION_TYPE_LOAD = 3
+
 
 _DEFAULT_PROMETHEUS_PORT = 9431
 
@@ -46,6 +67,17 @@ class MetricRecorder(abc.ABC):
   ) -> None:
     """Records an event duration in seconds with optional metadata."""
     pass
+
+  def record_operation(
+      self,
+      event: OperationEvent,
+      operation_id: str,
+      operation_type: OperationType,
+      timestamp: float,
+      **kwargs: Any,
+  ) -> None:
+    """Records an operation lifecycle event (BEGIN or END)."""
+    del event, operation_id, operation_type, timestamp, kwargs
 
 
 _recorders: list[MetricRecorder] = []  # Protected by _init_lock
@@ -95,8 +127,75 @@ def initialize(recorder: MetricRecorder) -> None:
     logging.info('Installed JAX monitoring proxy listeners for Orbax.')
 
 
+def record_operation(
+    event: OperationEvent,
+    operation_id: str,
+    operation_type: OperationType,
+    timestamp: float | None = None,
+    **kwargs: Any,
+) -> None:
+  """Forwards an operation BEGIN or END event to registered recorders.
+
+  Prefer `track_operation()` for synchronous blocks. Use this two-call API when
+  begin and end span threads/callbacks (e.g. async saves or Streamz
+  `OperationRecorder` compatibility).
+
+  Args:
+    event: Lifecycle event (`OperationEvent.BEGIN` or `OperationEvent.END`).
+    operation_id: Unique identifier for the operation.
+    operation_type: Checkpoint OperationType enum value.
+    timestamp: Event timestamp in seconds, or None for current time.
+    **kwargs: Additional metadata forwarded to registered recorders.
+  """
+  # Kept out of jax.monitoring fields to keep metric cardinality bounded.
+  event_timestamp = time.time() if timestamp is None else timestamp
+  with _init_lock:
+    recorders_snapshot = _recorders[:]
+  for recorder in recorders_snapshot:
+    recorder.record_operation(
+        event, operation_id, operation_type, event_timestamp, **kwargs
+    )
+
+
+@contextlib.contextmanager
+def track_operation(
+    operation_id: str,
+    operation_type: OperationType,
+    **kwargs: Any,
+) -> Iterator[None]:
+  """Records operation BEGIN/END automatically around a synchronous block.
+
+  Args:
+    operation_id: Unique identifier for the operation.
+    operation_type: Checkpoint OperationType enum value.
+    **kwargs: Additional begin metadata (e.g. `step`, `directory`).
+
+  Returns:
+    Context manager that emits BEGIN on entry and END on exit with timestamps
+    and exception status populated automatically.
+  """
+  record_operation(OperationEvent.BEGIN, operation_id, operation_type, **kwargs)
+  try:
+    yield
+  # Catch BaseException so KeyboardInterrupt/SystemExit also emit END.
+  except BaseException as exc:
+    status = 'TIMED_OUT' if isinstance(exc, TimeoutError) else 'FAILURE'
+    record_operation(
+        OperationEvent.END,
+        operation_id,
+        operation_type,
+        status=status,
+        error=exc,
+    )
+    raise
+  else:
+    record_operation(
+        OperationEvent.END, operation_id, operation_type, status='SUCCESS'
+    )
+
+
 def initialize_from_env() -> None:
-  """Initializes monitoring based on environment and build type."""
+  """Initializes monitoring based on environment variables."""
 
   enable_telemetry = os.environ.get(
       'ENABLE_ORBAX_PROMETHEUS_TELEMETRY', 'false'
