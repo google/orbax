@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import copy
 import dataclasses
 import functools
 import itertools
@@ -43,6 +44,7 @@ from orbax.checkpoint._src.multihost import colocated_transport
 from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.multihost import multislice
+from orbax.checkpoint._src.multihost import pathways as pathways_multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import utils as path_utils
 from orbax.checkpoint._src.serialization import jax_array_restore_args
@@ -1011,6 +1013,50 @@ def _dispatch_serialize_batch(
   _on_batch_callback(batch_infos, callback.on_write_end)
 
 
+def _is_single_controller_dispatcher(
+    dispatcher: dispatchers.Dispatcher,
+) -> bool:
+  """Returns whether `dispatcher` runs work on TPU workers of a controller."""
+  if isinstance(dispatcher, dispatchers.ColocatedPythonDispatcher):
+    return True
+  return False
+
+
+def _resolve_worker_primary_host(
+    dispatcher: dispatchers.Dispatcher,
+    devices: tuple[jax.Device, ...],
+    primary_host: int | None,
+) -> int | None:
+  """Returns the worker primary host for a single-controller save.
+
+  In the single-controller setting (e.g. Pathways), the controller is always
+  process 0. After the save is dispatched to TPU workers, one worker acts as the
+  worker primary host: it creates TensorStore metadata (`create=True`) and the
+  `array_metadatas/` directory. That is `primary_host` (typically worker 0),
+  unless that worker holds none of `devices` (e.g. its slice is down during
+  Pathways replica resize). In that case the lowest worker process index among
+  `devices` is elected.
+
+  Args:
+    dispatcher: The dispatcher that runs the save on TPU workers.
+    devices: The accelerator devices holding the arrays being saved.
+    primary_host: The configured primary host.
+
+  Returns:
+    The worker primary host, or `primary_host` unchanged if the save is not
+    dispatched to TPU workers by a single controller.
+  """
+  if (
+      primary_host is None
+      or not devices
+      or not _is_single_controller_dispatcher(dispatcher)
+  ):
+    return primary_host
+  return pathways_multihost.worker_primary_host(
+      dispatcher, devices, primary_host
+  )
+
+
 def _serialize_arrays_with_dispatcher(
     prioritized: Sequence[_ArrayToSerialize],
     deprioritized: Sequence[_ArrayToSerialize],
@@ -1040,6 +1086,13 @@ def _serialize_arrays_with_dispatcher(
   prioritized_arrays: Sequence[jax.Array] = ()
   prioritized_infos: Sequence[types.ParamInfo] = ()
   prioritized_args: Sequence[types.SaveArgs] = ()
+  # Colocated Python rejects saves whose arrays use more than one device list
+  # (see `ArrayHandler.serialize`), so every batch runs on the same workers and
+  # the worker primary host is elected once per save. Devices are captured
+  # before the D2H transfer moves the arrays to host memory.
+  devices = worker_memory_utils._active_devices(  # pylint: disable=protected-access
+      v for v, _, _ in itertools.chain(prioritized, deprioritized)
+  )
   if prioritized:
     logging.info(
         'Scheduling D2H of %d prioritized jax.Array.',
@@ -1051,28 +1104,40 @@ def _serialize_arrays_with_dispatcher(
   else:
     _log_no_prioritized_params(deprioritized)
 
-  dispatch_batch = functools.partial(
-      _dispatch_serialize_batch,
-      replica_id=replica_id,
-      use_replica_parallel=use_replica_parallel,
-      min_slice_bytes_for_replica_parallel=min_slice_bytes_for_replica_parallel,
-      max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
-      primary_host=primary_host,
-      metadata_key=metadata_key,
-      array_metadata_store=array_metadata_store,
-      enable_replica_parallel_separate_folder=(
-          enable_replica_parallel_separate_folder
-      ),
-      ext_metadata=ext_metadata,
-      callback=callback,
-      balance_arrays_across_replicas=balance_arrays_across_replicas,
-  )
-
   # See `_serialize_arrays_batches_without_dispatcher` for why
   # `deprioritized_params` is an argument rather than a captured variable.
   async def _serialize(deprioritized_params: Sequence[_ArrayToSerialize]):
     for info in all_infos:
       await info.await_path_creation()
+    worker_primary_host = _resolve_worker_primary_host(
+        dispatcher, devices, primary_host
+    )
+    worker_metadata_store = array_metadata_store
+    if (
+        array_metadata_store is not None
+        and worker_primary_host != array_metadata_store.primary_host
+    ):
+      # Workers get a copy so that the shared store is not mutated.
+      worker_metadata_store = copy.copy(array_metadata_store)
+      worker_metadata_store.set_primary_host(worker_primary_host)
+    dispatch_batch = functools.partial(
+        _dispatch_serialize_batch,
+        replica_id=replica_id,
+        use_replica_parallel=use_replica_parallel,
+        min_slice_bytes_for_replica_parallel=(
+            min_slice_bytes_for_replica_parallel
+        ),
+        max_replicas_for_replica_parallel=max_replicas_for_replica_parallel,
+        primary_host=worker_primary_host,
+        metadata_key=metadata_key,
+        array_metadata_store=worker_metadata_store,
+        enable_replica_parallel_separate_folder=(
+            enable_replica_parallel_separate_folder
+        ),
+        ext_metadata=ext_metadata,
+        callback=callback,
+        balance_arrays_across_replicas=balance_arrays_across_replicas,
+    )
     if prioritized_infos:
       dispatch_batch(
           dispatcher,
@@ -1831,6 +1896,11 @@ class ArrayHandler(types.TypeHandler):
 
   def has_dispatcher(self) -> bool:
     return self._dispatcher is not None
+
+  @property
+  def dispatcher(self) -> dispatchers.Dispatcher | None:
+    """The dispatcher that runs (de)serialization on workers, if any."""
+    return self._dispatcher
 
   def typestr(self) -> str:
     return JAX_ARRAY_TYPE_STR

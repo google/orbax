@@ -149,6 +149,11 @@ class Store:
     self._primary_host = primary_host
     self._write_timeout_secs = write_timeout_secs
 
+  @property
+  def primary_host(self) -> int | None:
+    """Returns the primary host; `None` means all hosts are primary hosts."""
+    return self._primary_host
+
   def set_primary_host(self, primary_host: int | None) -> None:
     """Sets the primary host."""
     self._primary_host = primary_host

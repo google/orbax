@@ -29,7 +29,9 @@ import jax
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import pathways as pathways_multihost
 from orbax.checkpoint._src.path import async_path
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import ocdbt_utils
@@ -37,6 +39,47 @@ from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
 
+
+
+def _is_single_controller_dispatcher(
+    dispatcher: dispatchers.Dispatcher | None,
+) -> bool:
+  """Returns whether `dispatcher` runs work on TPU workers of a controller."""
+  if isinstance(dispatcher, dispatchers.ColocatedPythonDispatcher):
+    return True
+  return False
+
+
+def _resolve_worker_primary_host(
+    dispatcher: dispatchers.Dispatcher | None,
+    devices: tuple[jax.Device, ...],
+    primary_host: int | None,
+) -> int | None:
+  """Returns the worker primary host of a single-controller save.
+
+  Mirrors `jax_array_handlers._resolve_worker_primary_host`, which elects the
+  worker primary host that writes shared metadata during the save. Given the
+  same dispatcher and devices, both return the same worker.
+
+  Args:
+    dispatcher: The dispatcher that ran the save on TPU workers, if any.
+    devices: The devices of the saved `jax.Array`s.
+    primary_host: The configured primary host.
+
+  Returns:
+    The worker primary host, or `primary_host` unchanged if the save was not
+    dispatched to TPU workers by a single controller.
+  """
+  if (
+      dispatcher is None
+      or primary_host is None
+      or not devices
+      or not _is_single_controller_dispatcher(dispatcher)
+  ):
+    return primary_host
+  return pathways_multihost.worker_primary_host(
+      dispatcher, devices, primary_host
+  )
 
 
 class MetadataManager:
@@ -105,23 +148,44 @@ class MetadataManager:
       self,
       param_infos: Any,
       checkpoint_dir: epath.Path,
+      *,
+      dispatcher: dispatchers.Dispatcher | None = None,
+      devices: tuple[jax.Device, ...] = (),
   ) -> Any:
-    """Returns `param_infos` updated with `write_shape`."""
+    """Returns `param_infos` updated with `write_shape`.
+
+    Args:
+      param_infos: The PyTree of `ParamInfo` to update.
+      checkpoint_dir: The checkpoint directory holding `array_metadatas/`.
+      dispatcher: The dispatcher that ran the save on TPU workers, if any.
+      devices: The devices of the saved `jax.Array`s.
+    """
     if self._array_metadata_store is None:
       return param_infos
     if not multihost.is_primary_host(self._primary_host):
       return param_infos
-    # Extract write_shape from ArrayMetadata for current process_index.
-    process_index = multihost.process_index()
+    # In the single-controller setting the controller is always process 0 and
+    # each TPU worker writes its own `ArrayMetadata`. Read the worker primary
+    # host's: worker 0, unless it was not part of the save (e.g. Pathways
+    # replica resize with slice 0 down) and another worker was elected.
+    # Otherwise, read the current process's `ArrayMetadata`.
+    if _is_single_controller_dispatcher(dispatcher) and devices:
+      read_process_index = _resolve_worker_primary_host(
+          dispatcher, devices, self._primary_host
+      )
+    else:
+      read_process_index = multihost.process_index()
+    if read_process_index is None:
+      read_process_index = multihost.process_index()
     array_metadatas = await self._array_metadata_store.read(
-        checkpoint_dir, process_index=process_index
+        checkpoint_dir, process_index=read_process_index
     )
     if array_metadatas is None:
       jax_array_param_info = type_handlers.any_jax_array_param_info(param_infos)
       if jax_array_param_info is not None:
         raise ValueError(
-            f'No ArrayMetadata found for process_index={process_index} in the'
-            f' checkpoint directory: {checkpoint_dir}. But input PyTree'
+            f'No ArrayMetadata found for process_index={read_process_index} in'
+            f' the checkpoint directory: {checkpoint_dir}. But input PyTree'
             ' contains at least one jax.Array param_info:'
             f' {jax_array_param_info}.'
         )
@@ -139,7 +203,8 @@ class MetadataManager:
       if param_info.name not in array_metadatas_cache:
         raise ValueError(
             f'No ArrayMetadata found for param_info: {param_info}, checkpoint'
-            f' directory: {checkpoint_dir}, process_index={process_index}.'
+            f' directory: {checkpoint_dir},'
+            f' process_index={read_process_index}.'
         )
       return param_info.replace(
           write_shape=array_metadatas_cache[param_info.name].write_shape

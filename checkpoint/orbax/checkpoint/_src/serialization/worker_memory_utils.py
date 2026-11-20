@@ -27,7 +27,7 @@ from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import types
 
 
-@functools.lru_cache(maxsize=1)
+@functools.lru_cache(maxsize=4)
 def _device_to_worker_ids(
     dispatcher: dispatchers.Dispatcher,
     devices: tuple[jax.Device, ...] | None = None,

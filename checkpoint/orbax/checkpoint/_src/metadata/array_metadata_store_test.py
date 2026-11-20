@@ -49,6 +49,14 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     )
     self.assertIsNone(await self.store.read(self.checkpoint_dir))
 
+  def test_primary_host(self):
+    self.assertEqual(self.store.primary_host, 0)
+    self.store.set_primary_host(3)
+    self.assertEqual(self.store.primary_host, 3)
+    self.assertIsNone(
+        array_metadata_store_lib.Store(primary_host=None).primary_host
+    )
+
   async def test_write_and_read_single_process(self):
     process_index = 0
     array_metadatas = [

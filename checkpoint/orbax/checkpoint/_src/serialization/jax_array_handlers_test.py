@@ -17,6 +17,7 @@
 from collections.abc import Sequence
 import dataclasses
 import os
+import threading
 from typing import Any
 import unittest
 from unittest import mock
@@ -30,15 +31,18 @@ import numpy as np
 from orbax.checkpoint import options as options_lib
 from orbax.checkpoint import pathways as ocp_pathways
 from orbax.checkpoint import test_utils
+from orbax.checkpoint._src.handlers import base_pytree_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.multihost import colocated_transport
 from orbax.checkpoint._src.multihost import dispatchers
+from orbax.checkpoint._src.multihost import multihost
 from orbax.checkpoint._src.serialization import jax_array_handlers
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import type_handler_registry
 from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.serialization import worker_memory_utils
+from orbax.checkpoint.experimental.v1._src.serialization import compatibility
 
 ArrayRestoreArgs = jax_array_handlers.ArrayRestoreArgs
 
@@ -826,6 +830,320 @@ class ArrayHandlerRestoreLimitTest(parameterized.TestCase):
       jax_array_handlers.ArrayHandler(
           dispatcher_restore_concurrent_bytes=restore_bytes
       )
+
+
+class _WorkerIdentity(threading.local):
+  """Process index of the worker a thread runs dispatched work for, if any."""
+
+  process_index: int | None = None
+
+
+_WORKER_IDENTITY = _WorkerIdentity()
+_ORIGINAL_THREAD_START = threading.Thread.start
+
+
+def _fake_process_index() -> int:
+  """Returns the worker's process index on worker threads, else 0."""
+  process_index = _WORKER_IDENTITY.process_index
+  return 0 if process_index is None else process_index
+
+
+def _start_with_worker_identity(thread: threading.Thread) -> None:
+  """Starts `thread`, inheriting the starting thread's worker identity."""
+  process_index = _WORKER_IDENTITY.process_index
+  if process_index is not None:
+    run = thread.run
+
+    def _run_as_worker():
+      _WORKER_IDENTITY.process_index = process_index
+      run()
+
+    thread.run = _run_as_worker
+  _ORIGINAL_THREAD_START(thread)
+
+
+class _Worker1ColocatedDispatcher(_LocalColocatedDispatcher):
+  """Runs dispatched functions as worker process 1, e.g. with slice 0 down.
+
+  Only threads running dispatched work (and threads they start) see process
+  index 1, so concurrent controller threads still see process index 0.
+  """
+
+  def dispatch(self, func, *, input_arrays=None, result_specs=None, **kwargs):
+    previous = _WORKER_IDENTITY.process_index
+    _WORKER_IDENTITY.process_index = 1
+    try:
+      return super().dispatch(
+          func,
+          input_arrays=input_arrays,
+          result_specs=result_specs,
+          **kwargs,
+      )
+    finally:
+      _WORKER_IDENTITY.process_index = previous
+
+
+class WorkerPrimaryHostTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
+  """Tests electing a live worker as primary host for dispatched saves."""
+
+  def setUp(self):
+    super().setUp()
+    test_utils.set_tensorstore_driver_for_test()
+    self.directory = epath.Path(self.create_tempdir().full_path)
+    worker_memory_utils._device_to_worker_ids.cache_clear()  # pylint: disable=protected-access
+    self.addCleanup(worker_memory_utils._device_to_worker_ids.cache_clear)  # pylint: disable=protected-access
+    for target, attribute, new in (
+        (multihost, 'process_index', _fake_process_index),
+        (threading.Thread, 'start', _start_with_worker_identity),
+    ):
+      patcher = mock.patch.object(target, attribute, new)
+      patcher.start()
+      self.addCleanup(patcher.stop)
+
+  def _register_colocated_handlers(self, dispatcher_cls):
+    saved_handlers = [
+        (ty, type_handler_registry.get_type_handler(ty))
+        for ty in (int, float, bytes, np.number, np.ndarray, jax.Array)
+    ]
+
+    def _restore_global_handlers():
+      for ty, h in saved_handlers:
+        type_handler_registry.register_type_handler(ty, h, override=True)
+
+    self.addCleanup(_restore_global_handlers)
+    with mock.patch.object(
+        dispatchers, 'ColocatedPythonDispatcher', dispatcher_cls
+    ):
+      ocp_pathways.register_type_handlers(
+          checkpointing_impl=ocp_pathways.CheckpointingImpl.COLOCATED_PYTHON,
+      )
+
+  def _spy_write_shape_reader(self, handler):
+    """Records kwargs of `get_param_infos_with_write_shape` calls."""
+    metadata_manager = handler._handler_impl._metadata_manager  # pylint: disable=protected-access
+    original = metadata_manager.get_param_infos_with_write_shape
+    calls = []
+
+    async def _spy(*args, **kwargs):
+      calls.append(kwargs)
+      return await original(*args, **kwargs)
+
+    patcher = mock.patch.object(
+        metadata_manager, 'get_param_infos_with_write_shape', _spy
+    )
+    patcher.start()
+    self.addCleanup(patcher.stop)
+    return calls
+
+  @parameterized.parameters(True, False)
+  def test_pytree_save_with_worker_0_absent(self, use_ocdbt):
+    # Every live worker is process 1 (e.g. slice 0 is down during replica
+    # resize). The ArrayHandler elects worker 1 during the save, and the
+    # pytree handler's MetadataManager must read worker 1's ArrayMetadata.
+    self._register_colocated_handlers(_Worker1ColocatedDispatcher)
+    tree = dict(zip(['a0', 'a1'], _sharded_arrays(2)))
+    handler = pytree_checkpoint_handler.PyTreeCheckpointHandler(
+        use_ocdbt=use_ocdbt
+    )
+    self.addCleanup(handler.close)
+    reader_calls = self._spy_write_shape_reader(handler)
+
+    handler.save(
+        self.directory, args=pytree_checkpoint_handler.PyTreeSaveArgs(tree)
+    )
+    handler.finalize(self.directory)
+
+    # The reader resolves the worker primary host from the same dispatcher and
+    # devices that the ArrayHandler elected it from.
+    self.assertLen(reader_calls, 1)
+    self.assertIsInstance(
+        reader_calls[0]['dispatcher'], _Worker1ColocatedDispatcher
+    )
+    self.assertEqual(
+        reader_calls[0]['devices'],
+        tuple(sorted(tree['a0'].sharding.device_set, key=lambda d: d.id)),
+    )
+    self.assertEqual(
+        sorted(p.name for p in (self.directory / 'array_metadatas').iterdir()),
+        ['process_1'],
+    )
+    self.assertTrue((self.directory / '_METADATA').exists())
+    restore_args = jax.tree.map(
+        lambda a: ArrayRestoreArgs(
+            sharding=a.sharding, global_shape=a.shape, dtype=a.dtype
+        ),
+        tree,
+    )
+    restored = handler.restore(
+        self.directory,
+        args=pytree_checkpoint_handler.PyTreeRestoreArgs(
+            item=tree, restore_args=restore_args
+        ),
+    )
+    test_utils.assert_tree_equal(self, tree, restored)
+
+  def test_pytree_save_fails_if_reader_cannot_find_dispatcher(self):
+    # Regression guard: if the pytree handler cannot resolve the jax.Array
+    # handler's dispatcher (e.g. a wrapper that does not forward it), it reads
+    # worker 0's ArrayMetadata, which does not exist when worker 0 is absent.
+    self._register_colocated_handlers(_Worker1ColocatedDispatcher)
+    with mock.patch.object(
+        base_pytree_checkpoint_handler,
+        '_resolve_array_dispatcher',
+        return_value=None,
+    ):
+      handler = pytree_checkpoint_handler.PyTreeCheckpointHandler(
+          use_ocdbt=False
+      )
+    self.addCleanup(handler.close)
+    reader_calls = self._spy_write_shape_reader(handler)
+
+    with self.assertRaisesRegex(
+        ValueError, 'No ArrayMetadata found for process_index=0'
+    ):
+      handler.save(
+          self.directory,
+          args=pytree_checkpoint_handler.PyTreeSaveArgs(
+              {'a0': _sharded_arrays(1)[0]}
+          ),
+      )
+
+    self.assertLen(reader_calls, 1)
+    self.assertIsNone(reader_calls[0]['dispatcher'])
+    self.assertEqual(reader_calls[0]['devices'], ())
+
+  def test_v1_compatible_type_handler_forwards_dispatcher(self):
+    dispatcher = _LocalColocatedDispatcher()
+    leaf_handler = mock.Mock(spec=['_handler_impl'])
+    leaf_handler._handler_impl = jax_array_handlers.ArrayHandler(
+        dispatcher=dispatcher
+    )
+    wrapped = compatibility.CompatibleTypeHandler(leaf_handler, 'jax.Array')
+    self.assertIs(wrapped.dispatcher, dispatcher)
+    registry = type_handler_registry.create_type_handler_registry(
+        (jax.Array, wrapped)
+    )
+    self.assertIs(
+        base_pytree_checkpoint_handler._resolve_array_dispatcher(registry),  # pylint: disable=protected-access
+        dispatcher,
+    )
+    # Leaf handlers that are not based on the V0 ArrayHandler have none.
+    self.assertIsNone(
+        compatibility.CompatibleTypeHandler(
+            mock.Mock(spec=[]), 'jax.Array'
+        ).dispatcher
+    )
+
+  def test_resolve_worker_primary_host(self):
+    devices = tuple(jax.devices()[:2])
+    colocated_dispatcher = _LocalColocatedDispatcher()
+    generic_dispatcher = mock.create_autospec(dispatchers.Dispatcher)
+
+    with mock.patch.object(
+        worker_memory_utils,
+        '_device_to_worker_ids',
+        return_value={devices[0].id: 1, devices[1].id: 2},
+    ):
+      self.assertEqual(
+          jax_array_handlers._resolve_worker_primary_host(
+              colocated_dispatcher, devices, 0
+          ),
+          1,
+      )
+      self.assertEqual(
+          jax_array_handlers._resolve_worker_primary_host(
+              colocated_dispatcher, devices, 2
+          ),
+          2,
+      )
+      self.assertIsNone(
+          jax_array_handlers._resolve_worker_primary_host(
+              colocated_dispatcher, devices, None
+          )
+      )
+      self.assertEqual(
+          jax_array_handlers._resolve_worker_primary_host(
+              generic_dispatcher, devices, 0
+          ),
+          0,
+      )
+
+    with mock.patch.object(
+        worker_memory_utils,
+        '_device_to_worker_ids',
+        return_value={devices[0].id: 0, devices[1].id: 1},
+    ):
+      self.assertEqual(
+          jax_array_handlers._resolve_worker_primary_host(
+              colocated_dispatcher, devices, 0
+          ),
+          0,
+      )
+
+  async def test_colocated_save_elects_live_worker_primary_host(self):
+    dispatcher = _Worker1ColocatedDispatcher()
+    # primary_host=0 reflects controller, while only worker 1 is alive.
+    store = array_metadata_store_lib.Store(primary_host=0)
+    handler = jax_array_handlers.ArrayHandler(
+        dispatcher=dispatcher,
+        array_metadata_store=store,
+        primary_host=0,
+    )
+    arr = _sharded_arrays(1)[0]
+    info = jax_array_handlers.types.ParamInfo(
+        name='a',
+        parent_dir=self.directory,
+        is_ocdbt_checkpoint=False,
+    )
+    futures = await handler.serialize([arr], [info])
+    for f in futures:
+      f.result()
+
+    self.assertTrue((self.directory / 'a').exists())
+    self.assertTrue((self.directory / 'array_metadatas' / 'process_1').exists())
+    self.assertFalse(
+        (self.directory / 'array_metadatas' / 'process_0').exists()
+    )
+    # Workers get a copy of the store; the shared store is unchanged.
+    self.assertEqual(store.primary_host, 0)
+
+  async def test_colocated_save_keeps_primary_host_when_present(self):
+    # Non-elastic case: worker 0 takes part in the save, so every batch is
+    # dispatched with the unchanged primary host.
+    dispatcher = _LocalColocatedDispatcher()
+    store = array_metadata_store_lib.Store(primary_host=0)
+    limiter = limits.get_byte_limiter(_ARRAY_BYTES)
+    infos = [
+        _param_info('params', self.directory, device_host_byte_limiter=limiter),
+        _param_info('step', self.directory, device_host_byte_limiter=limiter),
+    ]
+    handler = jax_array_handlers.ArrayHandler(
+        dispatcher=dispatcher,
+        array_metadata_store=store,
+        primary_host=0,
+        callback=_StepPriorityCallback(types.TransferPriority.SYNCHRONOUS),
+    )
+
+    futures = await handler.serialize(_sharded_arrays(2), infos)
+    for f in futures:
+      f.result()
+
+    calls = dispatcher.calls_to('_worker_serialize_arrays')
+    self.assertEqual(
+        [[info.name for info in call.func_kwargs['infos']] for call in calls],
+        [['step'], ['params']],
+    )
+    self.assertEqual(
+        [call.func_kwargs['primary_host'] for call in calls], [0, 0]
+    )
+    # Workers get the caller's store itself, not a copy.
+    self.assertEqual(
+        [call.func_kwargs['array_metadata_store'] for call in calls],
+        [store, store],
+    )
+    self.assertTrue((self.directory / 'array_metadatas' / 'process_0').exists())
 
 
 if __name__ == '__main__':

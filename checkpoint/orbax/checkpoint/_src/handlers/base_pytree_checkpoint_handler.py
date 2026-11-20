@@ -222,6 +222,26 @@ def _fill_missing_save_or_restore_args(
 
 
 
+def _resolve_array_dispatcher(
+    type_handler_registry: TypeHandlerRegistry,
+) -> Any:
+  """Returns the jax.Array handler's dispatcher (v0 or v1-wrapped), if any."""
+  try:
+    array_handler = type_handler_registry.get(jax.Array)
+  except ValueError:
+    return None
+  return getattr(array_handler, 'dispatcher', None)
+
+
+def _array_devices(item: PyTree) -> Tuple[jax.Device, ...]:
+  """Returns the devices of all `jax.Array`s in `item`, sorted by id."""
+  devices = set()
+  for leaf in jax.tree.leaves(item):
+    if isinstance(leaf, jax.Array):
+      devices.update(leaf.sharding.device_set)
+  return tuple(sorted(devices, key=lambda d: d.id))
+
+
 def _format_bytes(bytes_value: Optional[int]) -> str:
   return (
       'None'
@@ -390,6 +410,10 @@ class BasePyTreeCheckpointHandler(
     )
     if self._array_metadata_store:
       self._array_metadata_store.set_primary_host(self._primary_host)
+    # The jax.Array handler's dispatcher, if it runs serialization on TPU
+    # workers. Used to read the `ArrayMetadata` of the worker primary host that
+    # the jax.Array handler elects during the save.
+    self._array_dispatcher = _resolve_array_dispatcher(type_handler_registry)
     self._array_metadata_validator = array_metadata_validator
     self._metadata_manager = metadata_manager or metadata_manager_lib.MetadataManager(
         primary_host=self._primary_host,
@@ -639,6 +663,10 @@ class BasePyTreeCheckpointHandler(
                   custom_metadata=custom_metadata,
                   use_ocdbt=self._use_ocdbt,
                   use_zarr3=self._use_zarr3,
+                  array_dispatcher=self._array_dispatcher,
+                  array_devices=(
+                      _array_devices(item) if self._array_dispatcher else ()
+                  ),
               ),
               name='write_metadata_after_commits',
           )
@@ -1051,6 +1079,8 @@ class BasePyTreeCheckpointHandler(
       custom_metadata: tree_types.JsonType | None,
       use_ocdbt: bool,
       use_zarr3: bool,
+      array_dispatcher: Any = None,
+      array_devices: Tuple[jax.Device, ...] = (),
   ) -> None:
     start_time = time.time()
     if not utils.is_primary_host(self._primary_host):
@@ -1072,6 +1102,8 @@ class BasePyTreeCheckpointHandler(
           await self._metadata_manager.get_param_infos_with_write_shape(
               param_infos,
               checkpoint_dir,
+              dispatcher=array_dispatcher,
+              devices=array_devices,
           )
       )
 

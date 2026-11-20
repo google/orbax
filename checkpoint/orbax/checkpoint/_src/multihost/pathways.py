@@ -21,6 +21,8 @@ import re
 
 from absl import logging
 import jax
+from orbax.checkpoint._src.multihost import dispatchers
+from orbax.checkpoint._src.serialization import worker_memory_utils
 
 
 _WARNED_REPR_PATTERNS = set()
@@ -167,3 +169,44 @@ def worker_count(global_mesh: jax.sharding.Mesh | None) -> int:
         devices,
     )
   return len(workers)
+
+
+def worker_primary_host(
+    dispatcher: dispatchers.Dispatcher,
+    devices: tuple[jax.Device, ...],
+    primary_host: int,
+) -> int:
+  """Returns the worker primary host among the workers holding `devices`.
+
+  In the single-controller setting, the controller is always process 0. After
+  work is dispatched to the TPU workers, one worker acts as the worker primary
+  host, e.g. to create shared checkpoint metadata. That is `primary_host`
+  (typically worker 0) if it holds any of `devices`; otherwise (e.g. its slice
+  is down during Pathways replica resize) the lowest worker process index
+  holding `devices` is elected.
+
+  Args:
+    dispatcher: The dispatcher that runs work on the TPU workers.
+    devices: The devices whose workers are eligible.
+    primary_host: The configured primary host.
+
+  Returns:
+    The worker primary host.
+  """
+  # TODO(b/579045475): Move `_device_to_worker_ids` to this module; it is not
+  # specific to worker memory and should not be protected.
+  device_to_worker_ids = worker_memory_utils._device_to_worker_ids(  # pylint: disable=protected-access
+      dispatcher, devices
+  )
+  worker_ids = set(device_to_worker_ids.values())
+  if not worker_ids or primary_host in worker_ids:
+    return primary_host
+  elected = min(worker_ids)
+  logging.info(
+      'Primary host %s is not among active serialization workers %s; '
+      'electing worker %s as worker primary host.',
+      primary_host,
+      sorted(worker_ids),
+      elected,
+  )
+  return elected

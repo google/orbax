@@ -58,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pathways colocated (and remote) Python saves no longer stop responding when
+  worker 0 is not among the TPU workers that run the save, e.g. during elastic
+  replica resize with slice 0 down. The worker primary host, which creates
+  TensorStore and `array_metadatas/` metadata, is elected once per save from the
+  workers that run it, and the controller reads `write_shape` from that worker's
+  `ArrayMetadata`. Saves that include worker 0 are unchanged.
 - Colocated Python no longer copies accelerator memory kinds (e.g.
   `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
   broke saving and restoring such arrays.

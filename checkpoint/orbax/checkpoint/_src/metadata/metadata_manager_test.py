@@ -18,12 +18,16 @@ import unittest
 from unittest import mock
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from etils import epath
+import jax
 import jax.numpy as jnp
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import metadata_manager
 from orbax.checkpoint._src.metadata import tree as tree_metadata
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import multihost
+from orbax.checkpoint._src.multihost import pathways as pathways_multihost
 from orbax.checkpoint._src.path import format_utils
 from orbax.checkpoint._src.serialization import ocdbt_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as type_handler_registry_lib
@@ -31,8 +35,9 @@ from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.tree import types as tree_types
 
 
-
-class MetadataManagerTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
+class MetadataManagerTest(
+    parameterized.TestCase, unittest.IsolatedAsyncioTestCase
+):
 
   def setUp(self):
     super().setUp()
@@ -178,6 +183,129 @@ class MetadataManagerTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
       )
 
     self.assertEqual(updated_param_infos['x'].write_shape, (10, 20))
+
+  def _make_param_infos(self):
+    typestr = type_handler_registry_lib.get_param_typestr(
+        jnp.zeros((10, 20), dtype=jnp.float32),
+        self.registry,
+        self.options,
+    )
+    return {
+        'x': type_handlers.ParamInfo(
+            name='x',
+            parent_dir=self.directory,
+            skip_deserialize=False,
+            value_typestr=typestr,
+        ),
+    }
+
+  def _make_store(self):
+    mock_store = mock.MagicMock(spec=array_metadata_store_lib.Store)
+    mock_array_metadata = mock.MagicMock()
+    mock_array_metadata.param_name = 'x'
+    mock_array_metadata.write_shape = (10, 20)
+    mock_store.read = mock.AsyncMock(return_value=[mock_array_metadata])
+    return mock_store
+
+  @parameterized.named_parameters(
+      # Worker 0 was not part of the save (e.g. its slice is down); worker 8
+      # was elected and wrote the shared metadata.
+      dict(testcase_name='worker_0_absent', elected=8),
+      # Non-elastic / all slices up: worker 0 remains the worker primary host.
+      dict(testcase_name='worker_0_present', elected=0),
+  )
+  async def test_get_param_infos_with_write_shape_reads_worker_primary_host(
+      self, elected
+  ):
+    mock_store = self._make_store()
+    manager = metadata_manager.MetadataManager(
+        primary_host=0,
+        array_metadata_store=mock_store,
+        pytree_metadata_options=self.options,
+    )
+    dispatcher = mock.create_autospec(
+        dispatchers.ColocatedPythonDispatcher, instance=True
+    )
+    devices = tuple(jax.devices()[:1])
+
+    with mock.patch.object(
+        pathways_multihost, 'worker_primary_host', return_value=elected
+    ) as mock_elect, mock.patch.object(
+        multihost, 'process_index', return_value=0
+    ):
+      updated_param_infos = await manager.get_param_infos_with_write_shape(
+          self._make_param_infos(),
+          self.directory,
+          dispatcher=dispatcher,
+          devices=devices,
+      )
+
+    self.assertEqual(updated_param_infos['x'].write_shape, (10, 20))
+    mock_elect.assert_called_once_with(dispatcher, devices, 0)
+    # Only the worker primary host's `ArrayMetadata` is read.
+    mock_store.read.assert_awaited_once_with(
+        self.directory, process_index=elected
+    )
+
+  async def test_get_param_infos_with_write_shape_raises_if_elected_missing(
+      self,
+  ):
+    mock_store = self._make_store()
+    mock_store.read = mock.AsyncMock(return_value=None)
+    manager = metadata_manager.MetadataManager(
+        primary_host=0,
+        array_metadata_store=mock_store,
+        pytree_metadata_options=self.options,
+    )
+    dispatcher = mock.create_autospec(
+        dispatchers.ColocatedPythonDispatcher, instance=True
+    )
+    with mock.patch.object(
+        pathways_multihost, 'worker_primary_host', return_value=8
+    ), mock.patch.object(multihost, 'process_index', return_value=0):
+      with self.assertRaisesRegex(
+          ValueError, 'No ArrayMetadata found for process_index=8'
+      ):
+        await manager.get_param_infos_with_write_shape(
+            self._make_param_infos(),
+            self.directory,
+            dispatcher=dispatcher,
+            devices=tuple(jax.devices()[:1]),
+        )
+
+  @parameterized.named_parameters(
+      # Multi-controller saves have no dispatcher.
+      dict(testcase_name='no_dispatcher', use_dispatcher=False, devices=1),
+      # A dispatcher but no jax.Array leaves (e.g. only numpy/scalars).
+      dict(testcase_name='no_devices', use_dispatcher=True, devices=0),
+  )
+  async def test_get_param_infos_with_write_shape_reads_current_process(
+      self, use_dispatcher, devices
+  ):
+    mock_store = self._make_store()
+    manager = metadata_manager.MetadataManager(
+        primary_host=0,
+        array_metadata_store=mock_store,
+        pytree_metadata_options=self.options,
+    )
+    dispatcher = None
+    if use_dispatcher:
+      dispatcher = mock.create_autospec(
+          dispatchers.ColocatedPythonDispatcher, instance=True
+      )
+    with mock.patch.object(
+        pathways_multihost, 'worker_primary_host'
+    ) as mock_elect, mock.patch.object(
+        multihost, 'process_index', return_value=0
+    ):
+      await manager.get_param_infos_with_write_shape(
+          self._make_param_infos(),
+          self.directory,
+          dispatcher=dispatcher,
+          devices=tuple(jax.devices()[:devices]),
+      )
+    mock_elect.assert_not_called()
+    mock_store.read.assert_awaited_once_with(self.directory, process_index=0)
 
 
 
