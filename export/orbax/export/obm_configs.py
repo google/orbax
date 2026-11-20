@@ -420,6 +420,13 @@ class Jax2ObmOptions:
       bfloat16 to save memory.
     enable_auto_layout: If set to True, automatically generate the optimal
       layout for model parameters to improve serving performance.
+    auto_layout_on_compile_only_mesh: If set to True, compute the
+      `enable_auto_layout` layouts with an early-exit compile on `jax_mesh`,
+      which must be made of compile-only devices (e.g. built from
+      `jax.experimental.topologies` to export for an accelerator the host does
+      not have). The arguments are placed on `jax_mesh` in their abstract form,
+      so the parameters can live on the host's devices. If False, the layouts
+      come from a full ahead-of-time compile with the function's own shardings.
     native_serialization_disabled_checks: A sequence of
       `jax_export.DisabledSafetyCheck` to disable when exporting.
     save_shlo_to_file: Whether to save the StableHLO bytes as an external file.
@@ -444,6 +451,7 @@ class Jax2ObmOptions:
   persist_xla_flags: bool = True
   enable_bf16_optimization: bool = False
   enable_auto_layout: bool = False
+  auto_layout_on_compile_only_mesh: bool = False
   native_serialization_disabled_checks: Sequence[
       jax_export.DisabledSafetyCheck
   ] = ()
