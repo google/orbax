@@ -18,7 +18,6 @@ from absl import flags
 from absl.testing import parameterized
 from etils import epath
 import jax
-import jax.numpy as jnp
 import numpy as np
 from orbax.checkpoint import test_utils
 from orbax.checkpoint import utils
@@ -95,10 +94,18 @@ class ArrayLeafHandlerTest(
 
     if not utils.is_pathways_backend():
       self.pytree.update({
-          'rand0': jax.random.key(
-              jnp.array(1, device=replicated), impl='threefry2x32'
+          'rand0': jax.random.wrap_key_data(
+              array_test_utils.create_sharded_array(
+                  np.array([0, 1], dtype=np.uint32), replicated
+              ),
+              impl='threefry2x32',
           ),
-          'rand1': jax.random.key(jnp.array(2, device=replicated), impl='rbg'),
+          'rand1': jax.random.wrap_key_data(
+              array_test_utils.create_sharded_array(
+                  np.array([0, 0, 0, 2], dtype=np.uint32), replicated
+              ),
+              impl='rbg',
+          ),
       })
 
     test_utils.sync_global_processes('setUp')

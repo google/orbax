@@ -25,7 +25,6 @@ from etils import epath
 from flax import linen as nn
 from flax.training import train_state
 import jax
-from jax.experimental import pjit
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -103,8 +102,14 @@ class CheckpointerTestBase:
 
     def setUp(self):
       super().setUp()
-      pytree, mesh_tree, axes_tree = test_utils.setup_sharded_pytree()
-      doubled_pytree = test_utils.apply_function(pytree, lambda x: x * 2)
+      numpy_pytree = test_utils.setup_pytree()
+      pytree, mesh_tree, axes_tree = test_utils.setup_sharded_pytree(
+          numpy_pytree
+      )
+      doubled_numpy = jax.tree.map(
+          lambda x: x * 2, numpy_pytree, is_leaf=test_utils.is_leaf
+      )
+      doubled_pytree, _, _ = test_utils.setup_sharded_pytree(doubled_numpy)
 
       self.empty_pytree = jax.tree.map(
           lambda x: object(), pytree, is_leaf=test_utils.is_leaf
@@ -217,18 +222,24 @@ class CheckpointerTestBase:
       mesh = Mesh(np.asarray(jax.devices()), ('devices',))
       mesh_axes = jax.sharding.PartitionSpec()
 
-      @jax.jit
       def init_state():
         params = model.init(jax.random.PRNGKey(0), jnp.ones([8, 8]))
         tx = optax.adamw(learning_rate=0.001)
-        state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-        return state
+        return TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-      init = pjit.pjit(init_state, in_shardings=None, out_shardings=mesh_axes)
+      state_shape = jax.eval_shape(init_state)
+      rng = np.random.default_rng(0)
 
-      with Mesh(mesh.devices, mesh.axis_names):
-        state = init()
-        state_shape = jax.eval_shape(init)
+      def make_host_array(leaf: jax.ShapeDtypeStruct) -> jax.Array:
+        if np.issubdtype(leaf.dtype, np.floating):
+          host_array = rng.standard_normal(leaf.shape, dtype=leaf.dtype)
+        else:
+          host_array = np.arange(
+              int(np.prod(leaf.shape)), dtype=leaf.dtype
+          ).reshape(leaf.shape)
+        return test_utils.create_sharded_array(host_array, mesh, mesh_axes)
+
+      state = jax.tree.map(make_host_array, state_shape)
 
       restore_args = jax.tree.map(
           lambda _: ArrayRestoreArgs(mesh=mesh, mesh_axes=mesh_axes),
