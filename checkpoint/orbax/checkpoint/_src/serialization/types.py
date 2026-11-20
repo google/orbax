@@ -92,14 +92,13 @@ class SerializationStatusCallback(Protocol):
   Example usage::
 
     import jax
-    import orbax.checkpoint as ocp
-    from orbax.checkpoint._src.serialization import types as serialization_types
+    from orbax.checkpoint import v1 as ocp
 
-    class MyCallback(serialization_types.DefaultSerializationStatusCallback):
+    class MyCallback(ocp.options.DefaultSerializationStatusCallback):
       def key_priority(self, keypath):
         if 'opt_state' in jax.tree_util.keystr(keypath):
-          return serialization_types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
-        return serialization_types.TransferPriority.ASYNCHRONOUS_PRIORITIZED
+          return ocp.options.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
+        return ocp.options.TransferPriority.ASYNCHRONOUS_PRIORITIZED
 
       def on_transfer_end(self, keypath):
         print(f'Transfer ended for {jax.tree_util.keystr(keypath)}')
@@ -107,9 +106,17 @@ class SerializationStatusCallback(Protocol):
       def on_write_end(self, keypath):
         print(f'Write ended for {jax.tree_util.keystr(keypath)}')
 
-    ocp.type_handlers.register_type_handler(
+    ctx = ocp.Context()
+    ctx.memory.transfer_concurrent_bytes = 4 * 1024**3
+    ctx.memory.serialization_status_callback = MyCallback()
+
+  With the V0 API, pass the callback to the ``jax.Array`` type handler instead::
+
+    import orbax.checkpoint as ocp_v0
+
+    ocp_v0.type_handlers.register_type_handler(
         jax.Array,
-        ocp.type_handlers.ArrayHandler(callback=MyCallback()),
+        ocp_v0.type_handlers.ArrayHandler(callback=MyCallback()),
         override=True,
     )
   """

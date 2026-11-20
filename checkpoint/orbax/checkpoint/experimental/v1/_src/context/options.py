@@ -577,11 +577,19 @@ class DeletionOptions(_ActiveContextGuard):
 
 
 
+MemoryProfiler = memory_regulator_lib.MemoryProfiler
+SerializationStatusCallback = serialization_types.SerializationStatusCallback
+DefaultSerializationStatusCallback = (
+    serialization_types.DefaultSerializationStatusCallback
+)
+TransferPriority = serialization_types.TransferPriority
+
+
 @dataclasses.dataclass(kw_only=True)
 class MemoryOptions(_ActiveContextGuard):
   """Options for configuring memory limits for save / load.
 
-  Can help to reduce the possibility of OOM's when large checkpoints are
+  Can help to reduce the possibility of OOMs when large checkpoints are
   saved or loaded.
 
   Attributes:
@@ -591,10 +599,10 @@ class MemoryOptions(_ActiveContextGuard):
       model weights require 100 GB of memory in RAM, a setting below 100 GB
       will not prevent 100 GB from being allocated, but will prevent
       additional memory from being used during the write to disk.
-      `None` indicates no limit.
+      ``None`` indicates no limit.
     read_concurrent_bytes:
       Max concurrent bytes that are allowed for reading.
-      `None` indicates no limit.
+      ``None`` indicates no limit.
     transfer_concurrent_bytes: Max concurrent bytes allowed for device-to-host
       transfers (per host). When the limit is reached, arrays must be finished
       writing to the checkpoint before a new array can start being
@@ -603,50 +611,51 @@ class MemoryOptions(_ActiveContextGuard):
       start D2H transfer until the first 100 GB have finished being written to
       the checkpoint. Note that asynchronous saves may not be truly
       asynchronous with this option enabled, as we have to block on some array
-      writes before beginning others. Also see `is_prioritized_key_fn`.
-      `None` indicates no limit.
+      writes before beginning others. Also see ``serialization_status_callback``
+      and ``is_prioritized_key_fn``. ``None`` indicates no limit.
     regulator_options: Optional :py:class:`MemoryOptions.RegulatorOptions` that
       dynamically regulates the device-to-host transfer concurrency limit across
       saves based on memory profiling feedback. When set, its regulated limit
-      takes precedence over `transfer_concurrent_bytes`. The limit applies per
+      takes precedence over ``transfer_concurrent_bytes``. The limit applies per
       PyTree checkpointable, and only to arrays that
-      `serialization_status_callback` schedules asynchronously. Child contexts
-      created with `Context(parent)` share the regulator state; assign a new
-      `RegulatorOptions` to change parameters. Saves that share a regulator must
-      not run concurrently.
+      ``serialization_status_callback`` schedules asynchronously (or arrays
+      copied on device via ``copy_device_arrays_for_async_transfer``). Child
+      contexts created with ``Context(parent)`` share the regulator state;
+      assign a new ``RegulatorOptions`` to change parameters. Saves that share a
+      regulator must not run concurrently.
     expected_surge_bytes: Optional anticipated temporary increase in memory
       consumption (in bytes) for the save operation. When used with
-      `regulator_options`, preemptively reduces the regulated limit for that
+      ``regulator_options``, preemptively reduces the regulated limit for that
       save by this amount to create headroom during the surge. Typically set on
-      a child `Context` for the affected step. When `None`, falls back to the
-      profiler's expected surge.
+      a child ``Context`` for the affected step. When ``None``, falls back to
+      the profiler's expected surge.
     is_prioritized_key_fn: A function that accepts a PyTree keypath (obtained
-      using jax.tree.map_with_path) that should be scheduled for D2H transfer
-      before other keys. The transfer is scheduled before returning to the
-      caller, so the values will never be corrupted by a concurrent update.
+      using ``jax.tree.map_with_path``) that should be scheduled for D2H
+      transfer before other keys. The transfer is scheduled before returning to
+      the caller, so the values will never be corrupted by a concurrent update.
       Keys that are not prioritized will not be scheduled for transfer until
       all prioritized keys have been fully written to the checkpoint. This
       means that these values may be altered if the values are updated
-      concurrently. Callers should take care to call `wait_until_finished`
-      before updating array values (e.g. `apply_gradients`) if some keys are
-      not prioritized. Note that any "prioritized" keys are assumed to be
-      lightweight, and `transfer_concurrent_bytes` will be ignored for
+      concurrently. Callers should take care to wait until transfer/save
+      completion before updating array values (e.g. ``apply_gradients``) if some
+      keys are not prioritized. Note that any "prioritized" keys are assumed to
+      be lightweight, and ``transfer_concurrent_bytes`` will be ignored for
       them.
-    serialization_status_callback: A callback object that is called at various
-      points during the save process per keypath, allowing for monitoring or
-      control over the save process.
+    serialization_status_callback: A :py:class:`SerializationStatusCallback`
+      instance invoked at key lifecycle points per PyTree keypath during saving,
+      enabling per-key transfer prioritization and granular completion waiting.
     deepcopy_host_arrays: Whether to deepcopy host arrays before serialization.
-      Defaults to True as a safety measure to guard against concurrent
+      Defaults to ``True`` as a safety measure to guard against concurrent
       modification, but can be disabled to avoid excess memory consumption.
     copy_device_arrays_for_async_transfer: Whether to copy device arrays on
       device, instead of transferring them to host, before returning to the
       caller. The copies are transferred to host in the background (in batches
-      of at most `transfer_concurrent_bytes`, if set) and released as their
+      of at most ``transfer_concurrent_bytes``, if set) and released as their
       transfers complete, so the caller may donate or mutate the originals
-      without waiting for the transfer. Defaults to False. Warning: this can
+      without waiting for the transfer. Defaults to ``False``. Warning: this can
       double peak device memory usage, since a second copy of every array may
       be held until its transfer completes. Arrays that already reside in host
-      memory (e.g. `pinned_host`) are never copied, so the caller must not
+      memory (e.g. ``pinned_host``) are never copied, so the caller must not
       donate or mutate them until the save finishes, or the checkpoint may fail
       or be corrupted.
   """
@@ -657,23 +666,33 @@ class MemoryOptions(_ActiveContextGuard):
 
     Configures a PID controller that, before each save, adjusts the
     device-to-host transfer concurrency limit based on the peak host memory that
-    `profiler` measured during the previous save.
+    ``profiler`` measured during the previous save.
 
     Instances are immutable. To change parameters, assign a new instance (e.g.
-    created with `dataclasses.replace`), which starts a new regulator.
+    created with ``dataclasses.replace``), which starts a new regulator.
 
     For setting up the PID coefficients, we have the following guidelines:
 
-    | Coefficient | Suggested Range | Effect |
-    | :--- | :--- | :--- |
-    | kp | 0.30-0.60 | Moderately scales the limit based on current headroom. |
-    | ki | <= 0.08 | Kept low to mitigate integral windup. |
-    | kd | 0.10-0.30 | Acts as a brake against rapid memory growth. |
+    .. list-table::
+       :header-rows: 1
+
+       * - Coefficient
+         - Suggested Range
+         - Effect
+       * - ``kp``
+         - 0.30-0.60
+         - Moderately scales the limit based on current headroom.
+       * - ``ki``
+         - <= 0.08
+         - Kept low to mitigate integral windup.
+       * - ``kd``
+         - 0.10-0.30
+         - Acts as a brake against rapid memory growth.
 
     Attributes:
       max_memory_limit_gib: The maximum transfer limit in GiB.
-      profiler: A `MemoryProfiler` that measures peak host memory during each
-        save to provide feedback to the regulator.
+      profiler: A :py:class:`MemoryProfiler` that measures peak host memory
+        during each save to provide feedback to the regulator.
       target_ratio: The fraction of total host memory to target for peak memory
         usage.
       min_memory_limit_gib: The minimum transfer limit in GiB, which is also the
@@ -684,7 +703,7 @@ class MemoryOptions(_ActiveContextGuard):
     """
 
     max_memory_limit_gib: float
-    profiler: memory_regulator_lib.MemoryProfiler
+    profiler: MemoryProfiler
     target_ratio: float = 0.80
     min_memory_limit_gib: float = 10.0
     kp: float = 0.4
@@ -721,7 +740,7 @@ class MemoryOptions(_ActiveContextGuard):
 
     @property
     def regulator(self) -> memory_regulator_lib.MemoryRegulator:
-      """Returns the underlying `MemoryRegulator` instance."""
+      """Returns the underlying ``MemoryRegulator`` instance."""
       return self._regulator
 
   write_concurrent_bytes: int | None = None
@@ -730,9 +749,7 @@ class MemoryOptions(_ActiveContextGuard):
   regulator_options: RegulatorOptions | None = None
   expected_surge_bytes: int | float | None = None
   is_prioritized_key_fn: serialization_types.IsPrioritizedKeyFn | None = None
-  serialization_status_callback: (
-      serialization_types.SerializationStatusCallback | None
-  ) = None
+  serialization_status_callback: SerializationStatusCallback | None = None
   deepcopy_host_arrays: bool = True
   copy_device_arrays_for_async_transfer: bool = False
 

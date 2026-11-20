@@ -30,6 +30,14 @@ class ImportSymbolsTest(unittest.TestCase):
     self.assertTrue(hasattr(ocp.training, 'Checkpointer'))
     self.assertTrue(hasattr(ocp.training.pathways, 'Snapshotter'))
 
+  def test_import_v1_options_memory_types(self):
+    self.assertTrue(hasattr(ocp.options, 'MemoryOptions'))
+    self.assertTrue(hasattr(ocp.options.MemoryOptions, 'RegulatorOptions'))
+    self.assertTrue(hasattr(ocp.options, 'MemoryProfiler'))
+    self.assertTrue(hasattr(ocp.options, 'SerializationStatusCallback'))
+    self.assertTrue(hasattr(ocp.options, 'DefaultSerializationStatusCallback'))
+    self.assertTrue(hasattr(ocp.options, 'TransferPriority'))
+
   def test_snapshotter_without_pathwaysutils(self):
     with self.assertRaisesRegex(
         ImportError, 'Snapshotter requires pathwaysutils'

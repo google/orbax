@@ -36,6 +36,9 @@ PLACEHOLDER = ...
 
 IsPrioritizedKeyFn = serialization_types.IsPrioritizedKeyFn
 SerializationStatusCallback = serialization_types.SerializationStatusCallback
+DefaultSerializationStatusCallback = (
+    serialization_types.DefaultSerializationStatusCallback
+)
 TransferPriority = serialization_types.TransferPriority
 
 ### STANDARD PYTREE LEAF TYPES
