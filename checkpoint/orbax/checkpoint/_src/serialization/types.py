@@ -424,6 +424,38 @@ class BloscCompression(CompressionSpec):
     return BLOSC_MAX_BUFFERSIZE
 
 
+def resolve_compression_spec(
+    *,
+    compression_spec: CompressionSpec | None = None,
+    use_compression: bool | None = None,
+) -> CompressionSpec:
+  """Resolves `compression_spec` and deprecated `use_compression` into a spec.
+
+  Args:
+    compression_spec: Explicit compression configuration, if provided.
+    use_compression: Deprecated boolean toggle (`True` -> `ZstdCompression()`,
+      `False` -> `NoCompression()`).
+
+  Returns:
+    The resolved `CompressionSpec` (defaults to `ZstdCompression()` when both
+    arguments are `None`).
+
+  Raises:
+    ValueError: If both `use_compression` and `compression_spec` are provided.
+  """
+  if use_compression is not None and compression_spec is not None:
+    raise ValueError(
+        'Cannot specify both use_compression and compression_spec.'
+    )
+  if compression_spec is not None:
+    return compression_spec
+  return (
+      ZstdCompression()
+      if (use_compression is None or use_compression)
+      else NoCompression()
+  )
+
+
 class ParamInfo:
   """Information describing a parameter in a PyTree.
 
@@ -450,7 +482,10 @@ class ParamInfo:
       transferred from device to host memory in parallel.
     is_ocdbt_checkpoint: Indicates whether the checkpoint path uses OCDBT format
       or not. Only used for restoration.
-    use_compression: When True, turn on zstd compression. Default is True.
+    use_compression: Deprecated. When True, turns on zstd compression. Prefer
+      `compression_spec`.
+    compression_spec: Compression configuration for saving arrays. Defaults to
+      `ZstdCompression()`.
     use_zarr3: If True, use Zarr ver3 otherwise ver2.
     ocdbt_target_data_file_size: Specifies the target size (in bytes) of each
       OCDBT data file.
@@ -477,7 +512,8 @@ class ParamInfo:
       byte_limiter: Optional[limits.ByteLimiter] = None,
       device_host_byte_limiter: Optional[limits.ByteLimiter] = None,
       is_ocdbt_checkpoint: Optional[bool] = None,
-      use_compression: bool | None = True,
+      use_compression: bool | None = None,
+      compression_spec: CompressionSpec | None = None,
       use_zarr3: Optional[bool] = False,
       ocdbt_target_data_file_size: Optional[int] = None,
       ts_context: Optional[ts.Context] = None,
@@ -488,6 +524,10 @@ class ParamInfo:
       is_prioritized_key_fn: Optional[IsPrioritizedKeyFn] = None,
       copy_device_arrays_for_async_transfer: bool = False,
   ):
+    compression_spec = resolve_compression_spec(
+        compression_spec=compression_spec,
+        use_compression=use_compression,
+    )
     self.name = name
     self._parent_dir = parent_dir
     self._path = path if path is not None else parent_dir / name
@@ -496,7 +536,7 @@ class ParamInfo:
     self.byte_limiter = byte_limiter
     self.device_host_byte_limiter = device_host_byte_limiter
     self.is_ocdbt_checkpoint = is_ocdbt_checkpoint
-    self.use_compression = use_compression
+    self.compression_spec = compression_spec
     self.use_zarr3 = use_zarr3
     self.ocdbt_target_data_file_size = ocdbt_target_data_file_size
     if ts_context is None:
@@ -515,6 +555,14 @@ class ParamInfo:
     self.copy_device_arrays_for_async_transfer = (
         copy_device_arrays_for_async_transfer
     )
+
+  @property
+  def use_compression(self) -> bool:
+    return not isinstance(self.compression_spec, NoCompression)
+
+  @use_compression.setter
+  def use_compression(self, value: bool | None) -> None:
+    self.compression_spec = resolve_compression_spec(use_compression=value)
 
   @property
   def parent_dir(self) -> epath.Path:
@@ -545,6 +593,18 @@ class ParamInfo:
     self._path = value  # pyrefly: ignore[bad-assignment]
 
   def replace(self, **kwargs) -> ParamInfo:
+    """Returns a shallow copy with the specified attributes updated."""
+    if 'use_compression' in kwargs or 'compression_spec' in kwargs:
+      resolved = resolve_compression_spec(
+          compression_spec=kwargs.get('compression_spec'),
+          use_compression=kwargs.get('use_compression'),
+      )
+      kwargs = {
+          k: v
+          for k, v in kwargs.items()
+          if k not in ('use_compression', 'compression_spec')
+      }
+      kwargs['compression_spec'] = resolved
     new = copy.copy(self)
     for k, v in kwargs.items():
       setattr(new, k, v)

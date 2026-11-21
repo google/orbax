@@ -1001,16 +1001,10 @@ class ArrayWriteSpec:
 
     target_storage_dtype = target_dtype or dtype
 
-    if use_compression is not None and compression_spec is not None:
-      raise ValueError(
-          'Cannot specify both use_compression and compression_spec.'
-      )
-    if compression_spec is None:
-      compression_spec = (
-          ZstdCompression()
-          if (use_compression is None or use_compression)
-          else NoCompression()
-      )
+    compression_spec = types.resolve_compression_spec(
+        compression_spec=compression_spec,
+        use_compression=use_compression,
+    )
 
     # Choose target file and chunk byte sizes.
     if use_ocdbt:
@@ -1267,9 +1261,7 @@ def build_array_write_spec(
       target_dtype=(arg.dtype if arg is not None else None),
       chunk_byte_size=(arg.chunk_byte_size if arg is not None else None),
       shard_axes=(arg.shard_axes if arg is not None else tuple()),
-      compression_spec=(
-          ZstdCompression() if info.use_compression else NoCompression()
-      ),
+      compression_spec=info.compression_spec,
       use_zarr3=info.use_zarr3,  # pyrefly: ignore[bad-argument-type]
       use_ocdbt=use_ocdbt,
       process_id=process_index,

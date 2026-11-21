@@ -824,22 +824,31 @@ def is_compression_used(
     param_name: str,
     use_zarr3: bool,
     use_ocdbt: bool,
-):
-  """Returns True if compression is used for a given paramin in Tensorstore."""
+    expected_codec: str | None = None,
+) -> bool:
+  """Returns True if compression is used for a given param in Tensorstore."""
   ts_spec = _get_simple_tensorstore_read_spec(
       checkpoint_directory, param_name, use_zarr3, use_ocdbt
   )
   read_spec = ts.open(ts_spec).result().spec().to_json()
 
   if use_zarr3:
-    # check if zstd is in the codecs
+    # Zarr v3 inner chunk pipelines always include the mandatory 'bytes'
+    # array-to-bytes codec; any other codec in this list is a bytes-to-bytes
+    # compressor (e.g., 'zstd', 'blosc').
     for codec in read_spec['metadata']['codecs'][0]['configuration']['codecs']:
-      if codec['name'] == 'zstd':
+      if expected_codec is not None:
+        if codec['name'] == expected_codec:
+          return True
+      elif codec['name'] != 'bytes':
         return True
     return False
 
   else:
-    return read_spec['metadata']['compressor'] is not None
+    compressor = read_spec['metadata']['compressor']
+    if expected_codec is not None:
+      return compressor is not None and compressor.get('id') == expected_codec
+    return compressor is not None
 
 
 class MockDeferredWritableTemporaryPath(
