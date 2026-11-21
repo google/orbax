@@ -18,13 +18,16 @@ limitations under the License.
 
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
+#include "third_party/absl/base/attributes.h"
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/status/statusor.h"
 #include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
 #include "orbax/export/bfloat16_toolkit/converter_options_v2.proto.h"
 #include "orbax/export/bfloat16_toolkit/function_tree.h"
-#include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/framework/graph.proto.h"
 #include "tensorflow/core/protobuf/meta_graph.proto.h"
 
 namespace tensorflow {
@@ -32,11 +35,12 @@ namespace orbax {
 
 using ConverterOptions = ::orbax::ConverterOptions;
 using BFloat16OptimizationOptions = ::orbax::BFloat16OptimizationOptions;
+using InternalOptions = ::orbax::InternalOptions;
 
 // Convert a Function to bfloat16.
 absl::Status FuncFloatToBFloat16(
     FunctionInfo* bfloat16_func, const ConverterOptions& options,
-    std::map<string, tensorflow::SignatureDef>* signature_def = nullptr,
+    std::map<std::string, tensorflow::SignatureDef>* signature_def = nullptr,
     bool auto_generate_filterlist = false);
 
 // An internal enum to adapt to both TPU BFloat16Scope and GPUBFloat16Scope
@@ -49,17 +53,24 @@ absl::Status ApplyBFloat16Optimization(
 
 // Convert a Function or its ancester to bfloat16, and this is for TF2.0.
 absl::Status ApplyBfloat16OptimizationV2(
-    BFloat16OptimizationOptions bfloat16_options,
+    const BFloat16OptimizationOptions& bfloat16_options,
     FunctionInfo* xla_function_info,
-    std::map<string, tensorflow::SignatureDef>* signature_def);
+    std::map<std::string, tensorflow::SignatureDef>* signature_def = nullptr,
+    const InternalOptions& internal_options = InternalOptions());
 
-// Given a GraphDef, create a FunctionInfo that can be used to interact with
-// the V1 converter. Changes to the FunctionInfo will only be preserved if
-// UpdateGraphDefUsingFunctionInfo is called.
-// This is forked from
-// 
+// Builds a root FunctionInfo tree from `graph_def`.
 absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
-    GraphDef& graph_def);
+    const GraphDef& graph_def);
+
+// Serializes `function_info` (including mutated child functions) to a GraphDef.
+absl::StatusOr<GraphDef> UpdateGraphDefUsingFunctionInfo(
+    FunctionInfo& function_info);
+
+// Finds top-level TPU or XLA GPU functions in `function_info`. Returned
+// pointers are non-owning and remain valid only for the lifetime of
+// `function_info`.
+absl::StatusOr<std::vector<FunctionInfo*>> GetXlaFunctionInfo(
+    FunctionInfo& function_info ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
 }  // namespace orbax
 }  // namespace tensorflow
