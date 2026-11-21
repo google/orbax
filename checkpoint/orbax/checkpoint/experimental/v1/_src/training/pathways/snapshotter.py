@@ -24,6 +24,8 @@ import jax
 from orbax.checkpoint.experimental.v1._src.training.metadata import types as training_metadata_types
 from orbax.checkpoint.experimental.v1._src.tree import types as tree_types
 
+_DEFAULT_JOIN_TIMEOUT_SECS = 120.0
+
 
 def is_shardable_array(x: ...) -> bool:  # pyrefly: ignore[invalid-annotation]
   """Returns True if x is a concrete shardable array."""
@@ -47,8 +49,101 @@ def _unwrap_if_prng_key(x: Any) -> Any:
 def _wrap_if_prng_key(x: Any, orig_x: Any) -> Any:
   """Wraps raw array x into a PRNGKeyArray if orig_x was a PRNGKeyArray."""
   if _is_prng_key(orig_x):
-    return jax.random.wrap_key_data(x, dtype=orig_x.dtype)
+    return jax.random.wrap_key_data(x, impl=jax.random.key_impl(orig_x))
   return x
+
+
+def _pin_host(array: Any) -> Any:
+  """Copies the unwrapped JAX `array` into pinned host memory."""
+  return jax.device_put(
+      array, array.sharding.with_memory_kind("pinned_host"), may_alias=False
+  )
+
+
+def _has_sharding_without_mesh(leaf: Any) -> bool:
+  """Returns True if `leaf` has a JAX `Sharding` without a `Mesh`."""
+  sharding = getattr(leaf, "sharding", None)
+  return isinstance(sharding, jax.sharding.Sharding) and not hasattr(
+      sharding, "mesh"
+  )
+
+
+def _find_named_mesh(tree: Any) -> Any:
+  """Returns the first `Mesh` with named axes in `tree`, or None."""
+  for leaf in jax.tree.leaves(tree):
+    mesh = getattr(getattr(leaf, "sharding", None), "mesh", None)
+    if getattr(mesh, "axis_names", ()):
+      return mesh
+  return None
+
+
+def _put_array(array: Any, target_sharding: Any) -> Any:
+  """Moves `array` (or a PRNGKey) onto `target_sharding` via device memory."""
+  unwrapped = _unwrap_if_prng_key(array)
+  if unwrapped.sharding == target_sharding:
+    return array
+  if unwrapped.sharding.memory_kind == "pinned_host":
+    unwrapped = jax.device_put(
+        unwrapped, unwrapped.sharding.with_memory_kind(None)
+    )
+  for next_sharding in (
+      target_sharding.with_memory_kind(None),
+      target_sharding,
+  ):
+    if unwrapped.sharding != next_sharding:
+      unwrapped = jax.device_put(unwrapped, next_sharding)
+  return _wrap_if_prng_key(unwrapped, array)
+
+
+def _replicate_single_device_leaves(tree: Any) -> Any:
+  """Replicates single-device array or spec leaves across the tree's mesh."""
+  has_single_device_leaf = any(
+      _has_sharding_without_mesh(leaf) for leaf in jax.tree.leaves(tree)
+  )
+  if not has_single_device_leaf:
+    return tree
+
+  mesh = _find_named_mesh(tree)
+  if mesh is None:
+    return tree
+
+  replicated = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+
+  def _replicate(leaf: Any) -> Any:
+    if not _has_sharding_without_mesh(leaf):
+      return leaf
+    if isinstance(leaf, jax.ShapeDtypeStruct):
+      return jax.ShapeDtypeStruct(leaf.shape, leaf.dtype, sharding=replicated)
+    return _put_array(leaf, replicated)
+
+  return jax.tree.map(_replicate, tree)
+
+
+def _restore_shardings(
+    state: tree_types.PyTree,
+    target: tree_types.PyTree,
+    memory_kind: str | None = "keep",
+) -> tree_types.PyTree:
+  """Moves array leaves of `state` onto the shardings of `target`."""
+
+  def _restore_leaf(leaf: Any, target_leaf: Any) -> Any:
+    sharding = getattr(target_leaf, "sharding", None)
+    if not is_shardable_array(leaf) or not isinstance(
+        sharding, jax.sharding.Sharding
+    ):
+      return leaf
+    shape = getattr(target_leaf, "shape", None)
+    if shape is not None and tuple(shape) != leaf.shape:
+      raise RuntimeError("Restored replica shape mismatch.")
+    target_sharding: Any = sharding
+    target_sharding = (
+        target_sharding
+        if memory_kind == "keep"
+        else target_sharding.with_memory_kind(memory_kind)
+    )
+    return _put_array(leaf, target_sharding)
+
+  return jax.tree.map(_restore_leaf, state, target)
 
 
 def _get_pathwaysutils():
@@ -115,7 +210,8 @@ class Snapshotter:
       `state`. Non-array leaves (e.g., scalars, strings, metadata, Python
       objects) are preserved across all replica PyTrees.
     """
-    leaves, tree_def = jax.tree_util.tree_flatten(state)
+    replicated = _replicate_single_device_leaves(state)
+    leaves, tree_def = jax.tree_util.tree_flatten(replicated)
     split_leaves = []
     num_replicas = None
 
@@ -123,15 +219,14 @@ class Snapshotter:
       if not is_shardable_array(x):
         split_leaves.append(x)
       else:
-        mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
         data = _unwrap_if_prng_key(x)
-        pinned = jax.device_put(
-            data, data.sharding.with_memory_kind("pinned_host")
-        )
-        replicas = self._split_by_mesh_axis.split_by_mesh_axis(
-            pinned,
-            mesh_axis_name,
-        )
+        pinned = _pin_host(data)
+        mesh = getattr(pinned.sharding, "mesh", None)
+        replicas = [pinned]
+        if mesh is not None:
+          axis = mesh.axis_names[self.replica_axis_index]
+          if mesh.shape[axis] > 1:
+            replicas = self._split_by_mesh_axis.split_by_mesh_axis(pinned, axis)
         if num_replicas is None:
           num_replicas = len(replicas)
         elif len(replicas) != num_replicas:
@@ -199,6 +294,7 @@ class Snapshotter:
     Raises:
       RuntimeError: If no snapshots are available to restore from.
     """
+    self.join()
     with self._lock:
       if self._latest_snapshot is None:
         raise RuntimeError("No snapshots available to restore from.")
@@ -227,6 +323,14 @@ class Snapshotter:
       replicas, abs_x = args[:-1], args[-1]
       if not is_shardable_array(replicas[0]):
         return replicas[0]
+      if _has_sharding_without_mesh(abs_x):
+        devices = abs_x.sharding.device_set
+        matches = [
+            replica
+            for replica in replicas
+            if devices <= replica.sharding.device_set
+        ]
+        return matches[0] if matches else replicas[0]
       unwrapped_replicas = [_unwrap_if_prng_key(rep) for rep in replicas]
       mesh_axis_name = abs_x.sharding.mesh.axis_names[self.replica_axis_index]
       reconstructed = self._concatenate_by_mesh_axis.concatenate_by_mesh_axis(
@@ -234,18 +338,6 @@ class Snapshotter:
           mesh_axis_name,
       )
       return _wrap_if_prng_key(reconstructed, replicas[0])
-
-    def _put_to_sharding(state, target_state, memory_kind):
-      def _put_leaf(x, abs_x):
-        if is_shardable_array(x):
-          data = _unwrap_if_prng_key(x)
-          put_x = jax.device_put(
-              data, abs_x.sharding.with_memory_kind(memory_kind)
-          )
-          return _wrap_if_prng_key(put_x, x)
-        return x
-
-      return jax.tree.map(_put_leaf, state, target_state)
 
     # TODO(b/574655289): Pathways on Cloud workers crash on cross-slice
     # transfers of pinned_host buffers over RpcTransport ("Attempting to
@@ -255,9 +347,11 @@ class Snapshotter:
     # device memory. In either memory, concatenate copies rather than the
     # snapshot's replicas: concatenating donates its inputs, and the snapshot
     # must survive a failed load (e.g. a slice going down) for it to be retried.
-    device_trees = [_put_to_sharding(tree, tree, None) for tree in active_trees]
+    device_trees = [
+        _restore_shardings(tree, tree, None) for tree in active_trees
+    ]
     device_state = jax.tree.map(get_active_leaf, *device_trees, abstract_state)
-    restored_state = _put_to_sharding(device_state, abstract_state, None)
+    restored_state = _restore_shardings(device_state, abstract_state)
     unwrapped_restored = jax.tree.map(_unwrap_if_prng_key, restored_state)
     jax.block_until_ready(unwrapped_restored)
 
@@ -268,9 +362,29 @@ class Snapshotter:
 
     return restored_state
 
-  def join(self) -> None:
-    """Blocks until all queued snapshot requests have been processed."""
-    self._queue.join()
+  def join(self, timeout: float | None = _DEFAULT_JOIN_TIMEOUT_SECS) -> bool:
+    """Blocks until all queued snapshot requests have been processed.
+
+    A processed request may have failed, so check `latest` for the saved step.
+    To take a blocking snapshot, call `join` before `save` so that the request
+    is not skipped, and again after `save` to wait for it.
+
+    Args:
+      timeout: The maximum number of seconds to wait. Defaults to 120.0 seconds.
+        If None, waits until all queued requests have been processed.
+
+    Returns:
+      True if all queued requests have been processed, or False if `timeout`
+      elapsed first.
+    """
+    if timeout is None:
+      self._queue.join()
+      return True
+    with self._queue.all_tasks_done:
+      return self._queue.all_tasks_done.wait_for(
+          lambda: not self._queue.unfinished_tasks,
+          timeout=max(timeout, 0.0),
+      )
 
   @property
   def latest(self) -> training_metadata_types.CheckpointMetadata[None] | None:
