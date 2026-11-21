@@ -33,6 +33,18 @@ PyTreeCheckpointHandler = test_utils.PyTreeCheckpointHandler
 jax.config.update('jax_enable_x64', True)
 
 
+def _random_device_array(shape, dtype=np.float64):
+  """Returns a host-built random array placed on the default device.
+
+  The module enables x64, so the default dtype matches `jax.random.normal`.
+
+  Args:
+    shape: Shape of the array.
+    dtype: Floating-point dtype of the array.
+  """
+  return jax.device_put(np.random.default_rng(0).standard_normal(shape, dtype))
+
+
 class SingleHostTest(parameterized.TestCase):
 
   def setUp(self):
@@ -41,8 +53,7 @@ class SingleHostTest(parameterized.TestCase):
 
   def test_save_and_restore_a_single_device_sharded_jax_array(self):
     handler = PyTreeCheckpointHandler()
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,))
+    x = _random_device_array((10,))
     assert isinstance(x.sharding, jax.sharding.SingleDeviceSharding)
     handler.save(
         self.ckpt_dir,
@@ -58,8 +69,7 @@ class SingleHostTest(parameterized.TestCase):
   @parameterized.parameters([False, True])
   def test_save_and_restore_jax_array(self, use_zarr3):
     handler = PyTreeCheckpointHandler(use_zarr3=use_zarr3)
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,))
+    x = _random_device_array((10,))
     handler.save(self.ckpt_dir, {'x': x})
     restored_tree = handler.restore(self.ckpt_dir)
 
@@ -68,9 +78,8 @@ class SingleHostTest(parameterized.TestCase):
 
   def test_save_and_restore_zarrv3_jax_array_default_chunk_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
-    key = jax.random.PRNGKey(0)
     array_shape = (10, 7)
-    x = jax.random.normal(key, array_shape)
+    x = _random_device_array(array_shape)
     pytree = {'x': x}
     handler.save(self.ckpt_dir, pytree)
 
@@ -99,8 +108,7 @@ class SingleHostTest(parameterized.TestCase):
 
   def test_save_and_restore_zarrv3_with_metadata(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10,))
+    x = _random_device_array((10,))
     pytree = {'x': x}
     handler.save(self.ckpt_dir, pytree)
 
@@ -115,8 +123,7 @@ class SingleHostTest(parameterized.TestCase):
   # TODO: b/354139177 - Add a test for invalid chunk_byte_size values.
   def test_chunk_byte_size(self):
     handler = PyTreeCheckpointHandler(use_zarr3=True)
-    key = jax.random.PRNGKey(0)
-    x = jax.random.normal(key, (10, 100, 200), dtype=jnp.dtype('float32'))
+    x = _random_device_array((10, 100, 200), np.float32)
     pytree = {'x': x}
 
     save_args = jax.tree.map(
@@ -211,8 +218,7 @@ class SingleHostTest(parameterized.TestCase):
     replicated_spec = jax.sharding.PartitionSpec()
     sharding = jax.sharding.NamedSharding(mesh, replicated_spec)
 
-    key = jax.random.PRNGKey(0)
-    state = jax.random.normal(key, (1024, 1024))
+    state = np.random.default_rng(0).standard_normal((1024, 1024))
     state = jax.device_put(state, sharding)
 
     pytree = {'state': state}
