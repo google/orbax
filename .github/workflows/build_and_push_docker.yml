@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build_and_push:
-    runs-on: linux-x86-n2-16-buildkit
+    runs-on: linux-x86-n4-16-buildkit
     container: google/cloud-sdk:524.0.0
     steps:
 
