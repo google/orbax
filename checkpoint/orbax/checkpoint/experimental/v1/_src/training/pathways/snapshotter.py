@@ -126,7 +126,7 @@ class Snapshotter:
         mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
         data = _unwrap_if_prng_key(x)
         pinned = jax.device_put(
-            data, data.sharding.with_memory_kind("pinned_host")
+            data, data.sharding.with_memory_kind("pinned_host"), may_alias=False
         )
         replicas = self._split_by_mesh_axis.split_by_mesh_axis(
             pinned,
