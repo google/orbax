@@ -386,6 +386,7 @@ class Checkpointer(epy.ContextManager):
       cancel_in_progress_save: Callback invoked by the policy when an
         in-progress background save should be cancelled.
     """
+    self._manager._maybe_load_checkpoint_metadata()  # pylint: disable=protected-access
     previous_steps = [
         info
         for info in self._manager._checkpoints  # pylint: disable=protected-access

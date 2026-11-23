@@ -101,6 +101,9 @@ METADATA_ITEM_NAME = 'metadata'
 RESERVED_ITEM_NAMES = []
 
 _INIT_TIME = datetime.datetime.now(tz=datetime.timezone.utc)
+# `CheckpointInfo.time` of steps loaded with `lightweight_initialize`, until
+# their metadata is read.
+_LIGHTWEIGHT_PLACEHOLDER_TIME = datetime.datetime.min
 _WAIT_FOR_PREV_SAVE_WARNING_THRESHOLD_SECS = 1.0
 
 
@@ -926,6 +929,12 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
             skip_metadata_read=self._options.lightweight_initialize
         )
     )
+    # With `lightweight_initialize`, existing steps are loaded with placeholder
+    # `time` and `metrics`. They are read lazily, before any save decision or
+    # preservation policy is evaluated, since policies depend on them.
+    self._checkpoint_infos_need_metadata = bool(
+        self._options.lightweight_initialize
+    )
 
     self._metadata_dir = self.directory / METADATA_ITEM_NAME
     if self._options.read_only and not self._metadata_dir.exists():
@@ -1245,6 +1254,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """
     if not self._track_best:
       return self.latest_step()
+    self._maybe_load_checkpoint_metadata()
     if self._checkpoints.empty():
       return None
     _, sorted_checkpoints = self._sort_checkpoints_by_metrics(self._checkpoints)
@@ -1260,6 +1270,39 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     """
     self._checkpoints.set(self._load_checkpoint_infos())
     self._prior_checkpoints = list(self._checkpoints)
+    self._checkpoint_infos_need_metadata = False
+
+  def _maybe_load_checkpoint_metadata(self):
+    """Replaces placeholder infos from `lightweight_initialize` with real ones.
+
+    Policies such as `EveryNSeconds`, `LatestDuration`, `BestN` and
+    `ContinuousCheckpointingPolicy(minimum_interval_secs=...)` read the `time`
+    and `metrics` of existing checkpoints. Evaluating them against placeholder
+    values either raises (naive vs. aware datetimes) or treats existing
+    checkpoints as having no metrics, which can garbage collect the best ones.
+    """
+    if not self._checkpoint_infos_need_metadata:
+      return
+    self._checkpoint_infos_need_metadata = False
+    placeholder_steps = {
+        info.step
+        for info in self._checkpoints
+        if info.time == _LIGHTWEIGHT_PLACEHOLDER_TIME
+    }
+    if not placeholder_steps:
+      return
+    loaded = {info.step: info for info in self._load_checkpoint_infos()}
+
+    def _hydrate(infos):
+      return [
+          loaded.get(info.step, info)
+          if info.step in placeholder_steps
+          else info
+          for info in infos
+      ]
+
+    self._checkpoints.set(_hydrate(self._checkpoints))
+    self._prior_checkpoints = _hydrate(self._prior_checkpoints)
 
   def reached_preemption(self, step: int) -> bool:
     """Returns True if a preemption sync point has been reached."""
@@ -1322,6 +1365,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       if self.reached_preemption(step):
         self._record_preemption_save_skipped(step, current_time, 'read_only')
       return False
+    self._maybe_load_checkpoint_metadata()
     last_checkpoint_step = self.latest_step()
     # Ensure current step is between the last step and next step (accounting for
     # save interval).
@@ -1724,6 +1768,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     # not register the step that was just saved until it fully lands on disk.
     # If the save fails, the in-memory view is rolled back in
     # `_wait_until_finished_impl()`.
+    self._maybe_load_checkpoint_metadata()
     self._add_checkpoint_info(step, metrics)
     step_stats.get_old_steps_start_time = time.time()
     steps_to_remove = self._get_old_steps_to_remove()
@@ -2013,7 +2058,7 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
       if skip_metadata_read:
         return CheckpointInfo(
             step=step_metadata.step,
-            time=datetime.datetime.min,
+            time=_LIGHTWEIGHT_PLACEHOLDER_TIME,
             metrics=None,
         )
       else:

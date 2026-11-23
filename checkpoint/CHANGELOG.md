@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fix `CheckpointManager` (and V1 `training.Checkpointer`) with
+  `lightweight_initialize=True` evaluating save decision and preservation
+  policies against placeholder `time` / `metrics` of existing steps. After a
+  restart, time-based policies (`keep_time_interval`, `EveryNSeconds`,
+  `LatestDuration`, `ContinuousCheckpointingPolicy(minimum_interval_secs=...)`)
+  raised `TypeError` on the first save, and `BestN` with
+  `keep_checkpoints_without_metrics=False` deleted the best existing
+  checkpoints. Step metadata is now read lazily before policies are evaluated.
 - Fix saving and restoring a `jax.Array` on a process that holds none of its
   shards (for example an array on a sub-mesh of other processes' devices),
   which previously raised `IndexError` during save and `ValueError` during
