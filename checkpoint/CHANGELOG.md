@@ -98,9 +98,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `checkpoint_managers.continuous_checkpointing_options()` for continuous
   checkpointing. It saves at every multiple of `target_interval_steps` and, in
   between, whenever no write is running.
+- `ContinuousCheckpointingPolicy(deferral_save_time_percentile=...)` opts in to
+  deferring opportunistic saves before each `target_interval_steps` step when
+  the time left is within that percentile of recent save durations (e.g. `0.9`).
+  Deferral starts once 3 saves have completed. Off by default.
 
 ### Changed
 
+- The preemption `duration_lost_secs` metric for
+  `ContinuousCheckpointingPolicy` now reports why the save was skipped
+  (`save_in_progress`, `deferred_for_target_step` or
+  `minimum_interval_not_met`).
 - Multi-tier checkpointing: step 0 is now saved and restored like any other
   step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
   Orbax in the workload and `colocated-python-sidecar` images together.

@@ -1608,6 +1608,40 @@ class CheckpointManagerTest(
             },
         )
 
+    # Case 3: A preemption inside the target step deferral window is deferred
+    # like any other step (saving on preemption is opt-in), and the skip is
+    # recorded with its actual reason.
+    mock_record_duration.reset_mock()
+    deferral_options = CheckpointManagerOptions(
+        save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+            target_interval_steps=4,
+            deferral_window_steps=2,
+        ),
+    )
+    with CheckpointManager(
+        self.directory / 'cc_deferral_window', options=deferral_options
+    ) as manager:
+      mock_reached_preemption_sync_point.side_effect = lambda step: step == 3
+      self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+      self.assertFalse(manager.save(3, args=args.PyTreeSave(self.pytree)))
+      if multihost.process_index() == 0:
+        duration_calls = [
+            call
+            for call in mock_record_duration.call_args_list
+            if call.args
+            and call.args[0]
+            == '/jax/checkpoint/write/preempt/duration_lost_secs'
+        ]
+        self.assertLen(duration_calls, 1)
+        self.assertEqual(
+            duration_calls[0].kwargs,
+            {
+                'reason': 'deferred_for_target_step',
+                'continuous_checkpointing_enabled': 1,
+            },
+        )
+
   @parameterized.parameters(True, False)
   @mock.patch.object(jax.monitoring, 'record_scalar')
   def test_init_telemetry_continuous_checkpointing(
@@ -3489,6 +3523,45 @@ class CheckpointManagerTest(
       # immediately even though <60s has elapsed.
       self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
       self.assertEqual(manager.all_steps(), [0, 4])
+
+  def test_constrained_continuous_checkpointing_dynamic_deferral(self):
+    policy = save_decision_policy_lib.ContinuousCheckpointingPolicy(
+        target_interval_steps=4,
+        deferral_save_time_percentile=0.9,
+    )
+    with CheckpointManager(
+        self.directory,
+        options=CheckpointManagerOptions(
+            save_interval_steps=5,  # ignored
+            enable_async_checkpointing=False,
+            save_decision_policy=policy,
+        ),
+    ) as manager:
+
+      def simulate_history():
+        # Enough history to pass the warmup guard: 3 saves of 20s each and a
+        # full window of 10s steps.
+        policy._save_durations_secs.clear()
+        policy._save_durations_secs.extend([20.0] * 3)
+        policy._step_durations_secs.clear()
+        policy._step_durations_secs.extend(
+            [10.0] * save_decision_policy_lib._STEP_DURATION_WINDOW_SIZE
+        )
+        policy._last_observed_step_time = None
+
+      # Step 0 saves (initial save).
+      self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+      # p90 save duration = 20s -> steps 2 (20s to target) and 3 (10s to
+      # target) are dynamically deferred, while step 1 (30s to target) and
+      # target step 4 save.
+      simulate_history()
+      self.assertTrue(manager.save(1, args=args.StandardSave(self.pytree)))
+      simulate_history()
+      self.assertFalse(manager.save(2, args=args.StandardSave(self.pytree)))
+      simulate_history()
+      self.assertFalse(manager.save(3, args=args.StandardSave(self.pytree)))
+      self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
+      self.assertEqual(manager.all_steps(), [0, 1, 4])
 
   def test_async_constrained_continuous_checkpointing_cancels_ongoing_continuous_save(
       self,

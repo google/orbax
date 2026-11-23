@@ -40,13 +40,36 @@ def _make_step_info(
   )
 
 
-def _make_context(*, is_saving_in_progress: bool = False) -> DecisionContext:
+def _make_context(
+    *,
+    is_saving_in_progress: bool = False,
+    in_progress_step: int | None = None,
+    reached_preemption: bool = False,
+) -> DecisionContext:
   return DecisionContext(
       is_saving_in_progress=is_saving_in_progress,
-      in_progress_step=None,
-      reached_preemption=False,
+      in_progress_step=in_progress_step,
+      reached_preemption=reached_preemption,
       multiprocessing_options=options_lib.MultiprocessingOptions(),
       cancel_in_progress_save=lambda: None,
+  )
+
+
+def _set_save_durations(
+    policy: ContinuousCheckpointingPolicy, save_durations_secs: Sequence[float]
+) -> None:
+  """Sets the save durations the policy has measured."""
+  policy._save_durations_secs.clear()
+  policy._save_durations_secs.extend(save_durations_secs)
+
+
+def _fill_step_duration_window(
+    policy: ContinuousCheckpointingPolicy, step_duration_secs: float
+) -> None:
+  """Fills the policy's step duration window so the warmup guard passes."""
+  policy._step_durations_secs.extend(
+      [step_duration_secs]
+      * save_decision_policy_lib._STEP_DURATION_WINDOW_SIZE
   )
 
 
@@ -80,18 +103,32 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
           target_interval_steps=10,
           deferral_window_steps=-1,
       ),
+      dict(
+          testcase_name="zero_deferral_percentile",
+          target_interval_steps=10,
+          deferral_window_steps=None,
+          deferral_save_time_percentile=0.0,
+      ),
+      dict(
+          testcase_name="greater_than_one_deferral_percentile",
+          target_interval_steps=10,
+          deferral_window_steps=None,
+          deferral_save_time_percentile=1.1,
+      ),
   )
   def test_continuous_policy_invalid_arguments_raises_value_error(
       self,
       target_interval_steps: int | None,
       deferral_window_steps: int | None,
       minimum_interval_secs: int | None = None,
+      deferral_save_time_percentile: float | None = 0.9,
   ):
     with self.assertRaises(ValueError):
       ContinuousCheckpointingPolicy(
           minimum_interval_secs=minimum_interval_secs,
           target_interval_steps=target_interval_steps,
           deferral_window_steps=deferral_window_steps,
+          deferral_save_time_percentile=deferral_save_time_percentile,
       )
 
   def test_continuous_policy_saving_in_progress_behavior(self):
@@ -149,23 +186,256 @@ class SaveDecisionPolicyTest(parameterized.TestCase):
         )
     )
 
-  def test_continuous_policy_default_deferral_window(self):
-    # With target_interval_steps=10 and deferral_window_steps=None (default),
-    # no opportunistic saves are deferred prior to target steps.
+  def test_continuous_policy_no_dynamic_deferral_by_default(self):
+    # With target_interval_steps=10 and no deferral options set, no
+    # opportunistic saves are deferred prior to target steps, even with save
+    # history and step duration estimates available.
     policy = ContinuousCheckpointingPolicy(target_interval_steps=10)
-    idle_ctx = _make_context(is_saving_in_progress=False)
+    _fill_step_duration_window(policy, 10.0)
+    _set_save_durations(policy, [10.0, 20.0, 30.0])
+    ctx = _make_context()
+    previous_steps: list[CheckpointInfo] = []
+    saved_steps: list[int] = []
+
+    for step in range(11):
+      info = _make_step_info(step, self.base_time, step * 10.0)
+      if policy.should_save(info, previous_steps, context=ctx):
+        saved_steps.append(step)
+        previous_steps.append(info)
+
+    self.assertSequenceEqual(saved_steps, list(range(11)))
+
+  def test_continuous_policy_dynamic_deferral_save_time_percentile(self):
+    # Historical save durations: [10s, 20s, 30s] -> p90 = 28s.
+    # Step timestamps advance by 10s/step, tracked automatically by the policy.
+    # With target_interval_steps=10, steps 8 (20s to target <= 28s) and 9
+    # (10s to target <= 28s) are deferred, while steps 1..7 (>= 30s to target)
+    # and target step 10 are saved.
+    policy = ContinuousCheckpointingPolicy(
+        target_interval_steps=10, deferral_save_time_percentile=0.9
+    )
+    _fill_step_duration_window(policy, 10.0)
+    _set_save_durations(policy, [10.0, 20.0, 30.0])
+    ctx = _make_context()
+    previous_steps: list[CheckpointInfo] = []
+    saved_steps: list[int] = []
+
+    for step in range(11):
+      info = _make_step_info(step, self.base_time, step * 10.0)
+      if policy.should_save(info, previous_steps, context=ctx):
+        saved_steps.append(step)
+        previous_steps.append(info)
+
+    self.assertSequenceEqual(saved_steps, [0, 1, 2, 3, 4, 5, 6, 7, 10])
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="too_few_saves",
+          save_durations_secs=[10.0, 20.0],
+          fill_step_duration_window=True,
+      ),
+      dict(
+          testcase_name="step_duration_window_not_full",
+          save_durations_secs=[10.0, 20.0, 30.0],
+          fill_step_duration_window=False,
+      ),
+  )
+  def test_continuous_policy_dynamic_deferral_warmup(
+      self,
+      save_durations_secs: Sequence[float],
+      fill_step_duration_window: bool,
+  ):
+    # Same setup as the dynamic deferral test, but without enough history yet,
+    # so no opportunistic saves are deferred.
+    policy = ContinuousCheckpointingPolicy(
+        target_interval_steps=10, deferral_save_time_percentile=0.9
+    )
+    if fill_step_duration_window:
+      _fill_step_duration_window(policy, 10.0)
+    _set_save_durations(policy, save_durations_secs)
+    ctx = _make_context()
+    previous_steps: list[CheckpointInfo] = []
+    saved_steps: list[int] = []
+
+    for step in range(11):
+      info = _make_step_info(step, self.base_time, step * 10.0)
+      if policy.should_save(info, previous_steps, context=ctx):
+        saved_steps.append(step)
+        previous_steps.append(info)
+
+    self.assertSequenceEqual(saved_steps, list(range(11)))
+
+  def test_continuous_policy_step_duration_estimate_ignores_outlier(
+      self,
+  ):
+    # p90 of 25s historical saves is 25s. Step 20 takes 300s (e.g. a stall),
+    # and every other step takes 1s. With a mean over the window, the estimate
+    # at step 38 would be (300 + 19 * 1) / 20 ~= 16s/step, so 2 steps to target
+    # ~= 32s > 25s and step 38 would start a save that is almost certain to be
+    # cancelled at step 40. The median estimates 1s/step, so step 38 (2s to
+    # target <= 25s) is deferred.
+    policy = ContinuousCheckpointingPolicy(
+        target_interval_steps=40, deferral_save_time_percentile=0.9
+    )
+    _set_save_durations(policy, [25.0, 25.0, 25.0])
+    busy_ctx = _make_context(is_saving_in_progress=True)
+    idle_ctx = _make_context()
+    prev = [_make_step_info(0, self.base_time, 0)]
+    offset_secs = 0.0
+    policy.should_save(prev[0], prev, context=busy_ctx)
+    for step in range(1, 38):
+      offset_secs += 300.0 if step == 20 else 1.0
+      policy.should_save(
+          _make_step_info(step, self.base_time, offset_secs),
+          prev,
+          context=busy_ctx,
+      )
+    self.assertEqual(policy._get_step_duration_secs(), 1.0)
+
+    offset_secs += 1.0
+    self.assertFalse(
+        policy.should_save(
+            _make_step_info(38, self.base_time, offset_secs),
+            prev,
+            context=idle_ctx,
+        )
+    )
+
+  def test_continuous_policy_step_duration_window_is_bounded(self):
+    policy = ContinuousCheckpointingPolicy(target_interval_steps=1000)
+    busy_ctx = _make_context(is_saving_in_progress=True)
+    prev = [_make_step_info(0, self.base_time, 0)]
+    policy.should_save(prev[0], prev, context=busy_ctx)
+    # 30 slow steps (10s each) followed by enough fast steps (1s each) to fill
+    # the window evicts every slow observation.
+    offset_secs = 0.0
+    window_size = save_decision_policy_lib._STEP_DURATION_WINDOW_SIZE
+    for step in range(1, 31 + window_size):
+      offset_secs += 10.0 if step <= 30 else 1.0
+      policy.should_save(
+          _make_step_info(step, self.base_time, offset_secs),
+          prev,
+          context=busy_ctx,
+      )
+    self.assertLen(policy._step_durations_secs, window_size)
+    self.assertEqual(policy._get_step_duration_secs(), 1.0)
+
+  def test_continuous_policy_measures_save_durations(self):
+    # Steps are 10s apart. Each save is timed from the step it was requested at
+    # until the first step at which it is no longer in progress, including a
+    # save that is replaced (cancelled) by a target step.
+    policy = ContinuousCheckpointingPolicy(target_interval_steps=10)
+    prev = [_make_step_info(0, self.base_time, 0)]
+    observations = [
+        # (step, in_progress_step); None means no save in progress.
+        (0, None),  # Target step 0 saves.
+        (1, 0),
+        (3, None),  # Save of step 0 took 30s; step 3 saves.
+        (4, 3),
+        (10, 3),  # Target step 10 cancels the save of step 3.
+        (11, 10),  # Save of step 3 ran for 80s before being replaced.
+        (12, None),  # Save of step 10 took 20s.
+    ]
+    for step, in_progress_step in observations:
+      policy.should_save(
+          _make_step_info(step, self.base_time, step * 10.0),
+          prev,
+          context=_make_context(
+              is_saving_in_progress=in_progress_step is not None,
+              in_progress_step=in_progress_step,
+          ),
+      )
+    self.assertSequenceEqual(policy._save_durations_secs, [30.0, 80.0, 20.0])
+
+  def test_continuous_policy_ignores_in_progress_step_of_finished_save(self):
+    # `in_progress_step` may still name the last save after it has finished;
+    # only `is_saving_in_progress` says whether a save is running.
+    policy = ContinuousCheckpointingPolicy(target_interval_steps=10)
+    prev = [_make_step_info(0, self.base_time, 0)]
+    for step in range(1, 5):
+      policy.should_save(
+          _make_step_info(step, self.base_time, step * 10.0),
+          prev,
+          context=_make_context(
+              is_saving_in_progress=False, in_progress_step=0
+          ),
+      )
+    self.assertEmpty(policy._save_durations_secs)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name="explicit_window",
+          deferral_window_steps=3,
+          deferral_save_time_percentile=None,
+          save_durations_secs=(),
+      ),
+      dict(
+          testcase_name="dynamic_p90",
+          deferral_window_steps=None,
+          deferral_save_time_percentile=0.9,
+          save_durations_secs=(10.0, 20.0, 30.0),
+      ),
+  )
+  def test_continuous_policy_records_skip_reason(
+      self,
+      deferral_window_steps: int | None,
+      deferral_save_time_percentile: float | None,
+      save_durations_secs: Sequence[float],
+  ):
+    # Step 8 is 2 steps (20s at 10s/step) before target step 10, inside both a
+    # fixed 3-step window and the dynamic window (p90 of historical saves is
+    # 28s). A reached preemption does not change the decision: saving on
+    # preemption is opt-in via `PreemptionCheckpointingPolicy`.
+    policy = ContinuousCheckpointingPolicy(
+        minimum_interval_secs=60,
+        target_interval_steps=10,
+        deferral_window_steps=deferral_window_steps,
+        deferral_save_time_percentile=deferral_save_time_percentile,
+    )
+    _fill_step_duration_window(policy, 10.0)
+    _set_save_durations(policy, save_durations_secs)
     prev = [_make_step_info(0, self.base_time, 0)]
 
-    for step in range(1, 11):
+    with self.subTest("deferred_for_target_step"):
+      self.assertFalse(
+          policy.should_save(
+              _make_step_info(8, self.base_time, 80),
+              prev,
+              context=_make_context(reached_preemption=True),
+          )
+      )
+      self.assertEqual(policy.last_skip_reason, "deferred_for_target_step")
+
+    with self.subTest("save_in_progress"):
+      self.assertFalse(
+          policy.should_save(
+              _make_step_info(8, self.base_time, 80),
+              prev,
+              context=_make_context(is_saving_in_progress=True),
+          )
+      )
+      self.assertEqual(policy.last_skip_reason, "save_in_progress")
+
+    with self.subTest("minimum_interval_not_met"):
+      # Step 2 is outside the deferral window, but only 20s have elapsed.
+      self.assertFalse(
+          policy.should_save(
+              _make_step_info(2, self.base_time, 20),
+              prev,
+              context=_make_context(),
+          )
+      )
+      self.assertEqual(policy.last_skip_reason, "minimum_interval_not_met")
+
+    with self.subTest("saved"):
       self.assertTrue(
           policy.should_save(
-              _make_step_info(step, self.base_time, step),
+              _make_step_info(10, self.base_time, 100),
               prev,
-              context=idle_ctx,
-          ),
-          f"Expected step {step} with default deferral_window_steps=None to"
-          " save.",
+              context=_make_context(),
+          )
       )
+      self.assertIsNone(policy.last_skip_reason)
 
   @parameterized.named_parameters(
       dict(
