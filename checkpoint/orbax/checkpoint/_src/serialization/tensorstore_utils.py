@@ -45,6 +45,7 @@ JsonSpec: TypeAlias = dict[str, Any]
 Shape: TypeAlias = arrays_types.Shape
 DType: TypeAlias = arrays_types.DType
 ArrayMetadata: TypeAlias = array_metadata.ArrayMetadata
+Compression: TypeAlias = value_metadata.Compression
 ExtMetadata: TypeAlias = array_metadata.ExtMetadata
 SerializedArrayMetadata: TypeAlias = array_metadata.SerializedArrayMetadata
 
@@ -1315,6 +1316,29 @@ def get_cast_tspec_deserialize(
   return tspec
 
 
+def zarr_metadata_from_tensorstore(
+    store: ts.TensorStore,
+) -> value_metadata.ZarrMetadata | None:
+  """Extracts Zarr metadata from an open TensorStore spec without storage I/O.
+
+  Args:
+    store: Open TensorStore array to inspect.
+
+  Returns:
+    Parsed `ZarrMetadata`, or None if Zarr v2/v3 metadata is unavailable or
+    cannot be parsed.
+  """
+  try:
+    while store.base is not None:
+      store = store.base
+    return value_metadata.ZarrMetadata.from_json(
+        store.spec().to_json().get('metadata')
+    )
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.debug('Zarr metadata unavailable (best-effort): %s', e)
+    return None
+
+
 def array_metadata_from_tensorstore(
     t: Any,
     info: types.ParamInfo,
@@ -1330,16 +1354,7 @@ def array_metadata_from_tensorstore(
   Returns:
     ArrayMetadata with shape, dtype and storage (incl. Zarr) metadata.
   """
-  base_t = t
-  while getattr(base_t, 'base', None) is not None:
-    base_t = base_t.base
-  try:
-    zarr_metadata = value_metadata.ZarrMetadata.from_json(
-        base_t.spec().to_json().get('metadata')
-    )
-  except Exception as e:  # pylint: disable=broad-exception-caught
-    logging.debug('Zarr metadata unavailable (best-effort): %s', e)
-    zarr_metadata = None
+  zarr_metadata = zarr_metadata_from_tensorstore(t)
   return value_metadata.ArrayMetadata(
       name=info.name,
       directory=info.parent_dir,
@@ -1384,13 +1399,24 @@ def get_tensorstore_raw_bytes(
 
 
 def resolve_compression_settings(
-    metadatas: Sequence[ArrayMetadata | SerializedArrayMetadata],
+    metadatas: Sequence[ArrayMetadata | SerializedArrayMetadata | Compression],
 ) -> tuple[str, str]:
-  """Extracts (algo, level) across array metadata."""
+  """Extracts (algorithm, level) strings across array or Zarr metadata.
+
+  Args:
+    metadatas: Sequence of array metadata or `Compression` objects.
+
+  Returns:
+    A `(algorithm, level)` tuple (`('none', 'None')` when empty, or
+    `('mixed', 'mixed')` when settings differ across items).
+  """
   if not metadatas:
     return ('none', 'None')
   compression_settings = {
-      (m.compression_algorithm, m.compression_level) for m in metadatas
+      (m.algorithm, m.level)
+      if isinstance(m, Compression)
+      else (m.compression_algorithm, m.compression_level)
+      for m in metadatas
   }
   if len(compression_settings) == 1:
     algo, level = next(iter(compression_settings))

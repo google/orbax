@@ -65,8 +65,15 @@ class Compression:
 
 def _compression(algorithm: Any, config: Any) -> Compression:
   """Builds a `Compression` from a codec name and its JSON config."""
-  level = config.get('level') if isinstance(config, dict) else None
-  return Compression(str(algorithm), level)
+  algo = str(algorithm)
+  if not isinstance(config, dict):
+    return Compression(algo)
+  if algo == 'blosc':
+    cname = config.get('cname')
+    return Compression(
+        f'blosc_{cname}' if cname else algo, config.get('clevel')
+    )
+  return Compression(algo, config.get('level'))
 
 
 def _normalize_dtype_str(raw: Any) -> str:
