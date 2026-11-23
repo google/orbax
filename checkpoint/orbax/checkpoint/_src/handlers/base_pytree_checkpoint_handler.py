@@ -40,6 +40,7 @@ from orbax.checkpoint import utils
 from orbax.checkpoint._src import asyncio_utils
 from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
+from orbax.checkpoint._src.handlers import param_info_utils
 from orbax.checkpoint._src.handlers import partial_save_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
@@ -53,7 +54,6 @@ from orbax.checkpoint._src.path import types as path_types
 from orbax.checkpoint._src.serialization import async_io_engine
 from orbax.checkpoint._src.serialization import limits
 from orbax.checkpoint._src.serialization import memory_regulator
-from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import type_handler_registry as type_handler_registry_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
@@ -495,41 +495,24 @@ class BasePyTreeCheckpointHandler(
     """
     if use_zarr3 is None:
       use_zarr3 = self._use_zarr3
-    names = self.get_param_names(item)
-    ts_context = ts_utils.get_ts_context(use_ocdbt=use_ocdbt)
-
-    def _param_info(keypath, name, value):
-      if isinstance(value, tree_metadata.ValueMetadataEntry):
-        skip_deserialize = value.skip_deserialize
-      elif isinstance(value, type(PLACEHOLDER)):
-        skip_deserialize = True
-      else:
-        skip_deserialize = False
-      return ParamInfo(
-          name=name,
-          keypath=keypath,
-          parent_dir=directory,
-          skip_deserialize=skip_deserialize,
-          is_ocdbt_checkpoint=use_ocdbt,
-          use_compression=use_compression,
-          use_zarr3=use_zarr3,
-          enable_pinned_host_transfer=self._enable_pinned_host_transfer,
-          ocdbt_target_data_file_size=ocdbt_target_data_file_size,
-          byte_limiter=byte_limiter,
-          device_host_byte_limiter=device_host_byte_limiter,
-          ts_context=ts_context,
-          value_typestr=type_handler_registry_lib.get_param_typestr(
-              value, self._type_handler_registry, self._pytree_metadata_options
-          ),
-          raise_array_data_missing_error=raise_array_data_missing_error,
-          is_prioritized_key_fn=self._is_prioritized_key_fn,
-          copy_device_arrays_for_async_transfer=(
-              self._copy_device_arrays_for_async_transfer
-          ),
-      )
-
-    return jax.tree.map_with_path(
-        _param_info, names, item, is_leaf=utils.is_empty_or_leaf
+    return param_info_utils.build_param_infos(
+        item,
+        directory,
+        names=self.get_param_names(item),
+        type_handler_registry=self._type_handler_registry,
+        pytree_metadata_options=self._pytree_metadata_options,
+        use_ocdbt=use_ocdbt,
+        use_compression=use_compression,
+        use_zarr3=use_zarr3,
+        enable_pinned_host_transfer=self._enable_pinned_host_transfer,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        byte_limiter=byte_limiter,
+        device_host_byte_limiter=device_host_byte_limiter,
+        raise_array_data_missing_error=raise_array_data_missing_error,
+        is_prioritized_key_fn=self._is_prioritized_key_fn,
+        copy_device_arrays_for_async_transfer=(
+            self._copy_device_arrays_for_async_transfer
+        ),
     )
 
   async def _get_partial_save_batch_requests(
