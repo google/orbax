@@ -1132,6 +1132,30 @@ class CheckpointManagerTestSuite:
           manager.all_steps(), local_expectation | persistent_expectation
       )
 
+    @parameterized.parameters(False, True)
+    def test_skip_sync_file_validations_disabled(self, skip_sync: bool):
+      orig_file_options = checkpoint_manager.checkpoint_manager.FileOptions
+      with (
+          mock.patch.object(
+              checkpoint_manager.checkpoint_manager,
+              'FileOptions',
+              return_value=orig_file_options(
+                  skip_sync_file_validations=skip_sync
+              ),
+          ),
+          mock.patch.object(
+              checkpoint_manager.logging, 'log_first_n'
+          ) as mock_log,
+      ):
+        opts = checkpoint_manager._get_persistent_options(
+            CheckpointManagerOptions(),
+            checkpoint_manager.checkpoint_manager.MultiprocessingOptions(),
+        )
+        self.assertFalse(opts.file_options.skip_sync_file_validations)
+        self.assertEqual(mock_log.called, skip_sync)
+        if skip_sync:
+          mock_log.assert_called_once_with(logging.WARNING, mock.ANY, 1)
+
     @parameterized.parameters(
         ((1, 2), 0, np.asarray([[0, 1]])),
         ((2, 2), 0, np.asarray([[2, 3], [0, 1]])),
