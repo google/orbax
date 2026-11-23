@@ -26,7 +26,7 @@ import inspect
 import json
 import operator
 import typing
-from typing import Any, Dict, Hashable, List, Optional, Protocol, Tuple, TypeAlias, TypeVar, Union
+from typing import Any, Dict, Hashable, List, Protocol, Tuple, TypeAlias, TypeVar, Union
 
 from absl import logging
 from etils import epath
@@ -188,14 +188,13 @@ class InternalTreeMetadataEntry:
   def build(
       cls,
       keypath: KeyPath,
-      info: types.ParamInfo,
-      save_arg: types.SaveArgs,
+      value_entry: ValueMetadataEntry,
   ) -> InternalTreeMetadataEntry:
     """Builds a InternalTreeMetadataEntry."""
     return InternalTreeMetadataEntry(
         keypath=str(tuple([str(tree_utils.get_key_name(k)) for k in keypath])),
         key_metadata=KeyMetadataEntry.build(keypath),
-        value_metadata=ValueMetadataEntry.build(info, save_arg),
+        value_metadata=value_entry,
     )
 
   def jax_keypath(self) -> KeyPath:
@@ -248,9 +247,8 @@ class InternalTreeMetadata:
   @classmethod
   def build(
       cls,
-      param_infos: PyTree,
+      value_metadata_tree: PyTree,
       *,
-      save_args: Optional[PyTree] = None,
       use_ocdbt: bool | None = None,
       use_zarr3: bool = False,
       custom_metadata: tree_types.JsonType | None = None,
@@ -258,39 +256,32 @@ class InternalTreeMetadata:
           PYTREE_METADATA_OPTIONS
       ),
   ) -> InternalTreeMetadata:
-    """Returns an InternalTreeMetadata instance."""
-    if save_args is None:
-      save_args = jax.tree.map(
-          lambda _: types.SaveArgs(),
-          param_infos,
-          is_leaf=tree_utils.is_empty_or_leaf,
-      )
-    flat_info_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        param_infos, is_leaf=tree_utils.is_empty_or_leaf
-    )
-    flat_save_args_with_keys, _ = jax.tree_util.tree_flatten_with_path(
-        save_args, is_leaf=tree_utils.is_empty_or_leaf
+    """Returns an InternalTreeMetadata instance.
+
+    Args:
+      value_metadata_tree: A PyTree matching the structure of the saved item,
+        with a `ValueMetadataEntry` for each leaf (including empty nodes, which
+        are treated as leaves). See `ValueMetadataEntry.build`.
+      use_ocdbt: Whether the checkpoint uses OCDBT.
+      use_zarr3: Whether the checkpoint uses Zarr3.
+      custom_metadata: User-provided JSON-serializable custom metadata.
+      pytree_metadata_options: Options for the PyTree metadata.
+    """
+    flat_value_metadata_with_keys, _ = jax.tree_util.tree_flatten_with_path(
+        value_metadata_tree, is_leaf=tree_utils.is_empty_or_leaf
     )
     tree_metadata_entries = []
-    for (keypath, info), (_, save_arg) in zip(
-        flat_info_with_keys, flat_save_args_with_keys
-    ):
+    for keypath, value_entry in flat_value_metadata_with_keys:
+      if not isinstance(value_entry, ValueMetadataEntry):
+        raise TypeError(
+            'Expected a PyTree of `ValueMetadataEntry` leaves, got leaf of type'
+            f' {type(value_entry)} at keypath {keypath}.'
+        )
       tree_metadata_entries.append(
-          InternalTreeMetadataEntry.build(keypath, info, save_arg)
+          InternalTreeMetadataEntry.build(keypath, value_entry)
       )
-    value_metadata_tree = None
-    if pytree_metadata_options.support_rich_types:
-      value_metadata_tree = jax.tree_util.tree_map(
-          ValueMetadataEntry.build,
-          param_infos,
-          save_args,
-          is_leaf=tree_utils.is_empty_or_leaf,
-      )
-      logging.vlog(
-          1,
-          'Created rich typed value_metadata_tree from param_infos and'
-          ' save_args.',
-      )
+    if not pytree_metadata_options.support_rich_types:
+      value_metadata_tree = None
     return InternalTreeMetadata(
         tree_metadata_entries=tree_metadata_entries,
         use_ocdbt=use_ocdbt,

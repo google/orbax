@@ -642,7 +642,6 @@ class BasePyTreeCheckpointHandler(
               self._write_metadata_after_commits(
                   commit_futures,
                   param_infos=param_infos,
-                  save_args=save_args,
                   custom_metadata=custom_metadata,
                   use_ocdbt=self._use_ocdbt,
                   use_zarr3=self._use_zarr3,
@@ -962,7 +961,6 @@ class BasePyTreeCheckpointHandler(
       commit_futures: List[future.Future],
       *,
       param_infos: PyTree,
-      save_args: PyTree,
       custom_metadata: tree_types.JsonType | None,
       use_ocdbt: bool,
       use_zarr3: bool,
@@ -995,8 +993,7 @@ class BasePyTreeCheckpointHandler(
       )
 
     internal_tree_metadata = tree_metadata.InternalTreeMetadata.build(
-        param_infos,
-        save_args=save_args,
+        param_info_utils.to_value_metadata_tree(param_infos),
         use_ocdbt=use_ocdbt,
         use_zarr3=use_zarr3,
         custom_metadata=custom_metadata,

@@ -24,7 +24,6 @@ import optax
 from orbax.checkpoint._src.metadata import tree as tree_metadata_lib
 from orbax.checkpoint._src.metadata import value as value_metadata_lib
 from orbax.checkpoint._src.serialization import type_handler_registry
-from orbax.checkpoint._src.serialization import types
 from orbax.checkpoint._src.testing import test_tree_utils
 from orbax.checkpoint._src.tree import utils as tree_utils
 
@@ -38,7 +37,7 @@ class MyEmptyNamedTuple(NamedTuple):
   pass
 
 
-def _to_param_infos(
+def _to_value_metadata_tree(
     tree: Any,
     pytree_metadata_options: (
         tree_metadata_lib.PyTreeMetadataOptions | None
@@ -48,11 +47,8 @@ def _to_param_infos(
       tree_metadata_lib.PYTREE_METADATA_OPTIONS
   )
   return jax.tree.map(
-      # Other properties are not relevant.
-      lambda x: types.ParamInfo(
-          name='',
-          parent_dir=epath.Path(''),
-          value_typestr=type_handler_registry.get_param_typestr(
+      lambda x: tree_metadata_lib.ValueMetadataEntry.build(
+          type_handler_registry.get_param_typestr(
               x,
               type_handler_registry.GLOBAL_TYPE_HANDLER_REGISTRY,
               pytree_metadata_options,
@@ -79,7 +75,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   ):
     tree = test_pytree.provide_tree()
     original_internal_tree_metadata = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree, pytree_metadata_options),
+        _to_value_metadata_tree(tree, pytree_metadata_options),
         pytree_metadata_options=pytree_metadata_options,
     )
     json_object = original_internal_tree_metadata.to_json()
@@ -109,7 +105,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   ):
     tree = test_pytree.provide_tree()
     internal_tree_metadata = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree, pytree_metadata_options),
+        _to_value_metadata_tree(tree, pytree_metadata_options),
         pytree_metadata_options=pytree_metadata_options,
     )
     # Reverse the order of entries.
@@ -157,7 +153,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     tree = test_pytree.provide_tree()
 
     original_internal_tree_metadata = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree, write_pytree_metadata_options),
+        _to_value_metadata_tree(tree, write_pytree_metadata_options),
         pytree_metadata_options=write_pytree_metadata_options,
     )
     json_object = original_internal_tree_metadata.to_json()
@@ -177,7 +173,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     tree = {'scalar_param': 1}
     with self.assertRaisesRegex(TypeError, 'Failed to encode'):
       InternalTreeMetadata.build(
-          param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
+          _to_value_metadata_tree(tree), custom_metadata=custom_metadata
       )
 
   @parameterized.parameters(
@@ -187,21 +183,87 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
   def test_custom_metadata(self, custom_metadata):
     tree = {'scalar_param': 1}
     internal_tree_metadata = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree), custom_metadata=custom_metadata
+        _to_value_metadata_tree(tree), custom_metadata=custom_metadata
     )
     self.assertEqual(internal_tree_metadata.custom_metadata, custom_metadata)
+
+  def test_build_to_json(self):
+    value_metadata_tree = {
+        'a': tree_metadata_lib.ValueMetadataEntry.build(
+            'jax.Array', write_shape=(2, 4)
+        ),
+        'b': [tree_metadata_lib.ValueMetadataEntry.build('None')],
+    }
+    internal_tree_metadata = InternalTreeMetadata.build(
+        value_metadata_tree,
+        use_ocdbt=True,
+        use_zarr3=False,
+        pytree_metadata_options=tree_metadata_lib.PyTreeMetadataOptions(
+            support_rich_types=False
+        ),
+    )
+    json_object = internal_tree_metadata.to_json()
+    self.assertEqual(
+        json_object['tree_metadata'],
+        {
+            "('a',)": {
+                'key_metadata': ({'key': 'a', 'key_type': 2},),
+                'value_metadata': {
+                    'value_type': 'jax.Array',
+                    'skip_deserialize': False,
+                    'write_shape': [2, 4],
+                },
+            },
+            "('b', '0')": {
+                'key_metadata': (
+                    {'key': 'b', 'key_type': 2},
+                    {'key': '0', 'key_type': 1},
+                ),
+                'value_metadata': {
+                    'value_type': 'None',
+                    'skip_deserialize': True,
+                },
+            },
+        },
+    )
+    self.assertTrue(json_object['use_ocdbt'])
+    self.assertFalse(json_object['use_zarr3'])
+    self.assertNotIn('value_metadata_tree', json_object)
+
+  def test_build_with_rich_types_keeps_value_metadata_tree(self):
+    value_metadata_tree = {
+        'a': tree_metadata_lib.ValueMetadataEntry.build('np.ndarray')
+    }
+    internal_tree_metadata = InternalTreeMetadata.build(
+        value_metadata_tree,
+        pytree_metadata_options=tree_metadata_lib.PyTreeMetadataOptions(
+            support_rich_types=True
+        ),
+    )
+    self.assertEqual(
+        internal_tree_metadata.value_metadata_tree, value_metadata_tree
+    )
+
+  @parameterized.parameters(
+      ({'a': 1},),
+      ({'a': None},),
+      ({'a': {}},),
+  )
+  def test_build_rejects_non_value_metadata_leaves(self, value_metadata_tree):
+    with self.assertRaisesRegex(TypeError, 'ValueMetadataEntry'):
+      InternalTreeMetadata.build(value_metadata_tree)
 
   def test_merge(self):
     tree1 = {'a': 1, 'b': {'c': 2}}
     custom1 = {'x': 10, 'y': {'z': 20}}
     meta1 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree1), custom_metadata=custom1
+        _to_value_metadata_tree(tree1), custom_metadata=custom1
     )
 
     tree2 = {'b': {'d': 99}, 'e': 4}
     custom2 = {'y': {'w': 30}, 'u': 40}
     meta2 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree2), custom_metadata=custom2
+        _to_value_metadata_tree(tree2), custom_metadata=custom2
     )
 
     merged_meta = meta1.merge(meta2, overwrite=False)
@@ -216,7 +278,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     expected_merged_tree = {'a': 1, 'b': {'c': 2, 'd': 99}, 'e': 4}
     # Build expected metadata to compare against.
     expected_meta = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(expected_merged_tree)
+        _to_value_metadata_tree(expected_merged_tree)
     )
     expected_nested_tree = expected_meta.as_nested_tree()
 
@@ -227,13 +289,13 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     tree1 = {'a': 1, 'b': np.int32(2)}
     custom1 = {'x': 10, 'y': 20}
     meta1 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree1), custom_metadata=custom1
+        _to_value_metadata_tree(tree1), custom_metadata=custom1
     )
 
     tree2 = {'b': np.int64(3), 'c': 4}
     custom2 = {'y': 30, 'z': 40}
     meta2 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree2), custom_metadata=custom2
+        _to_value_metadata_tree(tree2), custom_metadata=custom2
     )
 
     merged_meta = meta1.merge(meta2, overwrite=True)
@@ -246,7 +308,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     # The value of 'b' from tree1 is replaced by tree2's.
     expected_merged_tree = {'a': 1, 'b': np.int64(3), 'c': 4}
     expected_meta = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(expected_merged_tree)
+        _to_value_metadata_tree(expected_merged_tree)
     )
     expected_nested_tree = expected_meta.as_nested_tree()
 
@@ -255,9 +317,9 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
 
   def test_merge_overwrite_false_raises_error(self):
     tree1 = {'a': 1, 'b': np.int32(2)}
-    meta1 = InternalTreeMetadata.build(param_infos=_to_param_infos(tree1))
+    meta1 = InternalTreeMetadata.build(_to_value_metadata_tree(tree1))
     tree2 = {'b': np.int64(3), 'c': 4}
-    meta2 = InternalTreeMetadata.build(param_infos=_to_param_infos(tree2))
+    meta2 = InternalTreeMetadata.build(_to_value_metadata_tree(tree2))
 
     with self.assertRaisesRegex(ValueError, 'exists in both metadata trees'):
       meta1.merge(meta2, overwrite=False)
@@ -269,12 +331,12 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
     )
     tree1 = {'a': 1, 'b': test_tree_utils.IntegerNamedTuple(x=1, y=2)}
     meta1 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree1, pytree_metadata_options),
+        _to_value_metadata_tree(tree1, pytree_metadata_options),
         pytree_metadata_options=pytree_metadata_options,
     )
     tree2 = {'b': test_tree_utils.IntegerNamedTuple(x=3, y=4), 'c': 5}
     meta2 = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(tree2, pytree_metadata_options),
+        _to_value_metadata_tree(tree2, pytree_metadata_options),
         pytree_metadata_options=pytree_metadata_options,
     )
 
@@ -293,7 +355,7 @@ class InternalTreeMetadataEntryTest(parameterized.TestCase):
         'c': 5,
     }
     expected_meta = InternalTreeMetadata.build(
-        param_infos=_to_param_infos(
+        _to_value_metadata_tree(
             expected_merged_tree, pytree_metadata_options
         ),
         pytree_metadata_options=pytree_metadata_options,

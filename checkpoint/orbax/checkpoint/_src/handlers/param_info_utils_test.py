@@ -89,5 +89,47 @@ class BuildParamInfosTest(absltest.TestCase):
     self.assertEqual(param_infos['a'].ocdbt_target_data_file_size, 123)
 
 
+class ToValueMetadataTreeTest(absltest.TestCase):
+
+  def test_converts_param_infos(self):
+    directory = epath.Path(self.create_tempdir().full_path)
+    item = {'a': np.arange(4), 'b': {'c': None, 'd': {}}}
+    param_infos = param_info_utils.build_param_infos(item, directory)
+    param_infos['a'] = param_infos['a'].replace(write_shape=(2,))
+
+    value_metadata_tree = param_info_utils.to_value_metadata_tree(param_infos)
+
+    self.assertEqual(
+        value_metadata_tree,
+        {
+            'a': tree_metadata.ValueMetadataEntry(
+                value_type='np.ndarray',
+                skip_deserialize=False,
+                write_shape=(2,),
+            ),
+            'b': {
+                'c': tree_metadata.ValueMetadataEntry(
+                    value_type=empty_values.RESTORE_TYPE_NONE,
+                    skip_deserialize=True,
+                ),
+                'd': tree_metadata.ValueMetadataEntry(
+                    value_type=empty_values.RESTORE_TYPE_DICT,
+                    skip_deserialize=True,
+                ),
+            },
+        },
+    )
+
+  def test_raises_without_value_typestr(self):
+    directory = epath.Path(self.create_tempdir().full_path)
+    param_infos = param_info_utils.build_param_infos(
+        {'a': np.arange(4)}, directory
+    )
+    param_infos['a'] = param_infos['a'].replace(value_typestr=None)
+
+    with self.assertRaisesRegex(AssertionError, 'value_typestr'):
+      param_info_utils.to_value_metadata_tree(param_infos)
+
+
 if __name__ == '__main__':
   absltest.main()

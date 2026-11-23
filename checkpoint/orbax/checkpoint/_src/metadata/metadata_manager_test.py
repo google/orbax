@@ -71,29 +71,14 @@ class MetadataManagerTest(
     typestr = type_handler_registry_lib.get_param_typestr(
         0, self.registry, self.options
     )
-    param_infos = {
-        'x': type_handlers.ParamInfo(
-            name='x',
-            parent_dir=self.directory,
-            skip_deserialize=False,
-            value_typestr=typestr,
-        ),
-        'y': type_handlers.ParamInfo(
-            name='y',
-            parent_dir=self.directory,
-            skip_deserialize=False,
-            value_typestr=typestr,
-        ),
-    }
-    save_args = {
-        'x': type_handlers.SaveArgs(),
-        'y': type_handlers.SaveArgs(),
+    value_metadata_tree = {
+        'x': tree_metadata.ValueMetadataEntry.build(typestr),
+        'y': tree_metadata.ValueMetadataEntry.build(typestr),
     }
     custom_metadata: tree_types.JsonType = {'step': 10}
 
     internal_tree_metadata = tree_metadata.InternalTreeMetadata.build(
-        param_infos,
-        save_args=save_args,
+        value_metadata_tree,
         use_ocdbt=False,
         use_zarr3=False,
         custom_metadata=custom_metadata,
