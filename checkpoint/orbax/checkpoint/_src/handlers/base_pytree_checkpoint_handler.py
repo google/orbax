@@ -42,6 +42,7 @@ from orbax.checkpoint._src.futures import future
 from orbax.checkpoint._src.handlers import async_checkpoint_handler
 from orbax.checkpoint._src.handlers import param_info_utils
 from orbax.checkpoint._src.handlers import partial_save_utils
+from orbax.checkpoint._src.handlers import restore_structure_utils
 from orbax.checkpoint._src.logging import event_tracking
 from orbax.checkpoint._src.metadata import array_metadata_store as array_metadata_store_lib
 from orbax.checkpoint._src.metadata import empty_values
@@ -57,7 +58,6 @@ from orbax.checkpoint._src.serialization import memory_regulator
 from orbax.checkpoint._src.serialization import type_handler_registry as type_handler_registry_lib
 from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.serialization import types
-from orbax.checkpoint._src.tree import structure_utils as tree_structure_utils
 from orbax.checkpoint._src.tree import types as tree_types
 from orbax.checkpoint._src.tree import utils as tree_utils
 import tensorstore as ts
@@ -768,74 +768,6 @@ class BasePyTreeCheckpointHandler(
     # flat_restored.
     return tree_utils.from_flat_dict(flat_restored, target=item)
 
-  def _partial_restore_with_omission(
-      self,
-      item: PyTree,
-      serialized_item: PyTree,
-      value_metadata_tree: PyTree,
-      restore_args: PyTree,
-  ) -> Tuple[PyTree, PyTree]:
-    """Restores leaves specified in `item`. Skips omitted leaves."""
-    if not self._pytree_metadata_options.support_rich_types:
-      # Replace empty containers with scalar values (zeros). During saving,
-      # some empty containers (like named tuples) were given
-      # ValueMetadataEntries as if they were scalars. We normalize these
-      # containers to scalars so that tree_trim is none the wiser.
-      serialized_item = jax.tree.map(
-          lambda v: 0 if empty_values.is_empty_container(v) else v,
-          serialized_item,
-          is_leaf=tree_utils.is_empty_or_leaf,
-      )
-
-    value_metadata_tree = tree_structure_utils.tree_trim(
-        serialized_item, value_metadata_tree, strict=False
-    )
-    value_metadata_tree = value_metadata_tree.unsafe_structure
-
-    if restore_args is not None:
-      restore_args = tree_structure_utils.tree_trim(
-          item, restore_args, strict=True
-      )
-
-    return value_metadata_tree, restore_args
-
-  def _partial_restore_with_placeholders(
-      self, serialized_item: PyTree, value_metadata_tree: PyTree
-  ) -> PyTree:
-    """Restores leaves from `item`, except for those marked as placeholders."""
-    diff = (
-        tree_structure_utils.tree_difference(
-            serialized_item,
-            value_metadata_tree,
-            is_leaf=tree_utils.is_empty_or_leaf,
-            leaves_equal=lambda a, b: True,
-        )
-        or {}
-    )
-    for keypath, value_diff in tree_utils.to_flat_dict(
-        diff, is_leaf=lambda x: isinstance(x, tree_structure_utils.Diff)
-    ).items():
-      if value_diff.lhs is PLACEHOLDER and value_diff.rhs is None:
-        parent = value_metadata_tree
-        for key in keypath[:-1]:
-          parent = parent[key]
-        parent[keypath[-1]] = PLACEHOLDER
-      else:
-        formatted_diff = tree_structure_utils.format_tree_diff(
-            diff, source_label='Item', target_label='Metadata'
-        )
-        raise ValueError(
-            'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
-            ' intentional, pass `partial_restore=True` to only restore'
-            ' parameters found in `item`.'
-        )
-    return jax.tree.map(
-        lambda v, i: PLACEHOLDER if type_handlers.is_placeholder(i) else v,
-        value_metadata_tree,
-        serialized_item,
-    )
-
   def restore(
       self,
       directory: epath.Path,
@@ -960,44 +892,16 @@ class BasePyTreeCheckpointHandler(
     serialized_item = tree_metadata.serialize_tree(
         item, self._pytree_metadata_options
     )
-    if item is None:
-      item = value_metadata_tree
-    elif args.partial_restore:
-      value_metadata_tree, restore_args = self._partial_restore_with_omission(
-          item, serialized_item, value_metadata_tree, restore_args
-      )
-    elif any(
-        type_handlers.is_placeholder(leaf) for leaf in jax.tree.leaves(item)
-    ):
-      value_metadata_tree = self._partial_restore_with_placeholders(
-          serialized_item, value_metadata_tree
-      )
-    else:
-      # Deserialize value metadata tree to the same structure as item to allow
-      # for comparison with item that contains rich types.
-      if self._pytree_metadata_options.support_rich_types:
-        value_metadata_tree = tree_utils.deserialize_tree(
-            value_metadata_tree, item
+    item, value_metadata_tree, restore_args = (
+        restore_structure_utils.validate_and_align_restore_structures(
+            item=item,
+            serialized_item=serialized_item,
+            value_metadata_tree=value_metadata_tree,
+            restore_args=restore_args,
+            partial_restore=args.partial_restore,
+            support_rich_types=self._pytree_metadata_options.support_rich_types,
         )
-      # is_empty_or_leaf is necessary here to treat empty nodes (e.g. empty
-      # dicts, lists, custom nodes) as leaves, as they do not contain any
-      # actual data to be restored, but are needed to maintain the structure.
-      diff = tree_structure_utils.tree_difference(
-          serialized_item,
-          value_metadata_tree,
-          is_leaf=tree_utils.is_empty_or_leaf,
-          leaves_equal=lambda a, b: True,
-      )
-      if diff is not None:
-        formatted_diff = tree_structure_utils.format_tree_diff(
-            diff, source_label='Item', target_label='Metadata'
-        )
-        raise ValueError(
-            'User-provided restore item and on-disk value metadata tree'
-            f' structures do not match:\n{formatted_diff}\nIf this mismatch is'
-            ' intentional, pass `partial_restore=True` to only restore'
-            ' parameters found in `item`.'
-        )
+    )
     restore_args = _fill_missing_save_or_restore_args(
         item, restore_args, mode='restore'
     )
