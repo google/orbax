@@ -672,8 +672,6 @@ def format_tree_diff(
   Returns:
     A formatted string showing the differences in a multi-line structure.
   """
-  source_label = f'    - {source_label}:'
-  target_label = f'    - {target_label}:'
   missing_symbol = 'MISSING'
 
   lines = []
@@ -686,10 +684,14 @@ def format_tree_diff(
       lines.append('Mismatch:')
 
     def _format_value(value):
-      return missing_symbol if value in (None, parts_of.PLACEHOLDER) else value
+      # Use identity checks: `in` compares with `==`, which is ambiguous for
+      # array values.
+      if value is None or value is parts_of.PLACEHOLDER:
+        return missing_symbol
+      return value
 
-    lines.append(f'{source_label} {_format_value(diff.lhs)}')
-    lines.append(f'{target_label} {_format_value(diff.rhs)}')
+    lines.append(f'    - {source_label}: {_format_value(diff.lhs)}')
+    lines.append(f'    - {target_label}: {_format_value(diff.rhs)}')
     return '\n'.join(lines)
 
   # Nested nodes
@@ -706,7 +708,12 @@ def format_tree_diff(
       else:
         raise ValueError(f'Unsupported key type: {type(key)}')
 
-      formatted = format_tree_diff(value, new_path)
+      formatted = format_tree_diff(
+          value,
+          new_path,
+          source_label=source_label,
+          target_label=target_label,
+      )
       if formatted:
         lines.append(formatted)
   return '\n\n'.join(lines)

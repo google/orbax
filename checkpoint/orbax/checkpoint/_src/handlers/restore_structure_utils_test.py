@@ -90,6 +90,13 @@ class ValidateAndAlignRestoreStructuresTest(absltest.TestCase):
     with self.assertRaisesRegex(ValueError, 'do not match'):
       _align(item, metadata)
 
+  def test_placeholder_with_unexpected_array_leaf_raises(self):
+    item = {'a': np.zeros(2), 'b': PLACEHOLDER, 'c': np.zeros(2)}
+    metadata = {'a': _entry(), 'b': _entry()}
+
+    with self.assertRaisesRegex(ValueError, 'do not match'):
+      _align(item, metadata)
+
   def test_partial_restore_trims_metadata_and_restore_args(self):
     item = {'a': np.zeros(2)}
     metadata = {'a': _entry(), 'b': {'c': _entry()}}
