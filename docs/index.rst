@@ -117,6 +117,8 @@ API that is **easy to use**, **highly performant**, and **maximimally compatible
    guides/checkpoint/v1/context
    guides/checkpoint/v1/partial_saving
    guides/checkpoint/v1/model_surgery
+   guides/checkpoint/v1/debug_guide
+   guides/checkpoint/v1/troubleshooting
 
 .. toctree::
    :hidden:
