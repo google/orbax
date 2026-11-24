@@ -226,9 +226,12 @@ class FileOptions(_ActiveContextGuard):
       `etils.epath.Path`, but may be overridden to some other subclass of
       :py:class:`~.v1.path.Path`.
     skip_sync_file_validations:
-      If True, bypasses synchronous filesystem existence and validation checks
-      prior to async saving. Default is False. Deletion recovery records are
-      still checked to prevent overwriting an unfinished partial deletion.
+      If True and `AsyncOptions.create_directories_asynchronously=True`, async
+      saves check for and remove an existing destination in the background
+      directory-creation thread instead of in the blocking phase. With
+      `overwrite=False`, an existing destination then raises when the save is
+      awaited. Default is False. Deletion recovery records are still checked
+      to prevent overwriting an unfinished partial deletion.
   """
 
   path_permission_mode: int | None = None

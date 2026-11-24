@@ -25,6 +25,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint._src.arrays import subchunking
 from orbax.checkpoint._src.arrays import types
+from orbax.checkpoint._src.metadata import value as value_metadata
 from orbax.checkpoint._src.serialization import tensorstore_utils as ts_utils
 from orbax.checkpoint._src.serialization import types as serialization_types
 import tensorstore as ts
@@ -128,48 +129,187 @@ class GetBackendOcdbtTargetDataFileSizeTest(parameterized.TestCase):
 
 class BuildZarrShardAndChunkMetadataTest(parameterized.TestCase):
 
-  @parameterized.product(
-      use_zarr3=(True, False),
-      use_compression=(True, False),
-  )
-  def test_build_zarr_shard_and_chunk_metadata(
-      self, use_zarr3: bool, use_compression: bool
+  @parameterized.product(use_zarr3=(True, False))
+  def test_build_zarr_shard_and_chunk_metadata_without_compression(
+      self,
+      use_zarr3: bool,
   ):
     shape = (10, 6, 32)
     chunk_shape = (5, 6, 8)
     metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
         global_shape=shape,
         shard_shape=chunk_shape,
-        use_compression=use_compression,
+        compression_spec=ts_utils.NoCompression(),
         use_zarr3=use_zarr3,
         chunk_shape=chunk_shape,
     )
-    expected_algo = 'zstd' if use_compression else 'none'
-    self.assertEqual(algo, expected_algo)
-    if use_compression:
-      expected_level = 3 if use_zarr3 else 1
-      self.assertEqual(level, expected_level)
-    else:
-      self.assertIsNone(level)
+    self.assertEqual(algo, 'none')
+    self.assertIsNone(level)
     self.assertEqual(metadata['shape'], shape)
     if not use_zarr3:
       self.assertEqual(metadata['chunks'], chunk_shape)
-      if use_compression:
-        self.assertEqual(metadata['compressor'], {'id': 'zstd', 'level': 1})
-      else:
-        self.assertIsNone(metadata['compressor'])
+      self.assertIsNone(metadata['compressor'])
     else:
       self.assertEqual(
           metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
       )
       codecs = metadata['codecs'][0]['configuration']['codecs']
       codec_names = [c['name'] for c in codecs]
-      if use_compression:
-        self.assertIn('zstd', codec_names)
-        zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
-        self.assertEqual(zstd_codec['configuration']['level'], 3)
-      else:
-        self.assertNotIn('zstd', codec_names)
+      self.assertNotIn('zstd', codec_names)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      compression_spec=(
+          None,
+          ts_utils.ZstdCompression(),
+          ts_utils.ZstdCompression(level=-1),
+          ts_utils.ZstdCompression(level=0),
+          ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_build_zarr_shard_and_chunk_metadata_with_compression(
+      self,
+      use_zarr3: bool,
+      compression_spec: ts_utils.ZstdCompression | None,
+  ):
+    shape = (10, 6, 32)
+    chunk_shape = (5, 6, 8)
+    kwargs = {}
+    if compression_spec is not None:
+      kwargs['compression_spec'] = compression_spec
+    metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
+        global_shape=shape,
+        shard_shape=chunk_shape,
+        use_zarr3=use_zarr3,
+        chunk_shape=chunk_shape,
+        **kwargs,
+    )
+    expected_level = (
+        (3 if use_zarr3 else 1)
+        if (compression_spec is None or compression_spec.level is None)
+        else compression_spec.level
+    )
+    self.assertEqual(algo, 'zstd')
+    self.assertEqual(level, expected_level)
+    self.assertEqual(metadata['shape'], shape)
+    if not use_zarr3:
+      self.assertEqual(metadata['chunks'], chunk_shape)
+      self.assertEqual(
+          metadata['compressor'], {'id': 'zstd', 'level': expected_level}
+      )
+    else:
+      self.assertEqual(
+          metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
+      )
+      codecs = metadata['codecs'][0]['configuration']['codecs']
+      zstd_codec = next(c for c in codecs if c['name'] == 'zstd')
+      self.assertEqual(zstd_codec['configuration']['level'], expected_level)
+
+  @parameterized.product(
+      (
+          dict(
+              shuffle=ts_utils.BloscShuffle.AUTO,
+              expected_zarr2_shuffle=-1,
+              expected_zarr3_shuffle=None,
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.NOSHUFFLE,
+              expected_zarr2_shuffle=0,
+              expected_zarr3_shuffle='noshuffle',
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.SHUFFLE,
+              expected_zarr2_shuffle=1,
+              expected_zarr3_shuffle='shuffle',
+          ),
+          dict(
+              shuffle=ts_utils.BloscShuffle.BITSHUFFLE,
+              expected_zarr2_shuffle=2,
+              expected_zarr3_shuffle='bitshuffle',
+          ),
+      ),
+      use_zarr3=(True, False),
+  )
+  def test_build_zarr_shard_and_chunk_metadata_with_blosc_compression(
+      self,
+      shuffle: ts_utils.BloscShuffle,
+      expected_zarr2_shuffle: int,
+      expected_zarr3_shuffle: str | None,
+      use_zarr3: bool,
+  ):
+    shape = (10, 6, 32)
+    chunk_shape = (5, 6, 8)
+    spec = ts_utils.BloscCompression(
+        cname='lz4', clevel=1, shuffle=shuffle, blocksize=0
+    )
+    metadata, algo, level = ts_utils._build_zarr_shard_and_chunk_metadata(
+        global_shape=shape,
+        shard_shape=chunk_shape,
+        compression_spec=spec,
+        use_zarr3=use_zarr3,
+        chunk_shape=chunk_shape,
+    )
+    self.assertEqual(algo, 'blosc_lz4')
+    self.assertEqual(level, 1)
+    self.assertEqual(metadata['shape'], shape)
+    if not use_zarr3:
+      self.assertEqual(metadata['chunks'], chunk_shape)
+      self.assertEqual(
+          metadata['compressor'],
+          {
+              'id': 'blosc',
+              'cname': 'lz4',
+              'clevel': 1,
+              'shuffle': expected_zarr2_shuffle,
+              'blocksize': 0,
+          },
+      )
+    else:
+      self.assertEqual(
+          metadata['chunk_grid']['configuration']['chunk_shape'], chunk_shape
+      )
+      codecs = metadata['codecs'][0]['configuration']['codecs']
+      expected_config: dict[str, int | str] = {
+          'cname': 'lz4',
+          'clevel': 1,
+          'blocksize': 0,
+      }
+      if expected_zarr3_shuffle is not None:
+        expected_config['shuffle'] = expected_zarr3_shuffle
+      self.assertIn(
+          {'name': 'blosc', 'configuration': expected_config}, codecs
+      )
+
+  def test_blosc_compression_validation(self):
+    self.assertEqual(ts_utils.BloscShuffle.BITSHUFFLE.value, 'bitshuffle')
+    self.assertEqual(ts_utils.BLOSC_MAX_BUFFERSIZE, 2_147_483_631)
+    self.assertEqual(ts_utils.BLOSC_MAX_BLOCKSIZE, 715_827_542)
+    self.assertEqual(ts_utils.BloscCompression(clevel=0).clevel, 0)
+    self.assertEqual(ts_utils.BloscCompression(clevel=9).clevel, 9)
+    self.assertEqual(
+        ts_utils.BloscCompression(
+            blocksize=ts_utils.BLOSC_MAX_BLOCKSIZE
+        ).blocksize,
+        ts_utils.BLOSC_MAX_BLOCKSIZE,
+    )
+    with self.assertRaisesRegex(ValueError, 'Blosc cname must be one of'):
+      ts_utils.BloscCompression(cname='LZ4')
+    with self.assertRaisesRegex(ValueError, 'Blosc clevel must be in'):
+      ts_utils.BloscCompression(clevel=10)
+    with self.assertRaisesRegex(ValueError, 'Blosc clevel must be in'):
+      ts_utils.BloscCompression(clevel=-1)
+    with self.assertRaisesRegex(ValueError, 'Blosc blocksize must be in'):
+      ts_utils.BloscCompression(blocksize=-1)
+    with self.assertRaisesRegex(ValueError, 'Blosc blocksize must be in'):
+      ts_utils.BloscCompression(blocksize=ts_utils.BLOSC_MAX_BLOCKSIZE + 1)
+
+  def test_max_chunk_byte_size_property(self):
+    self.assertIsNone(ts_utils.NoCompression().max_chunk_byte_size)
+    self.assertIsNone(ts_utils.ZstdCompression().max_chunk_byte_size)
+    self.assertEqual(
+        ts_utils.BloscCompression().max_chunk_byte_size,
+        ts_utils.BLOSC_MAX_BUFFERSIZE,
+    )
 
 
 class BuildArrayTSpecForWriteTest(parameterized.TestCase):
@@ -216,6 +356,231 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
     self.assertEqual(tspec.metadata.use_ocdbt, use_ocdbt)
     self.assertEqual(tspec.metadata.use_zarr3, use_zarr3)
     self.assertEqual(tspec.json['driver'], 'zarr3' if use_zarr3 else 'zarr')
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      compression_spec=(
+          ts_utils.NoCompression(),
+          ts_utils.ZstdCompression(),
+          ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_compression_spec(
+      self,
+      use_zarr3: bool,
+      compression_spec: ts_utils.CompressionSpec,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        compression_spec=compression_spec,
+    )
+    if isinstance(compression_spec, ts_utils.NoCompression):
+      self.assertEqual(tspec.metadata.compression_algorithm, 'none')
+      self.assertIsNone(tspec.metadata.compression_level)
+    else:
+      assert isinstance(compression_spec, ts_utils.ZstdCompression)
+      expected_level = (
+          (3 if use_zarr3 else 1)
+          if compression_spec.level is None
+          else compression_spec.level
+      )
+      self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+      self.assertEqual(tspec.metadata.compression_level, expected_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      shuffle=tuple(ts_utils.BloscShuffle),
+      dtype_str=('int32', 'int4'),
+  )
+  def test_blosc_write_and_read_roundtrip(
+      self,
+      use_zarr3: bool,
+      shuffle: ts_utils.BloscShuffle,
+      dtype_str: str,
+  ):
+    dtype = np.dtype(dtype_str)
+    spec = ts_utils.BloscCompression(
+        cname='lz4',
+        clevel=1,
+        shuffle=shuffle,
+    )
+    write_spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=self.shape,
+        write_shape=self.write_shape,
+        dtype=dtype,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        compression_spec=spec,
+    )
+    self.assertEqual(write_spec.metadata.compression_algorithm, 'blosc_lz4')
+    self.assertEqual(write_spec.metadata.compression_level, 1)
+
+    raw_vals = (np.arange(math.prod(self.shape)) % 7) - 3
+    arr = raw_vals.astype(dtype).reshape(self.shape)
+    t_write = ts.open(write_spec.json, create=True, open=True).result()
+    t_write.write(arr).result()
+
+    read_spec = ts_utils.ArrayReadSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+    )
+    t_read = ts.open(read_spec.json, open=True).result()
+    np.testing.assert_array_equal(t_read.read().result(), arr)
+
+  @parameterized.product(
+      (
+          dict(
+              # 2 GiB (2^31 B) int4 shard exceeds BLOSC_MAX_BUFFERSIZE by 17 B.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # 4 GiB int4 shard with 4 GiB OCDBT target file size (e.g. CNS).
+              write_shape=(64, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=4 * GIB,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # 1 GiB int4 shard fits within BLOSC_MAX_BUFFERSIZE untouched.
+              write_shape=(16, 4096, 16384),
+              chunk_byte_size=None,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+          dict(
+              # Explicit smaller chunk_byte_size (256 MiB) is preserved.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=256 * 1024**2,
+              ocdbt_target_data_file_size=None,
+              expected_chunk_shape=(4, 4096, 16384),
+          ),
+          dict(
+              # Explicit oversized chunk_byte_size (3 GiB) is clamped safely.
+              write_shape=(32, 4096, 16384),
+              chunk_byte_size=3 * GIB,
+              ocdbt_target_data_file_size=4 * GIB,
+              expected_chunk_shape=(16, 4096, 16384),
+          ),
+      ),
+      use_zarr3=(True, False),
+      use_ocdbt=(True, False),
+  )
+  def test_blosc_clamps_chunk_byte_size_to_max_buffersize(
+      self,
+      write_shape: types.Shape,
+      chunk_byte_size: int | None,
+      ocdbt_target_data_file_size: int | None,
+      expected_chunk_shape: types.Shape,
+      use_zarr3: bool,
+      use_ocdbt: bool,
+  ):
+    dtype = np.dtype('int4')
+    spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=(256, 4096, 16384),
+        write_shape=write_shape,
+        dtype=dtype,
+        chunk_byte_size=chunk_byte_size,
+        compression_spec=ts_utils.BloscCompression(
+            cname='lz4',
+            clevel=1,
+            shuffle=ts_utils.BloscShuffle.BITSHUFFLE,
+        ),
+        use_zarr3=use_zarr3,
+        use_ocdbt=use_ocdbt,
+        ocdbt_target_data_file_size=ocdbt_target_data_file_size,
+        process_id=0 if use_ocdbt else None,
+    )
+    self.assertEqual(spec.metadata.chunk_shape, expected_chunk_shape)
+    self.assertLessEqual(
+        math.prod(spec.metadata.chunk_shape) * dtype.itemsize,
+        ts_utils.BLOSC_MAX_BUFFERSIZE,
+    )
+
+  @parameterized.parameters(
+      dict(
+          nbytes=ts_utils.BLOSC_MAX_BUFFERSIZE,
+          expected_chunk_shape=(ts_utils.BLOSC_MAX_BUFFERSIZE,),
+      ),
+      dict(
+          nbytes=ts_utils.BLOSC_MAX_BUFFERSIZE + 1,
+          expected_chunk_shape=((ts_utils.BLOSC_MAX_BUFFERSIZE + 1) // 2,),
+      ),
+  )
+  def test_blosc_exact_max_buffersize_boundary(
+      self,
+      nbytes: int,
+      expected_chunk_shape: types.Shape,
+  ):
+    spec = ts_utils.ArrayWriteSpec(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        global_shape=(nbytes,),
+        write_shape=(nbytes,),
+        dtype=np.dtype(np.uint8),
+        compression_spec=ts_utils.BloscCompression(),
+        use_zarr3=False,
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.metadata.chunk_shape, expected_chunk_shape)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_compression=(True, False),
+  )
+  def test_deprecated_use_compression(
+      self,
+      use_zarr3: bool,
+      use_compression: bool,
+  ):
+    tspec = self.array_write_spec_constructor(
+        directory=self.directory,
+        relative_array_filename=self.param_name,
+        use_zarr3=use_zarr3,
+        use_ocdbt=False,
+        use_compression=use_compression,
+    )
+    if use_compression:
+      self.assertEqual(tspec.metadata.compression_algorithm, 'zstd')
+      self.assertEqual(
+          tspec.metadata.compression_level, 3 if use_zarr3 else 1
+      )
+    else:
+      self.assertEqual(tspec.metadata.compression_algorithm, 'none')
+      self.assertIsNone(tspec.metadata.compression_level)
+
+  @parameterized.product(
+      use_zarr3=(True, False),
+      use_compression=(True, False),
+  )
+  def test_rejects_both_use_compression_and_compression_spec(
+      self,
+      use_zarr3: bool,
+      use_compression: bool,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        'Cannot specify both use_compression and compression_spec',
+    ):
+      self.array_write_spec_constructor(
+          directory=self.directory,
+          relative_array_filename=self.param_name,
+          use_zarr3=use_zarr3,
+          use_ocdbt=False,
+          use_compression=use_compression,
+          compression_spec=ts_utils.ZstdCompression(level=1),
+      )
 
   @parameterized.product(use_ocdbt=(True, False))
   def test_default_zarr_driver_version(self, use_ocdbt: bool):
@@ -625,6 +990,70 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
         kvstore_tspec.get('version_tree_node_data_prefix', None),
         expected_version_tree_node_data_prefix,
     )
+
+  @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(False, True),
+  )
+  def test_ocdbt_kvstore_merge_mode(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='13')
+    merge_options = ts_utils.OcdbtKvStoreWriteOptions(
+        mode=ts_utils.OcdbtWriteMode.MERGE,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+
+    with self.subTest('child'):
+      child_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=process_spec,
+          ocdbt_write_options=merge_options,
+      )
+      self.assertEqual(
+          child_merge_spec['base']['path'],
+          f'{self.directory}/{process_spec}/',
+      )
+      # Child merge spec should not contain write-specific fields.
+      self.assertNotIn('btree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('version_tree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('value_data_prefix', child_merge_spec)
+      self.assertNotIn('config', child_merge_spec)
+      self.assertNotIn('assume_config', child_merge_spec)
+      self.assertNotIn('target_data_file_size', child_merge_spec)
+
+    with self.subTest('parent'):
+      parent_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=merge_options,
+      )
+      self.assertEqual(
+          parent_merge_spec['base']['path'],
+          f'{self.directory}/',
+      )
+      # Parent merge spec should contain write-specific fields.
+      self.assertIn('config', parent_merge_spec)
+      self.assertTrue(parent_merge_spec['assume_config'])
+      self.assertEqual(
+          parent_merge_spec['target_data_file_size'],
+          ts_utils._DEFAULT_OCDBT_TARGET_DATA_FILE_SIZE,
+      )
+      if store_ocdbt_metadata_and_values_separately:
+        self.assertEqual(
+            parent_merge_spec['btree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(
+            parent_merge_spec['version_tree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(parent_merge_spec['value_data_prefix'], 'ocdbt_data/')
+      else:
+        self.assertNotIn('btree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('version_tree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('value_data_prefix', parent_merge_spec)
 
   @parameterized.product(
       use_zarr3=(True, False),
@@ -1154,6 +1583,7 @@ class BuildArrayTSpecForReadTest(parameterized.TestCase):
     )
 
 
+
 class GetTsContextTest(parameterized.TestCase):
 
   @parameterized.product(
@@ -1215,6 +1645,7 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
       self,
       actual_spec: ts_utils.JsonSpec,
       expected_base_path: str,
+      expected_base_layer_prefix: str | None = None,
   ) -> None:
     base_file_driver_spec = _base_file_driver_spec(expected_base_path)
     if _is_using_file_driver():
@@ -1223,14 +1654,16 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
           'file_io_locking': {'mode': 'non_atomic'}
       }
 
+    base_layer: ts_utils.JsonSpec = {'base': base_file_driver_spec}
+    if expected_base_layer_prefix is not None:
+      base_layer['prefix'] = expected_base_layer_prefix
+
     self.assertDictEqual(
         actual_spec,
         {
             'driver': 'kvstack',
             'layers': [
-                {
-                    'base': base_file_driver_spec,
-                },
+                base_layer,
                 {
                     'prefix': 'ocdbt_tmp_meta/',
                     'base': self.base_tmp_dir_spec,
@@ -1239,89 +1672,131 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
         },
     )
 
-  @parameterized.product(use_process_spec=(True, False))
-  def test_read_mode(self, use_process_spec: bool):
-    process_spec = None
-    if use_process_spec:
-      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+  @parameterized.product(
+      use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
+  )
+  def test_read_mode(
+      self,
+      use_process_spec: bool,
+      context_has_process_spec: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
+    )
 
     kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory=self.directory,
         use_ocdbt=True,
-        ocdbt_process_spec=process_spec,
-        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+        ocdbt_process_spec=process_spec if use_process_spec else None,
+        ocdbt_temporary_metadata_context=temporary_metadata_context,
     )
 
     # Manifest spec is set to the temporary metadata path, but prefixes are no
     # longer overridden.
-    self.assertEqual(
-        kvstore_tspec['manifest'],
-        f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/',
+    expected_manifest = (
+        f'{self.base_tmp_dir_spec}{process_spec}/ocdbt_tmp_meta/'
+        if context_has_process_spec
+        else f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/'
     )
+    self.assertEqual(kvstore_tspec['manifest'], expected_manifest)
     self.assertNotIn('btree_node_data_prefix', kvstore_tspec)
     self.assertNotIn('version_tree_node_data_prefix', kvstore_tspec)
     self.assertNotIn('value_data_prefix', kvstore_tspec)
 
     expected_base_path = (
-        f'{self.directory}/'
-        if not use_process_spec
-        else f'{self.directory}/{str(process_spec)}/'
+        f'{self.directory}/{process_spec}/'
+        if use_process_spec
+        else f'{self.directory}/'
     )
-    # kvstack spec is independent of the mode.
-    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+    self._verify_kvstack_spec(
+        kvstore_tspec['base'],
+        expected_base_path,
+        expected_base_layer_prefix=(
+            f'{process_spec}/' if context_has_process_spec else None
+        ),
+    )
 
   @parameterized.product(
       use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
       store_ocdbt_metadata_and_values_separately=(True, False),
   )
   def test_write_mode(
       self,
       use_process_spec: bool,
+      context_has_process_spec: bool,
       store_ocdbt_metadata_and_values_separately: bool,
   ):
-    process_spec = None
-    if use_process_spec:
-      process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
+    )
 
     kvstore_tspec = ts_utils.build_kvstore_tspec(
         directory=self.directory,
         use_ocdbt=True,
-        ocdbt_process_spec=process_spec,
+        ocdbt_process_spec=process_spec if use_process_spec else None,
         ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
             mode=ts_utils.OcdbtWriteMode.WRITE,
             store_ocdbt_metadata_and_values_separately=(
                 store_ocdbt_metadata_and_values_separately
             ),
         ),
-        ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+        ocdbt_temporary_metadata_context=temporary_metadata_context,
     )
 
     # Manifest spec is set to the temporary metadata path, and prefixes are
     # overridden to match the routing prefix of kvstack layer configured with
     # temporary metadata path.
+    expected_manifest = (
+        f'{self.base_tmp_dir_spec}{process_spec}/ocdbt_tmp_meta/'
+        if context_has_process_spec
+        else f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/'
+    )
+    expected_metadata_prefix = (
+        f'ocdbt_tmp_meta/{process_spec}/'
+        if context_has_process_spec
+        else 'ocdbt_tmp_meta/'
+    )
+    self.assertEqual(kvstore_tspec['manifest'], expected_manifest)
     self.assertEqual(
-        kvstore_tspec['manifest'],
-        f'{self.base_tmp_dir_spec}ocdbt_tmp_meta/',
+        kvstore_tspec['btree_node_data_prefix'], expected_metadata_prefix
     )
     self.assertEqual(
-        kvstore_tspec['btree_node_data_prefix'], 'ocdbt_tmp_meta/'
-    )
-    self.assertEqual(
-        kvstore_tspec['version_tree_node_data_prefix'], 'ocdbt_tmp_meta/'
+        kvstore_tspec['version_tree_node_data_prefix'],
+        expected_metadata_prefix,
     )
 
-    if store_ocdbt_metadata_and_values_separately:
+    if context_has_process_spec:
+      expected_value_prefix = (
+          f'{process_spec}/ocdbt_data/'
+          if store_ocdbt_metadata_and_values_separately
+          else f'{process_spec}/d/'
+      )
+      self.assertEqual(
+          kvstore_tspec['value_data_prefix'], expected_value_prefix
+      )
+    elif store_ocdbt_metadata_and_values_separately:
       self.assertEqual(kvstore_tspec['value_data_prefix'], 'ocdbt_data/')
     else:
       self.assertNotIn('value_data_prefix', kvstore_tspec)
 
     expected_base_path = (
-        f'{self.directory}/'
-        if not use_process_spec
-        else f'{self.directory}/{str(process_spec)}/'
+        f'{self.directory}/{process_spec}/'
+        if use_process_spec
+        else f'{self.directory}/'
     )
-    # kvstack spec is independent of the mode and write options.
-    self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
+    self._verify_kvstack_spec(
+        kvstore_tspec['base'],
+        expected_base_path,
+        expected_base_layer_prefix=(
+            f'{process_spec}/' if context_has_process_spec else None
+        ),
+    )
 
   @parameterized.product(
       use_process_spec=(True, False),
@@ -1380,31 +1855,207 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     # kvstack spec is independent of the mode and write options.
     self._verify_kvstack_spec(kvstore_tspec['base'], expected_base_path)
 
+  def test_commit_temporary_metadata_mode_requires_context(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        'OCDBT commit mode requires temporary metadata context.',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+              mode=ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+          ),
+          ocdbt_temporary_metadata_context=None,
+      )
+
+  @parameterized.product(
+      mode=(
+          ts_utils.OcdbtWriteMode.COMMIT_TEMPORARY,
+          ts_utils.OcdbtWriteMode.MERGE,
+      ),
+      use_process_spec=(False, True),
+  )
+  def test_commit_and_merge_modes_reject_process_spec_in_context(
+      self,
+      mode: ts_utils.OcdbtWriteMode,
+      use_process_spec: bool,
+  ):
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='h0')
+    with self.assertRaisesRegex(
+        ValueError,
+        f'OCDBT {mode.value} mode does not support per-process temporary',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=process_spec if use_process_spec else None,
+          ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
+              mode=mode,
+          ),
+          ocdbt_temporary_metadata_context=(
+              ts_utils.OcdbtTemporaryMetadataContext(
+                  path=epath.Path(self.temporary_metadata_path),
+                  process_spec=process_spec,
+              )
+          ),
+      )
+
+  @parameterized.product(
+      write_mode=(None, ts_utils.OcdbtWriteMode.WRITE),
+  )
+  def test_conflicting_process_specs_raises(
+      self,
+      write_mode: ts_utils.OcdbtWriteMode | None,
+  ):
+    write_options = (
+        ts_utils.OcdbtKvStoreWriteOptions(mode=write_mode)
+        if write_mode is not None
+        else None
+    )
+    with self.assertRaisesRegex(
+        ValueError,
+        'Conflicting process_spec',
+    ):
+      ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=ts_utils.OcdbtProcessSpec(process_id='h0'),
+          ocdbt_write_options=write_options,
+          ocdbt_temporary_metadata_context=(
+              ts_utils.OcdbtTemporaryMetadataContext(
+                  path=epath.Path(self.temporary_metadata_path),
+                  process_spec=ts_utils.OcdbtProcessSpec(process_id='h1'),
+              )
+          ),
+      )
+
+  @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(True, False),
+  )
+  def test_merge_mode(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    child_process_spec = ts_utils.OcdbtProcessSpec(process_id='h0')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=None,
+    )
+
+    merge_options = ts_utils.OcdbtKvStoreWriteOptions(
+        mode=ts_utils.OcdbtWriteMode.MERGE,
+        store_ocdbt_metadata_and_values_separately=(
+            store_ocdbt_metadata_and_values_separately
+        ),
+    )
+
+    expected_base_path = f'{self.directory}/'
+    base_file_driver_spec = _base_file_driver_spec(expected_base_path)
+    if _is_using_file_driver():
+      base_file_driver_spec = {
+          **base_file_driver_spec,
+          'file_io_locking': {'mode': 'non_atomic'},
+      }
+    expected_merge_layers = [
+        {'base': base_file_driver_spec},
+        {
+            'prefix': 'ocdbt_tmp_meta/',
+            'base': self.base_tmp_dir_spec,
+        },
+    ]
+
+    with self.subTest('child'):
+      child_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_process_spec=child_process_spec,
+          ocdbt_write_options=merge_options,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
+      )
+      self.assertDictEqual(
+          child_merge_spec['base'],
+          {
+              'driver': 'kvstack',
+              'layers': expected_merge_layers,
+          },
+      )
+      self.assertEqual(
+          child_merge_spec['manifest'],
+          f'{self.base_tmp_dir_spec}{child_process_spec}/ocdbt_tmp_meta/',
+      )
+      self.assertNotIn('btree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('version_tree_node_data_prefix', child_merge_spec)
+      self.assertNotIn('value_data_prefix', child_merge_spec)
+      self.assertNotIn('config', child_merge_spec)
+      self.assertNotIn('assume_config', child_merge_spec)
+      self.assertNotIn('target_data_file_size', child_merge_spec)
+      self.assertIsNotNone(ts.KvStore.Spec(child_merge_spec))
+
+    with self.subTest('parent'):
+      parent_merge_spec = ts_utils.build_kvstore_tspec(
+          directory=self.directory,
+          use_ocdbt=True,
+          ocdbt_write_options=merge_options,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
+      )
+      self.assertDictEqual(
+          parent_merge_spec['base'],
+          {
+              'driver': 'kvstack',
+              'layers': expected_merge_layers,
+          },
+      )
+      if _is_using_file_driver():
+        self.assertEqual(
+            parent_merge_spec['manifest'],
+            _base_file_driver_spec(expected_base_path),
+        )
+      else:
+        self.assertNotIn('manifest', parent_merge_spec)
+
+      if store_ocdbt_metadata_and_values_separately:
+        self.assertEqual(parent_merge_spec['value_data_prefix'], 'ocdbt_data/')
+        self.assertEqual(
+            parent_merge_spec['btree_node_data_prefix'], 'ocdbt_meta/'
+        )
+        self.assertEqual(
+            parent_merge_spec['version_tree_node_data_prefix'], 'ocdbt_meta/'
+        )
+      else:
+        self.assertNotIn('value_data_prefix', parent_merge_spec)
+        self.assertNotIn('btree_node_data_prefix', parent_merge_spec)
+        self.assertNotIn('version_tree_node_data_prefix', parent_merge_spec)
+
+      self.assertIsNotNone(ts.KvStore.Spec(parent_merge_spec))
+
   @parameterized.product(
       gcs_backend=('gcs', 'gcs_grpc'),
       use_process_spec=(True, False),
+      context_has_process_spec=(True, False),
       has_object_path=(True, False),
   )
   def test_gcs_path_with_temporary_metadata_context(
       self,
       gcs_backend: str,
       use_process_spec: bool,
+      context_has_process_spec: bool,
       has_object_path: bool,
   ):
     directory = (
         'gs://gcs_bucket/object_path' if has_object_path else 'gs://gcs_bucket'
     )
-    process_spec = (
-        ts_utils.OcdbtProcessSpec(process_id='w13')
-        if use_process_spec
-        else None
+    process_spec = ts_utils.OcdbtProcessSpec(process_id='w13')
+    temporary_metadata_context = ts_utils.OcdbtTemporaryMetadataContext(
+        path=epath.Path(self.temporary_metadata_path),
+        process_spec=process_spec if context_has_process_spec else None,
     )
     if has_object_path and use_process_spec:
-      expected_path = f'object_path/{str(process_spec)}/'
+      expected_path = f'object_path/{process_spec}/'
     elif has_object_path:
       expected_path = 'object_path/'
     elif use_process_spec:
-      expected_path = f'{str(process_spec)}/'
+      expected_path = f'{process_spec}/'
     else:
       expected_path = ''
 
@@ -1414,11 +2065,11 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
       kvstore_tspec = ts_utils.build_kvstore_tspec(
           directory=directory,
           use_ocdbt=True,
-          ocdbt_process_spec=process_spec,
+          ocdbt_process_spec=process_spec if use_process_spec else None,
           ocdbt_write_options=ts_utils.OcdbtKvStoreWriteOptions(
               mode=ts_utils.OcdbtWriteMode.WRITE,
           ),
-          ocdbt_temporary_metadata_context=self.temporary_metadata_context,
+          ocdbt_temporary_metadata_context=temporary_metadata_context,
       )
 
     self.assertEqual(
@@ -1426,18 +2077,21 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
         ts_utils._GCS_OCDBT_TARGET_DATA_FILE_SIZE,
     )
     self.assertTrue(ts_utils.is_remote_storage(kvstore_tspec))
+    expected_base_layer: ts_utils.JsonSpec = {
+        'base': {
+            'driver': gcs_backend,
+            'bucket': 'gcs_bucket',
+            'path': expected_path,
+        },
+    }
+    if context_has_process_spec:
+      expected_base_layer['prefix'] = f'{process_spec}/'
     self.assertDictEqual(
         kvstore_tspec['base'],
         {
             'driver': 'kvstack',
             'layers': [
-                {
-                    'base': {
-                        'driver': gcs_backend,
-                        'bucket': 'gcs_bucket',
-                        'path': expected_path,
-                    },
-                },
+                expected_base_layer,
                 {
                     'prefix': 'ocdbt_tmp_meta/',
                     'base': self.base_tmp_dir_spec,
@@ -1447,6 +2101,7 @@ class BuildOcdbtKvStoreTspecWithTemporaryMetadataContextTest(
     )
     # Ensure TensorStore accepts the KvStore spec without error.
     self.assertIsNotNone(ts.KvStore.Spec(kvstore_tspec))
+
 
 
 class GetTensorStoreRawBytesTest(parameterized.TestCase):
@@ -1537,6 +2192,75 @@ class GetTensorStoreRawBytesTest(parameterized.TestCase):
     self.assertGreaterEqual(diff_read, arr.nbytes)
 
 
+class ZarrMetadataFromTensorstoreTest(parameterized.TestCase):
+
+  @parameterized.product(
+      use_zarr3=(False, True),
+      wrap_cast=(False, True),
+      case=(
+          (
+              ts_utils.ZstdCompression(level=2),
+              value_metadata.Compression('zstd', 2),
+          ),
+          (
+              ts_utils.BloscCompression(cname='zstd', clevel=4),
+              value_metadata.Compression('blosc_zstd', 4),
+          ),
+      ),
+  )
+  def test_extracts_zarr_metadata_and_unwraps_cast_adapter(
+      self,
+      use_zarr3: bool,
+      wrap_cast: bool,
+      case: tuple[ts_utils.CompressionSpec, value_metadata.Compression],
+  ):
+    compression, expected = case
+    tmpdir = self.create_tempdir().full_path
+    if use_zarr3:
+      metadata = {
+          'shape': [4, 4],
+          'data_type': 'float32',
+          'chunk_grid': {
+              'name': 'regular',
+              'configuration': {'chunk_shape': [4, 4]},
+          },
+          'codecs': [
+              {'name': 'bytes'},
+              compression.zarr3_codec(),
+          ],
+      }
+    else:
+      metadata = {
+          'shape': [4, 4],
+          'dtype': '<f4',
+          'chunks': [4, 4],
+          'compressor': compression.zarr2_compressor(),
+      }
+    spec: dict[str, Any] = {
+        'driver': 'zarr3' if use_zarr3 else 'zarr',
+        'kvstore': {'driver': 'file', 'path': tmpdir},
+        'metadata': metadata,
+    }
+    ts.open(spec, create=True, open=True).result()
+    read_spec: dict[str, Any] = {
+        'driver': spec['driver'],
+        'kvstore': spec['kvstore'],
+    }
+    if wrap_cast:
+      read_spec = {'driver': 'cast', 'dtype': 'bfloat16', 'base': read_spec}
+    store = ts.open(read_spec, open=True, read=True).result()
+    meta = ts_utils.zarr_metadata_from_tensorstore(store)
+    self.assertIsNotNone(meta)
+    assert meta is not None
+    self.assertEqual(meta.zarr_format, 3 if use_zarr3 else 2)
+    self.assertEqual(meta.compression, expected)
+
+  def test_returns_none_when_metadata_unavailable(self):
+    self.assertIsNone(
+        ts_utils.zarr_metadata_from_tensorstore(ts.array([1, 2, 3]))
+    )
+
+
 class ResolveCompressionSettingsTest(parameterized.TestCase):
 
   def test_empty(self):
@@ -1544,75 +2268,80 @@ class ResolveCompressionSettingsTest(parameterized.TestCase):
         ts_utils.resolve_compression_settings([]), ('none', 'None')
     )
 
-  def test_single(self):
-    meta = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='array_metadata',
+          metadatas=[
+              ts_utils.ArrayMetadata(
+                  param_name='a',
+                  shape=(1,),
+                  dtype=np.dtype('float32'),
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  use_ocdbt=True,
+                  use_zarr3=False,
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              )
+          ],
+      ),
+      dict(
+          testcase_name='serialized_array_metadata',
+          metadatas=[
+              ts_utils.SerializedArrayMetadata(
+                  param_name='a',
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              )
+          ],
+      ),
+      dict(
+          testcase_name='zarr_compression',
+          metadatas=[
+              value_metadata.Compression('zstd', 3),
+              value_metadata.Compression('zstd', 3),
+          ],
+      ),
+  )
+  def test_uniform_settings(self, metadatas):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta]), ('zstd', '3')
+        ts_utils.resolve_compression_settings(metadatas), ('zstd', '3')
     )
 
-  def test_multiple_identical(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=1,
-    )
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='mixed_algorithm',
+          metadatas=[
+              value_metadata.Compression('zstd', 3),
+              value_metadata.Compression('none'),
+          ],
+      ),
+      dict(
+          testcase_name='mixed_level',
+          metadatas=[
+              value_metadata.Compression('zstd', 1),
+              value_metadata.Compression('zstd', 3),
+          ],
+      ),
+      dict(
+          testcase_name='mixed_across_types',
+          metadatas=[
+              ts_utils.SerializedArrayMetadata(
+                  param_name='a',
+                  write_shape=(1,),
+                  chunk_shape=(1,),
+                  compression_algorithm='zstd',
+                  compression_level=3,
+              ),
+              value_metadata.Compression('none'),
+          ],
+      ),
+  )
+  def test_mixed_settings(self, metadatas):
     self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]), ('zstd', '1')
-    )
-
-  def test_mixed(self):
-    meta1 = ts_utils.ArrayMetadata(
-        param_name='a',
-        shape=(1,),
-        dtype=np.dtype('float32'),
-        write_shape=(1,),
-        chunk_shape=(1,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='zstd',
-        compression_level=3,
-    )
-    meta2 = ts_utils.ArrayMetadata(
-        param_name='b',
-        shape=(2,),
-        dtype=np.dtype('float32'),
-        write_shape=(2,),
-        chunk_shape=(2,),
-        use_ocdbt=True,
-        use_zarr3=False,
-        compression_algorithm='none',
-        compression_level=None,
-    )
-    self.assertEqual(
-        ts_utils.resolve_compression_settings([meta1, meta2]),
-        ('mixed', 'mixed'),
+        ts_utils.resolve_compression_settings(metadatas), ('mixed', 'mixed')
     )
 
 

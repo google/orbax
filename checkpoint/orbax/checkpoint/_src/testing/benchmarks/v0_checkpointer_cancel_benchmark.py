@@ -68,10 +68,7 @@ class V0CheckpointerCancelBenchmark(benchmarks_core.BenchmarksGenerator):
 
       logging.info('Calling mngr.cancel() for step=%d', step)
       with metrics.measure('cancel_cost'):
-        if hasattr(mngr, '_checkpointer') and hasattr(
-            mngr._checkpointer, 'cancel'  # pylint: disable=protected-access
-        ):
-          mngr._checkpointer.cancel()  # pylint: disable=protected-access
+        mngr.cancel()
       logging.info('Cancellation request successfully applied.')
 
     logging.info(

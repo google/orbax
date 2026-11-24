@@ -68,6 +68,7 @@ def _background_wait_for_commit_futures(
     sync_fn: Callable[[str, int], None],
     timeout_secs: int,
     primary_host: int | None,
+    is_cancel_requested: Callable[[], bool] = lambda: False,
 ):
   """A function to be run in a background thread that waits for futures."""
   current_process = multihost.process_index()
@@ -83,9 +84,24 @@ def _background_wait_for_commit_futures(
   thread_start_time = time.time()
 
   # Wait for commit operations to complete.
-  future.ChainedFuture(commit_futures, cb=lambda: None).result(
-      timeout=timeout_secs
-  )
+  try:
+    future.ChainedFuture(commit_futures, cb=lambda: None).result(
+        timeout=timeout_secs
+    )
+  except BaseException as e:  # pylint: disable=broad-exception-caught
+    if (
+        isinstance(
+            e, (concurrent.futures.CancelledError, asyncio.CancelledError)
+        )
+        or is_cancel_requested()
+    ):
+      logging.info(
+          '[process=%s][thread=%s] Handler Commit operations were cancelled.',
+          current_process,
+          current_thread_id,
+      )
+    else:
+      raise
   commit_duration_secs = time.time() - thread_start_time
   logging.info(
       '[process=%s][thread=%s] %d Handler Commit operations completed. Time'
@@ -244,6 +260,7 @@ class _AsyncManager:
           sync_fn=self._sync_fn,
           timeout_secs=self._timeout_secs,
           primary_host=self._primary_host,
+          is_cancel_requested=lambda: self._cancel_requested,
       )
     except BaseException as e:  # pylint: disable=broad-exception-caught
 
@@ -321,6 +338,7 @@ class _AsyncManager:
       )
 
     self.check_for_errors()
+    self._cancel_requested = False
     if background_thread_name is not None:
       logging.info(
           '[process=%s][thread=%s] No errors found in background save'
@@ -336,7 +354,7 @@ class _AsyncManager:
         '[process=%s] _AsyncManager.cancel() called.',
         multihost.process_index(),
     )
-    if self._thread is not None:
+    if self._thread is not None and self._thread.is_alive():
       logging.info(
           '[process=%s] Cancelling background save thread and detaching it.',
           multihost.process_index(),
@@ -354,6 +372,17 @@ class _AsyncManager:
           except Exception as e:  # pylint: disable=broad-exception-caught
             logging.warning('Error while cancelling future: %s', e)
       self._commit_futures = None
+      loop = getattr(self._thread, 'loop', None)
+      main_task = getattr(self._thread, 'main_task', None)
+      if loop is not None and main_task is not None:
+        try:
+          loop.call_soon_threadsafe(main_task.cancel)
+        except RuntimeError:
+          pass
+
+  @property
+  def is_cancel_requested(self) -> bool:
+    return self._cancel_requested
 
 
 class AsyncCheckpointer(checkpointer.Checkpointer):
@@ -449,64 +478,114 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
     # Captured synchronously; the callback runs in the background save thread.
     signals_namespace = future.current_signals_namespace()
 
-    def _callback() -> None:
-      finalize_start_time = time.time()
-      if utils.is_primary_host(self._primary_host):
-        # Update StepMetadata after the handler save is complete.
-        # (blocking write)
-        self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Async Save Callback [1/3]: Finalizing'
-          ' Handler: %s on %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          self._handler,
-          tmpdir.get(),
-      )
-      # Finalize does a final StepMetadata update.
-      self._handler.finalize(tmpdir.get())
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Async Save Callback [2/3]: Running'
-          ' post_finalization_callback: %s on %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          self._post_finalization_callback,
-          tmpdir.get_final(),
-      )
-      if self._post_finalization_callback is not None:
-        self._post_finalization_callback()
-      logging.vlog(
-          1,
-          '[process=%s][thread=%s] Async Save Callback [3/3]: Finalizing'
-          ' checkpoint directory: %s',
-          multihost.process_index(),
-          threading.current_thread().name,
-          tmpdir.get(),
-      )
-      _on_commit_callback(
-          tmpdir,
-          checkpoint_start_time,
-      )
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/background_finalize_secs',
-          time.time() - finalize_start_time,
-      )
-      operation_recorder = event_tracking.OperationRecorder(
-          tmpdir.get_final(),
-          operation_type=event_tracking.OperationType.SAVE,
-          async_origin=True,
-          primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
-      )
-      operation_recorder.record_completion(time.time() - checkpoint_start_time)
-      # Clean up all awaitable signals for the current operation id as they are
-      # no longer needed.
-      if self._create_directories_asynchronously:
-        with future.signals_namespace(signals_namespace):
-          future.AwaitableSignalsContract.remove_all_awaitable_signals(
-              current_operation_id
+    def _cleanup_cancelled_tmpdir() -> None:
+      if not utils.is_primary_host(self._primary_host):
+        return
+      try:
+        tmp_path = tmpdir.get()
+        if tmp_path.exists():
+          logging.info(
+              '[process=%s][thread=%s] Removing uncommitted temporary'
+              ' directory %s after cancellation.',
+              multihost.process_index(),
+              threading.current_thread().name,
+              tmp_path,
           )
+          tmp_path.rmtree()
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning(
+            'Failed to clean up temporary directory after cancellation: %s', e
+        )
+
+    def _callback() -> None:
+      try:
+        if self._async_manager.is_cancel_requested:
+          logging.info(
+              '[process=%s][thread=%s] Skipping on_commit_callback due to'
+              ' cancellation request.',
+              multihost.process_index(),
+              threading.current_thread().name,
+          )
+          _cleanup_cancelled_tmpdir()
+          return
+        finalize_start_time = time.time()
+        if utils.is_primary_host(self._primary_host):
+          # Update StepMetadata after the handler save is complete.
+          # (blocking write)
+          self._save_step_metadata(
+              tmpdir.get(), custom_metadata=custom_metadata
+          )
+        logging.vlog(
+            1,
+            '[process=%s][thread=%s] Async Save Callback [1/3]: Finalizing'
+            ' Handler: %s on %s',
+            multihost.process_index(),
+            threading.current_thread().name,
+            self._handler,
+            tmpdir.get(),
+        )
+        # Finalize does a final StepMetadata update.
+        self._handler.finalize(tmpdir.get())
+        logging.vlog(
+            1,
+            '[process=%s][thread=%s] Async Save Callback [2/3]: Running'
+            ' post_finalization_callback: %s on %s',
+            multihost.process_index(),
+            threading.current_thread().name,
+            self._post_finalization_callback,
+            tmpdir.get_final(),
+        )
+        if self._post_finalization_callback is not None:
+          self._post_finalization_callback()
+        logging.vlog(
+            1,
+            '[process=%s][thread=%s] Async Save Callback [3/3]: Finalizing'
+            ' checkpoint directory: %s',
+            multihost.process_index(),
+            threading.current_thread().name,
+            tmpdir.get(),
+        )
+        if self._async_manager.is_cancel_requested:
+          logging.info(
+              '[process=%s][thread=%s] Skipping final commit due to'
+              ' cancellation request.',
+              multihost.process_index(),
+              threading.current_thread().name,
+          )
+          _cleanup_cancelled_tmpdir()
+          return
+        _on_commit_callback(
+            tmpdir,
+            checkpoint_start_time,
+        )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/background_finalize_secs',
+            time.time() - finalize_start_time,
+        )
+        operation_recorder = event_tracking.OperationRecorder(
+            tmpdir.get_final(),
+            operation_type=event_tracking.OperationType.SAVE,
+            async_origin=True,
+            primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
+        )
+        operation_recorder.record_completion(
+            time.time() - checkpoint_start_time
+        )
+      except (concurrent.futures.CancelledError, asyncio.CancelledError):
+        logging.info(
+            '[process=%s][thread=%s] on_commit_callback was cancelled cleanly.',
+            multihost.process_index(),
+            threading.current_thread().name,
+        )
+        _cleanup_cancelled_tmpdir()
+      finally:
+        # Clean up all awaitable signals for the current operation id as they
+        # are no longer needed.
+        if self._create_directories_asynchronously:
+          with future.signals_namespace(signals_namespace):
+            future.AwaitableSignalsContract.remove_all_awaitable_signals(
+                current_operation_id
+            )
 
     return _callback
 
@@ -514,28 +593,23 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       self, directory: epath.Path, *, force: bool
   ) -> None:
     """Removes existing destination if force=True, or checks for collisions."""
-    skip = self._file_options.skip_sync_file_validations
-
     # 1. Force overwrite: only the primary host performs cleanup.
     if force:
       if not utils.is_primary_host(self._primary_host):
         return
-      should_remove = skip or await async_path.exists(directory)
-      if should_remove:
+      if await async_path.exists(directory):
         logging.info(
             '[process=%s] Specified `force`: removing existing directory.',
             multihost.process_index(),
         )
         await async_path.rmtree(
             directory,
-            missing_ok=skip,
         )  # Post-sync handled by create_tmp_directory.
       return
 
     # 2. Collision validation: verify destination directory does not exist.
-    if not skip:
-      if await async_path.exists(directory):
-        raise ValueError(f'Destination {directory} already exists.')
+    if await async_path.exists(directory):
+      raise ValueError(f'Destination {directory} already exists.')
 
   async def _save(
       self,
@@ -545,15 +619,42 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
       **kwargs,
   ):
     directory = tmpdir.get_final()
-    await self._prepare_destination_async(directory, force=force)
+    # Opt-in: defer destination preparation to the background thread.
+    defer_preparation = (
+        self._create_directories_asynchronously
+        and self._file_options.skip_sync_file_validations
+    )
+    metric = (
+        '/jax/orbax/write/background_prepare_destination_secs'
+        if defer_preparation
+        else '/jax/orbax/write/blocking_prepare_destination_secs'
+    )
+
+    async def prepare_destination():
+      start = time.time()
+      await self._prepare_destination_async(directory, force=force)
+      # The create_all_async barriers block the main thread either way, so
+      # exists() and rmtree() are the only time saved by deferring.
+      if utils.is_primary_host(self._primary_host):
+        jax.monitoring.record_event_duration_secs(metric, time.time() - start)
+
+    if not defer_preparation:
+      await prepare_destination()
 
     commit_ops = []
     if self._create_directories_asynchronously:
+      # `STEP_DIRECTORY_CREATION` is sent only after `pre_create_fn` and
+      # `tmpdir.create()` finish, so commit futures wait for preparation.
+      # A deferred removal thus counts toward `timeout_secs` and the
+      # `*_directory_creation_secs` metrics.
       commit_ops.append(
           atomicity.create_all_async(
               [tmpdir],
               completion_signals=_DIRECTORY_CREATION_SIGNALS,
               multiprocessing_options=self._multiprocessing_options,
+              pre_create_fn=(
+                  prepare_destination if defer_preparation else None
+              ),
           )
       )
     else:
@@ -603,14 +704,18 @@ class AsyncCheckpointer(checkpointer.Checkpointer):
         due to the need to delete any existing files.
       custom_metadata: a dictionary of custom metadata to be written to the
         checkpoint directory via StepMetadata.
-      save_context: optional blocking-phase context from a wrapping caller
-        (e.g. `CheckpointManager.save()`), used to measure the full blocking
-        save and to record each blocking metric exactly once per save.
+      save_context: optional blocking-phase context from a wrapping caller (e.g.
+        `CheckpointManager.save()`), used to measure the full blocking save and
+        to record each blocking metric exactly once per save.
       **kwargs: additional keyword args to provide to the CheckpointHandler's
         save method.
 
     Raises:
-      ValueError if the provided directory already exists.
+      ValueError: If the provided directory already exists. With
+        `FileOptions.skip_sync_file_validations=True` and
+        `AsyncOptions.create_directories_asynchronously=True`, this is raised
+        when the background save is awaited (e.g. by `wait_until_finished`)
+        rather than by `save`.
     """
     checkpoint_start_time = (
         save_context.checkpoint_start_time

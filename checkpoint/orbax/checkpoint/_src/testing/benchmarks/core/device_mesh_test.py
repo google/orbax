@@ -24,9 +24,11 @@ from orbax.checkpoint._src.testing.benchmarks.core import device_mesh
 
 class FakeDevice:
 
-  def __init__(self, device_id, process_index=0):
+  def __init__(self, device_id, process_index=0, slice_index=None):
     self.id = device_id
     self.process_index = process_index
+    if slice_index is not None:
+      self.slice_index = slice_index
 
   def __str__(self):
     return f"FakeDevice(id={self.id})"
@@ -233,6 +235,33 @@ class DeviceMeshTest(absltest.TestCase):
         self.mock_devices.return_value,
         allow_split_physical_axes=False,
         process_is_granule=True,
+    )
+
+  def test_simdevice_with_slices_uses_slices(self):
+    self.mock_is_simdevice.return_value = True
+    self.mock_devices.return_value = [
+        FakeDevice(device_id=i, process_index=i // 2, slice_index=i // 4)
+        for i in range(8)
+    ]
+    self.mock_num_slices.return_value = 2
+    self.mock_process_count.return_value = 4
+    config = configs.MeshConfig(
+        mesh_axes=["x", "y"],
+        ici_parallelism={"x": 2, "y": 2},
+        dcn_parallelism={"y": 2},
+    )
+    self.mock_create_hybrid_device_mesh.return_value = np.arange(8).reshape(
+        (2, 4)
+    )
+
+    device_mesh.create_mesh(config)
+
+    self.mock_create_hybrid_device_mesh.assert_called_once_with(
+        [2, 2],
+        [1, 2],
+        self.mock_devices.return_value,
+        allow_split_physical_axes=False,
+        process_is_granule=False,
     )
 
 

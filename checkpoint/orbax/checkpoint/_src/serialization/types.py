@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Mapping
 import copy
 import dataclasses
 import enum
-from typing import Any, Callable, Optional, Protocol, Sequence
+import types
+from typing import Any, Callable, Optional, Protocol, Sequence, TypeAlias
 
 from absl import logging
 from etils import epath
@@ -41,21 +43,26 @@ PyTreeMetadataOptions = pytree_metadata_options_lib.PyTreeMetadataOptions
 
 
 class TransferPriority(enum.Enum):
-  """Prioritization of arrays for saving.
+  """Prioritization of arrays for device-to-host transfer during saving.
 
-  NOTE: If the option is ASYNCHRONOUS_*, values may be altered if updated
-  concurrently before transfer.
+  .. note::
+    For ``ASYNCHRONOUS_*`` priorities, array transfers happen in the background
+    after the blocking save call returns. Values may be corrupted if updated or
+    donated concurrently before their transfer completes.
 
-  SYNCHRONOUS: The device to host transfer is scheduled and executed
-    synchronously before returning to the caller. This ensures values are
-    never corrupted by concurrent updates or donations.
-  ASYNCHRONOUS_PRIORITIZED: The device to host transfer is scheduled
-    asynchronously in the background, but prioritized ahead of deprioritized
-    transfers.
-  ASYNCHRONOUS_DEPRIORITIZED: The device to host transfer is scheduled
-    asynchronously in the background after all prioritized transfers have
-    completed.
-  UNKNOWN: The transfer priority is unknown or unspecified.
+  Attributes:
+    SYNCHRONOUS: The device-to-host transfer is scheduled and executed
+      synchronously before returning to the caller. This ensures values are
+      never corrupted by concurrent updates or donations, and bypasses the
+      device-to-host concurrency limit (intended for lightweight arrays).
+    ASYNCHRONOUS_PRIORITIZED: The device-to-host transfer is scheduled
+      asynchronously in the background, prioritized ahead of deprioritized
+      transfers, subject to the device-to-host concurrency limit.
+    ASYNCHRONOUS_DEPRIORITIZED: The device-to-host transfer is scheduled
+      asynchronously in the background after all prioritized transfers have
+      completed, subject to the device-to-host concurrency limit.
+    UNKNOWN: The transfer priority is unknown or unspecified (raises
+      ``ValueError`` if returned during serialization).
   """
 
   SYNCHRONOUS = 0
@@ -70,34 +77,34 @@ class IoDirection(enum.Enum):
 
 
 class SerializationStatusCallback(Protocol):
-  """Callback for tracking serialization status of PyTree parameters.
+  """Callback for tracking and prioritizing serialization of PyTree parameters.
 
-  NOTE: Callback methods can be called concurrently from parallel background
-  threads. Implementations must ensure thread safety if they access or modify
-  shared state.
+  .. note::
+    Callback methods can be called concurrently from parallel background
+    threads. Implementations must ensure thread safety (for example, using a
+    ``threading.Lock``) if they access or modify shared state.
 
-  Usage:
-    Users can implement this protocol to customize parameter serialization
-    behavior, such as transfer prioritization from device to host or to
-    receive notifications about transfer and write completion.
+  Implement this protocol (or subclass
+  :py:class:`DefaultSerializationStatusCallback`) to control device-to-host
+  transfer prioritization per keypath and receive per-parameter completion
+  notifications for transfers and storage writes.
 
-    To use a custom callback, implement the protocol and register it with
-    `ArrayHandler` for `jax.Array` type before saving:
+  Example usage::
 
-    ```
+    import jax
+    import orbax.checkpoint as ocp
     from orbax.checkpoint._src.serialization import types as serialization_types
-    from orbax.checkpoint._src.tree import types as tree_types
 
-    class MyCallback(serialization_types.SerializationStatusCallback):
-      def key_priority(self, keypath: tree_types.PyTreePath):
-        if 'large_param' in jax.tree_util.keystr(keypath):
+    class MyCallback(serialization_types.DefaultSerializationStatusCallback):
+      def key_priority(self, keypath):
+        if 'opt_state' in jax.tree_util.keystr(keypath):
           return serialization_types.TransferPriority.ASYNCHRONOUS_DEPRIORITIZED
         return serialization_types.TransferPriority.ASYNCHRONOUS_PRIORITIZED
 
-      def on_transfer_end(self, keypath: tree_types.PyTreePath):
+      def on_transfer_end(self, keypath):
         print(f'Transfer ended for {jax.tree_util.keystr(keypath)}')
 
-      def on_write_end(self, keypath: tree_types.PyTreePath):
+      def on_write_end(self, keypath):
         print(f'Write ended for {jax.tree_util.keystr(keypath)}')
 
     ocp.type_handlers.register_type_handler(
@@ -105,59 +112,76 @@ class SerializationStatusCallback(Protocol):
         ocp.type_handlers.ArrayHandler(callback=MyCallback()),
         override=True,
     )
-    ```
   """
 
   def key_priority(self, keypath: tree_types.PyTreePath) -> TransferPriority:
-    """Callback for when the parameter is checked for transfer priority.
+    """Returns the transfer priority for a parameter.
 
-    Must return a TransferPriority indicating how the transfer will be
-    scheduled.
+    Called during save initialization when a device-to-host transfer concurrency
+    limit is configured (via ``transfer_concurrent_bytes`` or
+    ``regulator_options``).
 
     Args:
-      keypath: The keypath of the parameter being checked.
+      keypath: The PyTree keypath of the parameter being checked.
+
+    Returns:
+      A :py:class:`TransferPriority` indicating how the transfer should be
+      scheduled.
     """
     ...
 
   def on_transfer_start(self, keypath: tree_types.PyTreePath) -> None:
     """Callback for when the parameter transfer to host starts.
 
-    Note: Currently not wired up. Reserved for future use.
+    .. note::
+      Currently not wired up. Reserved for future use.
 
     Args:
-      keypath: The keypath of the parameter being transferred.
+      keypath: The PyTree keypath of the parameter being transferred.
     """
     ...
 
   def on_transfer_end(self, keypath: tree_types.PyTreePath) -> None:
-    """Callback for when the parameter transfer to host ends.
+    """Callback invoked after the parameter's device-to-host transfer ends.
+
+    Once invoked for a parameter, its device buffer is no longer needed by the
+    in-flight save and may safely be mutated or donated.
 
     Args:
-      keypath: The keypath of the parameter whose transfer has ended.
+      keypath: The PyTree keypath of the parameter whose transfer has ended.
     """
     ...
 
   def on_write_start(self, keypath: tree_types.PyTreePath) -> None:
     """Callback for when the parameter write starts.
 
-    Note: Currently not wired up. Reserved for future use.
+    .. note::
+      Currently not wired up. Reserved for future use.
 
     Args:
-      keypath: The keypath of the parameter being written.
+      keypath: The PyTree keypath of the parameter being written.
     """
     ...
 
   def on_write_end(self, keypath: tree_types.PyTreePath) -> None:
-    """Callback for when the parameter write ends.
+    """Callback invoked after the parameter's storage write completes.
+
+    Note that checkpoint finalization may still be in progress after all
+    ``on_write_end`` callbacks fire; always await the save response before
+    assuming the checkpoint is committed on storage.
 
     Args:
-      keypath: The keypath of the parameter whose write has ended.
+      keypath: The PyTree keypath of the parameter whose write has ended.
     """
     ...
 
 
 class DefaultSerializationStatusCallback(SerializationStatusCallback):
-  """Default no-op callback for serialization and deserialization."""
+  """Default callback returning ``TransferPriority.SYNCHRONOUS`` with no-op hooks.
+
+  Subclass this when you only need to override a subset of
+  :py:class:`SerializationStatusCallback` methods.
+  """
 
   def key_priority(self, _: tree_types.PyTreePath) -> TransferPriority:
     """Callback for when the parameter is checked for transfer priority."""
@@ -202,6 +226,202 @@ def check_input_arguments(*args):
       l = len(arg)
     elif len(arg) != l:
       raise ValueError('Found input args with mismatched lengths.')
+
+
+JsonSpec: TypeAlias = dict[str, Any]
+
+
+class CompressionSpec(abc.ABC):
+  """Base class for Zarr array compression configurations."""
+
+  @property
+  @abc.abstractmethod
+  def algorithm(self) -> str:
+    """Returns the compression algorithm name."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def resolved_level(self, *, use_zarr3: bool) -> int | None:
+    """Returns the compression level used for the given Zarr version."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def zarr2_compressor(self) -> JsonSpec | None:
+    """Returns the Zarr v2 compressor spec."""
+    raise NotImplementedError()
+
+  @abc.abstractmethod
+  def zarr3_codec(self) -> JsonSpec | None:
+    """Returns the Zarr v3 codec spec."""
+    raise NotImplementedError()
+
+  @property
+  def max_chunk_byte_size(self) -> int | None:
+    """Maximum uncompressed chunk byte size, or `None` if unbounded."""
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class NoCompression(CompressionSpec):
+  """Disables array compression."""
+
+  @property
+  def algorithm(self) -> str:
+    return 'none'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int | None:
+    del use_zarr3
+    return None
+
+  def zarr2_compressor(self) -> JsonSpec | None:
+    return None
+
+  def zarr3_codec(self) -> JsonSpec | None:
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class ZstdCompression(CompressionSpec):
+  """Zstd compression configuration.
+
+  Attributes:
+    level: Zstd compression level. If None, uses TensorStore's default level
+      for the Zarr version (1 for Zarr v2, 3 for Zarr v3).
+  """
+
+  level: int | None = None
+
+  @property
+  def algorithm(self) -> str:
+    return 'zstd'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int:
+    if self.level is not None:
+      return self.level
+    # Use default levels straight from TensorStore.
+    return 3 if use_zarr3 else 1
+
+  def zarr2_compressor(self) -> JsonSpec:
+    return {'id': 'zstd', 'level': self.resolved_level(use_zarr3=False)}
+
+  def zarr3_codec(self) -> JsonSpec:
+    return {
+        'name': 'zstd',
+        'configuration': {'level': self.resolved_level(use_zarr3=True)},
+    }
+
+
+class BloscShuffle(str, enum.Enum):
+  """Shuffle mode for Blosc compression."""
+
+  AUTO = 'auto'
+  NOSHUFFLE = 'noshuffle'
+  SHUFFLE = 'shuffle'
+  BITSHUFFLE = 'bitshuffle'
+
+  @property
+  def zarr2_value(self) -> int:
+    """Integer shuffle code for Zarr v2 Blosc compressor metadata (`-1..2`)."""
+    return _BLOSC_SHUFFLE_ZARR2[self]
+
+  @property
+  def zarr3_value(self) -> str | None:
+    """Shuffle string for Zarr v3 Blosc codec config, or `None` for `AUTO`."""
+    return None if self is BloscShuffle.AUTO else self.value
+
+
+_BLOSC_SHUFFLE_ZARR2: Mapping[BloscShuffle, int] = types.MappingProxyType({
+    BloscShuffle.AUTO: -1,
+    BloscShuffle.NOSHUFFLE: 0,
+    BloscShuffle.SHUFFLE: 1,
+    BloscShuffle.BITSHUFFLE: 2,
+})
+
+_VALID_BLOSC_CNAMES: frozenset[str] = frozenset({
+    'blosclz',
+    'lz4',
+    'lz4hc',
+    'snappy',
+    'zlib',
+    'zstd',
+})
+
+# Constants mirrored from C-Blosc `blosc.h` (v1 wire format uses signed 32-bit
+# buffer and block sizes: 2,147,483,631 and 715,827,542 bytes respectively).
+_INT32_MAX = 2**31 - 1
+_BLOSC_MAX_OVERHEAD = 16
+_BLOSC_MAX_TYPESIZE = 255
+BLOSC_MAX_BUFFERSIZE = _INT32_MAX - _BLOSC_MAX_OVERHEAD
+BLOSC_MAX_BLOCKSIZE = (_INT32_MAX - _BLOSC_MAX_TYPESIZE * 4) // 3
+
+
+@dataclasses.dataclass(frozen=True)
+class BloscCompression(CompressionSpec):
+  """Blosc meta-compressor configuration.
+
+  Attributes:
+    cname: Underlying compressor name ('blosclz', 'lz4', 'lz4hc', 'snappy',
+      'zlib', or 'zstd'). Defaults to 'lz4'.
+    clevel: Compression level in [0, 9]. Defaults to 5.
+    shuffle: Byte or bit shuffle filter mode. Defaults to `BloscShuffle.AUTO`.
+    blocksize: Requested size of compressed blocks in bytes in
+      `[0, BLOSC_MAX_BLOCKSIZE]` (0 = automatic).
+  """
+
+  cname: str = 'lz4'
+  clevel: int = 5
+  shuffle: BloscShuffle = BloscShuffle.AUTO
+  blocksize: int = 0
+
+  def __post_init__(self):
+    if self.cname not in _VALID_BLOSC_CNAMES:
+      raise ValueError(
+          f'Blosc cname must be one of {sorted(_VALID_BLOSC_CNAMES)},'
+          f' got {self.cname!r}.'
+      )
+    if not 0 <= self.clevel <= 9:
+      raise ValueError(
+          f'Blosc clevel must be in [0, 9], got {self.clevel}.'
+      )
+    if not 0 <= self.blocksize <= BLOSC_MAX_BLOCKSIZE:
+      raise ValueError(
+          f'Blosc blocksize must be in [0, {BLOSC_MAX_BLOCKSIZE}],'
+          f' got {self.blocksize}.'
+      )
+
+  @property
+  def algorithm(self) -> str:
+    return f'blosc_{self.cname}'
+
+  def resolved_level(self, *, use_zarr3: bool) -> int:
+    del use_zarr3
+    return self.clevel
+
+  def zarr2_compressor(self) -> JsonSpec:
+    return {
+        'id': 'blosc',
+        'cname': self.cname,
+        'clevel': self.clevel,
+        'shuffle': self.shuffle.zarr2_value,
+        'blocksize': self.blocksize,
+    }
+
+  def zarr3_codec(self) -> JsonSpec:
+    config: JsonSpec = {
+        'cname': self.cname,
+        'clevel': self.clevel,
+        'blocksize': self.blocksize,
+    }
+    if self.shuffle.zarr3_value is not None:
+      config['shuffle'] = self.shuffle.zarr3_value
+    return {
+        'name': 'blosc',
+        'configuration': config,
+    }
+
+  @property
+  def max_chunk_byte_size(self) -> int:
+    return BLOSC_MAX_BUFFERSIZE
 
 
 class ParamInfo:

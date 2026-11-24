@@ -310,6 +310,20 @@ class CheckpointManagerOptions:
   single_host_load_and_broadcast: bool = True
 
 
+def _get_file_options() -> checkpoint_manager.FileOptions:
+  """Returns FileOptions with skip_sync_file_validations disabled."""
+  file_options = checkpoint_manager.FileOptions()
+  if file_options.skip_sync_file_validations:
+    logging.log_first_n(
+        logging.WARNING,
+        'FileOptions.skip_sync_file_validations = True is not supported and'
+        ' is ignored for emergency.CheckpointManager.',
+        1,
+    )
+    return dataclasses.replace(file_options, skip_sync_file_validations=False)
+  return file_options
+
+
 class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
   """A checkpoint manager that checkpoints to local storage."""
 
@@ -379,6 +393,7 @@ class _LocalCheckpointManager(checkpoint_manager.CheckpointManager):
         enable_background_delete=False,
         save_root_metadata=False,
         enable_per_process_directory_creation=True,
+        file_options=_get_file_options(),
     )
     super().__init__(
         directory,
@@ -423,6 +438,7 @@ def _get_persistent_options(
       save_root_metadata=False,
       save_decision_policy=options.persistent.save_decision_policy,
       preservation_policy=options.persistent.preservation_policy,
+      file_options=_get_file_options(),
   )
 
 

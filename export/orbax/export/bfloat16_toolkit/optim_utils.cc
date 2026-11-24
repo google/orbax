@@ -21,8 +21,10 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
 #include "third_party/absl/algorithm/container.h"
+#include "third_party/absl/container/linked_hash_map.h"
+#include "third_party/absl/container/linked_hash_set.h"
+#include "third_party/absl/log/log.h"
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/str_join.h"
@@ -30,47 +32,71 @@ limitations under the License.
 #include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "orbax/export/bfloat16_toolkit/utils.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
+#include "tensorflow/compiler/xla/tsl/platform/env.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/core/common_runtime/graph_runner.h"
 #include "tensorflow/core/framework/node_def_util.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
+#include "tensorflow/core/framework/tensor_slice.h"
+#include "tensorflow/core/framework/types.proto.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/platform/path.h"
+#include "tensorflow/core/util/saved_tensor_slice_util.h"
 #include "tensorflow/core/util/tensor_bundle/tensor_bundle.h"
-#include "util/gtl/linked_hash_map.h"
 
 namespace tensorflow {
 namespace orbax {
 
 // Read variables and name - variable mappings.
 absl::Status ReadVariablesAsTensors(
-    const std::string& input_prefix,
+    absl::string_view input_prefix,
     absl::linked_hash_map<std::string, Tensor>* var_tensors) {
   VLOG(1) << "Reading Variables from " << input_prefix;
-  BundleReader reader(Env::Default(), input_prefix);
+  BundleReader reader(tsl::Env::Default(), input_prefix);
+  TF_RETURN_IF_ERROR(reader.status());
+  absl::linked_hash_set<std::string> tensor_names;
+  std::string key;
+  std::string full_name;
+  TensorSlice slice;
   reader.Seek(tensorflow::kHeaderEntryKey);
-  reader.Next();
-  while (reader.Valid()) {
-    std::string tensor_name(reader.key());
+  for (reader.Next(); reader.Valid(); reader.Next()) {
+    key = reader.key();
+    slice.Clear();
+    if (!checkpoint::DecodeTensorNameSlice(key, &full_name, &slice).ok()) {
+      tensor_names.insert(std::move(key));
+    }
+  }
+  TF_RETURN_IF_ERROR(reader.status());
+  for (const std::string& tensor_name : tensor_names) {
+    DataType dtype = DT_INVALID;
+    TensorShape shape;
+    TF_RETURN_IF_ERROR(reader.LookupDtypeAndShape(tensor_name, &dtype, &shape));
     Tensor tensor_value;
-    TF_RETURN_IF_ERROR(reader.ReadCurrent(&tensor_value));
-    (*var_tensors)[tensor_name] = tensor_value;
+    TF_RETURN_IF_ERROR(Tensor::BuildTensor(dtype, shape, &tensor_value));
+    TF_RETURN_IF_ERROR(reader.Lookup(tensor_name, &tensor_value));
+    (*var_tensors)[tensor_name] = std::move(tensor_value);
     VLOG(3) << "Variable: " << tensor_name;
-    reader.Next();
   }
   return absl::OkStatus();
 }
 
 // Persist variables and name - variable mappings.
 absl::Status WriteTensorsToVariables(
-    const std::string& output_prefix,
+    absl::string_view output_prefix,
     const absl::linked_hash_map<std::string, Tensor>& var_tensors) {
   VLOG(1) << "Writing Variables to " << output_prefix;
-  BundleWriter writer(Env::Default(), output_prefix);
-  for (const auto& it : var_tensors) {
-    VLOG(3) << "Variable: " << it.first;
-    TF_RETURN_IF_ERROR(writer.Add(it.first, it.second));
+  absl::string_view directory = io::Dirname(output_prefix);
+  if (!directory.empty()) {
+    TF_RETURN_IF_ERROR(
+        tsl::Env::Default()->RecursivelyCreateDir(std::string(directory)));
+  }
+  BundleWriter writer(tsl::Env::Default(), output_prefix);
+  TF_RETURN_IF_ERROR(writer.status());
+  for (const auto& [name, tensor] : var_tensors) {
+    VLOG(3) << "Variable: " << name;
+    TF_RETURN_IF_ERROR(writer.Add(name, tensor));
   }
   TF_RETURN_IF_ERROR(writer.Finish());
   return absl::OkStatus();

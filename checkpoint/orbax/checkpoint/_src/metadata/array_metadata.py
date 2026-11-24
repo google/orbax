@@ -57,3 +57,5 @@ class SerializedArrayMetadata:
   write_shape: types.Shape
   chunk_shape: types.Shape
   ext_metadata: ExtMetadata | None = None
+  compression_algorithm: str = 'none'
+  compression_level: int | None = None

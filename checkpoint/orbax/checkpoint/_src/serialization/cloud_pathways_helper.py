@@ -29,8 +29,12 @@ from orbax.checkpoint._src.serialization import cloud_pathways_plugin_executable
 
 def dtype_to_xla_primitive_type_str(dtype: np.dtype) -> str:
   """Converts a numpy dtype to an xla PrimitiveType."""
-  if dtype == np.dtype("bfloat16"):
+  if dtype == np.dtype("bool"):
+    return "PRED"
+  elif dtype == np.dtype("bfloat16"):
     return "BF16"
+  elif dtype == np.dtype("float16"):
+    return "F16"
   elif dtype == np.dtype("float32"):
     return "F32"
   elif dtype == np.dtype("float64"):
@@ -112,7 +116,8 @@ def get_write_request(
 ) -> str | Mapping[str, Any]:
   """Returns a string representation of the plugin program which writes the given jax_array to the given location."""
   sharding = jax_array.sharding
-  assert isinstance(sharding, jax.sharding.Sharding), sharding
+  if not isinstance(sharding, jax.sharding.Sharding):
+    raise ValueError(f"Expected jax.sharding.Sharding, got {sharding}")
 
   timeout_seconds, timeout_fractional_seconds = divmod(
       timeout.total_seconds(), 1

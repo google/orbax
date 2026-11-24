@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import operator
 import time
 import typing
 from typing import Any, Callable, Iterable, Sequence
@@ -27,6 +29,7 @@ from orbax.checkpoint import checkpoint_manager
 from orbax.checkpoint._src.logging import abstract_logger
 from orbax.checkpoint._src.logging import standard_logger
 from orbax.checkpoint._src.logging import step_statistics
+from orbax.checkpoint._src.metadata import checkpoint_info
 from orbax.checkpoint.experimental.v1._src.context import context as context_lib
 from orbax.checkpoint.experimental.v1._src.deletion import execution as deletion_execution
 from orbax.checkpoint.experimental.v1._src.deletion import validation as deletion_validation
@@ -84,6 +87,56 @@ def _resolve_integer_step(
   return step.step
 
 
+# Number of latest checkpoints preserved for recovery when continuous
+# checkpointing with `target_interval_steps` is used without an explicit
+# preservation policy.
+_NUM_RECOVERY_CHECKPOINTS = 2
+
+
+def _get_default_preservation_policy(
+    save_decision_policy: save_decision_policies.SaveDecisionPolicy,
+) -> (
+    preservation_policies.PreserveAll
+    | preservation_policies.AnyPreservationPolicy
+):
+  """Returns the preservation policy used if none is provided.
+
+  If `save_decision_policy` is (or directly contains, via `AnySavePolicy`) a
+  `ContinuousCheckpointingPolicy` with `target_interval_steps`, preserves all
+  checkpoints at `target_interval_steps`, as well as the latest
+  `_NUM_RECOVERY_CHECKPOINTS` checkpoints for recovery. Otherwise, preserves all
+  checkpoints.
+
+  Args:
+    save_decision_policy: The resolved save decision policy.
+
+  Raises:
+    ValueError: If more than one `ContinuousCheckpointingPolicy` configures
+      `target_interval_steps`.
+  """
+  if isinstance(save_decision_policy, save_decision_policies.AnySavePolicy):
+    candidates = save_decision_policy.policies
+  else:
+    candidates = [save_decision_policy]
+  target_intervals = [
+      p.target_interval_steps
+      for p in candidates
+      if isinstance(p, save_decision_policies.ContinuousCheckpointingPolicy)
+      and p.target_interval_steps is not None
+  ]
+  if len(target_intervals) > 1:
+    raise ValueError(
+        'At most one `ContinuousCheckpointingPolicy` may configure'
+        f' `target_interval_steps`, got {target_intervals}.'
+    )
+  if not target_intervals:
+    return preservation_policies.PreserveAll()
+  return preservation_policies.AnyPreservationPolicy([
+      preservation_policies.LatestN(_NUM_RECOVERY_CHECKPOINTS),
+      preservation_policies.EveryNSteps(target_intervals[0]),
+  ])
+
+
 @typing.final
 class Checkpointer(epy.ContextManager):
   """An object that manages a sequence of checkpoints in a training loop."""
@@ -113,14 +166,32 @@ class Checkpointer(epy.ContextManager):
     all available processes, from the main thread.
 
     The Checkpointer is intended for use in a training loop, where a sequence
-    of checkpoints are saved at regular intervals. Example usage::
+    of checkpoints are saved at regular intervals. For a balance of training
+    efficiency and checkpointing predictability, we recommend using "continuous
+    checkpointing" to save at a predictable - *infrequent* - step interval (just
+    enough for evals and worst-case rollbacks), while also saving more frequent
+    recovery checkpoints. For more details, see `Choosing Checkpointing Policies
+    <https://orbax.readthedocs.io/en/latest/guides/checkpoint/v1/training.html#choosing-checkpointing-policies>`_.
+
+    Continuous checkpointing::
+
+      policies = ocp.training.save_decision_policies
+      save_decision_policy = policies.ContinuousCheckpointingPolicy(
+          target_interval_steps=10000,
+      )
+      # preservation_policy automatically is set to preserve all checkpoints
+      # at `target_interval_steps`, while also ensuring the latest 2 checkpoints
+      # are available for recovery.
+
+    Users may also have the flexibility to specify their own policies, for
+    example::
 
       # Configure the frequency at which checkpoints are saved.
       save_decision_policies = ocp.training.save_decision_policies
       # Save every 1000 steps, or when a preemption is detected.
       save_decision_policy = save_decision_policies.AnySavePolicy([
           save_decision_policies.FixedIntervalPolicy(1000),
-          save_decision_policies.PreemptionPolicy(),
+          save_decision_policies.PreemptionCheckpointingPolicy(),
       ])
 
       # Configure the checkpoints to preserve (avoid garbage collection).
@@ -130,6 +201,8 @@ class Checkpointer(epy.ContextManager):
           preservation_policies.LatestN(10),
           preservation_policies.EveryNSteps(10000),
       ])
+
+    Example usage::
 
       with ocp.training.Checkpointer(
           directory,
@@ -159,12 +232,15 @@ class Checkpointer(epy.ContextManager):
       context: A :py:class:`~orbax.checkpoint.v1.Context` object that will be
         used to wrap all function calls for this `Checkpointer`.
       save_decision_policy: A policy used to determine when a checkpoint should
-        be saved. If not provided, the `Checkpointer` saves as often as possible
-        by default (assuming no checkpoint is currently being saved), and saves
-        when a preemption is detected by the JAX distributed system.
+        be saved. If not provided, defaults to `ContinuousCheckpointingPolicy`,
+        which saves as often as possible (assuming no checkpoint is currently
+        being saved).
       preservation_policy: A policy used to determine when a checkpoint should
         be preserved. Any checkpoints not preserved are garbage collected. If
-        not provided,
+        not provided, and `save_decision_policy` includes a
+        `ContinuousCheckpointingPolicy` with `target_interval_steps`, all
+        checkpoints at `target_interval_steps` are preserved, as well as the
+        latest 2 checkpoints. Otherwise, all checkpoints are preserved.
       step_name_format: An object used to specify the format for step paths. By
         default, steps are rendered as simple integers, like
         `/root/directory/<step>`.
@@ -184,13 +260,16 @@ class Checkpointer(epy.ContextManager):
     self._context = context_lib.Context(context or context_lib.get_context())
     self._logger = logger or standard_logger.StandardLogger()
 
-    default_save_decision_policy = save_decision_policies.AnySavePolicy([
-        save_decision_policies.InitialSavePolicy(),
-        save_decision_policies.ContinuousCheckpointingPolicy(),
-        save_decision_policies.PreemptionCheckpointingPolicy(),
-    ])
+    default_save_decision_policy = (
+        save_decision_policies.ContinuousCheckpointingPolicy()
+    )
     save_decision_policy = save_decision_policy or default_save_decision_policy  # pyrefly: ignore[bad-assignment]
-    default_preservation_policy = preservation_policies.PreserveAll()
+    self._save_decision_policy: save_decision_policies.SaveDecisionPolicy = (
+        save_decision_policy  # pyrefly: ignore[bad-assignment]
+    )
+    default_preservation_policy = _get_default_preservation_policy(
+        self._save_decision_policy
+    )
     preservation_policy = preservation_policy or default_preservation_policy  # pyrefly: ignore[bad-assignment]
 
     self._step_name_format = (
@@ -290,11 +369,76 @@ class Checkpointer(epy.ContextManager):
         return checkpoint
     raise errors.StepNotFoundError(f'No checkpoint found at step {step}.')
 
+  def _should_save(
+      self,
+      step: int,
+      *,
+      replacing: bool = False,
+      cancel_in_progress_save: Callable[[], None] = lambda: None,
+  ) -> bool:
+    """Returns whether the save decision policy allows saving at `step`.
+
+    Args:
+      step: The step to evaluate.
+      replacing: True only when `step` already exists and the caller passed
+        `overwrite=True`. `step` is then excluded from the previous steps, so
+        the decision is made as if `step` did not exist.
+      cancel_in_progress_save: Callback invoked by the policy when an
+        in-progress background save should be cancelled.
+    """
+    previous_steps = [
+        info
+        for info in self._manager._checkpoints  # pylint: disable=protected-access
+        if not (replacing and info.step == step)
+    ]
+    # Steps are expected to increase; never save at or before the latest step.
+    if previous_steps and previous_steps[-1].step >= step:
+      latest_step = previous_steps[-1].step
+      if latest_step > step:
+        logging.log_first_n(
+            logging.WARNING,
+            'Skipping save at step %d because a newer checkpoint at step %d'
+            ' already exists in %s. Until a step greater than %d is saved, a'
+            ' restart restoring the latest step will resume step %d. To roll'
+            ' back, start a new checkpoint directory or delete checkpoints'
+            ' newer than the restored step before continuing training.',
+            1,
+            step,
+            latest_step,
+            self.directory,
+            latest_step,
+            latest_step,
+        )
+      return False
+    context = save_decision_policies.DecisionContext(
+        is_saving_in_progress=self._manager.is_saving_in_progress(),
+        in_progress_step=self._manager._in_progress_step(),  # pylint: disable=protected-access
+        reached_preemption=self._manager.reached_preemption(step),
+        multiprocessing_options=self._context.multiprocessing_options.v0(),
+        cancel_in_progress_save=cancel_in_progress_save,
+    )
+    current_step = checkpoint_info.CheckpointInfo(
+        step=step,
+        time=datetime.datetime.now(tz=datetime.timezone.utc),
+        metrics=None,
+    )
+    return self._save_decision_policy.should_save(
+        current_step, previous_steps=previous_steps, context=context  # pyrefly: ignore[bad-argument-type]
+    )
+
   def should_save(self, step: int) -> bool:
-    """Returns whether a checkpoint should be saved at the given step."""
+    """Returns whether a checkpoint should be saved at the given step.
+
+    Evaluates the configured :py:class:`.SaveDecisionPolicy`. Steps are expected
+    to strictly increase, so this always returns `False` when `step` is at or
+    before the latest saved step.
+
+    Args:
+      step: The step number to check.
+    """
     with context_lib.get_context(self._context):
       step = _resolve_integer_step(step)
-      return self._manager.should_save(step)
+      return self._should_save(step)
 
   def save(
       self,
@@ -370,11 +514,14 @@ class Checkpointer(epy.ContextManager):
       state: The PyTree to save.
       checkpointable_name: The name of the checkpointable to save a pytree
         under. Defaults to 'pytree'.
-      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks, and
-        always decides to save a checkpoint.
-      overwrite: If True, deletes any existing checkpoint at the given step
-        before saving. Otherwise, raises an error if the checkpoint already
-        exists.
+      force: If True, ignores all :py:class:`.SaveDecisionPolicy` checks and the
+        requirement that steps strictly increase beyond the latest saved step,
+        and always decides to save a checkpoint.
+      overwrite: If True, replaces any existing checkpoint at the given step.
+        Unless `force=True`, the save is still skipped if any checkpoint newer
+        than `step` exists or if the :py:class:`.SaveDecisionPolicy` skips the
+        save, leaving the existing checkpoint intact. Otherwise, raises an error
+        if the checkpoint already exists.
       metrics: A PyTree of metrics to be saved with the checkpoint.
       custom_metadata: A JSON dictionary representing user-specified custom
         metadata. This should be information that is relevant to the checkpoint
@@ -460,11 +607,14 @@ class Checkpointer(epy.ContextManager):
       step: The step number to save.
       checkpointables: A dictionary mapping string names to the corresponding
         objects (checkpointables) that need to be saved.
-      force: If True, ignores all policy checks and always decides to save a
-        checkpoint.
-      overwrite: If True, deletes any existing checkpoint at the given step
-        before saving. Otherwise, raises an error if the checkpoint already
-        exists.
+      force: If True, ignores all policy checks and the requirement that steps
+        strictly increase beyond the latest saved step, and always decides to
+        save a checkpoint.
+      overwrite: If True, replaces any existing checkpoint at the given step.
+        Unless `force=True`, the save is still skipped if any checkpoint newer
+        than `step` exists or if the :py:class:`.SaveDecisionPolicy` skips the
+        save, leaving the existing checkpoint intact. Otherwise, raises an error
+        if the checkpoint already exists.
       metrics: A dictionary of metrics to be saved with the checkpoint. Must be
         JSON-serializable.
       custom_metadata: A JSON dictionary representing user-specified custom
@@ -581,35 +731,46 @@ class Checkpointer(epy.ContextManager):
         target `step` already exists.
     """
     self._wait_for_deletion()
-    context = context_lib.get_context(self._context)
     saving_validation.validate_save_checkpointables(checkpointables)
-    if overwrite:
-      logging.info(
-          'Specified `overwrite`: deleting existing checkpoint %d if it'
-          ' exists.',
-          step,
-      )
-      try:
-        self._manager.delete(step)
-      except FileNotFoundError:
-        pass
-    elif any(c.step == step for c in self.checkpoints):
-      raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
+    with context_lib.get_context(self._context):
+      step_exists = step in self._manager.all_steps()
+      if step_exists and not overwrite:
+        raise errors.StepAlreadyExistsError(f'Step {step} already exists.')
+      replacing = step_exists and overwrite
 
-    with context:
+      cancel_in_progress = False
+
+      def _request_cancel():
+        nonlocal cancel_in_progress
+        cancel_in_progress = True
+
+      # Decide exactly once, before touching any existing checkpoint, so a
+      # skipped save never deletes the step it would have replaced.
+      if not force and not self._should_save(
+          step, replacing=replacing, cancel_in_progress_save=_request_cancel
+      ):
+        return None
+
+      if cancel_in_progress:
+        self._manager.cancel()
+
+      if replacing:
+        logging.info(
+            'Specified `overwrite`: deleting existing checkpoint %d.', step
+        )
+        self.delete(operator.index(step), missing_ok=True)
+
       checkpointer, args = saving.get_v0_checkpointer_and_args(
           checkpointables, metrics=metrics
       )
       self._manager._checkpointer = checkpointer  # pylint: disable=protected-access
-      save_initiated = self._manager.save(
+      self._manager.save(
           step,
           args=args,
           metrics=metrics,
-          force=force,
+          force=True,
           custom_metadata=custom_metadata,  # pyrefly: ignore[bad-argument-type]
       )
-      if not save_initiated:
-        return None
       return _AsyncSaveResponse(self._manager)
 
   def cancel(self, step: int | CheckpointMetadata | None = None):
@@ -623,9 +784,7 @@ class Checkpointer(epy.ContextManager):
         if isinstance(step, int):
           resolved_step = step
     logging.info('V1 Checkpointer.cancel() called.')
-    if hasattr(self._manager._checkpointer, 'cancel'):  # pylint: disable=protected-access
-      logging.info('V1 Checkpointer delegating to V0 checkpointer.cancel()')
-      self._manager._checkpointer.cancel()  # pylint: disable=protected-access
+    self._manager.cancel()
     if resolved_step is not None:
       try:
         self._manager.delete(resolved_step)

@@ -639,3 +639,33 @@ def to_bfloat16(x: Any) -> Any:
       jax.tree_util.tree_map(_to_bfloat16_leaf, y) for y in flattened_x
   ]
   return jax.tree_util.tree_unflatten(treedef, flattened_y)
+
+
+def with_bfloat16_outputs(fn: Callable[..., Any]) -> Callable[..., Any]:
+  """Wraps `fn` so `float32` leaves in its return value are cast to `bfloat16`.
+
+  Apply this before `jax.jit` (e.g. `jax.jit(with_bfloat16_outputs(fn), ...)`),
+  so `jax.jit` options such as `in_shardings` and `out_shardings` stay on the
+  outer jitted function.
+
+  Args:
+    fn: An unjitted callable returning a PyTree.
+
+  Returns:
+    A wrapped callable whose `float32` output leaves are converted via
+    `to_bfloat16`.
+
+  Raises:
+    ValueError: If `fn` is already wrapped with `jax.jit`.
+  """
+  if hasattr(fn, 'trace'):
+    raise ValueError(
+        'Apply `with_bfloat16_outputs` before `jax.jit`, e.g.'
+        ' `jax.jit(with_bfloat16_outputs(fn), ...)`.'
+    )
+
+  @functools.wraps(fn)
+  def wrapped(*args, **kwargs):
+    return to_bfloat16(fn(*args, **kwargs))
+
+  return wrapped

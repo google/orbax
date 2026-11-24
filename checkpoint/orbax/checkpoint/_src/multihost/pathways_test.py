@@ -22,7 +22,9 @@ from unittest import mock
 
 from absl.testing import absltest
 import numpy as np
+from orbax.checkpoint._src.multihost import dispatchers
 from orbax.checkpoint._src.multihost import pathways
+from orbax.checkpoint._src.serialization import worker_memory_utils
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,6 +218,34 @@ class PathwaysTest(absltest.TestCase):
         ValueError, 'Unable to infer Pathways worker key from device attributes'
     ):
       pathways.group_devices_by_worker([device])  # pyrefly: ignore[bad-argument-type]
+
+  def test_worker_primary_host(self):
+    devices = (_FakeDevice(id=0), _FakeDevice(id=1), _FakeDevice(id=2))
+    dispatcher = mock.create_autospec(
+        dispatchers.ColocatedPythonDispatcher, instance=True
+    )
+    for mapping, primary_host, expected in (
+        # Worker 0 holds some of the devices: it stays the primary host.
+        ({0: 0, 1: 0, 2: 1}, 0, 0),
+        # Worker 0 holds none of the devices (e.g. its slice is down): the
+        # lowest worker holding them is elected.
+        ({0: 9, 1: 8, 2: 8}, 0, 8),
+        # A non-zero configured primary host that is live is kept.
+        ({0: 2, 1: 3, 2: 4}, 3, 3),
+        # Empty mapping: nothing to elect from.
+        ({}, 0, 0),
+    ):
+      with self.subTest(mapping=mapping, primary_host=primary_host):
+        with mock.patch.object(
+            worker_memory_utils, '_device_to_worker_ids', return_value=mapping
+        ) as mock_map:
+          elected = pathways.worker_primary_host(
+              dispatcher,
+              devices,  # pyrefly: ignore[bad-argument-type]
+              primary_host,
+          )
+          self.assertEqual(elected, expected)
+          mock_map.assert_called_once_with(dispatcher, devices)
 
 
 if __name__ == '__main__':

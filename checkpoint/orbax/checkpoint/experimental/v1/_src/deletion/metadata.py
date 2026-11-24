@@ -309,12 +309,9 @@ def _write_json(
     permission_mode: int | None,
 ) -> None:
   """Blocking implementation of `write_json`; runs in a worker thread."""
-  data = json.dumps(value, sort_keys=True)
+  json_str = json.dumps(value, sort_keys=True)
   if gcs_utils.is_gcs_path(path):
-    bucket, blob_path = gcs_utils.split_gcs_path(path)
-    blob = gcs_utils.get_bucket(bucket).blob(blob_path)
-    kwargs = {'if_generation_match': 0} if exclusive else {}
-    blob.upload_from_string(data, content_type='application/json', **kwargs)
+    gcs_utils.write_json(path, json_str, exclusive=exclusive)
     return
   local = _local_path(path)
   descriptor, temporary = tempfile.mkstemp(
@@ -326,7 +323,7 @@ def _write_json(
         os.fchmod(stream.fileno(), local.stat().st_mode & 0o777)
       elif permission_mode is not None:
         os.fchmod(stream.fileno(), permission_mode)
-      stream.write(data)
+      stream.write(json_str)
       stream.flush()
       os.fsync(stream.fileno())
     if exclusive:

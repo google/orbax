@@ -34,7 +34,7 @@ class HandlerTypeRegistry:
     try:
       handler_typestr = handler_type.typestr()
     except AttributeError:
-      handler_typestr = f'{handler_type.__module__}.{handler_type.__qualname__}'
+      handler_typestr = checkpoint_handler.default_typestr(handler_type)
       logging.vlog(
           1,
           'Handler class %s does not have a typestr method. '
@@ -86,14 +86,6 @@ class HandlerTypeRegistry:
   ) -> Type[CheckpointHandler]:
     """Gets an entry from the registry."""
     if handler_typestr not in self._registry:
-      if isinstance(handler_typestr, str) and handler_typestr.startswith(
-          'orbax.checkpoint._src.'
-      ):
-        alt_typestr = handler_typestr.replace(
-            'orbax.checkpoint._src.', 'orbax.checkpoint.v0._src.', 1
-        )
-        if alt_typestr in self._registry:
-          return self._registry[alt_typestr]
       raise KeyError(
           f'Handler type string "{handler_typestr}" not found in the registry.'
       )

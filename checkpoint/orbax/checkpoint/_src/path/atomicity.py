@@ -734,6 +734,7 @@ def create_all_async(
     *,
     multiprocessing_options: options_lib.MultiprocessingOptions | None = None,
     subdirectories: Sequence[str] | None = None,
+    pre_create_fn: atomicity_types.PreCreateFn | None = None,
 ) -> future.Future:
   """Creates all temporary paths in parallel asynchronously.
 
@@ -746,6 +747,8 @@ def create_all_async(
     subdirectories: Sequence of subdirectories to create under `paths`. If not
       provided, no subdirectories will be created. The same set of
       subdirectories will be created under each path in `paths`.
+    pre_create_fn: Optional async callable executed on the primary host strictly
+      before creating `paths`. If None, no pre-creation step is run.
 
   Returns:
     A future that which sends the completion signals when all paths are created.
@@ -772,12 +775,22 @@ def create_all_async(
         _create_paths(
             paths,
             subdirectories=subdirectories,
+            pre_create_fn=pre_create_fn,
         ),
         send_signals=completion_signals,
         timeout_secs=multihost.coordination_timeout(),
     )
     future.AwaitableSignalsContract.add_to_awaitable_signals_contract(
         completion_signals
+    )
+  elif completion_signals and pre_create_fn is not None:
+    # Surface deferred-preparation errors on non-primary hosts. Skipped
+    # otherwise: per-process operation ids may diverge (e.g. emergency
+    # non-replicated managers), so waiting could hang.
+    commit_future = future.CommitFuture(
+        asyncio.sleep(0),
+        receive_signals=completion_signals,
+        timeout_secs=multihost.coordination_timeout(),
     )
 
   # Sync to enusre that all hosts have the same awaitable signals contract.
@@ -795,9 +808,12 @@ def create_all_async(
 async def _create_paths(
     tmp_paths: Sequence[atomicity_types.TemporaryPath],
     subdirectories: Sequence[str] | None = None,
+    pre_create_fn: atomicity_types.PreCreateFn | None = None,
 ):
   """Creates all temporary paths in parallel."""
   start = time.time()
+  if pre_create_fn is not None:
+    await pre_create_fn()
   paths = await asyncio.gather(*[path.create() for path in tmp_paths])
   if subdirectories:
     creation_ops = []

@@ -168,7 +168,7 @@ class BenchmarkTest(parameterized.TestCase):
     mock_setup_test_directory.assert_called_once_with(
         'test_benchmark', None, None
     )
-    mock_load_checkpoint.assert_called_once_with(ckpt_config)
+    mock_load_checkpoint.assert_called_once_with(ckpt_config, mesh=mesh)
     mock_create_mesh.assert_called_once_with(mesh_config)
     self.assertEqual(mock_metrics_report.call_count, 2)
 

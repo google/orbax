@@ -14,13 +14,14 @@
 
 """Configuration classes for Orbax Model Export."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import enum
 import itertools
 import logging
 import jax
 from jax import export as jax_export
+from jax.experimental import layout as jax_layout
 
 
 # LINT.IfChange
@@ -419,9 +420,23 @@ class Jax2ObmOptions:
       bfloat16 to save memory.
     enable_auto_layout: If set to True, automatically generate the optimal
       layout for model parameters to improve serving performance.
+    auto_layout_on_compile_only_mesh: If set to True, compute the
+      `enable_auto_layout` layouts with an early-exit compile on `jax_mesh`,
+      which must be made of compile-only devices (e.g. built from
+      `jax.experimental.topologies` to export for an accelerator the host does
+      not have). The arguments are placed on `jax_mesh` in their abstract form,
+      so the parameters can live on the host's devices. If False, the layouts
+      come from a full ahead-of-time compile with the function's own shardings.
     native_serialization_disabled_checks: A sequence of
       `jax_export.DisabledSafetyCheck` to disable when exporting.
     save_shlo_to_file: Whether to save the StableHLO bytes as an external file.
+    output_layout_fn: Optional function that returns the layout to request for
+      an output of the exported function, given its `jax.ShapeDtypeStruct`, or
+      None to keep the default layout. The layouts are stored in the exported
+      StableHLO and used when the serving runtime compiles the model. For
+      example, linear layouts (`tiling=((1,),)`) on rank-1 TPU outputs let PJRT
+      copy them straight into host buffers instead of unpacking them on the
+      host. Not supported with input aliasing or `enable_auto_layout`.
   """
 
   # TODO: b/448900820 - Consider constraint the type to the proto enums.
@@ -436,11 +451,15 @@ class Jax2ObmOptions:
   persist_xla_flags: bool = True
   enable_bf16_optimization: bool = False
   enable_auto_layout: bool = False
+  auto_layout_on_compile_only_mesh: bool = False
   native_serialization_disabled_checks: Sequence[
       jax_export.DisabledSafetyCheck
   ] = ()
   save_shlo_to_file: bool = False
   loader_type: int | None = None
+  output_layout_fn: (
+      Callable[[jax.ShapeDtypeStruct], jax_layout.Layout | None] | None
+  ) = None
 
 
 @dataclasses.dataclass(kw_only=True)

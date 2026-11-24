@@ -286,7 +286,27 @@ class AsyncUtilsTest(absltest.TestCase, unittest.IsolatedAsyncioTestCase):
           mock.ANY,
       )
 
+  async def test_create_error_sets_error_signals(self):
+    await synchronization.synchronize_next_operation_id()
+    operation_id = synchronization.get_operation_id()
+    tmpdir = atomicity.AtomicRenameTemporaryPath(
+        self.directory / 'tmp_err', self.directory / 'final_err'
+    )
+    with mock.patch.object(
+        tmpdir, 'create', side_effect=OSError('mkdir failed')
+    ):
+      p = async_utils.PathAwaitingCreation.build(tmpdir, ['state'])
+      with self.assertRaisesRegex(OSError, 'mkdir failed'):
+        await p.create()
+      with self.assertRaisesRegex(ValueError, 'mkdir failed'):
+        future.wait_for_signals(
+            [synchronization.HandlerAwaitableSignal.STEP_DIRECTORY_CREATION],
+            timeout_secs=1,
+            operation_id=operation_id,
+        )
+      with self.assertRaisesRegex(ValueError, 'mkdir failed'):
+        await synchronization.await_contracted_signals(operation_id)
+
 
 if __name__ == '__main__':
   absltest.main()
-

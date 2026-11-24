@@ -15,11 +15,14 @@
 """Managed deletion lifecycle, compatibility, and recovery tests."""
 
 import concurrent.futures
+import contextlib
+import logging as std_logging
 import threading
 import typing
 from typing import Any
 from unittest import mock
 
+from absl import logging as absl_logging
 from absl.testing import absltest
 from absl.testing import parameterized
 from etils import epath
@@ -30,6 +33,30 @@ from orbax.checkpoint.experimental.v1._src.deletion import execution
 from orbax.checkpoint.experimental.v1._src.deletion import metadata
 from orbax.checkpoint.experimental.v1._src.metadata import serialization as metadata_serialization
 from orbax.checkpoint.experimental.v1._src.path import step as step_lib
+
+
+class _RollbackWarningCollector(std_logging.Handler):
+  """Collects rollback skip warnings emitted to the root logger."""
+
+  def __init__(self):
+    super().__init__(level=std_logging.WARNING)
+    self.messages: list[str] = []
+
+  def emit(self, record: std_logging.LogRecord) -> None:
+    message = record.getMessage()
+    if 'Skipping save at step' in message:
+      self.messages.append(message)
+
+
+@contextlib.contextmanager
+def _capture_rollback_warnings():
+  logger = std_logging.getLogger()
+  handler = _RollbackWarningCollector()
+  logger.addHandler(handler)
+  try:
+    yield handler.messages
+  finally:
+    logger.removeHandler(handler)
 
 
 class ManagedDeletionTest(parameterized.TestCase):
@@ -324,6 +351,170 @@ class ManagedDeletionTest(parameterized.TestCase):
       self.ckptr.load_checkpointables(2)
     self.ckptr.delete(2)
     self.assert_latest_step(1)
+
+
+class ManagedReplacementTest(parameterized.TestCase):
+  """Replacing a step consults the save policy before deleting the step."""
+
+  def setUp(self):
+    super().setUp()
+    self.directory = epath.Path(self.create_tempdir().full_path) / 'run'
+    self.state: Any = {'weights': np.arange(8)}
+    self.updated: Any = {'weights': np.ones(8)}
+    self.policy = ocp.training.save_decision_policies.FixedIntervalPolicy(4)
+    self.ckptr = ocp.training.Checkpointer(
+        self.directory, save_decision_policy=self.policy  # pyrefly: ignore[bad-argument-type]
+    )
+
+  def tearDown(self):
+    self.ckptr.close()
+    super().tearDown()
+
+  def run_save(self, asynchronous: bool, step: int, state: Any, **kwargs):
+    """Runs `Checkpointer.save` or waits for `Checkpointer.save_async`."""
+    if asynchronous:
+      response = self.ckptr.save_async(step, state, **kwargs)
+      return response is not None and response.result()
+    return self.ckptr.save(step, state, **kwargs)
+
+  def watch_policy(self):
+    return mock.patch.object(
+        self.policy, 'should_save', wraps=self.policy.should_save
+    )
+
+  def assert_steps(self, expected_steps: list[int]):
+    self.assertEqual([c.step for c in self.ckptr.checkpoints], expected_steps)
+
+  def assert_weights(self, step: int, expected: Any):
+    np.testing.assert_array_equal(
+        typing.cast(dict[str, Any], self.ckptr.load(step))['weights'],
+        expected['weights'],
+    )
+
+  @parameterized.parameters(False, True)
+  def test_policy_rejection_leaves_step_intact(self, asynchronous):
+    self.ckptr.save(2, self.state, force=True)
+    self.assertFalse(
+        self.run_save(asynchronous, 2, self.updated, overwrite=True)
+    )
+    self.assert_steps([2])
+    self.assert_weights(2, self.state)
+
+  def test_force_bypasses_policy_when_replacing(self):
+    self.ckptr.save(2, self.state, force=True)
+    with self.watch_policy() as should_save:
+      self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    should_save.assert_not_called()
+    self.assert_weights(2, self.updated)
+
+  def test_replacing_latest_step_excludes_it_from_history(self):
+    self.ckptr.save(0, self.state)
+    self.ckptr.save(4, self.state)
+    with self.watch_policy() as should_save:
+      self.assertTrue(self.ckptr.save(4, self.updated, overwrite=True))
+    should_save.assert_called_once()
+    history = should_save.call_args.kwargs['previous_steps']
+    self.assertEqual([info.step for info in history], [0])
+    self.assert_steps([0, 4])
+    self.assert_weights(4, self.updated)
+
+  def test_rewinding_to_earlier_step_needs_force(self):
+    self.ckptr.save(0, self.state)
+    self.ckptr.save(4, self.state)
+    self.assertFalse(self.ckptr.save(0, self.updated, overwrite=True))
+    self.assert_weights(0, self.state)
+    self.ckptr.save(0, self.updated, overwrite=True, force=True)
+    self.assert_weights(0, self.updated)
+
+  def test_duplicate_step_raises_without_overwrite(self):
+    self.ckptr.save(2, self.state, force=True)
+    with self.assertRaises(ocp.training.errors.StepAlreadyExistsError):
+      self.ckptr.save(2, self.updated, force=True)
+    self.assert_weights(2, self.state)
+
+  def test_replacement_goes_through_delete(self):
+    self.ckptr.save(2, self.state, force=True)
+    with mock.patch.object(
+        self.ckptr, 'delete', wraps=self.ckptr.delete
+    ) as delete:
+      self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    delete.assert_called_once_with(2, missing_ok=True)
+
+  def test_replacement_waits_for_pending_save(self):
+    response = self.ckptr.save_async(2, self.state, force=True)
+    assert response is not None
+    self.ckptr.save(2, self.updated, overwrite=True, force=True)
+    self.assertTrue(response.result())
+    self.assert_steps([2])
+    self.assert_weights(2, self.updated)
+
+  def test_should_save_agrees_with_save(self):
+    self.ckptr.save(0, self.state)
+    self.assertFalse(self.ckptr.should_save(0))
+    self.assertFalse(self.ckptr.should_save(2))
+    self.assertTrue(self.ckptr.should_save(4))
+
+  def test_warns_once_when_newer_step_exists(self):
+    policy = ocp.training.save_decision_policies.FixedIntervalPolicy(2)
+    with ocp.training.Checkpointer(
+        self.directory / 'rollback',
+        save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+    ) as run_a:
+      for step in (2, 4, 6):
+        self.assertTrue(run_a.save(step, self.state))
+
+    with (
+        mock.patch.object(absl_logging, '_log_counter_per_token', {}),
+        ocp.training.Checkpointer(
+            self.directory / 'rollback',
+            save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+        ) as run_b,
+    ):
+      # Loading an older step or checking step == latest must not warn.
+      with _capture_rollback_warnings() as warnings:
+        run_b.load(2)
+        self.assertFalse(run_b.should_save(6))
+      self.assertEmpty(warnings)
+
+      # First skipped save below latest warns about resuming step 6.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_b.save(3, self.updated))
+      self.assertLen(warnings, 1)
+      self.assertRegex(
+          warnings[0],
+          r'Skipping save at step 3.*step 6.*resume step 6',
+      )
+
+      # Subsequent skipped saves/checks do not re-warn.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_b.save(4, self.updated, overwrite=True))
+        self.assertFalse(run_b.save(5, self.updated, overwrite=True))
+        self.assertFalse(run_b.should_save(4))
+      self.assertEmpty(warnings)
+
+    # Deleting newer steps allows in-place rollback without warnings.
+    with (
+        mock.patch.object(absl_logging, '_log_counter_per_token', {}),
+        ocp.training.Checkpointer(
+            self.directory / 'rollback',
+            save_decision_policy=policy,  # pyrefly: ignore[bad-argument-type]
+        ) as run_c,
+    ):
+      for ckpt in reversed(run_c.checkpoints):
+        if ckpt.step > 2:
+          run_c.delete(ckpt)
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(run_c.save(3, self.updated))
+        self.assertTrue(run_c.save(4, self.updated))
+      self.assertEmpty(warnings)
+
+    with ocp.training.Checkpointer(self.directory / 'rollback') as restarted:
+      assert restarted.latest is not None
+      self.assertEqual(restarted.latest.step, 4)
+      np.testing.assert_array_equal(
+          typing.cast(dict[str, Any], restarted.load())['weights'],
+          self.updated['weights'],
+      )
 
 
 if __name__ == '__main__':

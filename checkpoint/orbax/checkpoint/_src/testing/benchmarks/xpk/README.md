@@ -307,7 +307,7 @@ Server (TPU Manager).*
 | `--enable_pathways` | `False` | Enable Pathways backend (Single-Controller). |
 | `--pathways_server_image` | `...:latest` | Pathways server image (manages TPU chips). |
 | `--pathways_proxy_image` | `...:latest` | Pathways proxy image (bridges user code to server). |
-| `--pathways_sidecar_image` | `...:20260423-python_3.12-jax_0.10.0` | Pathways sidecar image (runs colocated-python codes). |
+| `--pathways_sidecar_image` | `...:20261110-jax_0.10.1` | Pathways sidecar image (runs colocated-python codes). |
 
 > NOTE: To run a Pathways benchmark, you must use `--enable_pathways`. If
 > cluster doesn't exist, `launch_xpk` will automatically create a

@@ -21,7 +21,6 @@ import numpy as np
 from orbax.export import utils
 import tensorflow as tf
 
-
 TensorSpecWithDefault = utils.TensorSpecWithDefault
 
 
@@ -308,6 +307,32 @@ class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllEqual(y['b'], x['b'])
     self.assertIsInstance(y['c'], float)
     self.assertEqual(y['d'].dtype, jnp.bfloat16)
+
+  def test_with_bfloat16_outputs(self):
+    def fn(params, x):
+      return {
+          'logits': (x * params['w']).astype(jnp.float32),
+          'fp16': x.astype(jnp.float16),
+          'ids': jnp.array([1, 2], dtype=jnp.int32),
+      }
+
+    jitted = jax.jit(utils.with_bfloat16_outputs(fn))
+    out = jitted(
+        {'w': jnp.array([2.0, 3.0], dtype=jnp.bfloat16)},
+        jnp.array([1.5, 2.0], dtype=jnp.bfloat16),
+    )
+    self.assertEqual(out['logits'].dtype, jnp.bfloat16)
+    self.assertAllClose(
+        out['logits'], jnp.array([3.0, 6.0], dtype=jnp.bfloat16)
+    )
+    self.assertEqual(out['fp16'].dtype, jnp.float16)
+    self.assertEqual(out['ids'].dtype, jnp.int32)
+
+  def test_with_bfloat16_outputs_rejects_jitted_fn(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Apply `with_bfloat16_outputs` before `jax.jit`'
+    ):
+      utils.with_bfloat16_outputs(jax.jit(lambda x: x))
 
 if __name__ == '__main__':
   tf.test.main()

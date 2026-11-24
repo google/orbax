@@ -16,7 +16,6 @@
 
 import collections
 import dataclasses
-import json
 from typing import Any
 
 from absl import logging
@@ -33,6 +32,29 @@ MetricStats = dict[
     str, float
 ]  # stat_name -> value (e.g. {"mean": 1.5, "max": 2.0})
 BenchmarkSummary = dict[str, MetricStats]  # metric_key -> MetricStats
+# Host name (host_<index>) -> metric -> mean, gathered on the primary host.
+PerHostMeans = dict[str, dict[str, float]]
+
+
+def _per_host_means(
+    results: list[tuple[metric_lib.Metrics, Exception | None]],
+) -> dict[str, list[Any]]:
+  """Returns this host's mean of each numeric metric over its successful runs.
+
+  Args:
+    results: This host's (Metrics, error) tuples for a benchmark.
+
+  Returns:
+    {"keys": sorted metric keys, "means": the matching means}.
+  """
+  collector: dict[str, list[float]] = collections.defaultdict(list)
+  for m, error in results:
+    if error is None:
+      for k, (v, _) in m.results.items():
+        if isinstance(v, (int, float)):
+          collector[k].append(float(v))
+  keys = sorted(collector)
+  return {"keys": keys, "means": [float(np.mean(collector[k])) for k in keys]}
 
 
 def _summary_aggregates(
@@ -242,15 +264,23 @@ class MetricsManager:
   ):
     """Writes a single result to TensorBoard."""
     writer = self._get_writer(benchmark_name)
+    # One write_* call per kind: clu writes the event file after every call,
+    # which on GCS re-uploads the whole file.
     if error is None:
+      scalars: dict[str, float] = {}
+      texts: dict[str, str] = {}
       for key, (value, _) in metrics.results.items():
         # Keys are "{name}::{section}/{leaf}"; render the name namespace as a TB
         # group so a benchmark's per-name scalars stay visible per host.
         tag = key.replace("::", "/")
         if isinstance(value, (int, float)):
-          writer.write_scalars(step=step, scalars={tag: value})
+          scalars[tag] = value
         else:
-          writer.write_texts(step=step, texts={tag: str(value)})
+          texts[tag] = str(value)
+      if scalars:
+        writer.write_scalars(step=step, scalars=scalars)
+      if texts:
+        writer.write_texts(step=step, texts=texts)
     else:
       tag = "error"
       writer.write_texts(step=step, texts={tag: f"<pre>{repr(error)}</pre>"})
@@ -310,7 +340,7 @@ class MetricsManager:
     """Returns the cross-host metric aggregate for a benchmark, if gathered.
 
     Populated on the primary host during generate_report when a TensorBoard
-    dir is configured (the sidecar gather writes there); None otherwise.
+    dir is configured; None otherwise.
 
     Args:
       benchmark_name: The benchmark to look up.
@@ -416,10 +446,12 @@ class MetricsManager:
   ) -> None:
     """Gathers per-host means and writes the cross-host __summary__ run.
 
-    Each host writes a means sidecar; after a barrier the primary host unions
-    the keys, computes max/min/mean (p50/p99 with >1 host), and writes the
-    summary scalars and cards. "max" is the MLPerf-shape headline (slowest rank
-    for time, smallest for throughput — callers pick the relevant column).
+    Each host sends its means to the primary host through the jax.distributed
+    key-value store; the primary host unions the keys, computes max/min/mean
+    (p50/p99 with >1 host), and
+    writes the summary scalars and cards. "max" is the MLPerf-shape headline
+    (slowest rank for time, smallest for throughput — callers pick the relevant
+    column).
 
     Args:
       benchmark_name: The benchmark being summarized.
@@ -427,13 +459,19 @@ class MetricsManager:
     """
     if self._tensorboard_dir is None:
       return
-    self._write_per_host_means_sidecar(benchmark_name, results)
-    multihost.sync_global_processes(f"metrics:summary:{benchmark_name}")
+    barrier_name = f"metrics:summary:{benchmark_name}"
+    gathered = multihost.gather_on_primary(
+        barrier_name, _per_host_means(results)
+    )
+    per_host_means: PerHostMeans = {
+        f"host_{index}": dict(zip(means["keys"], means["means"]))
+        for index, means in enumerate(gathered or [])
+    }
     if multihost.get_process_index() == 0:
-      aggregates = self._gather_cross_host_aggregates(benchmark_name)
+      aggregates = self._gather_cross_host_aggregates(per_host_means)
       if aggregates:
         self._cross_host_aggregates[benchmark_name] = aggregates
-        per_host_values = self._gather_per_host_values(benchmark_name)
+        per_host_values = self._gather_per_host_values(per_host_means)
         self._write_summary_cards(
             benchmark_name, results, aggregates, per_host_values
         )
@@ -441,75 +479,21 @@ class MetricsManager:
     # otherwise the coordinator marks them gone and the shutdown barrier fails.
     multihost.sync_global_processes(f"metrics:summary-done:{benchmark_name}")
 
-  def _sidecar_gather_root(self, benchmark_name: str) -> epath.Path:
-    """Returns the directory holding per-host means sidecars for a benchmark.
-
-    Args:
-      benchmark_name: The benchmark whose sidecar root is resolved.
-
-    Returns:
-      The gather root; legacy mode nests it under _per_host_means/ so it does
-      not collide with the single benchmark writer's events at <benchmark>/.
-    """
-    assert self._tensorboard_dir is not None
-    root = self._tensorboard_dir / benchmark_name
-    return root if self._enable_per_host_metrics else root / "_per_host_means"
-
-  def _write_per_host_means_sidecar(
-      self,
-      benchmark_name: str,
-      results: list[tuple[metric_lib.Metrics, Exception | None]],
-  ) -> None:
-    """Writes this host's per-metric means as a JSON sidecar.
-
-    Filesystem-based gather: sidecars avoid jax.distributed allgather and work
-    on any shared filesystem. Every host writes even with no successful metrics
-    so all hosts reach the caller's barrier; an empty sidecar is harmless.
-
-    Args:
-      benchmark_name: The benchmark whose means are written.
-      results: This host's (Metrics, error) tuples for that benchmark.
-    """
-    collector: dict[str, list[float]] = collections.defaultdict(list)
-    for m, error in results:
-      if error is None:
-        for k, (v, _) in m.results.items():
-          if isinstance(v, (int, float)):
-            collector[k].append(float(v))
-    keys = sorted(collector)
-    means = [float(np.mean(collector[k])) for k in keys]
-    host_dir = (
-        self._sidecar_gather_root(benchmark_name)
-        / f"host_{multihost.get_process_index()}"
-    )
-    try:
-      host_dir.mkdir(parents=True, exist_ok=True)
-      (host_dir / "_per_host_means.json").write_text(
-          json.dumps({"keys": keys, "means": means})
-      )
-    except OSError as e:
-      logging.warning("Failed to write per-host means sidecar: %s", e)
-
   def _gather_cross_host_aggregates(
-      self, benchmark_name: str
+      self, per_host_means: PerHostMeans
   ) -> BenchmarkSummary:
-    """Reads every host's sidecar and aggregates the values across hosts.
+    """Aggregates the hosts' means across hosts.
 
     Keys absent on some hosts become NaN, so primary-only events (e.g.
     metadata_write_s) still aggregate from the hosts that reported them.
 
     Args:
-      benchmark_name: The benchmark whose sidecars are gathered.
+      per_host_means: The hosts' means, gathered on the primary host.
 
     Returns:
-      Metric key -> aggregate stats, or empty if no sidecars were found.
+      Metric key -> aggregate stats, or empty if no host reported a metric.
     """
-    per_host: list[dict[str, float]] = []
-    for host_dir in sorted(self._sidecar_gather_root(benchmark_name).iterdir()):
-      sidecar = host_dir / "_per_host_means.json"
-      if host_dir.name.startswith("host_") and sidecar.exists():
-        data = json.loads(sidecar.read_text())
-        per_host.append(dict(zip(data["keys"], data["means"])))
+    per_host = list(per_host_means.values())
     if not per_host:
       return {}
     union_keys = sorted(set().union(*(d.keys() for d in per_host)))
@@ -521,30 +505,26 @@ class MetricsManager:
     return _summary_aggregates(matrix, union_keys)
 
   def _gather_per_host_values(
-      self, benchmark_name: str
+      self, per_host_means: PerHostMeans
   ) -> list[tuple[int, dict[str, float]]]:
-    """Reads each host's means sidecar as (host_index, metric->mean) pairs.
+    """Returns the hosts' means as (host_index, metric->mean) pairs.
 
-    Mirrors `_gather_cross_host_aggregates`' read but keeps the per-host values
-    for the at-a-glance card instead of collapsing them across hosts.
+    Keeps the per-host values for the at-a-glance card instead of collapsing
+    them across hosts.
 
     Args:
-      benchmark_name: The benchmark whose sidecars are read.
+      per_host_means: The hosts' means, gathered on the primary host.
 
     Returns:
       (host_index, metric->mean) per host, sorted by host index.
     """
     out: list[tuple[int, dict[str, float]]] = []
-    for host_dir in sorted(self._sidecar_gather_root(benchmark_name).iterdir()):
-      sidecar = host_dir / "_per_host_means.json"
-      if not (host_dir.name.startswith("host_") and sidecar.exists()):
-        continue
+    for name, means in per_host_means.items():
       try:
-        idx = int(host_dir.name.split("_", 1)[1])
+        idx = int(name.split("_", 1)[1])
       except ValueError:
         continue
-      data = json.loads(sidecar.read_text())
-      out.append((idx, dict(zip(data["keys"], data["means"]))))
+      out.append((idx, means))
     out.sort(key=lambda item: item[0])
     return out
 
@@ -608,12 +588,15 @@ class MetricsManager:
     try:
       # Aggregate scalars only — TB's Distributions/Histograms views plot over
       # a step axis and collapse to empty at step 0, so histograms are skipped.
-      # Keys carry a `name::` namespace; render it as a `/` group.
+      # Keys carry a `name::` namespace; render it as a `/` group. One call for
+      # all of them: clu writes the event file after every write_* call.
+      scalars = {}
       for key, stats in aggregates.items():
         tag = key.replace("::", "/")
-        writer.write_scalars(
-            step=0, scalars={f"{tag}_{stat}": v for stat, v in stats.items()}
-        )
+        for stat, v in stats.items():
+          scalars[f"{tag}_{stat}"] = v
+      if scalars:
+        writer.write_scalars(step=0, scalars=scalars)
 
       self._write_config_and_hparams(writer, benchmark_name)
       stats_dict, units_dict = self._aggregate_metrics(results)

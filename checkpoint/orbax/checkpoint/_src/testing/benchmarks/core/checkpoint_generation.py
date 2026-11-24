@@ -14,6 +14,7 @@
 
 """Functions for checkpoint generation and loading in Orbax benchmark tests."""
 
+from collections.abc import Sequence
 import json
 from typing import Any
 
@@ -144,25 +145,99 @@ def get_abstract_state_with_generated_shardings(pytree_metadata: Any) -> Any:
   )
 
 
+def partition_spec(
+    shape: Sequence[int], axis_sizes: dict[str, int]
+) -> jax.sharding.PartitionSpec:
+  """Maximal sharding: each mesh axis shards the largest remaining dim it divides.
+
+  Args:
+    shape: The array's shape.
+    axis_sizes: Mesh axis name to size, in mesh order.
+
+  Returns:
+    The spec; an axis that divides no remaining dim is not used.
+  """
+  remaining = list(shape)
+  axes_per_dim: list[list[str]] = [[] for _ in shape]
+  for axis, size in axis_sizes.items():
+    for dim in sorted(range(len(shape)), key=lambda d: -remaining[d]):
+      if remaining[dim] % size == 0:
+        axes_per_dim[dim].append(axis)
+        remaining[dim] //= size
+        break
+  return jax.sharding.PartitionSpec(*(
+      tuple(axes) if len(axes) > 1 else (axes or [None])[0]
+      for axes in axes_per_dim
+  ))
+
+
+def get_abstract_state_on_mesh(
+    pytree_metadata: Any, mesh: jax.sharding.Mesh
+) -> Any:
+  """Abstract state on `mesh`, maximally sharded by `partition_spec`."""
+  axis_sizes = dict(mesh.shape)
+
+  def on_mesh(sds: Any) -> Any:
+    if not isinstance(sds, jax.ShapeDtypeStruct):
+      return sds
+    spec = partition_spec(sds.shape, axis_sizes)
+    return jax.ShapeDtypeStruct(
+        sds.shape, sds.dtype, sharding=jax.sharding.NamedSharding(mesh, spec)
+    )
+
+  return jax.tree.map(
+      on_mesh,
+      jax.tree.map(abstract_arrays.to_shape_dtype_struct, pytree_metadata),
+  )
+
+
 def get_abstract_state_from_sharding_config(
     sharding_config_path: epath.Path,
     metadata: Any,
     *,
     devices: list[jax.Device],
+    mesh: jax.sharding.Mesh | None = None,
 ) -> Any:
-  """Loads abstract state from a JSON file."""
+  """Loads abstract state from a JSON file.
+
+  Args:
+    sharding_config_path: The sharding file.
+    metadata: The checkpoint's metadata tree.
+    devices: The devices a file's mesh is laid over, in order, without `mesh`.
+    mesh: The run's mesh. Every mesh in the file must have its axes and shape;
+      the arrays then use it, and its (e.g. slice-aware) device order.
+
+  Returns:
+    The abstract state.
+
+  Raises:
+    ValueError: If a mesh in the file does not match `mesh`.
+  """
   path = epath.Path(sharding_config_path)
   parsed_config = json.loads(path.read_text())
   flat_abstract_state = {}
   for k, v in parsed_config.items():
+    file_mesh = v['sharding']['mesh']
+    if mesh is None:
+      array_mesh = jax.sharding.Mesh(
+          np.array(devices).reshape(file_mesh['shape']), file_mesh['axes']
+      )
+    elif tuple(file_mesh['axes']) == tuple(mesh.axis_names) and tuple(
+        file_mesh['shape']
+    ) == tuple(mesh.devices.shape):
+      array_mesh = mesh
+    else:
+      raise ValueError(
+          f'{sharding_config_path}: the mesh of {k!r} (axes'
+          f' {list(file_mesh["axes"])}, shape {list(file_mesh["shape"])}) does'
+          f" not match the run's mesh (axes {list(mesh.axis_names)}, shape"
+          f' {list(mesh.devices.shape)}).'
+      )
     flat_abstract_state[k] = jax.ShapeDtypeStruct(
         shape=tuple(v['shape']),
         dtype=jnp.dtype(v['dtype']),
         sharding=jax.sharding.NamedSharding(
-            mesh=jax.sharding.Mesh(
-                np.array(devices).reshape(v['sharding']['mesh']['shape']),
-                v['sharding']['mesh']['axes'],
-            ),
+            mesh=array_mesh,
             spec=jax.sharding.PartitionSpec(*v['sharding']['spec']),
         ),
     )
@@ -174,6 +249,7 @@ def _get_abstract_state(
     *,
     use_ocdbt: bool,
     devices: list[jax.Device] | None = None,
+    mesh: jax.sharding.Mesh | None = None,
 ) -> Any:
   """Creates abstract state for a provided CheckpointConfig."""
   path = epath.Path(config.path)  # pyrefly: ignore[bad-argument-type]
@@ -183,11 +259,16 @@ def _get_abstract_state(
   ) as ckptr:
     metadata = ckptr.metadata(path).item_metadata
 
-  if config.sharding_config_path is None:
-    return get_abstract_state_with_generated_shardings(metadata.tree)
-  return get_abstract_state_from_sharding_config(
-      epath.Path(config.sharding_config_path), metadata, devices=devices
-  )
+  if config.sharding_config_path is not None:
+    return get_abstract_state_from_sharding_config(
+        epath.Path(config.sharding_config_path),
+        metadata,
+        devices=devices,
+        mesh=mesh,
+    )
+  if mesh is not None:
+    return get_abstract_state_on_mesh(metadata.tree, mesh)
+  return get_abstract_state_with_generated_shardings(metadata.tree)
 
 
 def generate_and_save_checkpoint(
@@ -215,17 +296,22 @@ def generate_and_save_checkpoint(
   ocp.save(out, pytree, overwrite=True)
 
 
-def load_checkpoint(config: configs.CheckpointConfig) -> Any:
+def load_checkpoint(
+    config: configs.CheckpointConfig, mesh: jax.sharding.Mesh | None = None
+) -> Any:
   """Loads a PyTree of test checkpoint from a provided path.
 
   Constructs a checkpoint from a reference checkpoint path specified in the
-  config, which is expected to be provided. The checkpoint will be sharded
-  according to an opaque strategy intended to minimize memory footprint, or will
-  use the sharding config specified in `config` if provided.
+  config, which is expected to be provided. With `mesh`, the checkpoint is
+  restored onto it: by the sharding config specified in `config` (whose mesh
+  must match `mesh`), or else maximally sharded (see `partition_spec`). Without
+  `mesh`, it uses the sharding config, or else an opaque strategy intended to
+  minimize memory footprint.
 
   Args:
       config: A CheckpointConfig object allowing the checkpoint to be loaded
         from a reference or generated from a spec.
+      mesh: The run's mesh.
 
   Returns:
       A PyTree containing the loaded checkpoint.
@@ -239,7 +325,7 @@ def load_checkpoint(config: configs.CheckpointConfig) -> Any:
 
 
   use_ocdbt = type_handlers.is_ocdbt_checkpoint(path)
-  abstract_state = _get_abstract_state(config, use_ocdbt=use_ocdbt)
+  abstract_state = _get_abstract_state(config, use_ocdbt=use_ocdbt, mesh=mesh)
   restore_args = checkpoint_utils.construct_restore_args(abstract_state)
 
   if multihost.is_pathways_backend():

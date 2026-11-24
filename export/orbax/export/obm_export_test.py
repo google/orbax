@@ -23,6 +23,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from google.protobuf import text_format
 import jax
+from jax.experimental import layout as jax_layout
 import jax.numpy as jnp
 from jaxtyping import PyTree
 from orbax.export import constants
@@ -55,6 +56,9 @@ class ObmExportUnitTest(parameterized.TestCase, tf.test.TestCase):
     pass
 
   def test_duplicate_component_weights_name_raises_error(self):
+    pass
+
+  def test_cross_pipeline_duplicate_processor_weights_name_raises_error(self):
     pass
 
 if __name__ == '__main__':

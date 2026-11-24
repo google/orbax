@@ -14,6 +14,7 @@
 
 """Utils for interacting with GCS paths."""
 
+import dataclasses
 import functools
 import os
 import pathlib
@@ -21,8 +22,12 @@ from typing import Any
 from urllib import parse
 from absl import logging
 from etils import epath
+import tensorstore as ts
 
 _GCS_PATH_PREFIX = ('gs://',)
+
+# TensorStore StorageGeneration::NoValue(), i.e. ifGenerationMatch=0.
+_NO_VALUE_GENERATION = b'\x02'
 
 
 def is_gcs_path(path: pathlib.PurePosixPath) -> bool:
@@ -33,7 +38,7 @@ def parse_gcs_path(
     path: epath.PathLike, add_trailing_slash: bool = True
 ) -> tuple[str, str]:
   """Parses a GCS path into a bucket name and a path within the bucket."""
-  path_str = str(path)
+  path_str = os.fspath(path)
   for prefix in _GCS_PATH_PREFIX:
     if prefix != 'gs://' and path_str.startswith(prefix):
       path_str = 'gs://' + path_str.removeprefix(prefix)
@@ -108,14 +113,19 @@ def gcs_bucket_root(path: epath.PathLike) -> str:
   raise ValueError(f'Could not parse GCS bucket from path: {path}.')
 
 
-def get_kvstore_for_gcs(ckpt_path: str) -> dict[str, Any]:
+def get_kvstore_for_gcs(ckpt_path: epath.PathLike) -> dict[str, Any]:
   """Constructs a TensorStore kvstore spec for a GCS path."""
   gcs_bucket, path_without_bucket = parse_gcs_path(
       ckpt_path, add_trailing_slash=False
   )
   # TODO(b/518937340): Consider enabling gcs_grpc by default.
   # TODO(b/518937340): Migrate TENSORSTORE_GCS_BACKEND flag to `Context`.
-  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND', 'gcs')
+  gcs_backend = os.environ.get('TENSORSTORE_GCS_BACKEND')
+  if gcs_backend is None:
+    if is_zonal_bucket(gcs_bucket):
+      gcs_backend = 'gcs_grpc'
+    else:
+      gcs_backend = 'gcs'
   logging.vlog(
       1, 'Using GCS backend (TENSORSTORE_GCS_BACKEND): %s', gcs_backend
   )
@@ -126,26 +136,179 @@ def get_kvstore_for_gcs(ckpt_path: str) -> dict[str, Any]:
   }
 
 
-@functools.lru_cache(maxsize=32)
-def get_bucket(bucket_name: str):
+def write_json(
+    path: epath.PathLike, json_str: str, *, exclusive: bool = False
+) -> None:
+  """Writes JSON to GCS via TensorStore.
+
+  Uses the TensorStore `gcs` or `gcs_grpc` driver (auto-selected by
+  `get_kvstore_for_gcs`). Exclusive writes use a server-side
+  `ifGenerationMatch=0` precondition.
+
+  Args:
+    path: Destination GCS path.
+    json_str: Serialized JSON string to write.
+    exclusive: Whether to fail if the destination file already exists.
+
+  Raises:
+    FileExistsError: If exclusive is True and the path already exists.
+  """
+  kv = ts.KvStore.open(get_kvstore_for_gcs(path)).result()
+  result = kv.write(
+      b'',
+      json_str.encode('utf-8'),
+      if_equal=_NO_VALUE_GENERATION if exclusive else None,
+  ).result()
+  if exclusive and not result.generation:
+    raise FileExistsError(f'{path} already exists.')
+  # pylint: disable=protected-access
+  if hasattr(path, '_backend') and hasattr(path._backend, 'fs'):
+    path._backend.fs(path).invalidate_cache(os.fspath(path))
+  # pylint: enable=protected-access
+
+
+@functools.lru_cache(maxsize=1)
+def _get_storage_client() -> Any:
+  """Returns a cached google.cloud.storage.Client instance."""
   # pylint: disable=g-import-not-at-top
   from google.cloud import storage
 
-  client = storage.Client()
-  return client.get_bucket(bucket_name)
+  return storage.Client()
+
+
+@functools.lru_cache(maxsize=1)
+def _get_storage_control_client() -> Any:
+  """Returns a cached StorageControlClient.
+
+  Returns:
+    A cached StorageControlClient instance, or None if the
+    google.cloud.storage_control_v2 package cannot be imported.
+  """
+  try:
+    # pylint: disable=g-import-not-at-top
+    # pyrefly: ignore[missing-module-attribute]
+    from google.cloud import storage_control_v2
+  except ImportError:
+    return None
+  return storage_control_v2.StorageControlClient()
+
+
+@functools.lru_cache(maxsize=32)
+def get_bucket(bucket_name: str) -> Any:
+  """Returns a GCS bucket handle without a storage.buckets.get call."""
+  return _get_storage_client().bucket(bucket_name)
+
+
+@dataclasses.dataclass(frozen=True)
+class _BucketInfo:
+  """Zonal and hierarchical-namespace (HNS) properties of a GCS bucket."""
+
+  is_zonal: bool = False
+  is_hns: bool = False
+
+
+def _bucket_info_from_layout(bucket_name: str) -> _BucketInfo | None:
+  """Reads StorageControl getStorageLayout.
+
+  Args:
+    bucket_name: The name of the GCS bucket.
+
+  Returns:
+    _BucketInfo, or None if StorageControl is unavailable or the call fails
+    with GoogleAPIError (caller falls back to buckets.get).
+  """
+  # pylint: disable=g-import-not-at-top
+  from google.api_core import exceptions as api_exceptions
+  from google.auth import exceptions as auth_exceptions
+
+  try:
+    if (client := _get_storage_control_client()) is not None:
+      layout = client.get_storage_layout(
+          name=f'projects/_/buckets/{bucket_name}/storageLayout'
+      )
+      hns = getattr(layout, 'hierarchical_namespace', None)
+      return _BucketInfo(
+          is_zonal=getattr(layout, 'location_type', None) == 'zone',
+          is_hns=bool(getattr(hns, 'enabled', False)),
+      )
+    return None
+  except api_exceptions.GoogleAPIError as e:
+    logging.vlog(
+        1,
+        'get_storage_layout failed for gs://%s, falling back to buckets.get:'
+        ' %s',
+        bucket_name,
+        e,
+    )
+    return None
+  except (auth_exceptions.GoogleAuthError, OSError, ValueError) as e:
+    logging.warning(
+        'Cannot query GCS bucket gs://%s (credentials/config error); '
+        'assuming non-zonal, non-HNS: %s',
+        bucket_name,
+        e,
+    )
+    return _BucketInfo()
+
+
+def _bucket_info_from_metadata(bucket_name: str) -> _BucketInfo:
+  """Reads bucket metadata via storage.buckets.get."""
+  # pylint: disable=g-import-not-at-top
+  from google.api_core import exceptions as api_exceptions
+  from google.auth import exceptions as auth_exceptions
+
+  try:
+    bucket = _get_storage_client().get_bucket(bucket_name)
+    return _BucketInfo(
+        is_zonal=(
+            getattr(bucket, 'location_type', None) == 'zone'
+            or getattr(bucket, 'storage_class', None) == 'RAPID'
+        ),
+        is_hns=bool(getattr(bucket, 'hierarchical_namespace_enabled', False)),
+    )
+  except api_exceptions.Forbidden as e:
+    logging.warning(
+        'Permission denied reading gs://%s metadata; grant '
+        'storage.objects.list (getStorageLayout) or storage.buckets.get. '
+        'Assuming non-zonal, non-HNS: %s',
+        bucket_name,
+        e,
+    )
+    return _BucketInfo()
+  except (
+      api_exceptions.GoogleAPIError,
+      auth_exceptions.GoogleAuthError,
+      OSError,
+      ValueError,
+  ) as e:
+    logging.warning(
+        'Failed to read gs://%s metadata; assuming non-zonal, non-HNS: %s',
+        bucket_name,
+        e,
+    )
+    return _BucketInfo()
+
+
+@functools.lru_cache(maxsize=32)
+def _get_bucket_info(bucket_name: str) -> _BucketInfo:
+  """Returns zonal/HNS info, preferring getStorageLayout."""
+  if not bucket_name:
+    return _BucketInfo()
+  info = _bucket_info_from_layout(bucket_name)
+  return info if info is not None else _bucket_info_from_metadata(bucket_name)
+
+
+def is_zonal_bucket(bucket_name: str) -> bool:
+  """Returns True if the GCS bucket is a zonal Rapid bucket."""
+  return _get_bucket_info(bucket_name).is_zonal
 
 
 def is_hierarchical_namespace_enabled(path: epath.PathLike) -> bool:
   """Return whether hierarchical namespace is enabled."""
-  parsed = parse.urlparse(str(path))
-  if parsed.scheme != 'gs':
+  if parse.urlparse(os.fspath(path)).scheme != 'gs':
     return False
   bucket_name, _ = parse_gcs_path(path)
-  bucket = get_bucket(bucket_name)
-  return (
-      hasattr(bucket, 'hierarchical_namespace_enabled')
-      and bucket.hierarchical_namespace_enabled
-  )
+  return _get_bucket_info(bucket_name).is_hns
 
 
 def cleanup_hns_folders(path: epath.Path) -> None:

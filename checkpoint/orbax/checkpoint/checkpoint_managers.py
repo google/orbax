@@ -42,6 +42,8 @@ from orbax.checkpoint._src.checkpoint_managers.preservation_policy import (
     LatestDuration,
 )
 
+from orbax.checkpoint._src.checkpoint_managers.continuous_checkpointing import continuous_checkpointing_options
+
 from orbax.checkpoint._src.checkpoint_managers.policy_checkpoint_info import PolicyCheckpointInfo
 from orbax.checkpoint.checkpoint_manager import CheckpointManagerOptions
 from orbax.checkpoint.checkpoint_manager import CheckpointManager

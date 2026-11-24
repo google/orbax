@@ -7,6 +7,131 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now
+  raises `ValueError` for every `jax.Array`. Small `pinned_host` arrays
+  previously fell back to single-replica saving.
+
+### Fixed
+
+- Fix saving and restoring a `jax.Array` on a process that holds none of its
+  shards (for example an array on a sub-mesh of other processes' devices),
+  which previously raised `IndexError` during save and `ValueError` during
+  restore.
+- Normalize Zarr v2 endianness dtype strings (e.g. `<f4` to `float32`) in
+  `Zarr2Metadata` and resolve multi-dimensional `'/'`-separated Zarr v2 chunk
+  keys in `ocdbt_utils.get_tensor_raw_bytes`.
+- #v1 Convert `SafetensorsLayout.metadata()` `commit_timestamp_nsecs` from
+  seconds to nanoseconds.
+
+## [0.12.12] - 2026-11-18
+
+### Added
+
+- `ArrayHandler(dispatcher_restore_concurrent_bytes=...)` (configurable via
+  `ocp.pathways.register_type_handlers`) bounds per-worker staging memory when
+  restoring `jax.Array`s through a dispatcher (e.g. Pathways colocated Python)
+  by restoring in memory-budgeted batches. It is off by default; colocated
+  Python restores of host-offloaded arrays without it log a warning.
+
+### Changed
+
+- #v1 `v1.training.Checkpointer` now defaults `save_decision_policy` to
+  `ContinuousCheckpointingPolicy()` alone (without `InitialSavePolicy` or
+  `PreemptionCheckpointingPolicy`), and when `save_decision_policy` configures
+  `ContinuousCheckpointingPolicy(target_interval_steps=...)` with no explicit
+  `preservation_policy`, defaults `preservation_policy` to preserving all
+  `target_interval_steps` checkpoints plus the latest 2 recovery checkpoints.
+- `ContinuousCheckpointingPolicy` raises `ValueError` for a negative
+  `minimum_interval_secs`. `EveryNSteps` raises `ValueError` for a `max_to_keep`
+  below 1.
+- Colocated Python dispatch: when the dispatched function's output is discarded
+  (as in checkpoint saves), the dummy array that signals completion now keeps
+  the device order of the input mesh if a single `NamedSharding` mesh covers
+  all input devices, instead of sorting devices by id. On Pathways, upgrade
+  Orbax in the workload and `colocated-python-sidecar` images together.
+- Colocated Python now raises an error naming the affected parameters, instead
+  of a generic JAX error, when arrays on different device lists are saved or
+  restored together (even if save or restore batching would split them across
+  calls).
+
+### Fixed
+
+- Pathways colocated (and remote) Python saves no longer stop responding when
+  worker 0 is not among the TPU workers that run the save, e.g. during elastic
+  replica resize with slice 0 down. The worker primary host, which creates
+  TensorStore and `array_metadatas/` metadata, is elected once per save from the
+  workers that run it, and the controller reads `write_shape` from that worker's
+  `ArrayMetadata`. Saves that include worker 0 are unchanged.
+- Colocated Python no longer copies accelerator memory kinds (e.g.
+  `pinned_host` for host-offloaded arrays) onto colocated CPU shardings, which
+  broke saving and restoring such arrays.
+
+### Changed
+
+- Warn once when `CheckpointManager` or `v1.training.Checkpointer` skips a save
+  because a newer checkpoint step already exists in the directory, and document
+  how to roll back to an earlier step.
+
+## [0.12.11] - 2026-11-16
+
+### Fixed
+
+- Avoid `jax.devices()` calls in Pathways multihost backend detection,
+  preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
+  initialization so Pathways workloads work when devices or slices are down
+  during elasticity.
+- Support `bool` and `float16` dtypes and validate sharding in
+  `CloudPathwaysArrayHandler` persistence helper.
+
+## [0.12.10] - 2026-11-12
+
+### Added
+
+- Multi-Tier Checkpointing: `ReplicatorCheckpointManager.save(..., backup=True)`
+  asks for that step to be backed up to persistent storage (recorded as an
+  empty `_BACKUP_REQUESTED` file in the local step directory). Requires a
+  Multi-Tier Checkpointing release that supports `_BACKUP_REQUESTED`. On
+  Pathways, upgrade Orbax in the workload and `colocated-python-sidecar`
+  images together.
+- Add `checkpoint_managers.continuous_checkpointing_options()` for continuous
+  checkpointing. It saves at every multiple of `target_interval_steps` and, in
+  between, whenever no write is running.
+
+### Changed
+
+- Multi-tier checkpointing: step 0 is now saved and restored like any other
+  step. Requires checkpoint replicator v0.5.0 or later. On Pathways, upgrade
+  Orbax in the workload and `colocated-python-sidecar` images together.
+
+### Fixed
+
+- `CheckpointManager` retains previously saved steps when an asynchronous save
+  fails, instead of dropping them from `all_steps()` / `latest_step()`.
+- Free intermediate globalized array buffers after each broadcast chunk in
+  `multislice.broadcast_one_replica_to_all` to prevent HBM retention across
+  multi-chunk single-replica restores.
+
+## [0.12.9] - 2026-11-02
+
+### Added
+
+- Add support to GCS Rapid Bucket.
+
+### Changed
+
+- `FileOptions.skip_sync_file_validations=True` (V0 and #v1) now checks for and
+  removes an existing destination in the background directory-creation thread
+  (with `create_directories_asynchronously=True`) instead of only skipping the
+  checks. With `force=False` / `overwrite=False`, an existing destination would
+  raise an exception when the save is awaited (e.g. `wait_until_finished()`).
+
+### Fixed
+
+- #v1 Preserve existing checkpoints when an overwrite is skipped by the save
+  decision policy.
+
 ## [0.12.8] - 2026-10-20
 
 ### Added

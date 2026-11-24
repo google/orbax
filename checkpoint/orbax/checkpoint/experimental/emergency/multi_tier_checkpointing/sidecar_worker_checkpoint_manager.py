@@ -198,6 +198,7 @@ class WorkerCheckpointManagerRaw:
       self,
       step_array: jax.Array,
       force_array: jax.Array,
+      backup_array: jax.Array,
       state: PyTree,
   ) -> jax.Array:
     """Saves checkpoint on the worker, returning whether a save occurred.
@@ -205,17 +206,23 @@ class WorkerCheckpointManagerRaw:
     Args:
       step_array: The training step encoded as a scalar JAX array.
       force_array: Boolean encoded as array forcing the save.
+      backup_array: Boolean encoded as array asking Multi-Tier Checkpointing
+        to back up this step to persistent storage.
       state: The PyTree payload.
 
     Returns:
       A scalar JAX array containing True if a step was saved.
+
+    Raises:
+      ValueError: If the step is negative.
     """
     step = int(np.asarray(step_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return colocated_utils.make_scalar_on_like(
-          False, step_array, dtype=jnp.bool_
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC sidecar cannot save negative step {step}.'
       )
     force = bool(np.asarray(force_array))
+    backup = bool(np.asarray(backup_array))
     save_args = args_lib.Composite(
         state=args_lib.PyTreeSave(state),
     )
@@ -225,10 +232,13 @@ class WorkerCheckpointManagerRaw:
         else None
     )
     with TimeBlock(
-        f'Pathways colocated MTC sidecar save step={step} force={force}',
+        f'Pathways colocated MTC sidecar save step={step} force={force}'
+        f' backup={backup}',
         level=python_logging.INFO,
     ) as timer:
-      saved = self._rcm.save(step, args=save_args, force=force)
+      saved = self._rcm.save(
+          step, args=save_args, force=force, backup=backup
+      )
       timer.append_data('saved', str(saved))
       timer.append_data(
           'async_checkpointing', str(self._enable_async_checkpointing)
@@ -251,9 +261,9 @@ class WorkerCheckpointManagerRaw:
   def should_save(self, step_array: jax.Array) -> jax.Array:
     """Returns whether a checkpoint should be saved at `step_array`."""
     step = int(np.asarray(step_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
-      return colocated_utils.make_scalar_on_like(
-          False, step_array, dtype=jnp.bool_
+    if step < 0:
+      raise ValueError(
+          f'Pathways colocated MTC sidecar cannot save negative step {step}.'
       )
     should_save = self._rcm.should_save(step)
     return colocated_utils.make_scalar_on_like(
@@ -265,29 +275,31 @@ class WorkerCheckpointManagerRaw:
   ) -> PyTree:
     """Restores state using worker-side inference.
 
-    A negative step means "restore the latest local step".
-
     Args:
-      step_array: The step to restore, as a scalar JAX array.
+      step_array: The step to restore, as a scalar JAX array. The controller
+        resolves the step across workers, so it must be non-negative.
       partial_restore_array: Whether this is a partial restore.
 
     Returns:
       The restored state PyTree.
+
+    Raises:
+      ValueError: If the step is negative.
     """
     step = int(np.asarray(step_array))
-    partial_restore = bool(np.asarray(partial_restore_array))
-    if step == colocated_utils.NO_STEP_SENTINEL:
+    if step < 0:
       raise ValueError(
-          'Pathways colocated MTC cannot restore step 0 because the MTC '
-          'coordinator protocol reserves step 0 as "no checkpoint".'
+          'Pathways colocated MTC sidecar cannot restore negative step'
+          f' {step}.'
       )
+    partial_restore = bool(np.asarray(partial_restore_array))
     with TimeBlock(
         f'Pathways colocated MTC sidecar restore step={step} '
         f'partial_restore={partial_restore}',
         level=python_logging.INFO,
     ) as timer:
       result = self._rcm.restore(
-          None if step < 0 else step,
+          step,
           args_lib.Composite(
               state=args_lib.PyTreeRestore(partial_restore=partial_restore),
           ),

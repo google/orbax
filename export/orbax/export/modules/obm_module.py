@@ -222,17 +222,15 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.ENABLE_BF16_OPTIMIZATION,
     )
     if self._enable_bf16_optimization:
-      mapped_apply_fn = utils.to_bfloat16(apply_fn)
       self._params_args_spec = utils.to_bfloat16(params)
     else:
-      mapped_apply_fn = apply_fn
       self._params_args_spec = params
     (
         self._apply_fn_map,
         self.input_polymorphic_shape_map,
         self.input_polymorphic_shape_symbol_values_map,
     ) = self._normalize_apply_fn_map(
-        mapped_apply_fn,
+        apply_fn,
         input_polymorphic_shape,
         input_polymorphic_shape_symbol_values,
     )

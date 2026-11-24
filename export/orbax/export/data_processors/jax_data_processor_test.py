@@ -91,6 +91,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     )
 
     self.assertIsNotNone(processor.obm_function)
+    self.assertIsNone(processor.obm_function.weights_name)
     self.assertIsNotNone(processor.input_signature)
     self.assertIsNotNone(processor.output_signature)
 
@@ -107,6 +108,7 @@ class JaxDataProcessorTest(parameterized.TestCase):
     )
 
     self.assertIsNotNone(processor.obm_function)
+    self.assertEqual(processor.obm_function.weights_name, 'params_add_params')
     self.assertIsNotNone(processor.save_fn)
     self.assertIsNotNone(processor.input_signature)
     self.assertIsNotNone(processor.output_signature)

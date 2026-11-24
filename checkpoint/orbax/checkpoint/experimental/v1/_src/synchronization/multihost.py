@@ -20,6 +20,7 @@ from typing import Collection, Optional
 from absl import logging
 import jax
 from jax.experimental import multihost_utils
+from jax.extend import backend
 from orbax.checkpoint.experimental.v1._src.synchronization import signaling_client
 
 # Default timeout in seconds.
@@ -35,10 +36,11 @@ def is_pathways_backend() -> bool:
     True if a Pathways (native or proxy) backend is detected, False otherwise.
   """
   # Pathways is single-host.
+  client = backend.get_backend()
   return (
-      hasattr(jax.devices()[0].client, 'pathways')
-      or jax.devices()[0].client.runtime_type == 'pathways'
-      or jax.devices()[0].client.runtime_type == 'proxy/pathways'
+      hasattr(client, 'pathways')
+      or client.runtime_type == 'pathways'
+      or client.runtime_type == 'proxy/pathways'
   )
 
 

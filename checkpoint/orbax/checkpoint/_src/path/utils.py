@@ -14,8 +14,6 @@
 
 """Utils for path constructs."""
 
-import asyncio
-from collections.abc import AsyncIterable
 import functools
 import os
 import time

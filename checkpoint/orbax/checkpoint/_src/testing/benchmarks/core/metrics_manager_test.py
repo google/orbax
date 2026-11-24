@@ -24,6 +24,7 @@ from etils import epath
 import numpy as np
 from orbax.checkpoint._src.testing.benchmarks.core import metric as metric_lib
 from orbax.checkpoint._src.testing.benchmarks.core import metrics_manager
+from orbax.checkpoint._src.testing.benchmarks.core import multihost
 
 
 class MetricsManagerTest(parameterized.TestCase):
@@ -403,6 +404,42 @@ class MetricsManagerPerHostWriterTest(parameterized.TestCase):
     self.assertEqual(args[0], temp_dir)
     self.assertEqual(kwargs.get('collection'), 'bench1/host_0')
     self.assertFalse(kwargs.get('just_logging', False))
+
+
+class KeyValueSummaryTest(absltest.TestCase):
+
+  def _summarize(self, process_index, gathered):
+    manager = metrics_manager.MetricsManager(
+        name='Suite',
+        num_repeats=1,
+        tensorboard_dir=epath.Path(self.create_tempdir().full_path),
+    )
+    for name, value in [
+        ('get_process_index', process_index),
+        ('gather_on_primary', gathered),
+        ('sync_global_processes', None),
+    ]:
+      self.enter_context(mock.patch.object(multihost, name, return_value=value))
+    write_cards = self.enter_context(
+        mock.patch.object(manager, '_write_summary_cards')
+    )
+    manager._aggregate_and_write_summary('bench1', [])
+    return write_cards
+
+  def test_primary_summarizes_every_host_in_order(self):
+    gathered = [{'keys': ['t'], 'means': [m]} for m in (1.0, 3.0, 2.0)]
+
+    (_, _, aggregates, per_host_values), _ = self._summarize(
+        0, gathered
+    ).call_args
+
+    self.assertEqual(
+        per_host_values, [(0, {'t': 1.0}), (1, {'t': 3.0}), (2, {'t': 2.0})]
+    )
+    self.assertEqual(aggregates['t']['max'], 3.0)
+
+  def test_other_processes_write_no_summary(self):
+    self._summarize(3, None).assert_not_called()
 
 
 @dataclasses.dataclass(frozen=True)

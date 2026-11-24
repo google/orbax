@@ -260,6 +260,80 @@ class UtilsTest(parameterized.TestCase):
     self.assertIn(compile_log, '\n'.join(precompile_logs.output))
     self.assertNotIn(compile_log, '\n'.join(broadcast_logs.output))
 
+  @parameterized.parameters(True, False)
+  def test_broadcast_deletes_globalized_arrays_each_chunk(
+      self, is_source: bool
+  ):
+    expected_arrays = [
+        np.arange(32).reshape((4, 8)),
+        np.arange(32).reshape((4, 8)) * 2,
+        np.arange(32).reshape((4, 8)) * 3,
+    ]
+    devices = np.asarray(jax.devices()).reshape((2, len(jax.devices()) // 2))
+    mesh = jax.sharding.Mesh(devices, ('a', 'b'))
+    mesh_axes = jax.sharding.PartitionSpec(None, 'b')
+    single_replica_mesh = jax.sharding.Mesh(mesh.devices[:1], mesh.axis_names)
+    single_replica_sharding = jax.sharding.NamedSharding(
+        single_replica_mesh, mesh_axes
+    )
+    if is_source:
+      arrays = [
+          test_utils.create_sharded_array(arr, single_replica_mesh, mesh_axes)
+          for arr in expected_arrays
+      ]
+      in_tree = tuple(arrays)
+    else:
+      arrays = []
+      in_tree = tuple(
+          jax.ShapeDtypeStruct(
+              arr.shape, arr.dtype, sharding=single_replica_sharding
+          )
+          for arr in expected_arrays
+      )
+    memory_limit_bytes = 2 * multislice.get_leaf_memory_per_device(in_tree[0])
+    real_globalize = multislice._globalize_single_replica_arrays
+    globalized_arrays = []
+    deleted_states_at_globalize = []
+
+    def tracking_globalize(*args, **kwargs):
+      deleted_states_at_globalize.append(
+          [arr.is_deleted() for arr in globalized_arrays]
+      )
+      result = real_globalize(*args, **kwargs)
+      globalized_arrays.append(result)
+      return result
+
+    self.enter_context(
+        mock.patch.object(
+            multislice,
+            '_globalize_single_replica_arrays',
+            autospec=True,
+            side_effect=tracking_globalize,
+        )
+    )
+
+    out_tree, num_broadcasts = multislice.broadcast_one_replica_to_all(
+        in_tree,
+        mesh,
+        replica_axis_index=0,
+        is_source=is_source,
+        memory_limit_bytes=memory_limit_bytes,
+    )
+
+    self.assertEqual(num_broadcasts, 2)
+    self.assertLen(globalized_arrays, 3)
+    self.assertEqual(
+        deleted_states_at_globalize,
+        [[], [False], [True, True]],
+    )
+    self.assertTrue(all(arr.is_deleted() for arr in globalized_arrays))
+    if is_source:
+      self.assertTrue(all(arr.is_deleted() for arr in arrays))
+    self.assertFalse(any(arr.is_deleted() for arr in out_tree))
+    for out_arr, expected_arr in zip(out_tree, expected_arrays, strict=True):
+      expected = expected_arr if is_source else np.zeros_like(expected_arr)
+      np.testing.assert_array_equal(np.asarray(out_arr), expected)
+
   def test_globalize_single_replica_arrays_under_active_mesh(self):
     if len(jax.devices()) < 2:
       self.skipTest('Need at least 2 devices for this test')

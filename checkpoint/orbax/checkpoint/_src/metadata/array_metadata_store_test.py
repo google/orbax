@@ -49,6 +49,14 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
     )
     self.assertIsNone(await self.store.read(self.checkpoint_dir))
 
+  def test_primary_host(self):
+    self.assertEqual(self.store.primary_host, 0)
+    self.store.set_primary_host(3)
+    self.assertEqual(self.store.primary_host, 3)
+    self.assertIsNone(
+        array_metadata_store_lib.Store(primary_host=None).primary_host
+    )
+
   async def test_write_and_read_single_process(self):
     process_index = 0
     array_metadatas = [
@@ -60,6 +68,8 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
             chunk_shape=(1, 2, 3),
             use_ocdbt=False,
             use_zarr3=False,
+            compression_algorithm='zstd',
+            compression_level=1,
         ),
         array_metadata_lib.ArrayMetadata(
             param_name='b',
@@ -82,6 +92,8 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
                 param_name='a',
                 write_shape=(10, 20, 30),
                 chunk_shape=(1, 2, 3),
+                compression_algorithm='zstd',
+                compression_level=1,
             ),
             array_metadata_lib.SerializedArrayMetadata(
                 param_name='b',
@@ -90,6 +102,15 @@ class StoreTest(parameterized.TestCase, unittest.IsolatedAsyncioTestCase):
             ),
         ],
     )
+
+  def test_serializer_backward_compatibility(self):
+    json_str = (
+        '{"array_metadatas": [{"array_metadata": {"param_name": "x",'
+        ' "write_shape": [1], "chunk_shape": [1]}}]}'
+    )
+    [metadata] = array_metadata_store_lib.Serializer().deserialize(json_str)
+    self.assertEqual(metadata.compression_algorithm, 'none')
+    self.assertIsNone(metadata.compression_level)
 
   async def test_append_to_existing_metadata_file(self):
     process_index = 0

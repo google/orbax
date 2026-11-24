@@ -13,8 +13,11 @@
 # limitations under the License.
 
 import ast
+import asyncio
 from concurrent import futures
+import contextlib
 import datetime
+import logging as std_logging
 import os
 import threading
 import time
@@ -66,7 +69,6 @@ from orbax.checkpoint._src.serialization import type_handlers
 from orbax.checkpoint._src.testing import multiprocess_test
 
 
-
 FLAGS = flags.FLAGS
 register_with_handler = args.register_with_handler
 TrainState = train_state.TrainState
@@ -105,6 +107,30 @@ def build_storage_metadata(
       chunk_shape=chunk_shape,
       write_shape=chunk_shape if is_array_metadata_store_enabled else None,
   )
+
+
+class _RollbackWarningCollector(std_logging.Handler):
+  """Collects rollback skip warnings emitted to the root logger."""
+
+  def __init__(self):
+    super().__init__(level=std_logging.WARNING)
+    self.messages: list[str] = []
+
+  def emit(self, record: std_logging.LogRecord) -> None:
+    message = record.getMessage()
+    if 'Skipping save at step' in message:
+      self.messages.append(message)
+
+
+@contextlib.contextmanager
+def _capture_rollback_warnings():
+  logger = std_logging.getLogger()
+  handler = _RollbackWarningCollector()
+  logger.addHandler(handler)
+  try:
+    yield handler.messages
+  finally:
+    logger.removeHandler(handler)
 
 
 @test_utils.barrier_compatible_test
@@ -1285,12 +1311,7 @@ class CheckpointManagerTest(
       ) as mock_save:
         self.assertTrue(self.save_params(0, manager, self.pytree))
         mock_save.assert_called_once()
-        skip_sync = bool(file_opts and file_opts.skip_sync_file_validations)
-        expected_force = not skip_sync if enable_async else True
-        self.assertEqual(
-            mock_save.call_args.kwargs['force'],
-            expected_force,
-        )
+        self.assertTrue(mock_save.call_args.kwargs['force'])
       self.wait_if_async(manager)
       self.assertSameElements([0], manager.all_steps())
       self.assertFalse((subdir / 'stale_file').exists())
@@ -1522,6 +1543,70 @@ class CheckpointManagerTest(
         manager.save(step, args=args.PyTreeSave(self.pytree))
       self.wait_if_async(manager)
       self.assertSameElements([0, preemption_step, 4, 8], manager.all_steps())
+
+  @mock.patch.object(multihost_utils, 'reached_preemption_sync_point')
+  @mock.patch.object(jax.monitoring, 'record_event_duration_secs')
+  def test_preemption_metrics_on_save_and_skip(
+      self,
+      mock_record_duration,
+      mock_reached_preemption_sync_point,
+  ):
+    if multihost.is_pathways_backend():
+      self.skipTest('Not applicable to Pathways.')
+
+    # Case 1: Preemption triggers save (max_to_keep=1 to also test pruning).
+    options = CheckpointManagerOptions(save_interval_steps=4, max_to_keep=1)
+    with CheckpointManager(
+        self.directory / 'save_triggered', options=options
+    ) as manager:
+      mock_reached_preemption_sync_point.side_effect = lambda step: step == 2
+      self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+      step0_time = manager._checkpoints[-1].time
+
+      self.assertTrue(manager.save(2, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+      step2_time = manager._checkpoints[-1].time
+      expected_duration = (step2_time - step0_time).total_seconds()
+      if multihost.process_index() == 0:
+        mock_record_duration.assert_any_call(
+            '/jax/checkpoint/write/preempt/duration_saved_secs',
+            expected_duration,
+            continuous_checkpointing_enabled=0,
+        )
+
+    # Case 2: ContinuousCheckpointingPolicy skips save on preemption step due
+    # to minimum_interval_secs.
+    mock_record_duration.reset_mock()
+    cc_options = CheckpointManagerOptions(
+        save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+            minimum_interval_secs=3600
+        ),
+    )
+    with CheckpointManager(
+        self.directory / 'cc_skipped', options=cc_options
+    ) as manager:
+      mock_reached_preemption_sync_point.side_effect = lambda step: step == 1
+      self.assertTrue(manager.save(0, args=args.PyTreeSave(self.pytree)))
+      self.wait_if_async(manager)
+
+      self.assertFalse(manager.save(1, args=args.PyTreeSave(self.pytree)))
+      if multihost.process_index() == 0:
+        duration_calls = [
+            call
+            for call in mock_record_duration.call_args_list
+            if call.args
+            and call.args[0]
+            == '/jax/checkpoint/write/preempt/duration_lost_secs'
+        ]
+        self.assertLen(duration_calls, 1)
+        self.assertEqual(
+            duration_calls[0].kwargs,
+            {
+                'reason': 'minimum_interval_not_met',
+                'continuous_checkpointing_enabled': 1,
+            },
+        )
 
   @parameterized.parameters(True, False)
   @mock.patch.object(jax.monitoring, 'record_scalar')
@@ -2181,6 +2266,8 @@ class CheckpointManagerTest(
       # the error.
       with self.assertRaises(SystemError):
         manager.wait_until_finished()
+      self.assertSameElements([1, 2], manager.all_steps())
+      self.assertEqual(2, manager.latest_step())
 
       # Error is cleared so it is not re-raised.
       manager.wait_until_finished()
@@ -2191,6 +2278,108 @@ class CheckpointManagerTest(
         # All waiters should succeed.
         for waiter in waiters:
           waiter.result(timeout=5)
+
+  def test_failed_async_save_retains_checkpoint_history(self):
+    options = CheckpointManagerOptions(max_to_keep=1)
+    with CheckpointManager(self.directory, options=options) as manager:
+      manager.save(0, args=args.PyTreeSave({'value': 7}))
+      manager.wait_until_finished()
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+      handler = test_utils.ErrorCheckpointHandler(
+          PyTreeCheckpointHandler(), executor=executor
+      )
+      with CheckpointManager(
+          self.directory, item_handlers=handler, options=options
+      ) as manager:
+        latest_checkpoint_time = manager._latest_checkpoint_time
+        manager.save(1, args=test_utils.ErrorSaveArgs({'value': 8}))
+        with self.assertRaises(SystemError):
+          manager.wait_until_finished()
+
+        self.assertEqual([0], manager.all_steps())
+        self.assertEqual(0, manager.latest_step())
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(0, args=test_utils.ErrorRestoreArgs()),
+        )
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(None, args=test_utils.ErrorRestoreArgs()),
+        )
+        self.assertEqual(
+            latest_checkpoint_time, manager._latest_checkpoint_time
+        )
+
+  def test_failed_async_save_then_successful_save(self):
+    options = CheckpointManagerOptions(
+        max_to_keep=1,
+        best_fn=lambda metrics: metrics['loss'],
+        best_mode='min',
+    )
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+      with CheckpointManager(
+          self.directory,
+          item_handlers={
+              'state': PyTreeCheckpointHandler(),
+              'error': test_utils.ErrorCheckpointHandler(
+                  PyTreeCheckpointHandler(), executor=executor
+              ),
+          },
+          options=options,
+      ) as manager:
+        manager.save(
+            0,
+            args=args.Composite(state=args.PyTreeSave({'value': 7})),
+            metrics={'loss': 0.5},
+        )
+        manager.wait_until_finished()
+        latest_checkpoint_time = manager._latest_checkpoint_time
+
+        # Step 1 has the best metric, but its commit fails.
+        manager.save(
+            1,
+            args=args.Composite(
+                state=args.PyTreeSave({'value': 8}),
+                error=test_utils.ErrorSaveArgs({'value': 8}),
+            ),
+            metrics={'loss': 0.1},
+        )
+        with self.assertRaises(SystemError):
+          manager.wait_until_finished()
+
+        self.assertEqual([0], manager.all_steps())
+        self.assertEqual(0, manager.latest_step())
+        self.assertEqual(0, manager.best_step())
+        self.assertEqual(
+            {'value': 7},
+            manager.restore(
+                None, args=args.Composite(state=args.PyTreeRestore())
+            ).state,
+        )
+        self.assertEqual(
+            latest_checkpoint_time, manager._latest_checkpoint_time
+        )
+
+        # A later successful save applies retention normally.
+        manager.save(
+            2,
+            args=args.Composite(state=args.PyTreeSave({'value': 9})),
+            metrics={'loss': 0.2},
+        )
+        manager.wait_until_finished()
+        self.assertEqual([2], manager.all_steps())
+        self.assertEqual(2, manager.latest_step())
+        self.assertEqual(2, manager.best_step())
+        self.assertEqual(
+            {'value': 9},
+            manager.restore(
+                None, args=args.Composite(state=args.PyTreeRestore())
+            ).state,
+        )
+        manager.reload()
+        self.assertEqual([2], manager.all_steps())
 
   def test_legacy_handler_default_item(self):
     if multihost.is_pathways_backend():
@@ -3111,6 +3300,155 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
       self.assertCountEqual([0, 1, 3, 4, 8, 11], manager.all_steps())
 
+  def test_async_cancel(self):
+    original_on_commit_callback = atomicity.on_commit_callback
+    commit_started = threading.Event()
+    should_delay = True
+
+    async def mock_on_commit_callback(tmpdir, *a, **kw):
+      if should_delay:
+        commit_started.set()
+        await asyncio.sleep(10)
+      return await original_on_commit_callback(tmpdir, *a, **kw)
+
+    with mock.patch.object(
+        atomicity, 'on_commit_callback', new=mock_on_commit_callback
+    ):
+      with CheckpointManager(
+          self.directory,
+          options=CheckpointManagerOptions(
+              save_interval_steps=1,
+              max_to_keep=1,
+              enable_async_checkpointing=True,
+          ),
+      ) as manager:
+        # 1. Cancel initial save at step 0 while in flight.
+        self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+        if multihost.is_primary_host(0):
+          self.assertTrue(commit_started.wait(timeout=5.0))
+        multihost.sync_global_processes('step_0_in_flight_for_cancel')
+
+        start_time = time.time()
+        manager.cancel()
+        self.assertLess(time.time() - start_time, 5.0)
+        self.assertFalse(manager.is_saving_in_progress())
+        manager.check_for_errors()
+        self.assertEqual(manager.all_steps(), [])
+        self.assertIsNone(manager.latest_step())
+        self.assertFalse((self.directory / '0').exists())
+
+        # 2. Save step 0 to completion.
+        should_delay = False
+        commit_started.clear()
+        self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+        self.wait_if_async(manager)
+        self.assertEqual(manager.all_steps(), [0])
+        self.assertEqual(manager.latest_step(), 0)
+
+        # 3. Start async save at step 1 (which would normally evict step 0 under
+        # max_to_keep=1) and cancel it while in progress.
+        should_delay = True
+        self.assertTrue(
+            manager.save(1, args=args.StandardSave(self.doubled_pytree))
+        )
+        if multihost.is_primary_host(0):
+          self.assertTrue(commit_started.wait(timeout=5.0))
+        multihost.sync_global_processes('step_1_in_flight_for_cancel')
+
+        start_time = time.time()
+        manager.cancel()
+        self.assertLess(time.time() - start_time, 5.0)
+        self.assertFalse(manager.is_saving_in_progress())
+        manager.check_for_errors()
+        # Step 1 was cancelled and cleaned up; step 0 was not garbage-collected.
+        self.assertEqual(manager.all_steps(), [0])
+        self.assertEqual(manager.latest_step(), 0)
+        self.assertTrue((self.directory / '0').exists())
+        self.assertFalse((self.directory / '1').exists())
+
+        # 4. Retry saving step 1 to completion and verify restore.
+        should_delay = False
+        self.assertTrue(
+            manager.save(1, args=args.StandardSave(self.doubled_pytree))
+        )
+        self.wait_if_async(manager)
+        self.assertEqual(manager.all_steps(), [1])
+        self.assertEqual(manager.latest_step(), 1)
+        self.assertFalse((self.directory / '0').exists())
+        self.assertTrue((self.directory / '1').exists())
+        restored = manager.restore(1, args=args.StandardRestore(self.pytree))
+        test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
+
+  @parameterized.parameters((True,), (False,))
+  def test_cancel_when_no_save_in_progress(self, enable_async_checkpointing):
+    with CheckpointManager(
+        self.directory,
+        options=CheckpointManagerOptions(
+            save_interval_steps=1,
+            enable_async_checkpointing=enable_async_checkpointing,
+        ),
+    ) as manager:
+      # Calling cancel() before any save is a no-op.
+      manager.cancel()
+      self.assertEqual(manager.all_steps(), [])
+      self.assertIsNone(manager.latest_step())
+
+      self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+      self.wait_if_async(manager)
+      self.assertEqual(manager.all_steps(), [0])
+
+      # Calling cancel() after save has finished is a no-op.
+      manager.cancel()
+      self.assertEqual(manager.all_steps(), [0])
+      self.assertEqual(manager.latest_step(), 0)
+      self.assertTrue((self.directory / '0').exists())
+
+  def test_cancel_after_finalize_begins_preserves_checkpoint(self):
+    finalize_started = threading.Event()
+    should_delay_finalize = False
+
+    with CheckpointManager(
+        self.directory,
+        options=CheckpointManagerOptions(
+            save_interval_steps=1,
+            max_to_keep=1,
+            enable_async_checkpointing=True,
+        ),
+    ) as manager:
+      self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+      self.wait_if_async(manager)
+      self.assertEqual(manager.all_steps(), [0])
+
+      original_finalize_checkpoint = manager._finalize_checkpoint
+
+      def delayed_finalize_checkpoint(step):
+        if should_delay_finalize and multihost.is_primary_host(0):
+          finalize_started.set()
+          time.sleep(0.2)
+        return original_finalize_checkpoint(step)
+
+      with mock.patch.object(
+          manager,
+          '_finalize_checkpoint',
+          side_effect=delayed_finalize_checkpoint,
+      ):
+        should_delay_finalize = True
+        self.assertTrue(
+            manager.save(1, args=args.StandardSave(self.doubled_pytree))
+        )
+        if multihost.is_primary_host(0):
+          self.assertTrue(finalize_started.wait(timeout=5.0))
+        multihost.sync_global_processes('step_1_in_finalize')
+
+        # Calling cancel() once finalization/GC has already begun on the primary
+        # host must not delete step 1 or diverge across hosts.
+        manager.cancel()
+        self.assertFalse(manager.is_saving_in_progress())
+        self.assertEqual(manager.all_steps(), [1])
+        self.assertEqual(manager.latest_step(), 1)
+        self.assertFalse((self.directory / '0').exists())
+        self.assertTrue((self.directory / '1').exists())
+
   def test_sync_continuous_checkpointing_with_minimum_interval_secs(self):
     with CheckpointManager(
         self.directory,
@@ -3126,6 +3464,125 @@ class CheckpointManagerTest(
       self.assertFalse(manager.save(1, args=args.StandardSave(self.pytree)))
       time.sleep(2)
       self.assertTrue(manager.save(2, args=args.StandardSave(self.pytree)))
+
+  def test_constrained_continuous_checkpointing(self):
+    with CheckpointManager(
+        self.directory,
+        options=CheckpointManagerOptions(
+            save_interval_steps=5,  # ignored
+            enable_async_checkpointing=False,
+            save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+                minimum_interval_secs=60,
+                target_interval_steps=4,
+                deferral_window_steps=2,
+            ),
+        ),
+    ) as manager:
+      # Step 0 saves (initial save).
+      self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+      # Step 1 is outside deferral window, but <60s since step 0.
+      self.assertFalse(manager.save(1, args=args.StandardSave(self.pytree)))
+      # Steps 2 and 3 are inside the deferral window (4 - step <= 2).
+      self.assertFalse(manager.save(2, args=args.StandardSave(self.pytree)))
+      self.assertFalse(manager.save(3, args=args.StandardSave(self.pytree)))
+      # Step 4 is an exact multiple of target_interval_steps=4 and saves
+      # immediately even though <60s has elapsed.
+      self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
+      self.assertEqual(manager.all_steps(), [0, 4])
+
+  def test_async_constrained_continuous_checkpointing_cancels_ongoing_continuous_save(
+      self,
+  ):
+    original_on_commit_callback = atomicity.on_commit_callback
+    step_3_commit_started = threading.Event()
+
+    async def mock_on_commit_callback(tmpdir, *a, **kw):
+      if tmpdir.get_final().name == '3':
+        step_3_commit_started.set()
+        await asyncio.sleep(10)
+      return await original_on_commit_callback(tmpdir, *a, **kw)
+
+    with mock.patch.object(
+        atomicity, 'on_commit_callback', new=mock_on_commit_callback
+    ):
+      with CheckpointManager(
+          self.directory,
+          options=CheckpointManagerOptions(
+              save_interval_steps=5,  # ignored
+              enable_async_checkpointing=True,
+              save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+                  target_interval_steps=4,
+              ),
+          ),
+      ) as manager:
+        self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+        self.wait_if_async(manager)
+
+        # Start opportunistic continuous checkpoint at step 3 (not a multiple of
+        # target_interval_steps=4), which stays in flight.
+        self.assertTrue(manager.save(3, args=args.StandardSave(self.pytree)))
+        if multihost.is_primary_host(0):
+          self.assertTrue(step_3_commit_started.wait(timeout=5.0))
+        multihost.sync_global_processes('step_3_in_flight')
+
+        # Querying should_save(4) is side-effect-free and must not cancel the
+        # ongoing opportunistic save at step 3.
+        self.assertTrue(manager.should_save(4))
+        self.assertTrue(manager.is_saving_in_progress())
+        self.assertEqual(manager.all_steps(), [0, 3])
+
+        # Target step 4 must cancel the ongoing opportunistic save at step 3
+        # and save step 4 without waiting for the 10s sleep.
+        start_time = time.time()
+        self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
+        self.wait_if_async(manager)
+        self.assertLess(time.time() - start_time, 5.0)
+        self.assertEqual(manager.all_steps(), [0, 4])
+        self.assertFalse((self.directory / '3').exists())
+        self.assertTrue((self.directory / '4').exists())
+
+  def test_async_constrained_continuous_checkpointing_blocks_on_previous_target_step(
+      self,
+  ):
+    original_on_commit_callback = atomicity.on_commit_callback
+    step_0_commit_started = threading.Event()
+
+    async def mock_on_commit_callback(tmpdir, *a, **kw):
+      if tmpdir.get_final().name == '0':
+        step_0_commit_started.set()
+        await asyncio.sleep(0.5)
+      return await original_on_commit_callback(tmpdir, *a, **kw)
+
+    with mock.patch.object(
+        atomicity, 'on_commit_callback', new=mock_on_commit_callback
+    ):
+      with CheckpointManager(
+          self.directory,
+          options=CheckpointManagerOptions(
+              save_interval_steps=5,  # ignored
+              enable_async_checkpointing=True,
+              save_decision_policy=save_decision_policy_lib.ContinuousCheckpointingPolicy(
+                  target_interval_steps=4,
+                  deferral_window_steps=2,
+              ),
+          ),
+      ) as manager:
+        # Step 0 (a target step multiple) starts saving and remains in flight.
+        self.assertTrue(manager.save(0, args=args.StandardSave(self.pytree)))
+        if multihost.is_primary_host(0):
+          self.assertTrue(step_0_commit_started.wait(timeout=5.0))
+        multihost.sync_global_processes('step_0_in_flight')
+
+        # Opportunistic step 1 is skipped while step 0 is in progress.
+        self.assertFalse(manager.save(1, args=args.StandardSave(self.pytree)))
+
+        # Target step 4 must NOT cancel previous target step 0; it blocks until
+        # step 0 completes and then saves step 4.
+        self.assertTrue(manager.save(4, args=args.StandardSave(self.pytree)))
+        self.wait_if_async(manager)
+        self.assertEqual(manager.all_steps(), [0, 4])
+        self.assertTrue((self.directory / '0').exists())
+        self.assertTrue((self.directory / '4').exists())
 
   @parameterized.parameters(
       (0,),
@@ -3323,6 +3780,82 @@ class CheckpointManagerTest(
       self.wait_if_async(manager)
       restored = self.restore_params(0, manager)
       test_utils.assert_tree_equal(self, self.pytree, restored)
+
+  def test_warns_once_when_newer_step_exists(self):
+    directory = self.directory / 'rollback_warning'
+    options = CheckpointManagerOptions(
+        save_interval_steps=2,
+        enable_async_checkpointing=False,
+        check_storage_locality=False,
+    )
+    with CheckpointManager(directory, options=options) as run_a:
+      for step in (2, 4, 6):
+        self.assertTrue(run_a.save(step, args=args.PyTreeSave(self.pytree)))
+
+    with (
+        mock.patch.object(logging, '_log_counter_per_token', {}),
+        CheckpointManager(directory, options=options) as run_b,
+    ):
+      # Restoring an older step or saving/checking at latest_step() (as in an
+      # ordinary resume loop starting at latest_step()) must not warn.
+      with _capture_rollback_warnings() as warnings:
+        run_b.restore(
+            2,
+            args=args.PyTreeRestore(restore_args=self.pytree_restore_args),
+        )
+        self.assertFalse(run_b.should_save(6))
+        self.assertFalse(
+            run_b.save(6, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertEmpty(warnings)
+
+      # First skipped save with step < latest_step() warns once.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_b.save(3, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertLen(warnings, 1)
+      self.assertRegex(
+          warnings[0],
+          r'Skipping save at step 3.*step 6.*resume step 6',
+      )
+
+      # Subsequent skipped saves/checks do not warn again.
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_b.save(4, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertFalse(
+            run_b.save(5, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertFalse(run_b.should_save(4))
+      self.assertEmpty(warnings)
+
+    # Deleting steps newer than the rollback target lets training continue
+    # cleanly without warnings.
+    with (
+        mock.patch.object(logging, '_log_counter_per_token', {}),
+        CheckpointManager(directory, options=options) as run_c,
+    ):
+      for step in sorted(run_c.all_steps(), reverse=True):
+        if step > 2:
+          run_c.delete(step)
+      with _capture_rollback_warnings() as warnings:
+        self.assertFalse(
+            run_c.save(3, args=args.PyTreeSave(self.doubled_pytree))
+        )
+        self.assertTrue(
+            run_c.save(4, args=args.PyTreeSave(self.doubled_pytree))
+        )
+      self.assertEmpty(warnings)
+
+    with CheckpointManager(directory, options=options) as restarted:
+      self.assertEqual(restarted.latest_step(), 4)
+      restored = restarted.restore(
+          restarted.latest_step(),
+          args=args.PyTreeRestore(restore_args=self.pytree_restore_args),
+      )
+      test_utils.assert_tree_equal(self, self.doubled_pytree, restored)
 
 
 if __name__ == '__main__':

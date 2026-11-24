@@ -143,11 +143,8 @@ message ConverterOptionsV2 {
 
   ExperimentalOptions experimental_options = 209;
 
-  // Features not supported natively by the Inference Converter. These features
-  // are supported by individual owners outside the Inference Converter team and
-  // may not work for all models. They may be experimental or broken at times.
-  // Please consult the individual owners to assess whether they are appropriate
-  // for your use case.
+  reserved 301;
+  reserved "external_feature_configs";
 }
 
 message XlaFunctionSpec {

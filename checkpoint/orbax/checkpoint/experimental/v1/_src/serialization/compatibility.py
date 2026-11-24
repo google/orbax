@@ -490,6 +490,18 @@ class CompatibleTypeHandler(
     else:
       return False
 
+  @property
+  def dispatcher(self):
+    # Like `_array_metadata_store`, provides the same interface as the V0
+    # ArrayHandler so that the pytree handler can elect the same worker primary
+    # host as the ArrayHandler. Only works for LeafHandlers based on the V0
+    # ArrayHandler.
+    if hasattr(self._leaf_handler, '_handler_impl') and hasattr(
+        self._leaf_handler._handler_impl, 'dispatcher'  # pylint: disable=protected-access
+    ):
+      return self._leaf_handler._handler_impl.dispatcher  # pylint: disable=protected-access
+    return None
+
 
 def get_v0_type_handler_registry(
     leaf_handler_registry: types.LeafHandlerRegistry,

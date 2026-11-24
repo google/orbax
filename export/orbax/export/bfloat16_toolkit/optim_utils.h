@@ -16,6 +16,9 @@ limitations under the License.
 #ifndef THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_OPTIM_UTILS_H_
 #define THIRD_PARTY_PY_ORBAX_EXPORT_BFLOAT16_TOOLKIT_OPTIM_UTILS_H_
 
+#include <string>
+
+#include "third_party/absl/container/linked_hash_map.h"
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/strings/string_view.h"
 #include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
@@ -23,8 +26,6 @@ limitations under the License.
 #include "tensorflow/compiler/jit/shape_inference.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/graph/graph.h"
-#include "tensorflow/core/platform/types.h"
-#include "util/gtl/linked_hash_map.h"
 
 namespace tensorflow {
 namespace orbax {
@@ -36,12 +37,12 @@ inline constexpr absl::string_view kDataTypeAttrs[] = {
     "dtype", "T", "Tidx", "Tparams", "LhsT", "RhsT", "Tin", "Tout"};
 
 absl::Status ReadVariablesAsTensors(
-    const string& input_prefix,
-    ::gtl::linked_hash_map<string, Tensor>* var_tensors);
+    absl::string_view input_prefix,
+    absl::linked_hash_map<std::string, Tensor>* var_tensors);
 
 absl::Status WriteTensorsToVariables(
-    const string& output_prefix,
-    const ::gtl::linked_hash_map<string, Tensor>& var_tensors);
+    absl::string_view output_prefix,
+    const absl::linked_hash_map<std::string, Tensor>& var_tensors);
 
 bool IsStandardFunctionNode(Node* node);
 

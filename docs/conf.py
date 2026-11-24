@@ -29,11 +29,17 @@ import inspect
 import os
 import sys
 
+import orbax.checkpoint
 from sphinxcontrib import katex
 
 sys.path.insert(0, os.path.abspath('..'))
 # Include local extension.
 sys.path.append(os.path.abspath('./_ext'))
+
+# Register `orbax.checkpoint.v1` in `sys.modules` so Sphinx directives using
+# `.. currentmodule:: orbax.checkpoint.v1.*` can import submodules and run
+# ModuleAnalyzer / linkcode_resolve on them.
+sys.modules['orbax.checkpoint.v1'] = orbax.checkpoint.v1
 
 # -- Project information -----------------------------------------------------
 
@@ -63,7 +69,6 @@ extensions = [
     'myst_nb',  # This is used for the .ipynb notebooks
     'sphinx.ext.autosectionlabel',
     'sphinx.ext.mathjax',
-    'sphinx.ext.viewcode',
     'sphinx_design',
 ]
 
@@ -111,6 +116,7 @@ html_copy_source = False
 if os.environ.get('ORBAX_SKIP_COLABS') == 'true':
   jupyter_execute_notebooks = 'off'
   nb_execution_mode = 'off'
+  exclude_patterns.append('**/*.ipynb')
 else:
   jupyter_execute_notebooks = 'force'
   nb_execution_mode = 'force'
@@ -140,8 +146,11 @@ def linkcode_resolve(domain, info):
   if domain != 'py':
     return None
 
+  module_name = info['module'].replace(
+      'orbax.checkpoint.v1', 'orbax.checkpoint.experimental.v1'
+  )
   try:
-    mod = sys.modules[info['module']]
+    mod = sys.modules[module_name]
   except (ImportError, KeyError):
     # TODO(dnlng) - Add support for resolving source code links for
     # modules that are in _src
@@ -169,7 +178,7 @@ def linkcode_resolve(domain, info):
   relpath = filename.split('orbax/')[-1]
   subpackage_name = relpath.split('/')[0]
   return (
-      'https://github.com/google/orbax/tree/main/%s/orbax/%s#L%d#L%d'
+      'https://github.com/google/orbax/tree/main/%s/orbax/%s#L%d-L%d'
       % (
           subpackage_name,
           relpath,

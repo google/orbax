@@ -17,6 +17,8 @@
 import asyncio
 import contextlib
 import dataclasses
+import json
+import math
 import tempfile
 from typing import TypeAlias
 import unittest
@@ -460,6 +462,201 @@ class OcdbtSpecsE2eTest(
         store_ocdbt_metadata_and_values_separately,
     )
     await _verify_array_data(test_data, test_dir)
+
+  @parameterized.product(
+      store_ocdbt_metadata_and_values_separately=(False, True),
+  )
+  async def test_merge_directly_from_temporary_metadata_context(
+      self,
+      store_ocdbt_metadata_and_values_separately: bool,
+  ):
+    test_dir = epath.Path(self.create_tempdir()) / "test_data"
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    test_data = build_test_data()
+
+    # Create process-specific persistent subdirectories.
+    for process_id in all_process_ids(test_data):
+      process_spec = ocdbt_process_spec.OcdbtProcessSpec(process_id=process_id)
+      (test_dir / str(process_spec)).mkdir(parents=False, exist_ok=False)
+
+    ts_context = tensorstore_utils.get_ts_context(use_ocdbt=True)
+
+    with contextlib.ExitStack() as temp_stack:
+      per_process_temp_dirs = {
+          process_id: epath.Path(
+              temp_stack.enter_context(tempfile.TemporaryDirectory())
+          )
+          for process_id in all_process_ids(test_data)
+      }
+      temporary_metadata_context_by_process_id = {
+          process_id: tensorstore_utils.OcdbtTemporaryMetadataContext(
+              path=per_process_temp_dirs[process_id],
+              process_spec=ocdbt_process_spec.OcdbtProcessSpec(
+                  process_id=process_id
+              ),
+          )
+          for process_id in all_process_ids(test_data)
+      }
+
+      write_futures = []
+      for array in test_data:
+        for process_id, fragments in array.fragments_by_process_id.items():
+          write_futures.append(
+              _write_array(
+                  array.name,
+                  test_dir,
+                  fragments,
+                  process_id,
+                  ts_context,
+                  store_ocdbt_metadata_and_values_separately=(
+                      store_ocdbt_metadata_and_values_separately
+                  ),
+                  temporary_metadata_context=(
+                      temporary_metadata_context_by_process_id[process_id]
+                  ),
+              )
+          )
+      await asyncio.gather(*write_futures)
+
+      # Consolidate each process's `<process_spec>/` temporary subdirectory into
+      # a single shared directory and merge directly into `test_dir` without
+      # calling `commit_temporary_ocdbt_metadata`.
+      consolidated_temp_dir = epath.Path(
+          temp_stack.enter_context(tempfile.TemporaryDirectory())
+      )
+      leftover_temp_entries = []
+      for process_id, per_process_temp_dir in per_process_temp_dirs.items():
+        process_subdir_name = str(
+            ocdbt_process_spec.OcdbtProcessSpec(process_id=process_id)
+        )
+        (per_process_temp_dir / process_subdir_name).rename(
+            consolidated_temp_dir / process_subdir_name
+        )
+        leftover_temp_entries.extend(per_process_temp_dir.iterdir())
+
+      await ocdbt_utils.merge_ocdbt_per_process_files(
+          test_dir,
+          ts_context,
+          use_zarr3=False,
+          enable_validation=False,
+          store_ocdbt_metadata_and_values_separately=(
+              store_ocdbt_metadata_and_values_separately
+          ),
+          temporary_metadata_context=(
+              tensorstore_utils.OcdbtTemporaryMetadataContext(
+                  path=consolidated_temp_dir
+              )
+          ),
+      )
+
+    # All per-process temporary metadata must have lived under
+    # `<process_spec>/` with no stray files in the per-process temporary roots.
+    self.assertEmpty(leftover_temp_entries)
+
+    # After `consolidated_temp_dir` is deleted, per-process directories on
+    # target storage must still contain no manifests or per-process metadata
+    # directories, only out-of-line value files for processes ("h0", "h1") that
+    # wrote `b_large`.
+    for process_id in all_process_ids(test_data):
+      process_spec = ocdbt_process_spec.OcdbtProcessSpec(process_id=process_id)
+      process_dir = test_dir / str(process_spec)
+      self.assertFalse((process_dir / "manifest.ocdbt").exists())
+      self.assertFalse((process_dir / "ocdbt_meta").is_dir())
+      if process_id in ("h0", "h1"):
+        if store_ocdbt_metadata_and_values_separately:
+          self.assertTrue((process_dir / "ocdbt_data").is_dir())
+          self.assertFalse((process_dir / "d").is_dir())
+        else:
+          self.assertTrue((process_dir / "d").is_dir())
+          self.assertFalse((process_dir / "ocdbt_data").is_dir())
+      else:
+        self.assertFalse((process_dir / "ocdbt_data").is_dir())
+        self.assertFalse((process_dir / "d").is_dir())
+
+    self._verify_merged_ocdbt_files(
+        test_dir,
+        store_ocdbt_metadata_and_values_separately,
+    )
+    await _verify_array_data(test_data, test_dir)
+
+  async def test_merge_rejects_per_process_temporary_metadata_context(self):
+    test_dir = epath.Path(self.create_tempdir().full_path)
+    temporary_metadata_dir = epath.Path(self.create_tempdir().full_path)
+    ts_context = tensorstore_utils.get_ts_context(use_ocdbt=True)
+
+    with self.assertRaisesRegex(
+        ValueError,
+        "OCDBT merge mode does not support per-process temporary metadata",
+    ):
+      await ocdbt_utils.merge_ocdbt_per_process_files(
+          test_dir,
+          ts_context,
+          use_zarr3=False,
+          enable_validation=False,
+          temporary_metadata_context=(
+              tensorstore_utils.OcdbtTemporaryMetadataContext(
+                  path=temporary_metadata_dir,
+                  process_spec=ocdbt_process_spec.OcdbtProcessSpec(
+                      process_id="h0"
+                  ),
+              )
+          ),
+      )
+
+  async def test_get_tensor_raw_bytes_slash_dimension_separator(self):
+    with tempfile.TemporaryDirectory() as tmpdir:
+      store_dir = epath.Path(tmpdir) / "slash_ocdbt"
+      store_dir.mkdir(parents=True, exist_ok=True)
+      ocdbt_kv = await ts.KvStore.open({
+          "driver": "ocdbt",
+          "base": {"driver": "file", "path": store_dir.as_posix()},
+      })
+      dtype = np.dtype("<f4")
+      shape_2d = (4, 4)
+      chunks_2d = (2, 2)
+      zarray_2d = json.dumps({
+          "zarr_format": 2,
+          "shape": list(shape_2d),
+          "chunks": list(chunks_2d),
+          "dtype": dtype.str,
+          "dimension_separator": "/",
+      }).encode("utf-8")
+      shape_1d = (4,)
+      chunks_1d = (2,)
+      zarray_1d = json.dumps({
+          "zarr_format": 2,
+          "shape": list(shape_1d),
+          "chunks": list(chunks_1d),
+          "dtype": dtype.str,
+          "dimension_separator": "/",
+      }).encode("utf-8")
+      chunk_2d_bytes = math.prod(chunks_2d) * dtype.itemsize
+      chunk_1d_bytes = math.prod(chunks_1d) * dtype.itemsize
+      await ocdbt_kv.write(b"weights/matrix/.zarray", zarray_2d)
+      for row_idx in range(shape_2d[0] // chunks_2d[0]):
+        for col_idx in range(shape_2d[1] // chunks_2d[1]):
+          await ocdbt_kv.write(
+              f"weights/matrix/{row_idx}/{col_idx}".encode("utf-8"),
+              b"\x00" * chunk_2d_bytes,
+          )
+      await ocdbt_kv.write(b"params/0/.zarray", zarray_1d)
+      for idx in range(shape_1d[0] // chunks_1d[0]):
+        await ocdbt_kv.write(
+            f"params/0/{idx}".encode("utf-8"),
+            b"\x00" * chunk_1d_bytes,
+        )
+
+      sizes = await ocdbt_utils.get_tensor_raw_bytes(store_dir)
+      self.assertEqual(set(sizes), {"weights/matrix", "params/0"})
+      self.assertEqual(
+          sizes["weights/matrix"],
+          len(zarray_2d) + math.prod(shape_2d) * dtype.itemsize,
+      )
+      self.assertEqual(
+          sizes["params/0"],
+          len(zarray_1d) + math.prod(shape_1d) * dtype.itemsize,
+      )
 
 
 if __name__ == "__main__":

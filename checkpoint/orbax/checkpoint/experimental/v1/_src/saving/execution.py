@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import time
 from typing import Any, Awaitable, Callable, Iterable
@@ -60,6 +61,16 @@ def _should_create_directories_synchronously(
   return (
       partial_save
       or not context.async_options.create_directories_asynchronously
+  )
+
+
+def _should_defer_destination_preparation(
+    context: context_lib.Context, partial_save: bool
+) -> bool:
+  """Opt-in: check for / remove an existing destination in the background."""
+  return (
+      context.file_options.skip_sync_file_validations
+      and not _should_create_directories_synchronously(context, partial_save)
   )
 
 
@@ -262,7 +273,9 @@ async def _run_blocking_save(
     An awaitable that will be completed when the synchronous portion of the save
     operation is complete.
   """
-  if not partial_save:
+  if not partial_save and not _should_defer_destination_preparation(
+      context, partial_save
+  ):
     await saving_path_utils.maybe_overwrite_existing(
         temporary_path.temporary_path.get_final(),
         overwrite=overwrite,
@@ -353,17 +366,30 @@ class _TemporaryPathAwaitingCreation:
       *,
       snapshot_type: snapshot_lib.SnapshotType | None,
       blocking_creation: bool,
+      overwrite: bool = False,
+      defer_preparation: bool = False,
   ):
     self._temporary_path = saving_path_utils.get_temporary_path(
         path,
         context=context_lib.get_context(),
         snapshot_type=snapshot_type,
     )
+    pre_create_fn = None
+    if defer_preparation:
+      # Runs on the primary host in the background before `create()`, so
+      # removing an existing checkpoint counts toward directory-creation
+      # metrics and timeouts.
+      pre_create_fn = functools.partial(
+          saving_path_utils.prepare_destination_pre_creation,
+          self._temporary_path.get_final(),
+          overwrite=overwrite,
+      )
     self._temporary_path_awaiting_creation = (
         path_async_utils.PathAwaitingCreation.build(
             self._temporary_path,
             subdirectories,
             blocking_creation=blocking_creation,
+            pre_create_fn=pre_create_fn,
         )
     )
     assert (
@@ -420,6 +446,10 @@ def save_checkpointables_impl(
       subdirectories=checkpointables.keys(),
       snapshot_type=snapshot_type,
       blocking_creation=_should_create_directories_synchronously(
+          context, partial_save
+      ),
+      overwrite=overwrite,
+      defer_preparation=_should_defer_destination_preparation(
           context, partial_save
       ),
   )

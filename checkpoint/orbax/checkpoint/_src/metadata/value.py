@@ -65,8 +65,26 @@ class Compression:
 
 def _compression(algorithm: Any, config: Any) -> Compression:
   """Builds a `Compression` from a codec name and its JSON config."""
-  level = config.get('level') if isinstance(config, dict) else None
-  return Compression(str(algorithm), level)
+  algo = str(algorithm)
+  if not isinstance(config, dict):
+    return Compression(algo)
+  if algo == 'blosc':
+    cname = config.get('cname')
+    return Compression(
+        f'blosc_{cname}' if cname else algo, config.get('clevel')
+    )
+  return Compression(algo, config.get('level'))
+
+
+def _normalize_dtype_str(raw: Any) -> str:
+  """Normalizes Zarr dtype strings (e.g. `'<f4'`) to canonical names."""
+  dtype_str = '' if raw is None else str(raw)
+  if not dtype_str:
+    return ''
+  try:
+    return jnp.dtype(dtype_str).name
+  except (TypeError, ValueError):
+    return dtype_str
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -76,7 +94,7 @@ class ZarrMetadata:
   Attributes:
     zarr_format: Zarr format version (2 or 3), fixed by the subclass.
     shape: Array shape.
-    dtype: Zarr dtype string (v2 `"<f4"`, v3 `"float32"` / `"bfloat16"`).
+    dtype: Normalized element dtype name (e.g. `"float32"`, `"bfloat16"`).
     chunk_shape: Stored chunk shape (v3: the outer shard).
     compression: Compression codec, or None if uncompressed.
   """
@@ -126,7 +144,7 @@ class Zarr2Metadata(ZarrMetadata):
     compressor = meta.get('compressor')
     return cls(
         shape=tuple(meta.get('shape', ())),
-        dtype=str(meta.get('dtype', '')),
+        dtype=_normalize_dtype_str(meta.get('dtype', '')),
         chunk_shape=tuple(meta.get('chunks', ())),
         compression=(
             _compression(compressor.get('id', 'unknown'), compressor)

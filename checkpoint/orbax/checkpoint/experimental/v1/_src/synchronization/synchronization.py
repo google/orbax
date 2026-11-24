@@ -56,6 +56,9 @@ async def await_contracted_signals(operation_id: str):
   Args:
     operation_id: The operation id to use for the barrier key. This should be
       obtained on the main thread, synchronously.
+
+  Raises:
+    ValueError: If a signal was set with an error.
   """
   client = signaling_client.get_signaling_client()
 
@@ -73,7 +76,9 @@ async def await_contracted_signals(operation_id: str):
         timeout_secs,
     )
     barrier_key = _get_unique_barrier_key(signal, operation_id)
-    await client.blocking_key_value_get(barrier_key, timeout_secs)
+    future.raise_if_error_signal(
+        await client.blocking_key_value_get(barrier_key, timeout_secs)
+    )
 
 
 def get_operation_id() -> str:

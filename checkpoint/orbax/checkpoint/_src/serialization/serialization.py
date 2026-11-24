@@ -101,7 +101,7 @@ async def async_serialize(
   # Start D2H transfer in parallel for each array.
   rslices = replica_slices.transfer_arrays_to_host(
       [arr_inp],
-      replica_id,
+      [replica_id],
       use_replica_parallel,
   )[0]
 
@@ -383,9 +383,16 @@ async def _read_and_create_array(
   for shards, bytes_read in shards_and_bytes_read:
     all_shards.extend(shards)
     total_bytes_read += bytes_read
+  # A process that holds no shards cannot infer the dtype from them. Pass the
+  # dtype that `jax.device_put` gives the shards on the processes that do.
+  array_dtype = None
+  if not all_shards:
+    array_dtype = jax.dtypes.canonicalize_dtype(
+        dtype if dtype is not None else t.dtype.numpy_dtype
+    )
   return (
       jax.make_array_from_single_device_arrays(
-          global_shape, sharding, all_shards
+          global_shape, sharding, all_shards, dtype=array_dtype
       ),
       total_bytes_read,
   )

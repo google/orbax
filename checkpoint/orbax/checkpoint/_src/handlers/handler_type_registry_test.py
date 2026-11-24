@@ -136,8 +136,40 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
         registry._registry,
     )
 
-  def test_legacy_src_typestr_fallback(self):
-    class V0TestHandler(checkpoint_handler.CheckpointHandler):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='relocated_v0_src',
+          module_name='orbax.checkpoint.v0._src.handlers.foo_handler',
+          expected='orbax.checkpoint._src.handlers.foo_handler',
+      ),
+      dict(
+          testcase_name='relocated_v0_top_level',
+          module_name='orbax.checkpoint.v0.handlers',
+          expected='orbax.checkpoint.handlers',
+      ),
+      dict(
+          testcase_name='legacy_src',
+          module_name='orbax.checkpoint._src.handlers.foo_handler',
+          expected='orbax.checkpoint._src.handlers.foo_handler',
+      ),
+      dict(
+          testcase_name='v1',
+          module_name='orbax.checkpoint.experimental.v1._src.handlers.foo',
+          expected='orbax.checkpoint.experimental.v1._src.handlers.foo',
+      ),
+      dict(
+          testcase_name='non_orbax',
+          module_name='grain._src.python.checkpoint.handler',
+          expected='grain._src.python.checkpoint.handler',
+      ),
+  )
+  def test_legacy_module_name(self, module_name, expected):
+    self.assertEqual(
+        checkpoint_handler.legacy_module_name(module_name), expected
+    )
+
+  def test_relocated_v0_handler_writes_legacy_typestr(self):
+    class RelocatedHandler(checkpoint_handler.CheckpointHandler):
 
       def save(self, directory: epath.Path, *args, **kwargs):
         pass
@@ -145,15 +177,32 @@ class HandlerTypeRegistryTest(parameterized.TestCase):
       def restore(self, directory: epath.Path, *args, **kwargs):
         pass
 
-      @classmethod
-      def typestr(cls) -> str:
-        return 'orbax.checkpoint.v0._src.handlers.V0TestHandler'
+    RelocatedHandler.__module__ = 'orbax.checkpoint.v0._src.handlers.foo'
+    legacy_typestr = (
+        'orbax.checkpoint._src.handlers.foo.'
+        f'{RelocatedHandler.__qualname__}'
+    )
+    self.assertEqual(RelocatedHandler.typestr(), legacy_typestr)
 
     registry = HandlerTypeRegistry()
-    registry.add(V0TestHandler)
+    registry.add(RelocatedHandler)
+    self.assertEqual(registry.get(legacy_typestr), RelocatedHandler)
+
+  def test_relocated_v0_handler_without_typestr_uses_legacy_typestr(self):
+    class RelocatedNoTypestrHandler:
+      pass
+
+    RelocatedNoTypestrHandler.__module__ = (
+        'orbax.checkpoint.v0._src.handlers.foo'
+    )
+    registry = HandlerTypeRegistry()
+    registry.add(RelocatedNoTypestrHandler)
     self.assertEqual(
-        registry.get('orbax.checkpoint._src.handlers.V0TestHandler'),
-        V0TestHandler,
+        registry.get(
+            'orbax.checkpoint._src.handlers.foo.'
+            f'{RelocatedNoTypestrHandler.__qualname__}'
+        ),
+        RelocatedNoTypestrHandler,
     )
 
   def test_register_duplicate_handler_type(self):
