@@ -110,6 +110,23 @@ class ReplicatorLocalCheckpointEngineTest(parameterized.TestCase):
     self.assertEqual(mock_handler.call_args.kwargs['save_concurrent_gb'], 7)
     self.assertEqual(mock_handler.call_args.kwargs['restore_concurrent_gb'], 9)
 
+  def test_local_checkpoint_handler_disables_compression(self):
+    multiprocessing_options = (
+        replicator_checkpoint_manager.checkpoint_manager.MultiprocessingOptions(
+            primary_host=None
+        )
+    )
+
+    with mock.patch.object(
+        replicator_checkpoint_manager, 'PyTreeCheckpointHandler'
+    ) as mock_handler:
+      replicator_checkpoint_manager._local_checkpoint_handler(
+          multiprocessing_options
+      )
+
+    mock_handler.assert_called_once()
+    self.assertFalse(mock_handler.call_args.kwargs['use_compression'])
+
   def test_sidecar_restore_uses_placement_plan_skips_result_mesh_remap(self):
     engine = object.__new__(_ReplicatorLocalCheckpointEngine)
     engine._impl = mock.Mock()
@@ -460,6 +477,48 @@ class ReplicatorCheckpointManagerTest(
     manager.wait_until_finished()
     self.assert_process_metadata_files_exist(0, global_mesh)
 
+    restored = manager.restore(
+        0, args=get_composite_restore_args(restore_args=restore_args)
+    )
+
+    test_utils.assert_tree_equal(self, pytree, restored.state)
+
+  def test_restore_checkpoint_saved_with_compression(self):
+    global_mesh = self.make_global_mesh()
+    pytree, restore_args = self.setup_pytree(global_mesh)
+    options = ReplicatorCheckpointManagerOptions(
+        save_interval_steps=1,
+    )
+    handler_kwargs = []
+
+    def compressing_handler(*args, **kwargs):
+      kwargs['use_compression'] = True
+      handler_kwargs.append(kwargs)
+      return PyTreeCheckpointHandler(*args, **kwargs)
+
+    # Stands in for a checkpoint written before compression was turned off.
+    with mock.patch.object(
+        replicator_checkpoint_manager,
+        'PyTreeCheckpointHandler',
+        compressing_handler,
+    ):
+      compressing_manager = ReplicatorCheckpointManager(
+          self.local_directory,
+          options=options,
+          global_mesh=global_mesh,
+      )
+    self.assertLen(handler_kwargs, 1)
+    compressing_manager.save(
+        0,
+        args=get_composite_save_args(pytree),
+    )
+    compressing_manager.wait_until_finished()
+
+    manager = ReplicatorCheckpointManager(
+        self.local_directory,
+        options=options,
+        global_mesh=global_mesh,
+    )
     restored = manager.restore(
         0, args=get_composite_restore_args(restore_args=restore_args)
     )
