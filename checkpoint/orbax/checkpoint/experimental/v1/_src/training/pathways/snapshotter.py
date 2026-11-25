@@ -103,12 +103,17 @@ class Snapshotter:
         self._queue.task_done()
 
   def _to_snapshot_state(
-      self, state: tree_types.PyTree
+      self,
+      state: tree_types.PyTree,
+      *,
+      may_alias: bool = False,
   ) -> list[tree_types.PyTree]:
     """Converts a PyTree into a list of replica PyTrees in pinned host memory.
 
     Args:
       state: The PyTree to be converted and split.
+      may_alias: If True, array leaves already in ``pinned_host`` memory may be
+        aliased instead of copied.
 
     Returns:
       A list of PyTrees where each PyTree represents a single replica of
@@ -126,7 +131,9 @@ class Snapshotter:
         mesh_axis_name = x.sharding.mesh.axis_names[self.replica_axis_index]
         data = _unwrap_if_prng_key(x)
         pinned = jax.device_put(
-            data, data.sharding.with_memory_kind("pinned_host"), may_alias=False
+            data,
+            data.sharding.with_memory_kind("pinned_host"),
+            may_alias=may_alias,
         )
         replicas = self._split_by_mesh_axis.split_by_mesh_axis(
             pinned,
@@ -155,7 +162,13 @@ class Snapshotter:
 
     return replica_trees
 
-  def save(self, step: int, state: tree_types.PyTree) -> None:
+  def save(
+      self,
+      step: int,
+      state: tree_types.PyTree,
+      *,
+      may_alias: bool = False,
+  ) -> None:
     """Backs up JAX array states to pinned host memory, asynchronously.
 
     If previous snapshotting requests are still in progress, this request may
@@ -168,12 +181,16 @@ class Snapshotter:
     Args:
       step: The training step number associated with the state.
       state: The PyTree to be saved.
+      may_alias: If True, array leaves already in ``pinned_host`` memory may be
+        aliased instead of copied. Defaults to False so subsequent mutations or
+        donations of host-offloaded arrays do not corrupt the snapshot. Set to
+        True only when passing immutable ``pinned_host`` buffers.
     """
     if self._queue.full():
       logging.warning("Snapshotter busy. Skipping snapshot for step %d", step)
       return
 
-    pinned_state = self._to_snapshot_state(state)
+    pinned_state = self._to_snapshot_state(state, may_alias=may_alias)
 
     self._queue.put((pinned_state, step))
 
