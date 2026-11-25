@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now
   raises `ValueError` for every `jax.Array`. Small `pinned_host` arrays
   previously fell back to single-replica saving.
+- Minimum `protobuf` dependency is now `>= 6.33.5`, required by generated
+  code from edition-2024 `checkpoint_operation.proto`.
 
 ### Fixed
 
