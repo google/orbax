@@ -3786,7 +3786,6 @@ class CheckpointManagerTest(
     options = CheckpointManagerOptions(
         save_interval_steps=2,
         enable_async_checkpointing=False,
-        check_storage_locality=False,
     )
     with CheckpointManager(directory, options=options) as run_a:
       for step in (2, 4, 6):
