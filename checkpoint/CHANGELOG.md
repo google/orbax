@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- #v1 Export `MemoryProfiler`, `SerializationStatusCallback`, and
+  `TransferPriority` in `orbax.checkpoint.v1.options`.
+
 ### Changed
 
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now

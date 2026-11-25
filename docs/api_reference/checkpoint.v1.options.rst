@@ -51,6 +51,21 @@ MemoryOptions
 .. autoclass:: MemoryOptions
   :members:
 
+MemoryProfiler
+------------------------------------------------------------
+.. autoclass:: MemoryProfiler
+  :members:
+
+TransferPriority
+------------------------------------------------------------
+.. autoclass:: TransferPriority
+  :members:
+
+SerializationStatusCallback
+------------------------------------------------------------
+.. autoclass:: SerializationStatusCallback
+  :members:
+
 SafetensorsOptions
 ------------------------------------------------------------
 .. autoclass:: SafetensorsOptions
