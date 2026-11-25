@@ -17,10 +17,46 @@
 from __future__ import annotations
 
 import abc
+import asyncio
+import concurrent.futures
+import enum
 import logging
 import os
 import threading
+import time
 from typing import Any
+
+from orbax.checkpoint.proto import checkpoint_operation_pb2
+
+OperationType = checkpoint_operation_pb2.CheckpointOperation.OperationType
+OperationStatus = checkpoint_operation_pb2.CheckpointOperation.Status
+
+
+class OperationEvent(enum.Enum):
+  """Lifecycle event for a checkpoint operation."""
+
+  BEGIN = 'begin'
+  END = 'end'
+
+
+def status_from_error(error: BaseException | str | None) -> OperationStatus:
+  """Returns the failure status corresponding to an error.
+
+  Args:
+    error: Exception, error string, or None.
+
+  Returns:
+    STATUS_CANCELLED for CancelledError, STATUS_TIMED_OUT for TimeoutError,
+    otherwise STATUS_FAILURE.
+  """
+  if isinstance(
+      error, (asyncio.CancelledError, concurrent.futures.CancelledError)
+  ):
+    return OperationStatus.STATUS_CANCELLED
+  if isinstance(error, TimeoutError):
+    return OperationStatus.STATUS_TIMED_OUT
+  return OperationStatus.STATUS_FAILURE
+
 
 _DEFAULT_PROMETHEUS_PORT = 9431
 
@@ -46,6 +82,25 @@ class MetricRecorder(abc.ABC):
   ) -> None:
     """Records an event duration in seconds with optional metadata."""
     pass
+
+  def record_operation(
+      self,
+      event: OperationEvent,
+      operation_id: str,
+      operation_type: OperationType,
+      timestamp: float,
+      **kwargs: Any,
+  ) -> None:
+    """Records an operation lifecycle event (BEGIN or END).
+
+    Args:
+      event: Lifecycle event (`OperationEvent.BEGIN` or `OperationEvent.END`).
+      operation_id: Unique identifier for the operation.
+      operation_type: Checkpoint OperationType enum value.
+      timestamp: Event timestamp in epoch seconds.
+      **kwargs: Additional operation metadata.
+    """
+    del event, operation_id, operation_type, timestamp, kwargs
 
 
 _recorders: list[MetricRecorder] = []  # Protected by _init_lock
@@ -95,8 +150,43 @@ def initialize(recorder: MetricRecorder) -> None:
     logging.info('Installed JAX monitoring proxy listeners for Orbax.')
 
 
+def record_operation(
+    event: OperationEvent,
+    operation_id: str,
+    operation_type: OperationType,
+    timestamp: float | None = None,
+    **kwargs: Any,
+) -> None:
+  """Forwards an operation BEGIN or END event to registered recorders.
+
+  Args:
+    event: Lifecycle event (`OperationEvent.BEGIN` or `OperationEvent.END`).
+    operation_id: Unique identifier for the operation.
+    operation_type: Checkpoint OperationType enum value.
+    timestamp: Event timestamp in seconds, or None for current time.
+    **kwargs: Additional metadata forwarded to registered recorders.
+  """
+  # Kept out of jax.monitoring fields to keep metric cardinality bounded.
+  event_timestamp = time.time() if timestamp is None else timestamp
+  with _init_lock:
+    recorders_snapshot = _recorders[:]
+  for recorder in recorders_snapshot:
+    try:
+      recorder.record_operation(
+          event, operation_id, operation_type, event_timestamp, **kwargs
+      )
+    except Exception:  # pylint: disable=broad-exception-caught
+      logging.warning(
+          'Recorder %s failed to record operation %s (%s).',
+          type(recorder).__name__,
+          operation_id,
+          event,
+          exc_info=True,
+      )
+
+
 def initialize_from_env() -> None:
-  """Initializes monitoring based on environment and build type."""
+  """Initializes monitoring based on environment variables."""
 
   enable_telemetry = os.environ.get(
       'ENABLE_ORBAX_PROMETHEUS_TELEMETRY', 'false'
