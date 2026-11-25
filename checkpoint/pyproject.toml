@@ -1,6 +1,7 @@
 [build-system]
-requires = ["flit_core >=3.5,<4"]
-build-backend = "flit_core.buildapi"
+requires = ["flit_core >=3.5,<4", "grpcio-tools >=1.81.0,<1.82"]
+build-backend = "_build_proto"
+backend-path = ["."]
 
 [project]
 name = "orbax-checkpoint"
@@ -32,7 +33,7 @@ dependencies = [
     'pyyaml',
     'tensorstore >= 0.1.84',
     'aiofiles',
-    'protobuf',
+    'protobuf >= 6.33.5',
     'humanize',
     'simplejson >= 3.16.0',
     'psutil',
@@ -80,7 +81,7 @@ tiering_service = [
     'aiosqlite',
     'fire',
     'greenlet',
-    'grpcio-tools>=1.80.0',
+    'grpcio-tools>=1.81.0',
     'httpx',
     'pysqlite3',
     'pytimeparse',
@@ -95,4 +96,8 @@ exclude = [
   "**/*_test.py",
   '**/BUILD',
 
+]
+# The build backend must ship in the sdist to build wheels from it.
+include = [
+  "_build_proto.py",
 ]
