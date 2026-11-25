@@ -15,9 +15,12 @@
 """Provides helper async functions."""
 
 import asyncio
+from collections.abc import AsyncGenerator, Awaitable, Iterable, Sequence, Sized
 from concurrent import futures
+import inspect
+import itertools
 import threading
-from typing import Any, Coroutine, TypeVar
+from typing import Any, Coroutine, Literal, TypeVar, overload
 
 from absl import logging
 
@@ -284,3 +287,197 @@ class AsyncRunner:
       # Only signal the event loop to stop, but do not wait for it to exit.
       self._loop.call_soon_threadsafe(self._loop.stop)
     logging.info('AsyncRunner: Stopped.')
+
+
+@overload
+def gather_batches(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    batch_size: int = 16,
+    return_exceptions: Literal[False] = False,
+) -> AsyncGenerator[list[_T], None]:
+  ...
+
+
+@overload
+def gather_batches(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    batch_size: int = 16,
+    return_exceptions: Literal[True],
+) -> AsyncGenerator[list[_T | BaseException], None]:
+  ...
+
+
+@overload
+def gather_batches(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    batch_size: int = 16,
+    return_exceptions: bool,
+) -> AsyncGenerator[list[_T | BaseException], None]:
+  ...
+
+
+async def gather_batches(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    batch_size: int = 16,
+    return_exceptions: bool = False,
+) -> AsyncGenerator[list[Any], None]:
+  """Yields `asyncio.gather` results in lazy batches so callers can short-circuit.
+
+  Example::
+
+    checks = (async_path.exists(p / '.zarray') for p in subdirs)
+    async for batch in asyncio_utils.gather_batches(checks, batch_size=32):
+      if any(batch):
+        return True
+    return False
+
+  Args:
+    awaitables: An iterable of awaitables. Pass a generator expression rather
+      than a materialized list when breaking early so remaining coroutines are
+      never instantiated.
+    batch_size: Maximum number of awaitables dispatched concurrently per batch.
+    return_exceptions: If True, exceptions are returned in the batch result list
+      instead of being raised.
+
+  Yields:
+    A list of results for each batch, in input order.
+
+  Raises:
+    ValueError: If `batch_size` is not positive.
+  """
+  if batch_size <= 0:
+    raise ValueError(f'batch_size must be positive, got {batch_size}')
+
+  it = iter(awaitables)
+  try:
+    while batch := list(itertools.islice(it, batch_size)):
+      tasks: list[asyncio.Future[Any]] = []
+      try:
+        for aw in batch:
+          tasks.append(asyncio.ensure_future(aw))
+      except BaseException:
+        for t in tasks:
+          if not t.done():
+            t.cancel()
+        if tasks:
+          await asyncio.gather(*tasks, return_exceptions=True)
+        for aw in batch[len(tasks) :]:
+          if inspect.iscoroutine(aw):
+            aw.close()
+        raise
+      try:
+        batch_results = await asyncio.gather(
+            *tasks, return_exceptions=return_exceptions
+        )
+      except BaseException:
+        for t in tasks:
+          if not t.done():
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+      yield list(batch_results)
+  finally:
+    if isinstance(awaitables, Sequence):
+      for aw in it:
+        if inspect.iscoroutine(aw):
+          aw.close()
+
+
+@overload
+async def gather_bounded(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    max_concurrency: int = 16,
+    return_exceptions: Literal[False] = False,
+) -> list[_T]:
+  ...
+
+
+@overload
+async def gather_bounded(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    max_concurrency: int = 16,
+    return_exceptions: Literal[True],
+) -> list[_T | BaseException]:
+  ...
+
+
+@overload
+async def gather_bounded(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    max_concurrency: int = 16,
+    return_exceptions: bool,
+) -> list[_T | BaseException]:
+  ...
+
+
+async def gather_bounded(
+    awaitables: Iterable[Awaitable[_T]],
+    *,
+    max_concurrency: int = 16,
+    return_exceptions: bool = False,
+) -> list[Any]:
+  """Runs `awaitables` with at most `max_concurrency` in flight, preserving order.
+
+  Example::
+
+    results = await asyncio_utils.gather_bounded(
+        (handler.metadata(path / name) for name in names),
+        max_concurrency=16,
+    )
+
+  Args:
+    awaitables: An iterable of awaitables (prefer a generator expression so
+      coroutines are created lazily as worker slots become available).
+    max_concurrency: Maximum number of awaitables executing concurrently.
+    return_exceptions: If True, `Exception` instances are returned in their
+      corresponding result positions instead of aborting.
+
+  Returns:
+    Results aligned positionally with `awaitables`.
+
+  Raises:
+    ValueError: If `max_concurrency` is not positive.
+  """
+  if max_concurrency <= 0:
+    raise ValueError(f'max_concurrency must be positive, got {max_concurrency}')
+  if isinstance(awaitables, Sized):
+    if not awaitables:
+      return []
+    num_workers = min(max_concurrency, len(awaitables))
+  else:
+    num_workers = max_concurrency
+
+  it = enumerate(awaitables)
+  results: dict[int, Any] = {}
+
+  async def _worker() -> None:
+    for idx, aw in it:
+      try:
+        results[idx] = await aw
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        if not return_exceptions:
+          raise
+        results[idx] = e
+
+  workers = [asyncio.create_task(_worker()) for _ in range(num_workers)]
+  try:
+    await asyncio.gather(*workers)
+  except BaseException:
+    for w in workers:
+      if not w.done():
+        w.cancel()
+    await asyncio.gather(*workers, return_exceptions=True)
+    raise
+  finally:
+    if isinstance(awaitables, Sequence):
+      for _, aw in it:
+        if inspect.iscoroutine(aw):
+          aw.close()
+  return [results[i] for i in range(len(results))]
