@@ -63,7 +63,7 @@ class SaveContext:
       blocking save began. Used as the start of the blocking and total save
       duration envelopes.
     start_sync_duration_secs: Time already spent by the caller in start-of-save
-      barriers. Added to the `Checkpointer:save_start` barrier time and
+      barriers. Added to the checkpointer's own start-of-save barrier times and
       recorded as a single `checkpoint_start_sync_duration_secs` event.
     wait_prev_duration_secs: Time already spent by the caller waiting for the
       previous save to finish. Added to the checkpointer's own wait time and
@@ -264,19 +264,10 @@ class Checkpointer(
         ),
         processes=self._active_processes,
     )
+    self.synchronize_next_awaitable_signal_operation_id()
     start_sync_duration_secs = time.time() - start_sync_start_time
     if save_context is not None:
       start_sync_duration_secs += save_context.start_sync_duration_secs
-      # The synchronous Checkpointer has no previous save to wait for, so only
-      # the caller's wait time is recorded.
-      jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/blocking_wait_prev_duration_secs',
-          save_context.wait_prev_duration_secs,
-      )
-    jax.monitoring.record_event_duration_secs(
-        '/jax/orbax/write/checkpoint_start_sync_duration_secs',
-        start_sync_duration_secs,
-    )
     directory = epath.Path(directory)
     operation_recorder = event_tracking.OperationRecorder(
         directory,
@@ -285,71 +276,87 @@ class Checkpointer(
         primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(checkpoint_start_time)
-    self.synchronize_next_awaitable_signal_operation_id()
-
-    if directory.exists():
-      if force:
-        if multihost.is_primary_host(self._primary_host):
-          logging.info('Specified `force`: removing existing directory.')
-          # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
-          # StorageBackend.
-          if gcs_utils.is_gcs_path(directory):
-            gcs_utils.rmtree(directory)
-          else:
-            directory.rmtree()  # Post-sync handled by create_tmp_directory.
-      else:
-        raise ValueError(f'Destination {directory} already exists.')
-    ckpt_args = construct_checkpoint_args(self._handler, True, *args, **kwargs)
-    tmpdir = self.get_temporary_path(directory)
-    # tmpdir creation also does an initial StepMetadata save.
-    asyncio_utils.run_sync(self.create_temporary_path(tmpdir))
-    self._handler.save(tmpdir.get(), args=ckpt_args)
-    if multihost.is_primary_host(self._primary_host):
-      # Update StepMetadata after the handler save is complete. (blocking write)
-      self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:save',
-            prefix=self._barrier_sync_key_prefix,
-        ),
-        processes=self._active_processes,
-    )
-    blocking_end_time = time.time()
-    blocking_duration_secs = blocking_end_time - checkpoint_start_time
-    operation_recorder.record_blocking_completion(
-        blocking_duration_secs,
-        blocking_end_time,
-    )
-
-    # Ensure save operation atomicity and record time saved by checkpoint.
-    if multihost.is_primary_host(self._primary_host):
-      finalize_start_time = time.time()
-      # finalize does a final StepMetadata update.
-      self._handler.finalize(tmpdir.get())
-      asyncio_utils.run_sync(
-          atomicity.on_commit_callback(
-              tmpdir,
-              checkpoint_start_time=checkpoint_start_time,
-          )
-      )
+    try:
+      if save_context is not None:
+        # The synchronous Checkpointer has no previous save to wait for, so only
+        # the caller's wait time is recorded.
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/blocking_wait_prev_duration_secs',
+            save_context.wait_prev_duration_secs,
+        )
       jax.monitoring.record_event_duration_secs(
-          '/jax/orbax/write/finalize_duration_secs',
-          time.time() - finalize_start_time,
+          '/jax/orbax/write/checkpoint_start_sync_duration_secs',
+          start_sync_duration_secs,
       )
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:finalize',
-            prefix=self._barrier_sync_key_prefix,
-            # suffix=directory.name,
-        ),
-        processes=self._active_processes,
-    )
-    operation_recorder.record_completion(time.time() - checkpoint_start_time)
+      if directory.exists():
+        if force:
+          if multihost.is_primary_host(self._primary_host):
+            logging.info('Specified `force`: removing existing directory.')
+            # TODO(b/493110683): Cleanup with refactoring of HNS GCS logic into
+            # StorageBackend.
+            if gcs_utils.is_gcs_path(directory):
+              gcs_utils.rmtree(directory)
+            else:
+              directory.rmtree()  # Post-sync handled by create_tmp_directory.
+        else:
+          raise ValueError(f'Destination {directory} already exists.')
+      ckpt_args = construct_checkpoint_args(
+          self._handler, True, *args, **kwargs
+      )
+      tmpdir = self.get_temporary_path(directory)
+      # tmpdir creation also does an initial StepMetadata save.
+      asyncio_utils.run_sync(self.create_temporary_path(tmpdir))
+      self._handler.save(tmpdir.get(), args=ckpt_args)
+      if multihost.is_primary_host(self._primary_host):
+        # Update StepMetadata after the handler save completes (blocking write).
+        self._save_step_metadata(tmpdir.get(), custom_metadata=custom_metadata)
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'Checkpointer:save',
+              prefix=self._barrier_sync_key_prefix,
+          ),
+          processes=self._active_processes,
+      )
+      blocking_end_time = time.time()
+      blocking_duration_secs = blocking_end_time - checkpoint_start_time
+      operation_recorder.record_blocking_completion(
+          blocking_duration_secs,
+          blocking_end_time,
+      )
+
+      # Ensure save operation atomicity and record time saved by checkpoint.
+      if multihost.is_primary_host(self._primary_host):
+        finalize_start_time = time.time()
+        # finalize does a final StepMetadata update.
+        self._handler.finalize(tmpdir.get())
+        asyncio_utils.run_sync(
+            atomicity.on_commit_callback(
+                tmpdir,
+                checkpoint_start_time=checkpoint_start_time,
+            )
+        )
+        jax.monitoring.record_event_duration_secs(
+            '/jax/orbax/write/finalize_duration_secs',
+            time.time() - finalize_start_time,
+        )
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'Checkpointer:finalize',
+              prefix=self._barrier_sync_key_prefix,
+              # suffix=directory.name,
+          ),
+          processes=self._active_processes,
+      )
+      operation_recorder.record_completion(time.time() - checkpoint_start_time)
+    except BaseException as e:
+      operation_recorder.record_failure(e)
+      raise
 
   def restore(self, directory: epath.PathLike, *args, **kwargs) -> Any:
     """See superclass documentation."""
     restore_start_time = time.time()
     directory = epath.Path(directory)
+    self.synchronize_next_awaitable_signal_operation_id()
     operation_recorder = event_tracking.OperationRecorder(
         directory,
         operation_type=event_tracking.OperationType.LOAD,
@@ -357,31 +364,37 @@ class Checkpointer(
         primary_host=self._primary_host,  # pyrefly: ignore[bad-argument-type]
     )
     operation_recorder.record_start(restore_start_time)
-    if not directory.exists():
-      raise FileNotFoundError(f'Checkpoint at {directory} not found.')
-    if not step_lib.is_path_finalized(
-        directory,
-        temporary_path_cls=self._temporary_path_class,
-        atomicity_options=self._atomicity_options,
-    ):
-      raise ValueError(f'Found incomplete checkpoint at {directory}.')
-    logging.info('Restoring checkpoint from %s.', directory)
-    ckpt_args = construct_checkpoint_args(self._handler, False, *args, **kwargs)
-    blocking_end_time = time.time()
-    operation_recorder.record_blocking_completion(
-        blocking_end_time - restore_start_time,
-        blocking_end_time,
-    )
-    restored = self._restore(directory, args=ckpt_args)
-    multihost.sync_global_processes(
-        multihost.unique_barrier_key(
-            'Checkpointer:restore',
-            prefix=self._barrier_sync_key_prefix,
-        ),
-        processes=self._active_processes,
-    )
-    operation_recorder.record_completion(time.time() - restore_start_time)
-    return restored
+    try:
+      if not directory.exists():
+        raise FileNotFoundError(f'Checkpoint at {directory} not found.')
+      if not step_lib.is_path_finalized(
+          directory,
+          temporary_path_cls=self._temporary_path_class,
+          atomicity_options=self._atomicity_options,
+      ):
+        raise ValueError(f'Found incomplete checkpoint at {directory}.')
+      logging.info('Restoring checkpoint from %s.', directory)
+      ckpt_args = construct_checkpoint_args(
+          self._handler, False, *args, **kwargs
+      )
+      blocking_end_time = time.time()
+      operation_recorder.record_blocking_completion(
+          blocking_end_time - restore_start_time,
+          blocking_end_time,
+      )
+      restored = self._restore(directory, args=ckpt_args)
+      multihost.sync_global_processes(
+          multihost.unique_barrier_key(
+              'Checkpointer:restore',
+              prefix=self._barrier_sync_key_prefix,
+          ),
+          processes=self._active_processes,
+      )
+      operation_recorder.record_completion(time.time() - restore_start_time)
+      return restored
+    except BaseException as e:
+      operation_recorder.record_failure(e)
+      raise
 
   def _restore(
       self, directory: epath.PathLike, args: checkpoint_args.CheckpointArgs
