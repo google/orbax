@@ -582,6 +582,53 @@ class BuildArrayTSpecForWriteTest(parameterized.TestCase):
           compression_spec=ts_utils.ZstdCompression(level=1),
       )
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='default',
+          compression_spec=None,
+          expected_algorithm='zstd',
+          expected_level=1,
+      ),
+      dict(
+          testcase_name='no_compression',
+          compression_spec=ts_utils.NoCompression(),
+          expected_algorithm='none',
+          expected_level=None,
+      ),
+      dict(
+          testcase_name='zstd_with_level',
+          compression_spec=ts_utils.ZstdCompression(level=5),
+          expected_algorithm='zstd',
+          expected_level=5,
+      ),
+      dict(
+          testcase_name='blosc',
+          compression_spec=ts_utils.BloscCompression(cname='lz4', clevel=3),
+          expected_algorithm='blosc_lz4',
+          expected_level=3,
+      ),
+  )
+  def test_build_array_write_spec_compression_spec(
+      self,
+      compression_spec: ts_utils.CompressionSpec | None,
+      expected_algorithm: str,
+      expected_level: int | None,
+  ):
+    info = serialization_types.ParamInfo(
+        name=self.param_name,
+        parent_dir=epath.Path(self.directory),
+        compression_spec=compression_spec,
+    )
+    spec = ts_utils.build_array_write_spec(
+        info,
+        global_shape=self.shape,
+        local_shape=self.write_shape,
+        dtype=self.dtype,
+        use_ocdbt=False,
+    )
+    self.assertEqual(spec.metadata.compression_algorithm, expected_algorithm)
+    self.assertEqual(spec.metadata.compression_level, expected_level)
+
   @parameterized.product(use_ocdbt=(True, False))
   def test_default_zarr_driver_version(self, use_ocdbt: bool):
     tspec = self.array_write_spec_constructor(
@@ -2343,6 +2390,64 @@ class ResolveCompressionSettingsTest(parameterized.TestCase):
     self.assertEqual(
         ts_utils.resolve_compression_settings(metadatas), ('mixed', 'mixed')
     )
+
+
+class ResolveCompressionSpecTest(parameterized.TestCase):
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='defaults_to_zstd',
+          compression_spec=None,
+          use_compression=None,
+          expected=ts_utils.ZstdCompression(),
+      ),
+      dict(
+          testcase_name='use_compression_true',
+          compression_spec=None,
+          use_compression=True,
+          expected=ts_utils.ZstdCompression(),
+      ),
+      dict(
+          testcase_name='use_compression_false',
+          compression_spec=None,
+          use_compression=False,
+          expected=ts_utils.NoCompression(),
+      ),
+      dict(
+          testcase_name='explicit_no_compression',
+          compression_spec=ts_utils.NoCompression(),
+          use_compression=None,
+          expected=ts_utils.NoCompression(),
+      ),
+      dict(
+          testcase_name='explicit_zstd_with_level',
+          compression_spec=ts_utils.ZstdCompression(level=5),
+          use_compression=None,
+          expected=ts_utils.ZstdCompression(level=5),
+      ),
+  )
+  def test_resolves_spec(
+      self,
+      compression_spec: ts_utils.CompressionSpec | None,
+      use_compression: bool | None,
+      expected: ts_utils.CompressionSpec,
+  ):
+    self.assertEqual(
+        serialization_types.resolve_compression_spec(
+            compression_spec=compression_spec,
+            use_compression=use_compression,
+        ),
+        expected,
+    )
+
+  def test_rejects_both_arguments(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression_spec'
+    ):
+      serialization_types.resolve_compression_spec(
+          compression_spec=ts_utils.ZstdCompression(),
+          use_compression=False,
+      )
 
 
 if __name__ == '__main__':
