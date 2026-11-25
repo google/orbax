@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Mapping
 import dataclasses
-from typing import Any, List, Mapping, Optional, Tuple, Union
+from typing import Any
 
 from etils import epath
 import jax
@@ -33,7 +34,7 @@ from orbax.checkpoint._src.handlers import json_checkpoint_handler
 from orbax.checkpoint._src.handlers import pytree_checkpoint_handler
 from orbax.checkpoint._src.serialization import type_handlers
 
-NumpyRandomKeyType = Union[tuple, dict]
+NumpyRandomKeyType = tuple | dict
 
 ArrayRestoreArgs = array_checkpoint_handler.ArrayRestoreArgs
 ArraySaveArgs = array_checkpoint_handler.ArraySaveArgs
@@ -75,7 +76,7 @@ class BaseRandomKeyCheckpointHandler(
   @abc.abstractmethod
   def checkpoint_save_args(
       self, args: CheckpointArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
+  ) -> tuple[CheckpointArgs, JsonSaveArgs]:
     """Return the `args` for saving item and metadata.
 
     Args:
@@ -112,7 +113,7 @@ class BaseRandomKeyCheckpointHandler(
       self,
       directory: epath.Path,
       args: CheckpointArgs,
-  ) -> Optional[List[future.Future]]:
+  ) -> list[future.Future] | None:
     """Saves a random key asynchronously.
 
     Args:
@@ -179,7 +180,7 @@ class BaseRandomKeyCheckpointHandler(
 class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
   """Handles saving and restoring individual Jax random key in both typed and untyped format."""
 
-  def __init__(self, key_name: Optional[str] = None):
+  def __init__(self, key_name: str | None = None):
     """Initializes the handler.
 
     Args:
@@ -190,14 +191,15 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
 
   def checkpoint_save_args(  # pyrefly: ignore[bad-override]
       self, args: JaxRandomKeySaveArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
+  ) -> tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
     save_args = args.save_args
 
     if isinstance(item, jax.Array):
-      if is_typed := jax.dtypes.issubdtype(item.dtype, jax.dtypes.prng_key):
-        item = jax.random.key_data(item)
+      is_typed = jax.dtypes.issubdtype(item.dtype, jax.dtypes.prng_key)
       metadata = {'typed': is_typed}
+      if is_typed:
+        metadata['impl'] = str(jax.random.key_impl(item))
     else:
       raise TypeError(f'Unsupported type: {type(item)}.')
 
@@ -213,7 +215,7 @@ class JaxRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
 
   def post_restore(self, item: Any, metadata: Mapping[Any, Any]) -> Any:
     if metadata['typed']:
-      return jax.random.wrap_key_data(item)
+      return jax.random.wrap_key_data(item, impl=metadata.get('impl'))
     else:
       return item
 
@@ -229,7 +231,7 @@ class JaxRandomKeySaveArgs(CheckpointArgs):
   """
 
   item: jax.Array
-  save_args: Optional[type_handlers.SaveArgs] = None
+  save_args: type_handlers.SaveArgs | None = None
 
 
 @register_with_handler(JaxRandomKeyCheckpointHandler, for_restore=True)
@@ -242,13 +244,13 @@ class JaxRandomKeyRestoreArgs(CheckpointArgs):
       JaxArray.
   """
 
-  restore_args: Optional[type_handlers.RestoreArgs] = None
+  restore_args: type_handlers.RestoreArgs | None = None
 
 
 class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
   """Saves Nnumpy random key in legacy or non-lagacy format."""
 
-  def __init__(self, key_name: Optional[str] = None):
+  def __init__(self, key_name: str | None = None):
     """Initializes NumpyRandomKeyCheckpointHandler.
 
     Args:
@@ -259,7 +261,7 @@ class NumpyRandomKeyCheckpointHandler(BaseRandomKeyCheckpointHandler):
 
   def checkpoint_save_args(  # pyrefly: ignore[bad-override]
       self, args: NumpyRandomKeySaveArgs
-  ) -> Tuple[CheckpointArgs, JsonSaveArgs]:
+  ) -> tuple[CheckpointArgs, JsonSaveArgs]:
     item = args.item
 
     if isinstance(item, tuple):
