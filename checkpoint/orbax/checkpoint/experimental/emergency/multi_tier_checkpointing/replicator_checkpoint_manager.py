@@ -149,6 +149,9 @@ def _local_checkpoint_handler(
   pytree_handler = PyTreeCheckpointHandler(
       use_ocdbt=True,
       use_zarr3=True,
+      # Compressing in the background uses host CPU that training needs, and
+      # slows the steps that follow a save.
+      use_compression=False,
       multiprocessing_options=multiprocessing_options,
       type_handler_registry=local_registry,
       save_concurrent_gb=save_concurrent_gb,
