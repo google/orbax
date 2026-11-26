@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - #v1 Export `MemoryProfiler`, `SerializationStatusCallback`, and
   `TransferPriority` in `orbax.checkpoint.v1.options`.
+- #v1 Add `may_alias` to `v1.training.pathways.Snapshotter.save()` to allow
+  aliasing inputs already in `pinned_host` memory instead of copying them.
 
 ### Changed
 
