@@ -50,11 +50,12 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
     super().setUp()
     self.root_dir = self.create_tempdir('p2p_root')
 
-  def initial_state(self, mesh):
+  def initial_state(self, mesh, sharding=None):
     jax_processes = jax.process_count()
     self.assertEqual(jax_processes, 2)
 
-    sharding = jax.sharding.NamedSharding(mesh, P('partition'))
+    if sharding is None:
+      sharding = jax.sharding.NamedSharding(mesh, P('partition'))
 
     global_shape = (jax_processes * 2, 256)
     train_state = {
@@ -115,7 +116,7 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
     device_array = np.array(jax.devices()).reshape((2, jax.device_count() // 2))
     mesh = Mesh(device_array, axis_names=('replica', 'partition'))
     state, abstract_state = self.initial_state(mesh)
-    expected = jax.tree.map(lambda x: x + 0, state)
+    expected, _ = self.initial_state(mesh)
     process_id = jax.process_index()
     local_dir = self.root_dir.full_path + '/' + str(process_id)
     persistent_dir = epath.Path(self.root_dir.full_path) / 'persistent'
@@ -176,7 +177,7 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
     device_array = np.array(jax.devices()).reshape((2, jax.device_count() // 2))
     mesh = Mesh(device_array, axis_names=('replica', 'partition'))
     state, abstract_state = self.initial_state(mesh)
-    expected = jax.tree.map(lambda x: x + 0, state)
+    expected, _ = self.initial_state(mesh)
     local_dir = self.root_dir.full_path + '/' + str(jax.process_index())
     options = options_lib.CheckpointManagerOptions(
         local=options_lib.LocalCheckpointOptions(save_interval_steps=1),
@@ -529,9 +530,7 @@ class P2PCheckpointManagerMultiprocessTest(multiprocess_test.MultiProcessTest):
           1, args=explicit_struct_args
       )
       self.assertIsNotNone(restored_composite_explicit)
-      expected = jax.tree.map(
-          lambda x: jax.device_put(x, sharding_restore), state
-      )
+      expected, _ = self.initial_state(mesh, sharding=sharding_restore)
       test_utils.assert_tree_equal(
           self, restored_composite_explicit.state, expected
       )

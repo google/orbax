@@ -51,7 +51,7 @@ def make_multi_device_array(shape, partitioned, pinned_host=False):
   if pinned_host:
     sharding = sharding.with_memory_kind('pinned_host')
 
-  x = jax.random.normal(jax.random.PRNGKey(0), shape)
+  x = np.random.default_rng(0).standard_normal(shape, dtype=np.float32)
   data = jax.device_put(x, sharding)
 
   return data, num_partitions, num_replicas
