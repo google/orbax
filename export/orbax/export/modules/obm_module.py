@@ -17,6 +17,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import copy
 import dataclasses
+import itertools
 import logging
 from typing import Any, Optional, Union
 import warnings
@@ -131,6 +132,32 @@ def _normalize_polymorphic_constraints(
   )
 
 
+def _union_platforms(
+    platforms_per_method: Sequence[Sequence[str] | None],
+) -> list[str] | None:
+  """Returns the union of the methods' platforms, in order of first appearance.
+
+  Args:
+    platforms_per_method: The native serialization platforms of each method.
+
+  Returns:
+    The union of the platforms, or None if no method has platforms.
+
+  Raises:
+    ValueError: If only some methods have platforms, since the others would be
+      lowered for the default platform.
+  """
+  set_platforms = [p for p in platforms_per_method if p is not None]
+  if not set_platforms:
+    return None
+  if len(set_platforms) < len(platforms_per_method):
+    raise ValueError(
+        '`native_serialization_platforms` must be set for all the methods or'
+        ' none of them.'
+    )
+  return list(dict.fromkeys(itertools.chain.from_iterable(set_platforms)))
+
+
 class ObmModule(orbax_module_base.OrbaxModuleBase):
   """Container for serializing a Jax model via the Orbax Model export flow."""
 
@@ -176,8 +203,10 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
       jax2obm_options: Options for jax2obm conversion. If `apply_fn` is a
         mapping, this can also be a mapping from method keys to
         `Jax2ObmOptions`. When it is a mapping, all options must be shared
-        across different apply functions, except for `enable_auto_layout` and
-        `native_serialization_disabled_checks`.
+        across different apply functions, except for `enable_auto_layout`,
+        `native_serialization_disabled_checks` and
+        `native_serialization_platforms`. Each method is lowered for its own
+        platforms, and gets the XLA compile options of those platforms.
       jax2obm_kwargs: DEPRECATED. Use `jax2obm_options` instead. A dictionary of
         kwargs to pass to the jax2obm conversion library. Accepted arguments to
         jax2obm_kwargs are 'native_serialization_platforms', 'weights_name',
@@ -240,12 +269,11 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
         constants.JAX_MESH,
     )
     self.polymorphic_constraints = self._maybe_set_polymorphic_constraints()
-    self._native_serialization_platforms = utils.get_lowering_platforms(
-        _get_shared_value(
-            self._jax2obm_options,
-            self._apply_fn_keys,
-            constants.NATIVE_SERIALIZATION_PLATFORMS,
-        )
+    self._native_serialization_platforms_by_method = (
+        self._get_native_serialization_platforms_by_method()
+    )
+    self._native_serialization_platforms = _union_platforms(
+        list(self._native_serialization_platforms_by_method.values())
     )
     xla_flags_per_platform = _get_shared_value(
         self._jax2obm_options,
@@ -428,6 +456,21 @@ class ObmModule(orbax_module_base.OrbaxModuleBase):
     return _normalize_polymorphic_constraints(
         constraints, list(self._apply_fn_map.keys())
     )
+
+  def _get_native_serialization_platforms_by_method(
+      self,
+  ) -> Mapping[str, Sequence[str] | None]:
+    """Returns the native serialization platforms of each method."""
+    if isinstance(self._jax2obm_options, Mapping):
+      options = self._jax2obm_options
+    else:
+      options = {key: self._jax2obm_options for key in self._apply_fn_map}
+    return {
+        key: utils.get_lowering_platforms(
+            options[key].native_serialization_platforms
+        )
+        for key in self._apply_fn_map
+    }
 
   def export_module(  # pyrefly: ignore[bad-override]
       self,
