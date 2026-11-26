@@ -31,6 +31,7 @@ limitations under the License.
 #include "third_party/absl/flags/flag.h"
 #include "third_party/absl/log/check.h"
 #include "third_party/absl/status/status.h"
+#include "third_party/absl/status/statusor.h"
 #include "third_party/absl/strings/match.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/string_view.h"
@@ -74,6 +75,32 @@ ABSL_FLAG(bool, experimental_remove_all_chained_casts_for_obm, false,
 
 namespace tensorflow {
 namespace orbax {
+namespace {
+
+constexpr absl::string_view kTracedSaveSubstring = "traced_save";
+constexpr absl::string_view kTracedRestoreSubstring = "traced_restore";
+
+// Returns true if `function_info` should be checked against the TPU XLA
+// filterlist.
+bool UsesTpuFilterlist(const FunctionInfo& function_info,
+                       const ConverterOptions& options) {
+  if (function_info.ExecutesOnTpu()) return true;
+  if (options.bfloat16_scope() != ::orbax::BFloat16Scope::ALL ||
+      function_info.IsRoot()) {
+    return false;
+  }
+  // In ALL mode, root's inference call subtrees run on TPU via TF2XLA even
+  // when called through StatefulPartitionedCall or PartitionedCall.
+  const FunctionInfo* top_level = &function_info;
+  while (!top_level->parent()->IsRoot()) {
+    top_level = top_level->parent();
+  }
+  return IsStandardFunctionNode(top_level->node_in_parent_graph()) &&
+         !absl::StrContains(top_level->name(), kTracedSaveSubstring) &&
+         !absl::StrContains(top_level->name(), kTracedRestoreSubstring);
+}
+
+}  // namespace
 
 constexpr absl::string_view kXlaOutsideCompilationAttr =
     "_xla_outside_compilation";
@@ -150,6 +177,41 @@ absl::Status CastFloatTensor(Graph* g, Node* node, int src_output,
     g->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
   }
   return absl::OkStatus();
+}
+
+absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
+                                    DataType src_dtype,
+                                    DataType desired_dst_dtype) {
+  std::string new_dst_dtype_name =
+      desired_dst_dtype == DT_FLOAT ? "Float" : "Bfloat16";
+
+  static int i = 0;
+  NodeBuilder cast_builder(absl::StrCat(edge->src()->name(), "/CastTo",
+                                        new_dst_dtype_name, "_", i++),
+                           "Cast");
+  cast_builder.Attr("DstT", desired_dst_dtype)
+      .Attr("SrcT", src_dtype)
+      .Attr("Truncate", false)
+      .Input(edge->src(), edge->src_output());
+
+  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
+  if (!cluster_name.empty()) cast_builder.Attr("_tpu_replicate", cluster_name);
+
+  // Some rare models have outside compilation tags that need to be propagated
+  // so the cast is also outside compiled.
+  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
+  if (attr != nullptr && attr->has_s()) {
+    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
+  }
+
+  Node* cast_node = nullptr;
+  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
+  VLOG(4) << "Adding Cast node: " << cast_node->name();
+
+  graph->RemoveEdge(edge);
+  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
+
+  return cast_node;
 }
 
 void ConvertFunctionCallNodeToBfloat16(Node* node) {
@@ -387,10 +449,13 @@ absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
       if (!options.convert_checkpoint_bfloat16() ||
           (rval_edge->src()->type_string() != "RestoreV2" &&
            !absl::StrContains(assign_node_info.func->name(),
-                              "traced_restore"))) {
-        TF_RETURN_IF_ERROR(CastFloatTensor(assign_node_info.func->get_graph(),
-                                           rval_edge->src(),
-                                           rval_edge->src_output()));
+                              kTracedRestoreSubstring))) {
+        if (rval_edge->src()->output_type(rval_edge->src_output()) ==
+            DT_FLOAT) {
+          TF_RETURN_IF_ERROR(CastFloatEdge(assign_node_info.func->get_graph(),
+                                           rval_edge, DT_FLOAT, DT_BFLOAT16)
+                                 .status());
+        }
       }
 
       TF_RETURN_IF_ERROR(assign_node_info.func->MarkMutated(kOptimFuncSuffix));
@@ -524,41 +589,6 @@ absl::Status CastSrcOfRetvalToBfloat16(
     }
   }
   return absl::OkStatus();
-}
-
-absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
-                                    DataType src_dtype,
-                                    DataType desired_dst_dtype) {
-  std::string new_dst_dtype_name =
-      desired_dst_dtype == DT_FLOAT ? "Float" : "Bfloat16";
-
-  static int i = 0;
-  NodeBuilder cast_builder(absl::StrCat(edge->src()->name(), "/CastTo",
-                                        new_dst_dtype_name, "_", i++),
-                           "Cast");
-  cast_builder.Attr("DstT", desired_dst_dtype)
-      .Attr("SrcT", src_dtype)
-      .Attr("Truncate", false)
-      .Input(edge->src(), edge->src_output());
-
-  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
-  if (!cluster_name.empty()) cast_builder.Attr("_tpu_replicate", cluster_name);
-
-  // Some rare models have outside compilation tags that need to be propagated
-  // so the cast is also outside compiled.
-  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
-  if (attr != nullptr && attr->has_s()) {
-    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
-  }
-
-  Node* cast_node = nullptr;
-  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
-  VLOG(4) << "Adding Cast node: " << cast_node->name();
-
-  graph->RemoveEdge(edge);
-  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
-
-  return cast_node;
 }
 
 absl::Status WrapNodeFloatValue(
@@ -1161,8 +1191,8 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
   std::vector<FunctionInfo*> children_ptrs;
   TF_RETURN_IF_ERROR(func->get_children_ptrs(&children_ptrs));
   for (FunctionInfo* child : children_ptrs) {
-    if (absl::StrContains(child->name(), "traced_restore") ||
-        absl::StrContains(child->name(), "traced_save")) {
+    if (absl::StrContains(child->name(), kTracedRestoreSubstring) ||
+        absl::StrContains(child->name(), kTracedSaveSubstring)) {
       TF_RETURN_IF_ERROR(FixRestoreAndSaveDtypes(child, options));
     }
   }
@@ -1289,7 +1319,7 @@ absl::Status GenerateFilterlists(
     "Assert",  // Unexpected behaviour if try to modify Assert.
     "Bucketize",
     "Const",
-    "Dequantize",  // TODO(lzr): Support Dequantize to Bfloat16.
+    "Dequantize",
     "FakeQuantWithMinMaxVars",
     "FusedBatchNorm",
     "FusedBatchNormV3",
@@ -1345,6 +1375,7 @@ absl::Status GenerateFilterlists(
   }
 
   if (!auto_generate_filterlist) return absl::OkStatus();
+  XlaOpRegistry::RegisterCompilationKernels();
 
   // Auto-generate filter list by checking kernel definitions.
   absl::string_view tpu_xla_jit_device = DEVICE_TPU_XLA_JIT;
@@ -1352,10 +1383,11 @@ absl::Status GenerateFilterlists(
   std::vector<FunctionInfo*> funcs;
   TF_RETURN_IF_ERROR(bfloat16_func->Find(
       [&](FunctionInfo* func) {
-        bool executes_on_tpu = func->ExecutesOnTpu();
+        const bool uses_tpu_filterlist = UsesTpuFilterlist(*func, options);
         absl::string_view xla_jit_device =
-            executes_on_tpu ? tpu_xla_jit_device : cpu_xla_jit_device;
-        auto& filterlist = executes_on_tpu ? tpu_filterlist : cpu_filterlist;
+            uses_tpu_filterlist ? tpu_xla_jit_device : cpu_xla_jit_device;
+        ::gtl::linked_hash_set<std::string>& filterlist =
+            uses_tpu_filterlist ? tpu_filterlist : cpu_filterlist;
 
         for (Node* node : func->get_graph()->nodes()) {
           if (filterlist.contains(node->type_string())) continue;
@@ -1523,9 +1555,9 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
-        if (filterlist.contains("XlaCallModule")) {
+        if ((UsesTpuFilterlist(*func, options) ? tpu_filterlist
+                                               : cpu_filterlist)
+                .contains("XlaCallModule")) {
           VLOG(4) << "Skip XlaCallModule Op, node is in filterlist";
           return absl::OkStatus();
         }
@@ -1536,8 +1568,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const ::gtl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(*func, options) ? tpu_filterlist : cpu_filterlist;
         return ConvertGraphNodesToBfloat16(func->get_graph(), [&](Node* node) {
           // If the node type is in filterlist, or if the node is an _Arg or
           // _Retval node for While / If. _Arg and _Retval nodes for While / If
@@ -1586,9 +1618,10 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
-        return WrapBfloat16IncompatibleNodes(func->get_graph(), filterlist);
+        return WrapBfloat16IncompatibleNodes(func->get_graph(),
+                                             UsesTpuFilterlist(*func, options)
+                                                 ? tpu_filterlist
+                                                 : cpu_filterlist);
       }));
 
   // 10. Remove duplicate casts.
