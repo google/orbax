@@ -22,7 +22,6 @@ from typing import Any, Dict
 from orbax.checkpoint._src.arrays import types as arrays_types
 from orbax.checkpoint._src.metadata import empty_values
 from orbax.checkpoint._src.metadata import pytree_metadata_options as pytree_metadata_options_lib
-from orbax.checkpoint._src.serialization import types
 
 
 _VALUE_TYPE = 'value_type'
@@ -78,18 +77,22 @@ class ValueMetadataEntry:
   @classmethod
   def build(
       cls,
-      info: types.ParamInfo,
-      save_arg: types.SaveArgs,
+      value_typestr: str,
+      *,
+      write_shape: arrays_types.Shape | None = None,
   ) -> ValueMetadataEntry:
-    """Builds a ValueMetadataEntry."""
-    del save_arg
-    if info.value_typestr is None:
-      raise AssertionError(
-          'Must set `value_typestr` in `ParamInfo` when saving.'
-      )
-    skip_deserialize = empty_values.is_empty_typestr(info.value_typestr)
+    """Builds a ValueMetadataEntry for a leaf being saved.
+
+    Args:
+      value_typestr: The typestr of the leaf value, as returned by
+        `type_handler_registry.get_param_typestr`.
+      write_shape: The shape of the chunks written for the leaf, if any.
+
+    Returns:
+      A ValueMetadataEntry. `skip_deserialize` is derived from `value_typestr`.
+    """
     return ValueMetadataEntry(
-        value_type=info.value_typestr,
-        skip_deserialize=skip_deserialize,
-        write_shape=info.write_shape,
+        value_type=value_typestr,
+        skip_deserialize=empty_values.is_empty_typestr(value_typestr),
+        write_shape=write_shape,
     )

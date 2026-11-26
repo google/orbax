@@ -55,10 +55,8 @@ def build_param_infos(
 
   Populates the fields of `ParamInfo` that are derived from the PyTree itself
   (`name`, `keypath`, `parent_dir`, `skip_deserialize`, `is_ocdbt_checkpoint`,
-  `ts_context` and `value_typestr`). This is sufficient to build
-  `tree_metadata.InternalTreeMetadata` for the `_METADATA` file. Any other
-  `ParamInfo` fields (e.g. byte limiters, compression settings) can be provided
-  via `param_info_kwargs`.
+  `ts_context` and `value_typestr`). Any other `ParamInfo` fields (e.g. byte
+  limiters, compression settings) can be provided via `param_info_kwargs`.
 
   Args:
     item: The PyTree to build `ParamInfo`s for. Empty nodes are treated as
@@ -95,4 +93,34 @@ def build_param_infos(
 
   return jax.tree.map_with_path(
       _param_info, names, item, is_leaf=tree_utils.is_empty_or_leaf
+  )
+
+
+def to_value_metadata_tree(param_infos: PyTree) -> PyTree:
+  """Returns a PyTree of `ValueMetadataEntry` matching `param_infos`.
+
+  The result can be passed to `tree_metadata.InternalTreeMetadata.build`. Only
+  `ParamInfo.value_typestr` and `ParamInfo.write_shape` are used.
+
+  Args:
+    param_infos: A PyTree of `ParamInfo`, e.g. as returned by
+      `build_param_infos`.
+
+  Raises:
+    AssertionError: If any `ParamInfo.value_typestr` is not set.
+  """
+
+  def _value_metadata(
+      info: types.ParamInfo,
+  ) -> tree_metadata.ValueMetadataEntry:
+    if info.value_typestr is None:
+      raise AssertionError(
+          'Must set `value_typestr` in `ParamInfo` when saving.'
+      )
+    return tree_metadata.ValueMetadataEntry.build(
+        info.value_typestr, write_shape=info.write_shape
+    )
+
+  return jax.tree.map(
+      _value_metadata, param_infos, is_leaf=tree_utils.is_empty_or_leaf
   )
