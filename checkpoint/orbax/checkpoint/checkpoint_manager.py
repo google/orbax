@@ -1370,8 +1370,13 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     if not should_save_result and reached_preemption:
       if is_saving_in_progress:
         skip_reason = 'save_in_progress'
-      elif self._is_continuous_checkpointing_enabled():
-        skip_reason = 'minimum_interval_not_met'
+      elif (
+          cc_policy := self._get_continuous_checkpointing_policy()
+      ) is not None:
+        skip_reason = (
+            cc_policy.last_skip_reason
+            or save_decision_policy_lib.SKIP_REASON_MINIMUM_INTERVAL_NOT_MET
+        )
       else:
         skip_reason = 'policy_rejected'
       self._record_preemption_save_skipped(step, current_time, skip_reason)
@@ -1796,18 +1801,24 @@ class CheckpointManager(AbstractCheckpointManager, epy.ContextManager):
     self._logger.log_entry(dataclasses.asdict(step_stats))
     return True
 
-  def _is_continuous_checkpointing_enabled(self) -> bool:
-    """Returns True if continuous checkpointing is enabled."""
+  def _get_continuous_checkpointing_policy(
+      self,
+  ) -> save_decision_policy_lib.ContinuousCheckpointingPolicy | None:
+    """Returns the configured `ContinuousCheckpointingPolicy`, if any."""
     decision_policy = self._options.save_decision_policy
     policies = (
         decision_policy.policies
         if isinstance(decision_policy, save_decision_policy_lib.AnySavePolicy)
         else [decision_policy]
     )
-    return any(
-        isinstance(p, save_decision_policy_lib.ContinuousCheckpointingPolicy)
-        for p in policies
-    )
+    for p in policies:
+      if isinstance(p, save_decision_policy_lib.ContinuousCheckpointingPolicy):
+        return p
+    return None
+
+  def _is_continuous_checkpointing_enabled(self) -> bool:
+    """Returns True if continuous checkpointing is enabled."""
+    return self._get_continuous_checkpointing_policy() is not None
 
   def _maybe_get_default_item(
       self, composite_result: args_lib.Composite
