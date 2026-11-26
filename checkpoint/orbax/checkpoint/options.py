@@ -62,6 +62,18 @@ class MultiprocessingOptions:
 
 
 
+class CompressionPreset(str, enum.Enum):
+  """Preset compression configurations for saving arrays.
+
+  Attributes:
+    NONE: Disables array compression.
+    ZSTD: Zstd lossless compression using TensorStore's default level.
+  """
+
+  NONE = 'none'
+  ZSTD = 'zstd'
+
+
 class AtomicityMode(str, enum.Enum):
   """Protocol mode for checkpoint save atomicity."""
 

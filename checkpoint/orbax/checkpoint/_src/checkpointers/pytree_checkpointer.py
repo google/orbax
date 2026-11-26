@@ -35,13 +35,26 @@ class PyTreeCheckpointer(checkpointer.Checkpointer):
       primary_host: Optional[int] = 0,
       use_ocdbt: bool = True,
       use_zarr3=False,
-      use_compression: bool = True,
+      use_compression: bool | None = None,
+      compression: options_lib.CompressionPreset | None = None,
   ):
+    """Initializes PyTreeCheckpointer.
+
+    Args:
+      primary_host: Host ID of the primary host.
+      use_ocdbt: Whether to enable TensorStore OCDBT format.
+      use_zarr3: If True, use Zarr v3; otherwise use Zarr v2.
+      use_compression: Deprecated. If True, use zstd compression. Prefer
+        `compression`.
+      compression: Preset compression configuration for saving arrays. Defaults
+        to `CompressionPreset.ZSTD`.
+    """
     super().__init__(
         pytree_checkpoint_handler.PyTreeCheckpointHandler(
             use_ocdbt=use_ocdbt,
             use_zarr3=use_zarr3,
             use_compression=use_compression,
+            compression=compression,
         ),
         multiprocessing_options=options_lib.MultiprocessingOptions(
             primary_host=primary_host

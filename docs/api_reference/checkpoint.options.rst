@@ -29,3 +29,8 @@ AtomicityMode
 ------------------------------------------------------------
 .. autoclass:: AtomicityMode
   :members:
+
+CompressionPreset
+------------------------------------------------------------
+.. autoclass:: CompressionPreset
+  :members:

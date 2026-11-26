@@ -167,7 +167,8 @@ class PyTreeCheckpointHandlerTest(
       array_metadata_store: array_metadata_store_lib.Store | None = (
           ARRAY_METADATA_STORE
       ),
-      use_compression: bool = True,
+      use_compression: bool | None = None,
+      compression: options_lib.CompressionPreset | None = None,
       save_device_host_concurrent_gb: int | None = None,
       copy_device_arrays_for_async_transfer: bool = False,
   ):
@@ -186,6 +187,7 @@ class PyTreeCheckpointHandlerTest(
         pytree_metadata_options=pytree_metadata_options,
         enable_pinned_host_transfer=enable_pinned_host_transfer,
         use_compression=use_compression,
+        compression=compression,
         save_device_host_concurrent_gb=save_device_host_concurrent_gb,
         copy_device_arrays_for_async_transfer=(
             copy_device_arrays_for_async_transfer
@@ -817,6 +819,53 @@ class PyTreeCheckpointHandlerTest(
             array_metadata_store=array_metadata_store,
         )
 
+
+  @parameterized.product(
+      use_ocdbt=(True, False),
+      use_zarr3=(False, True),
+      preset_and_codec=(
+          (options_lib.CompressionPreset.NONE, None),
+          (options_lib.CompressionPreset.ZSTD, 'zstd'),
+      ),
+  )
+  def test_compression_preset(
+      self,
+      use_ocdbt: bool,
+      use_zarr3: bool,
+      preset_and_codec: tuple[options_lib.CompressionPreset, str | None],
+  ):
+    """Test case for compression preset on PyTreeCheckpointHandler."""
+    compression, expected_codec = preset_and_codec
+    with self.ocdbt_checkpoint_handler(
+        use_ocdbt,
+        use_zarr3=use_zarr3,
+        compression=compression,
+    ) as checkpoint_handler:
+      checkpoint_handler.save(self.directory, args=PyTreeSaveArgs(self.pytree))
+      restored = checkpoint_handler.restore(
+          self.directory,
+          args=PyTreeRestoreArgs(restore_args=self.restore_args),
+      )
+      self.validate_restore(self.pytree, restored)
+      self.assertEqual(
+          test_utils.is_compression_used(
+              self.directory,
+              'a',
+              use_zarr3,
+              use_ocdbt,
+              expected_codec=expected_codec,
+          ),
+          expected_codec is not None,
+      )
+
+  def test_compression_preset_rejects_both(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot specify both use_compression and compression'
+    ):
+      PyTreeCheckpointHandler(
+          use_compression=False,
+          compression=options_lib.CompressionPreset.ZSTD,
+      )
 
   @parameterized.product(use_ocdbt=(True, False))
   def test_restore_reverse_mesh(self, use_ocdbt: bool):
