@@ -2,6 +2,9 @@ name: Auto-publish
 
 on: [push, workflow_dispatch]
 
+permissions:
+  contents: read
+
 jobs:
   publish-checkpoint-job:
     # Only try to publish if:
@@ -13,17 +16,106 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     timeout-minutes: 30
 
     steps:
-    # 1. Publish the sub-packages first
-    - uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
+    # 1. Detect version bump and create GitHub release/tag (skip direct PyPI upload)
+    - id: auto_publish
+      uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
       with:
-        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_CKPT }}
+        pypi-token: skip
         gh-token: ${{ secrets.GITHUB_TOKEN }}
         path: "./checkpoint/"
         pkg-name: orbax-checkpoint
         parse-changelog: true
+
+    # Build distributions in an isolated Python environment BEFORE authenticating
+    # to Google Cloud so third-party build hooks have zero access to GCP credentials.
+    - name: Set up Python (isolated build environment)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: '3.12'
+
+    - name: Build orbax-checkpoint distributions (pre-auth)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      run: |
+        set -euo pipefail
+        VENV_DIR="${RUNNER_TEMP}/exit-gate-venv"
+        python3 -m venv "${VENV_DIR}"
+        "${VENV_DIR}/bin/python" -m pip install --no-cache-dir           build==1.6.1           twine==7.0.0
+        rm -rf dist_ckpt
+        "${VENV_DIR}/bin/python" -m build ./checkpoint/ --outdir dist_ckpt
+
+    - name: Authenticate to Google Cloud (OSS Exit Gate)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: 'projects/305452601764/locations/global/workloadIdentityPools/builders/providers/github'
+
+    - name: Set up Cloud SDK
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+    - name: Stage orbax-checkpoint to OSS Exit Gate and upload manifest
+      if: steps.auto_publish.outputs.is-released == 'true'
+      env:
+        PKG_NAME: orbax-checkpoint
+        PKG_VER: ${{ steps.auto_publish.outputs.version }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        if [[ -z "${PKG_VER}" ]]; then
+          echo "ERROR: auto_publish step did not emit a package version." >&2
+          exit 1
+        fi
+        DIST_FILES=(dist_ckpt/*.whl dist_ckpt/*.tar.gz)
+        if [[ ${#DIST_FILES[@]} -eq 0 ]]; then
+          echo "ERROR: No distribution archives found under dist_ckpt/." >&2
+          exit 1
+        fi
+
+        DESC_ERR="${RUNNER_TEMP}/describe-orbax-checkpoint.err"
+        set +e
+        gcloud artifacts versions describe "${PKG_VER}"           --package="${PKG_NAME}"           --project="oss-exit-gate-prod"           --location="us"           --repository="orbax--pypi"           --format="value(name)" > /dev/null 2> "${DESC_ERR}"
+        DESC_RC=$?
+        set -e
+        if [[ "$DESC_RC" -eq 0 ]]; then
+          gcloud artifacts versions delete "${PKG_VER}"             --package="${PKG_NAME}"             --project="oss-exit-gate-prod"             --location="us"             --repository="orbax--pypi"             --quiet
+        elif ! grep -Eqi "NOT_FOUND|not.found|404" "${DESC_ERR}"; then
+          cat "${DESC_ERR}" >&2
+          exit "$DESC_RC"
+        fi
+        rm -f "${DESC_ERR}"
+
+        TWINE_PASSWORD="$(gcloud auth print-access-token)"
+        echo "::add-mask::${TWINE_PASSWORD}"
+        TWINE_USERNAME="oauth2accesstoken"
+        export TWINE_USERNAME TWINE_PASSWORD
+        "${RUNNER_TEMP}/exit-gate-venv/bin/python" -m twine upload           --repository-url "https://us-python.pkg.dev/oss-exit-gate-prod/orbax--pypi/"           "${DIST_FILES[@]}"
+        unset TWINE_USERNAME TWINE_PASSWORD
+
+        MANIFEST_PATH="${RUNNER_TEMP}/manifest-orbax-checkpoint.json"
+        "${RUNNER_TEMP}/exit-gate-venv/bin/python" - "${MANIFEST_PATH}" <<'PY'
+        import json, os, sys
+        manifest = {
+            "publish_all": False,
+            "publishing_groups": [{
+                "packages": [{
+                    "name": os.environ["PKG_NAME"],
+                    "version": os.environ["PKG_VER"],
+                }]
+            }],
+        }
+        with open(sys.argv[1], "w", encoding="utf-8") as fh:
+          json.dump(manifest, fh, indent=2)
+          fh.write("\n")
+        PY
+        gcloud storage cp "${MANIFEST_PATH}"           "gs://oss-exit-gate-prod-projects-bucket/orbax/pypi/manifests/manifest-${PKG_NAME}-${PKG_VER}-${RUN_ID}-${RUN_ATTEMPT}.json"
+        rm -f "${MANIFEST_PATH}"
 
   publish-export-job:
     # Only try to publish if:
@@ -35,13 +127,102 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     timeout-minutes: 30
 
     steps:
-    # 1. Publish the sub-packages first
-    - uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
+    # 1. Detect version bump (skip direct PyPI upload and skip GitHub release creation)
+    - id: auto_publish
+      uses: etils-actions/pypi-auto-publish@d0603b1e896ce8b754fd7df30731623c93546e89 # v1
       with:
+        pypi-token: skip
         # NOTE: Do not use gh-token here, as it would conflict with orbax-checkpoint.
-        pypi-token: ${{ secrets.PYPI_API_TOKEN_OBX_EXPT }}
         path: "./export/"
         pkg-name: orbax-export
+
+    # Build distributions in an isolated Python environment BEFORE authenticating
+    # to Google Cloud so third-party build hooks have zero access to GCP credentials.
+    - name: Set up Python (isolated build environment)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: '3.12'
+
+    - name: Build orbax-export distributions (pre-auth)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      run: |
+        set -euo pipefail
+        VENV_DIR="${RUNNER_TEMP}/exit-gate-venv"
+        python3 -m venv "${VENV_DIR}"
+        "${VENV_DIR}/bin/python" -m pip install --no-cache-dir           build==1.6.1           twine==7.0.0
+        rm -rf dist_expt
+        "${VENV_DIR}/bin/python" -m build ./export/ --outdir dist_expt
+
+    - name: Authenticate to Google Cloud (OSS Exit Gate)
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: 'projects/305452601764/locations/global/workloadIdentityPools/builders/providers/github'
+
+    - name: Set up Cloud SDK
+      if: steps.auto_publish.outputs.is-released == 'true'
+      uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+    - name: Stage orbax-export to OSS Exit Gate and upload manifest
+      if: steps.auto_publish.outputs.is-released == 'true'
+      env:
+        PKG_NAME: orbax-export
+        PKG_VER: ${{ steps.auto_publish.outputs.version }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        if [[ -z "${PKG_VER}" ]]; then
+          echo "ERROR: auto_publish step did not emit a package version." >&2
+          exit 1
+        fi
+        DIST_FILES=(dist_expt/*.whl dist_expt/*.tar.gz)
+        if [[ ${#DIST_FILES[@]} -eq 0 ]]; then
+          echo "ERROR: No distribution archives found under dist_expt/." >&2
+          exit 1
+        fi
+
+        DESC_ERR="${RUNNER_TEMP}/describe-orbax-export.err"
+        set +e
+        gcloud artifacts versions describe "${PKG_VER}"           --package="${PKG_NAME}"           --project="oss-exit-gate-prod"           --location="us"           --repository="orbax--pypi"           --format="value(name)" > /dev/null 2> "${DESC_ERR}"
+        DESC_RC=$?
+        set -e
+        if [[ "$DESC_RC" -eq 0 ]]; then
+          gcloud artifacts versions delete "${PKG_VER}"             --package="${PKG_NAME}"             --project="oss-exit-gate-prod"             --location="us"             --repository="orbax--pypi"             --quiet
+        elif ! grep -Eqi "NOT_FOUND|not.found|404" "${DESC_ERR}"; then
+          cat "${DESC_ERR}" >&2
+          exit "$DESC_RC"
+        fi
+        rm -f "${DESC_ERR}"
+
+        TWINE_PASSWORD="$(gcloud auth print-access-token)"
+        echo "::add-mask::${TWINE_PASSWORD}"
+        TWINE_USERNAME="oauth2accesstoken"
+        export TWINE_USERNAME TWINE_PASSWORD
+        "${RUNNER_TEMP}/exit-gate-venv/bin/python" -m twine upload           --repository-url "https://us-python.pkg.dev/oss-exit-gate-prod/orbax--pypi/"           "${DIST_FILES[@]}"
+        unset TWINE_USERNAME TWINE_PASSWORD
+
+        MANIFEST_PATH="${RUNNER_TEMP}/manifest-orbax-export.json"
+        "${RUNNER_TEMP}/exit-gate-venv/bin/python" - "${MANIFEST_PATH}" <<'PY'
+        import json, os, sys
+        manifest = {
+            "publish_all": False,
+            "publishing_groups": [{
+                "packages": [{
+                    "name": os.environ["PKG_NAME"],
+                    "version": os.environ["PKG_VER"],
+                }]
+            }],
+        }
+        with open(sys.argv[1], "w", encoding="utf-8") as fh:
+          json.dump(manifest, fh, indent=2)
+          fh.write("\n")
+        PY
+        gcloud storage cp "${MANIFEST_PATH}"           "gs://oss-exit-gate-prod-projects-bucket/orbax/pypi/manifests/manifest-${PKG_NAME}-${PKG_VER}-${RUN_ID}-${RUN_ATTEMPT}.json"
+        rm -f "${MANIFEST_PATH}"
