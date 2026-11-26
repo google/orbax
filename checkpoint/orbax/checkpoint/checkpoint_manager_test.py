@@ -133,6 +133,112 @@ def _capture_rollback_warnings():
     logger.removeHandler(handler)
 
 
+class CreateRootDirectoryTest(parameterized.TestCase):
+  """Tests `CheckpointManagerOptions.create` with `active_processes`."""
+
+  def _create_root_directory(self, directory, **kwargs):
+    # pylint: disable-next=protected-access
+    checkpoint_manager._create_root_directory(
+        directory, checkpoint_manager.MultiprocessingOptions(**kwargs)
+    )
+
+  def test_creates_directory_with_active_processes(self):
+    directory = epath.Path(self.create_tempdir().full_path) / 'a' / 'b'
+    options = checkpoint_manager.CheckpointManagerOptions(
+        multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+            primary_host=multihost.process_index(),
+            active_processes={multihost.process_index()},
+        )
+    )
+    with checkpoint_manager.CheckpointManager(directory, options=options):
+      pass
+    self.assertTrue(directory.exists())
+
+  def test_creates_directory_without_active_processes(self):
+    directory = epath.Path(self.create_tempdir().full_path) / 'root'
+    with mock.patch.object(multihost, 'sync_global_processes') as sync:
+      self._create_root_directory(directory)
+    self.assertTrue(directory.exists())
+    sync.assert_called_once()
+    self.assertEqual(
+        sync.call_args.args[0], 'CheckpointManager:create_directory'
+    )
+    self.assertIsNone(sync.call_args.kwargs['processes'])
+
+  @parameterized.parameters((1, True), (2, False))
+  def test_primary_host_creates_and_active_processes_sync(
+      self, process_index, creates
+  ):
+    directory = epath.Path(self.create_tempdir().full_path) / 'root'
+    with (
+        mock.patch.object(
+            multihost, 'process_index', return_value=process_index
+        ),
+        mock.patch.object(multihost, 'sync_global_processes') as sync,
+    ):
+      self._create_root_directory(
+          directory,
+          primary_host=1,
+          active_processes={1, 2},
+          barrier_sync_key_prefix='trainer',
+      )
+    self.assertEqual(directory.exists(), creates)
+    sync.assert_called_once()
+    self.assertEqual(
+        sync.call_args.args[0], 'trainer_CheckpointManager:create_directory'
+    )
+    self.assertEqual(sync.call_args.kwargs['processes'], {1, 2})
+
+  @parameterized.parameters(1, 2)
+  def test_existing_directory_with_active_processes(self, process_index):
+    directory = epath.Path(self.create_tempdir().full_path)
+    with (
+        mock.patch.object(
+            multihost, 'process_index', return_value=process_index
+        ),
+        mock.patch.object(multihost, 'sync_global_processes') as sync,
+    ):
+      self._create_root_directory(
+          directory, primary_host=1, active_processes={1, 2}
+      )
+    self.assertTrue(directory.exists())
+    sync.assert_called_once()
+    self.assertEqual(sync.call_args.kwargs['processes'], {1, 2})
+
+  @parameterized.parameters(1, 2)
+  def test_no_primary_host_with_active_processes(self, process_index):
+    # Every active process may create the directory (exist_ok=True).
+    directory = epath.Path(self.create_tempdir().full_path) / 'root'
+    with (
+        mock.patch.object(
+            multihost, 'process_index', return_value=process_index
+        ),
+        mock.patch.object(multihost, 'sync_global_processes') as sync,
+    ):
+      self._create_root_directory(
+          directory, primary_host=None, active_processes={1, 2}
+      )
+      # Running again on the now-existing directory must not fail either.
+      self._create_root_directory(
+          directory, primary_host=None, active_processes={1, 2}
+      )
+    self.assertTrue(directory.exists())
+    self.assertEqual(sync.call_count, 2)
+    self.assertEqual(sync.call_args.kwargs['processes'], {1, 2})
+
+  def test_rejects_primary_host_outside_active_processes(self):
+    directory = epath.Path(self.create_tempdir().full_path) / 'root'
+    with (
+        mock.patch.object(multihost, 'sync_global_processes') as sync,
+        self.assertRaisesRegex(ValueError, 'must be in active_processes'),
+    ):
+      self._create_root_directory(
+          directory, primary_host=0, active_processes={1, 2}
+      )
+    self.assertFalse(directory.exists())
+    sync.assert_not_called()
+
+
 @test_utils.barrier_compatible_test
 class CheckpointManagerTest(
     parameterized.TestCase, multiprocess_test.MultiProcessTest
