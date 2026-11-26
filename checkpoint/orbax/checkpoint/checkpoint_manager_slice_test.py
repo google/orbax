@@ -146,5 +146,46 @@ class CheckpointManagerSliceTest(
         test_utils.assert_tree_equal(self, single_slice_arrays, restored)
 
 
+  def test_create_root_directory_on_active_processes(self):
+    """Only the active processes create the root directory and save."""
+    self.enter_context(
+        flagsaver.flagsaver(experimental_orbax_use_distributed_process_id=True)
+    )
+    global_mesh = test_utils.get_fake_global_mesh_for_slices([{0, 1}, {2, 3}])
+    arrays = [
+        test_utils.create_sharded_array(
+            np.arange(8), global_mesh, jax.sharding.PartitionSpec('data')
+        )
+    ]
+    active_processes = {0, 1}
+    directory = self.directory / 'new_root'
+    if multihost.process_index() in active_processes:
+      options = CheckpointManagerOptions(
+          create=True,
+          multiprocessing_options=checkpoint_manager.MultiprocessingOptions(
+              primary_host=0,
+              active_processes=active_processes,
+          ),
+      )
+      registry = type_handler_registry.create_type_handler_registry((
+          jax.Array,
+          type_handlers.ArrayHandler(
+              primary_host=None, replica_id=None, use_replica_parallel=False
+          ),
+      ))
+      handler = PyTreeCheckpointHandler(
+          multiprocessing_options=options.multiprocessing_options,
+          type_handler_registry=registry,
+      )
+      handler_registry = handler_registration.DefaultCheckpointHandlerRegistry()
+      handler_registry.add(None, args.PyTreeSave, handler)
+      with CheckpointManager(
+          directory, options=options, handler_registry=handler_registry
+      ) as manager:
+        self.assertTrue(directory.exists())
+        self.assertTrue(manager.save(0, args=args.PyTreeSave(arrays)))
+        manager.wait_until_finished()
+        self.assertEqual(manager.all_steps(), [0])
+
 if __name__ == '__main__':
   multiprocess_test.main()

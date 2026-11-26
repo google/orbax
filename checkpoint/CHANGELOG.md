@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `use_replica_parallel=True` with `replica_id=None` (local checkpointing) now
   raises `ValueError` for every `jax.Array`. Small `pinned_host` arrays
   previously fell back to single-replica saving.
+- `CheckpointManager(create=True)` (and so `v1.training.Checkpointer`) now
+  supports `MultiprocessingOptions.active_processes` instead of raising
+  `NotImplementedError`: the primary host creates the root directory and only
+  the active processes sync. It raises `ValueError` if `primary_host` is not in
+  `active_processes`.
 
 ### Fixed
 

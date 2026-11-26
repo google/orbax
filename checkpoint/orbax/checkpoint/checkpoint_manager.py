@@ -324,6 +324,9 @@ class CheckpointManagerOptions:
     `step_prefix`, `step_format_fixed_length` are ignored.
   create:
     If True, creates the top-level directory if it does not already exist.
+    If `multiprocessing_options.active_processes` is set, the primary host
+    creates the directory and only the active processes sync on the barrier;
+    `multiprocessing_options.primary_host` must then be one of them.
   cleanup_tmp_directories:
     If True, cleans up any existing temporary directories
     on CheckpointManager creation.
@@ -575,16 +578,33 @@ def _create_root_directory(
     multiprocessing_options: MultiprocessingOptions,
     file_options: Optional[FileOptions] = None,
 ) -> None:
-  """Creates the top-level directory if it does not already exist."""
-  if multiprocessing_options.active_processes is not None:
-    raise NotImplementedError(
-        'Option `create=True` with `active_processes` set is not'
-        ' supported. Please create the root directory yourself.'
+  """Creates the top-level directory if it does not already exist.
+
+  The primary host creates the directory, then all processes (or only
+  `multiprocessing_options.active_processes`, if set) sync on a barrier.
+
+  Args:
+    directory: The directory to create.
+    multiprocessing_options: Names the primary host and the participating
+      processes.
+    file_options: Options for the created directory.
+
+  Raises:
+    ValueError: If `active_processes` is set and excludes `primary_host`.
+  """
+  active_processes = multiprocessing_options.active_processes
+  primary_host = multiprocessing_options.primary_host
+  if (
+      active_processes is not None
+      and primary_host is not None
+      and primary_host not in active_processes
+  ):
+    raise ValueError(
+        f'primary_host={primary_host} must be in'
+        f' active_processes={active_processes} to create the root directory.'
     )
   directory = epath.Path(directory)
-  if not directory.exists() and utils.is_primary_host(
-      multiprocessing_options.primary_host
-  ):
+  if not directory.exists() and utils.is_primary_host(primary_host):
     # exists_ok=True is required, see b/362903314.
     directory.mkdir(
         parents=True,
@@ -599,7 +619,7 @@ def _create_root_directory(
           # suffix=None,
       ),
       timeout=multihost.coordination_timeout(),
-      processes=multiprocessing_options.active_processes,
+      processes=active_processes,
   )
 
 
