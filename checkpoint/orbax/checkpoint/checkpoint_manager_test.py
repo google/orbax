@@ -624,6 +624,70 @@ class CheckpointManagerTest(
           light_manager._checkpoints[1].time, datetime.datetime.min
       )
 
+  def test_lightweight_initialize_keeps_best_checkpoints(self):
+    def make_options(lightweight_initialize):
+      return CheckpointManagerOptions(
+          best_fn=lambda metrics: metrics['loss'],
+          best_mode='min',
+          max_to_keep=2,
+          keep_checkpoints_without_metrics=False,
+          lightweight_initialize=lightweight_initialize,
+      )
+
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=make_options(False)
+    ) as manager:
+      for step, loss in [(1, 0.1), (2, 0.5), (3, 0.9)]:
+        self.assertTrue(
+            manager.save(
+                step,
+                args=args.Composite(params=args.PyTreeSave(self.pytree)),
+                metrics={'loss': loss},
+            )
+        )
+      self.wait_if_async(manager)
+      self.assertSameElements([1, 2], manager.all_steps())
+
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=make_options(True)
+    ) as manager:
+      self.assertEqual(1, manager.best_step())
+      self.assertTrue(
+          manager.save(
+              4,
+              args=args.Composite(params=args.PyTreeSave(self.pytree)),
+              metrics={'loss': 0.95},
+          )
+      )
+      self.wait_if_async(manager)
+      self.assertSameElements([1, 2], manager.all_steps())
+      self.assertEqual(1, manager.best_step())
+
+  def test_lightweight_initialize_with_keep_time_interval(self):
+    def make_options(lightweight_initialize):
+      return CheckpointManagerOptions(
+          keep_time_interval=datetime.timedelta(hours=1),
+          max_to_keep=2,
+          lightweight_initialize=lightweight_initialize,
+      )
+
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=make_options(False)
+    ) as manager:
+      for step in range(1, 4):
+        self.assertTrue(self.save_params(step, manager, self.pytree))
+      self.wait_if_async(manager)
+      self.assertSameElements([1, 2, 3], manager.all_steps())
+
+    with CheckpointManager(
+        self.directory, item_names=('params',), options=make_options(True)
+    ) as manager:
+      # Used to raise `TypeError: can't subtract offset-naive and
+      # offset-aware datetimes`.
+      self.assertTrue(self.save_params(4, manager, self.pytree))
+      self.wait_if_async(manager)
+      self.assertSameElements([1, 3, 4], manager.all_steps())
+
   @parameterized.parameters((False, 1), (True, 2))
   def test_latest_step(self, enable_async, save_interval_steps):
     options = CheckpointManagerOptions(
