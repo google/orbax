@@ -76,5 +76,6 @@ class UtilsTest(parameterized.TestCase):
     self.assertEqual(utils.get_storage_type(path), expected_type)
 
 
+
 if __name__ == '__main__':
   absltest.main()
