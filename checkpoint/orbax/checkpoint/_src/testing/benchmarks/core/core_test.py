@@ -252,6 +252,35 @@ class BenchmarkTest(parameterized.TestCase):
     self.assertEqual(mock_metrics_report.call_count, 2)
     self.assertEqual(result.metrics.name, 'test_benchmark_repeat_0')
 
+  @mock.patch.object(directory_setup, 'setup_test_directory')
+  @mock.patch.object(metric_lib.Metrics, 'report')
+  def test_run_scans_custom_result_path_and_keeps_repeat_path(
+      self, mock_metrics_report, mock_setup_test_directory
+  ):
+    del mock_metrics_report
+    path = epath.Path(self.create_tempdir().full_path)
+    attempt_path = path / 'attempt_123'
+    attempt_path.mkdir()
+    (attempt_path / 'manifest.ocdbt').write_bytes(b'abcd')
+    (path / 'stale_attempt' / 'manifest.ocdbt').parent.mkdir()
+    (path / 'stale_attempt' / 'manifest.ocdbt').write_bytes(b'stale_bytes')
+    mock_setup_test_directory.return_value = path
+
+    def test_fn(_):
+      return core.TestResult(metrics=metric_lib.Metrics(), path=attempt_path)
+
+    benchmark = core.Benchmark(
+        test_fn=test_fn,
+        checkpoint_config=configs.CheckpointConfig(),
+        options=MyBenchmarkOptions(),
+        name='test_benchmark',
+    )
+    result = benchmark.run()
+    self.assertEqual(result.path, path)
+    self.assertIsNotNone(result.inventory)
+    self.assertEqual(result.inventory.file_count, 1)
+    self.assertEqual(result.inventory.total_bytes, 4)
+
 
 class BenchmarksGeneratorTest(parameterized.TestCase):
 
