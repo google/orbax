@@ -28,13 +28,16 @@ limitations under the License.
 
 #include "base/logging.h"
 #include "third_party/absl/algorithm/container.h"
+#include "third_party/absl/container/linked_hash_set.h"
 #include "third_party/absl/flags/flag.h"
 #include "third_party/absl/log/check.h"
 #include "third_party/absl/status/status.h"
+#include "third_party/absl/status/statusor.h"
 #include "third_party/absl/strings/match.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/string_view.h"
 #include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
+#include "orbax/export/bfloat16_toolkit/converter_options_v2.proto.h"
 #include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "orbax/export/bfloat16_toolkit/graph_analysis.h"
 #include "orbax/export/bfloat16_toolkit/optim_utils.h"
@@ -48,6 +51,8 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/graph_constructor.h"
 #include "tensorflow/core/framework/attr_value.proto.h"
 #include "tensorflow/core/framework/function.h"
+#include "tensorflow/core/framework/graph.proto.h"
+#include "tensorflow/core/framework/kernel_def.proto.h"
 #include "tensorflow/core/framework/node_def_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -57,10 +62,8 @@ limitations under the License.
 #include "tensorflow/core/framework/types.proto.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/bfloat16.h"
 #include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/protobuf/meta_graph.proto.h"
 #include "tensorflow/core/tpu/tpu_defs.h"
 #include "tensorflow/core/util/dump_graph.h"
@@ -74,6 +77,35 @@ ABSL_FLAG(bool, experimental_remove_all_chained_casts_for_obm, false,
 
 namespace tensorflow {
 namespace orbax {
+namespace {
+
+constexpr absl::string_view kTracedSaveSubstring = "traced_save";
+constexpr absl::string_view kTracedRestoreSubstring = "traced_restore";
+constexpr absl::string_view kRestoreV2Op = "RestoreV2";
+constexpr absl::string_view kTpuPartitionedCallOp = "TPUPartitionedCall";
+
+// Returns true if `function_info` should be checked against the TPU XLA
+// filterlist.
+bool UsesTpuFilterlist(const FunctionInfo* function_info,
+                       const ConverterOptions& options) {
+  if (options.bfloat16_scope() != ::orbax::BFloat16Scope::ALL) {
+    return true;
+  }
+  if (function_info->IsRoot()) {
+    return false;
+  }
+  if (function_info->node_in_parent_graph()->type_string() ==
+      kTpuPartitionedCallOp) {
+    return true;
+  }
+  // In ALL + preserve_signature mode, root's inference child functions run on
+  // TPU via TF2XLA even when called through StatefulPartitionedCall.
+  return function_info->parent()->IsRoot() &&
+         !absl::StrContains(function_info->name(), kTracedSaveSubstring) &&
+         !absl::StrContains(function_info->name(), kTracedRestoreSubstring);
+}
+
+}  // namespace
 
 constexpr absl::string_view kXlaOutsideCompilationAttr =
     "_xla_outside_compilation";
@@ -313,6 +345,47 @@ absl::Status BuildMirrorBfloat16Variable(Graph* graph, Node* var_handle_node,
 }
 // copybara:strip_end
 
+namespace {
+
+absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
+                                    DataType source_dtype,
+                                    DataType target_dtype) {
+  NodeBuilder cast_builder(
+      graph->NewName(
+          absl::StrCat(edge->src()->name(), "/CastTo",
+                       target_dtype == DT_FLOAT ? "Float" : "Bfloat16")),
+      "Cast");
+  NodeBuilder::NodeOut source_output(edge->src(), edge->src_output());
+  source_output.dt = source_dtype;
+  cast_builder.Attr("DstT", target_dtype)
+      .Attr("SrcT", source_dtype)
+      .Attr("Truncate", false)
+      .Input(source_output);
+
+  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
+  if (!cluster_name.empty()) {
+    cast_builder.Attr("_tpu_replicate", cluster_name);
+  }
+
+  // Some rare models have outside compilation tags that need to be propagated
+  // so the cast is also outside compiled.
+  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
+  if (attr != nullptr && attr->has_s()) {
+    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
+  }
+
+  Node* cast_node = nullptr;
+  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
+  VLOG(4) << "Adding Cast node: " << cast_node->name();
+
+  graph->RemoveEdge(edge);
+  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
+
+  return cast_node;
+}
+
+}  // namespace
+
 absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
                                 const VarHandleCollection& var_handles,
                                 const ConverterOptions& options) {
@@ -385,12 +458,15 @@ absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
 
       // 2.2 Insert Cast node before Assign.
       if (!options.convert_checkpoint_bfloat16() ||
-          (rval_edge->src()->type_string() != "RestoreV2" &&
+          (rval_edge->src()->type_string() != kRestoreV2Op &&
            !absl::StrContains(assign_node_info.func->name(),
-                              "traced_restore"))) {
-        TF_RETURN_IF_ERROR(CastFloatTensor(assign_node_info.func->get_graph(),
-                                           rval_edge->src(),
-                                           rval_edge->src_output()));
+                              kTracedRestoreSubstring))) {
+        if (rval_edge->src()->output_type(rval_edge->src_output()) ==
+            DT_FLOAT) {
+          TF_RETURN_IF_ERROR(CastFloatEdge(assign_node_info.func->get_graph(),
+                                           rval_edge, DT_FLOAT, DT_BFLOAT16)
+                                 .status());
+        }
       }
 
       TF_RETURN_IF_ERROR(assign_node_info.func->MarkMutated(kOptimFuncSuffix));
@@ -524,41 +600,6 @@ absl::Status CastSrcOfRetvalToBfloat16(
     }
   }
   return absl::OkStatus();
-}
-
-absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
-                                    DataType src_dtype,
-                                    DataType desired_dst_dtype) {
-  std::string new_dst_dtype_name =
-      desired_dst_dtype == DT_FLOAT ? "Float" : "Bfloat16";
-
-  static int i = 0;
-  NodeBuilder cast_builder(absl::StrCat(edge->src()->name(), "/CastTo",
-                                        new_dst_dtype_name, "_", i++),
-                           "Cast");
-  cast_builder.Attr("DstT", desired_dst_dtype)
-      .Attr("SrcT", src_dtype)
-      .Attr("Truncate", false)
-      .Input(edge->src(), edge->src_output());
-
-  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
-  if (!cluster_name.empty()) cast_builder.Attr("_tpu_replicate", cluster_name);
-
-  // Some rare models have outside compilation tags that need to be propagated
-  // so the cast is also outside compiled.
-  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
-  if (attr != nullptr && attr->has_s()) {
-    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
-  }
-
-  Node* cast_node = nullptr;
-  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
-  VLOG(4) << "Adding Cast node: " << cast_node->name();
-
-  graph->RemoveEdge(edge);
-  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
-
-  return cast_node;
 }
 
 absl::Status WrapNodeFloatValue(
@@ -1286,6 +1327,7 @@ absl::Status GenerateFilterlists(
     ::gtl::linked_hash_set<std::string>& cpu_filterlist) {
   ::gtl::linked_hash_set<std::string> general_filterlist({
       // clang-format off
+    "AnonymousHashTable",
     "Assert",  // Unexpected behaviour if try to modify Assert.
     "Bucketize",
     "Const",
@@ -1293,7 +1335,30 @@ absl::Status GenerateFilterlists(
     "FakeQuantWithMinMaxVars",
     "FusedBatchNorm",
     "FusedBatchNormV3",
+    "HashTable",
+    "HashTableV2",
+    "InitializeTable",
+    "InitializeTableV2",
+    "InitializeTableFromTextFile",
+    "InitializeTableFromTextFileV2",
+    "LookupTableExport",
+    "LookupTableExportV2",
+    "LookupTableFind",
+    "LookupTableFindV2",
+    "LookupTableImport",
+    "LookupTableImportV2",
+    "LookupTableInsert",
+    "LookupTableInsertV2",
+    "LookupTableRemoveV2",
+    "LookupTableSize",
+    "LookupTableSizeV2",
     "MatrixSolve",
+    "MutableDenseHashTable",
+    "MutableDenseHashTableV2",
+    "MutableHashTable",
+    "MutableHashTableV2",
+    "MutableHashTableOfTensors",
+    "MutableHashTableOfTensorsV2",
     "NonMaxSuppressionV5",
     // Parse example related ops: "Tdense" does not support bfloat16.
     "ParseExample",
@@ -1339,12 +1404,13 @@ absl::Status GenerateFilterlists(
   if (options.bfloat16_scope() == ::orbax::BFloat16Scope::ALL &&
       !options.convert_checkpoint_bfloat16()) {
     // RestoreV2 is in bfloat16 scope under ALL mode.
-    cpu_filterlist.insert("RestoreV2");
+    cpu_filterlist.insert(std::string(kRestoreV2Op));
     // SaveV2 is in bfloat16 scope under ALL mode.
-    cpu_filterlist.insert("SaveV2");
+    cpu_filterlist.insert(kSaveV2);
   }
 
   if (!auto_generate_filterlist) return absl::OkStatus();
+  XlaOpRegistry::RegisterCompilationKernels();
 
   // Auto-generate filter list by checking kernel definitions.
   absl::string_view tpu_xla_jit_device = DEVICE_TPU_XLA_JIT;
@@ -1352,10 +1418,11 @@ absl::Status GenerateFilterlists(
   std::vector<FunctionInfo*> funcs;
   TF_RETURN_IF_ERROR(bfloat16_func->Find(
       [&](FunctionInfo* func) {
-        bool executes_on_tpu = func->ExecutesOnTpu();
+        const bool uses_tpu_filterlist = UsesTpuFilterlist(func, options);
         absl::string_view xla_jit_device =
-            executes_on_tpu ? tpu_xla_jit_device : cpu_xla_jit_device;
-        auto& filterlist = executes_on_tpu ? tpu_filterlist : cpu_filterlist;
+            uses_tpu_filterlist ? tpu_xla_jit_device : cpu_xla_jit_device;
+        absl::linked_hash_set<std::string>& filterlist =
+            uses_tpu_filterlist ? tpu_filterlist : cpu_filterlist;
 
         for (Node* node : func->get_graph()->nodes()) {
           if (filterlist.contains(node->type_string())) continue;
@@ -1504,7 +1571,7 @@ absl::Status FuncFloatToBFloat16(
       [](FunctionInfo* func) {
         return CastConstNodesToBfloat16(func->get_graph());
       }));
-  if (!options.bfloat16_cast_outside()) {
+  if (!options.bfloat16_cast_outside() && !bfloat16_func->IsRoot()) {
     TF_RETURN_IF_ERROR(
         CastNonVariableArgToBfloat16(bfloat16_func->get_graph()));
   }
@@ -1523,8 +1590,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         if (filterlist.contains("XlaCallModule")) {
           VLOG(4) << "Skip XlaCallModule Op, node is in filterlist";
           return absl::OkStatus();
@@ -1536,8 +1603,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         return ConvertGraphNodesToBfloat16(func->get_graph(), [&](Node* node) {
           // If the node type is in filterlist, or if the node is an _Arg or
           // _Retval node for While / If. _Arg and _Retval nodes for While / If
@@ -1545,7 +1612,8 @@ absl::Status FuncFloatToBFloat16(
           // skip it here.
           return (
               filterlist.contains(node->type_string()) ||
-              ((node->type_string() == "_Arg" ||
+              (!func->IsRoot() &&
+               (node->type_string() == "_Arg" ||
                 node->type_string() == "_Retval") &&
                (func->node_in_parent_graph()->type_string() == "While" ||
                 func->node_in_parent_graph()->type_string() == "If" ||
@@ -1577,7 +1645,7 @@ absl::Status FuncFloatToBFloat16(
       ControlFlowsToBFloat16));
 
   // 8. Cast to bfloat16 before _Retval, if bfloat16_cast_in_func.
-  if (!options.bfloat16_cast_outside()) {
+  if (!options.bfloat16_cast_outside() && !bfloat16_func->IsRoot()) {
     TF_RETURN_IF_ERROR(CastSrcOfRetvalToBfloat16(bfloat16_func->get_graph(),
                                                  bfloat16_arg_ret));
   }
@@ -1586,8 +1654,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         return WrapBfloat16IncompatibleNodes(func->get_graph(), filterlist);
       }));
 
@@ -1674,9 +1742,23 @@ absl::Status ApplyBFloat16Optimization(
 }
 
 absl::Status ApplyBfloat16OptimizationV2(
-    ::orbax::BFloat16OptimizationOptions bfloat16_options,
+    const BFloat16OptimizationOptions& bfloat16_options,
     FunctionInfo* xla_function_info,
     std::map<std::string, tensorflow::SignatureDef>* signature_def) {
+  if (bfloat16_options.preserve_signature() &&
+      bfloat16_options.scope() != BFloat16OptimizationOptions::ALL) {
+    return absl::InvalidArgumentError(
+        "The preserve_signature flag is only supported for the ALL scope. All "
+        "other scopes preserve the signature by default. Set "
+        "preserve_signature to false, or change the scope of the bfloat16 "
+        "optimization.");
+  }
+
+  if (xla_function_info == nullptr ||
+      xla_function_info->get_graph() == nullptr) {
+    return absl::InvalidArgumentError(
+        "xla_function_info must have a non-null graph.");
+  }
   LOG(INFO) << "Applying bfloat16 optimization to "
             << xla_function_info->name();
 
@@ -1692,15 +1774,6 @@ absl::Status ApplyBfloat16OptimizationV2(
     }
   }
 
-  if (bfloat16_options.preserve_signature() &&
-      bfloat16_options.scope() != BFloat16OptimizationOptions::ALL) {
-    return absl::InvalidArgumentError(
-        "The preserve_signature flag is only supported for the ALL scope. All "
-        "other scopes preserve the signature by default. Set "
-        "preserve_signature to false, or change the scope of the bfloat16 "
-        "optimization.");
-  }
-
   std::vector<FunctionInfo*> bfloat16_function_infos;
   ConverterOptions converter_options_v1;
   switch (bfloat16_options.scope()) {
@@ -1712,8 +1785,15 @@ absl::Status ApplyBfloat16OptimizationV2(
     case BFloat16OptimizationOptions::ALL:
       converter_options_v1.set_bfloat16_scope(::orbax::BFloat16Scope::ALL);
       if (bfloat16_options.preserve_signature()) {
-        TF_RETURN_IF_ERROR(xla_function_info->GetRoot()->get_children_ptrs(
-            &bfloat16_function_infos));
+        std::vector<FunctionInfo*> all_children;
+        TF_RETURN_IF_ERROR(
+            xla_function_info->GetRoot()->get_children_ptrs(&all_children));
+        for (FunctionInfo* child : all_children) {
+          if (!absl::StrContains(child->name(), kTracedSaveSubstring) &&
+              !absl::StrContains(child->name(), kTracedRestoreSubstring)) {
+            bfloat16_function_infos.push_back(child);
+          }
+        }
       } else {
         bfloat16_function_infos.push_back(xla_function_info->GetRoot());
       }
@@ -1731,7 +1811,9 @@ absl::Status ApplyBfloat16OptimizationV2(
   // bfloat16 is if the model signature should be preserved, in which case we
   // convert all children of root instead of root itself.
   if (bfloat16_options.preserve_signature()) {
-    TF_RET_CHECK(!bfloat16_function_infos.empty());
+    if (bfloat16_function_infos.empty()) {
+      return absl::OkStatus();
+    }
   } else {
     TF_RET_CHECK(bfloat16_function_infos.size() == 1);
   }
@@ -1764,21 +1846,21 @@ absl::Status ApplyBfloat16OptimizationV2(
 }
 
 absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
-    GraphDef& graph_def) {
+    const GraphDef& graph_def) {
   // Convert graph def to graph. graph will be passed to root_func which will
   // take ownership of the unique_ptr.
-  auto graph(std::make_unique<Graph>(OpRegistry::Global()));
-  ::tensorflow::ImportGraphDefOptions opts;
-  opts.validate_shape = false;
+  auto graph = std::make_unique<Graph>(OpRegistry::Global());
+  ImportGraphDefOptions options;
+  options.validate_shape = false;
   TF_RETURN_IF_ERROR(
-      ImportGraphDef(opts, graph_def, graph.get(), nullptr, nullptr));
+      ImportGraphDef(options, graph_def, graph.get(), nullptr, nullptr));
 
   // Build function tree.
   ::gtl::linked_hash_map<std::string, int> func_overhead;
-  const FunctionLibraryDefinition flib_def = graph->flib_def();
   auto root_func = std::make_unique<FunctionInfo>("root");
   root_func->set_graph(&graph);
-  TF_RETURN_IF_ERROR(root_func->Build(flib_def, &func_overhead));
+  TF_RETURN_IF_ERROR(
+      root_func->Build(root_func->get_graph()->flib_def(), &func_overhead));
 
   return root_func;
 }
