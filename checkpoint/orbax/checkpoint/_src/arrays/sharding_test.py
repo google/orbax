@@ -34,6 +34,22 @@ def _get_devices(n):
 
 class ShardingTest(parameterized.TestCase):
 
+  @parameterized.parameters(1, 16)
+  def test_construct_maximal_shardings_uses_supplied_device_count(
+      self, global_device_count
+  ):
+    state = {'a': jax.ShapeDtypeStruct((8, 8), np.int32)}
+    devices = _get_devices(4)
+    with mock.patch.object(
+        jax, 'device_count', return_value=global_device_count
+    ):
+      sharding = sharding_lib.construct_maximal_shardings(
+          state, devices=devices
+      )['a']
+
+    self.assertEqual(sharding.shard_shape((8, 8)), (8, 2))
+    self.assertEqual(sharding.mesh.devices.shape, (4,))
+
   @parameterized.parameters(
       {
           'shape': (64, 32),
@@ -120,7 +136,10 @@ class ShardingTest(parameterized.TestCase):
     sharding: jax.sharding.NamedSharding = shardings['a']
 
     self.assertEqual(sharding.shard_shape(s.shape), shard_shape)
-    self.assertEqual(sharding.spec, jax.sharding.PartitionSpec(*pspec))
+    expected = jax.sharding.NamedSharding(
+        sharding.mesh, jax.sharding.PartitionSpec(*pspec)
+    )
+    self.assertTrue(sharding.is_equivalent_to(expected, ndim=len(shape)))
     self.assertEqual(sharding.mesh.devices.shape, mesh_shape)
 
 
