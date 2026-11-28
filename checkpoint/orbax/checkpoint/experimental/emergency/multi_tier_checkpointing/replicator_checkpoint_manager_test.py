@@ -1066,7 +1066,7 @@ class ReplicatorCheckpointManagerTest(
     )
 
     manager.save(
-        0, args=get_composite_save_args(self.pytree, args_lib.PyTreeSave)
+        0, args=get_composite_save_args(pytree, args_lib.PyTreeSave)
     )
     manager.wait_until_finished()
 
