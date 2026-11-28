@@ -1200,6 +1200,7 @@ void BuildVarHandleInfo(ResourceNodeInfo* resource, VarHandleInfo* info) {
              node->type_string() == "ResourceGather" ||
              node->type_string() == "ResourceGatherNd") {
     // VarHandleOp --> ReadVariableOp --> (SaveV2, Identity, etc.)
+    info->consumers.insert(resource);
   } else if (node->type_string() ==
              absl::StrCat("Ad", "BrainResourceDeserialize")) {
     info->resource_deserialize_node = resource;
