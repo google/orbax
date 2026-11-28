@@ -743,5 +743,72 @@ class AsyncCheckpointerTest(
     checkpointer.close()
 
 
+class BackgroundCommitTest(parameterized.TestCase):
+
+  def test_cancelled_commit_propagates_remaining_writer_error(self):
+    cancelled = futures.Future()
+    cancelled.cancel()
+    writer = futures.Future()
+    writer.set_exception(OSError('Commit writer failed'))
+    on_commit_callback = mock.Mock()
+
+    with self.assertRaisesRegex(OSError, 'Commit writer failed'):
+      async_checkpointer._background_wait_for_commit_futures(
+          epath.Path(self.create_tempdir().full_path),
+          [cancelled, writer],
+          on_commit_callback=on_commit_callback,
+          barrier_sync_key_prefix='',
+          sync_fn=lambda *_: None,
+          timeout_secs=10,
+          primary_host=None,
+      )
+    on_commit_callback.assert_not_called()
+
+  @parameterized.parameters(futures.CancelledError, asyncio.CancelledError)
+  def test_cancelled_commit_waits_for_remaining_writer(self, cancellation):
+    directory = (
+        epath.Path(self.create_tempdir().full_path)
+        / str(multihost.process_index())
+        / 'checkpoint'
+    )
+    directory.mkdir(parents=True)
+    allow_write = threading.Event()
+    cancelled = futures.Future()
+    cancelled.set_exception(cancellation())
+
+    def write_checkpoint():
+      if not allow_write.wait(timeout=10):
+        raise TimeoutError('Writer was not released')
+      directory.mkdir(parents=True, exist_ok=True)
+      (directory / 'data').write_text('checkpoint data')
+
+    with futures.ThreadPoolExecutor(max_workers=1) as executor:
+      writer = executor.submit(write_checkpoint)
+      writer_result = writer.result
+
+      def wait_for_writer(timeout=None):
+        # Make the late write deterministic: it can finish only when waited
+        # for, or during test cleanup after an early commit callback.
+        allow_write.set()
+        return writer_result(timeout=timeout)
+
+      try:
+        with mock.patch.object(writer, 'result', side_effect=wait_for_writer):
+          async_checkpointer._background_wait_for_commit_futures(
+              directory,
+              [cancelled, writer],
+              on_commit_callback=directory.rmtree,
+              barrier_sync_key_prefix='',
+              sync_fn=lambda *_: None,
+              timeout_secs=10,
+              primary_host=None,
+          )
+      finally:
+        allow_write.set()
+        writer_result(timeout=10)
+
+    self.assertFalse(directory.exists())
+
+
 if __name__ == '__main__':
   multiprocess_test.main()

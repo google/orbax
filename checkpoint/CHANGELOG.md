@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Wait for remaining commit writers and queued metadata before removing a
+  cancelled asynchronous checkpoint's temporary directory.
 - Avoid `jax.devices()` calls in Pathways multihost backend detection,
   preemption/plugin checks, memory-budgeted worker batching, and colocated MTC
   initialization so Pathways workloads work when devices or slices are down
