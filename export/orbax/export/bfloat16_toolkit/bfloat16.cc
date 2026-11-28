@@ -28,13 +28,17 @@ limitations under the License.
 
 #include "base/logging.h"
 #include "third_party/absl/algorithm/container.h"
+#include "third_party/absl/container/linked_hash_map.h"
+#include "third_party/absl/container/linked_hash_set.h"
 #include "third_party/absl/flags/flag.h"
 #include "third_party/absl/log/check.h"
 #include "third_party/absl/status/status.h"
+#include "third_party/absl/status/statusor.h"
 #include "third_party/absl/strings/match.h"
 #include "third_party/absl/strings/str_cat.h"
 #include "third_party/absl/strings/string_view.h"
 #include "orbax/export/bfloat16_toolkit/converter_options.proto.h"
+#include "orbax/export/bfloat16_toolkit/converter_options_v2.proto.h"
 #include "orbax/export/bfloat16_toolkit/function_tree.h"
 #include "orbax/export/bfloat16_toolkit/graph_analysis.h"
 #include "orbax/export/bfloat16_toolkit/optim_utils.h"
@@ -42,25 +46,28 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/quantization/stablehlo/passes/passes.h"
 #include "tensorflow/compiler/tf2xla/xla_op_registry.h"
 #include "tensorflow/compiler/xla/status_macros.h"
+#include "tensorflow/compiler/xla/tsl/platform/env.h"
 #include "tensorflow/compiler/xla/tsl/platform/errors.h"
 #include "tensorflow/compiler/xla/tsl/platform/status.h"
 #include "tensorflow/compiler/xla/tsl/platform/statusor.h"
 #include "tensorflow/core/common_runtime/graph_constructor.h"
 #include "tensorflow/core/framework/attr_value.proto.h"
 #include "tensorflow/core/framework/function.h"
+#include "tensorflow/core/framework/function.proto.h"
+#include "tensorflow/core/framework/graph.proto.h"
+#include "tensorflow/core/framework/kernel_def.proto.h"
 #include "tensorflow/core/framework/node_def_util.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/framework/tensor.proto.h"
+#include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/types.proto.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/bfloat16.h"
-#include "tensorflow/core/platform/errors.h"
-#include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/platform/path.h"
+#include "tensorflow/core/platform/tstring.h"
 #include "tensorflow/core/protobuf/meta_graph.proto.h"
 #include "tensorflow/core/tpu/tpu_defs.h"
 #include "tensorflow/core/util/dump_graph.h"
@@ -74,6 +81,69 @@ ABSL_FLAG(bool, experimental_remove_all_chained_casts_for_obm, false,
 
 namespace tensorflow {
 namespace orbax {
+namespace {
+
+constexpr absl::string_view kVariablesName = "variables";
+constexpr absl::string_view kTracedSaveSubstring = "traced_save";
+constexpr absl::string_view kTracedRestoreSubstring = "traced_restore";
+constexpr absl::string_view kDtypesAttr = "dtypes";
+constexpr absl::string_view kRestoreV2Op = "RestoreV2";
+constexpr absl::string_view kTpuPartitionedCallOp = "TPUPartitionedCall";
+
+bool HasCheckpointIndex(absl::string_view prefix) {
+  return tsl::Env::Default()->FileExists(absl::StrCat(prefix, ".index")).ok();
+}
+
+absl::Status OutOfBoundsError(absl::string_view node_name, int index) {
+  return absl::OutOfRangeError(
+      absl::StrCat("Port index ", index, " out of bounds on ", node_name));
+}
+
+// Returns true if `function_info` should be checked against the TPU XLA
+// filterlist.
+bool UsesTpuFilterlist(const FunctionInfo* function_info,
+                       const ConverterOptions& options) {
+  if (options.bfloat16_scope() != ::orbax::BFloat16Scope::ALL) {
+    return true;
+  }
+  if (function_info->IsRoot()) {
+    return false;
+  }
+  if (function_info->node_in_parent_graph()->type_string() ==
+      kTpuPartitionedCallOp) {
+    return true;
+  }
+  // In ALL + preserve_signature mode, root's inference child functions run on
+  // TPU via TF2XLA even when called through StatefulPartitionedCall.
+  return function_info->parent()->IsRoot() &&
+         !absl::StrContains(function_info->name(), kTracedSaveSubstring) &&
+         !absl::StrContains(function_info->name(), kTracedRestoreSubstring);
+}
+
+// Extracts `tensor_names` from input 1 of `io_node` (`RestoreV2` or `SaveV2`)
+// regardless of whether TensorFlow encoded them via `s_val` or
+// `tensor_content`.
+absl::StatusOr<std::vector<std::string>> ReadIoTensorNames(
+    const Node* io_node) {
+  const Node* names_node = nullptr;
+  TF_RETURN_IF_ERROR(io_node->input_node(1, &names_node));
+  Tensor parsed_tensor;
+  TF_RETURN_IF_ERROR(GetNodeAttr(names_node->attrs(), "value", &parsed_tensor));
+  if (parsed_tensor.dtype() != DT_STRING) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Expected DT_STRING tensor_names on ", names_node->name(),
+                     ", got ", DataTypeString(parsed_tensor.dtype())));
+  }
+  const TTypes<tstring>::Flat flat_names = parsed_tensor.flat<tstring>();
+  std::vector<std::string> names;
+  names.reserve(flat_names.size());
+  for (int i = 0; i < flat_names.size(); ++i) {
+    names.emplace_back(flat_names(i));
+  }
+  return names;
+}
+
+}  // namespace
 
 constexpr absl::string_view kXlaOutsideCompilationAttr =
     "_xla_outside_compilation";
@@ -313,6 +383,47 @@ absl::Status BuildMirrorBfloat16Variable(Graph* graph, Node* var_handle_node,
 }
 // copybara:strip_end
 
+namespace {
+
+absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
+                                    DataType source_dtype,
+                                    DataType target_dtype) {
+  NodeBuilder cast_builder(
+      graph->NewName(
+          absl::StrCat(edge->src()->name(), "/CastTo",
+                       target_dtype == DT_FLOAT ? "Float" : "Bfloat16")),
+      "Cast");
+  NodeBuilder::NodeOut source_output(edge->src(), edge->src_output());
+  source_output.dt = source_dtype;
+  cast_builder.Attr("DstT", target_dtype)
+      .Attr("SrcT", source_dtype)
+      .Attr("Truncate", false)
+      .Input(source_output);
+
+  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
+  if (!cluster_name.empty()) {
+    cast_builder.Attr("_tpu_replicate", cluster_name);
+  }
+
+  // Some rare models have outside compilation tags that need to be propagated
+  // so the cast is also outside compiled.
+  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
+  if (attr != nullptr && attr->has_s()) {
+    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
+  }
+
+  Node* cast_node = nullptr;
+  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
+  VLOG(4) << "Adding Cast node: " << cast_node->name();
+
+  graph->RemoveEdge(edge);
+  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
+
+  return cast_node;
+}
+
+}  // namespace
+
 absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
                                 const VarHandleCollection& var_handles,
                                 const ConverterOptions& options) {
@@ -385,12 +496,15 @@ absl::Status VarFloatToBfloat16(FunctionInfo* bfloat16_func,
 
       // 2.2 Insert Cast node before Assign.
       if (!options.convert_checkpoint_bfloat16() ||
-          (rval_edge->src()->type_string() != "RestoreV2" &&
+          (rval_edge->src()->type_string() != kRestoreV2Op &&
            !absl::StrContains(assign_node_info.func->name(),
-                              "traced_restore"))) {
-        TF_RETURN_IF_ERROR(CastFloatTensor(assign_node_info.func->get_graph(),
-                                           rval_edge->src(),
-                                           rval_edge->src_output()));
+                              kTracedRestoreSubstring))) {
+        if (rval_edge->src()->output_type(rval_edge->src_output()) ==
+            DT_FLOAT) {
+          TF_RETURN_IF_ERROR(CastFloatEdge(assign_node_info.func->get_graph(),
+                                           rval_edge, DT_FLOAT, DT_BFLOAT16)
+                                 .status());
+        }
       }
 
       TF_RETURN_IF_ERROR(assign_node_info.func->MarkMutated(kOptimFuncSuffix));
@@ -524,41 +638,6 @@ absl::Status CastSrcOfRetvalToBfloat16(
     }
   }
   return absl::OkStatus();
-}
-
-absl::StatusOr<Node*> CastFloatEdge(Graph* graph, const Edge* edge,
-                                    DataType src_dtype,
-                                    DataType desired_dst_dtype) {
-  std::string new_dst_dtype_name =
-      desired_dst_dtype == DT_FLOAT ? "Float" : "Bfloat16";
-
-  static int i = 0;
-  NodeBuilder cast_builder(absl::StrCat(edge->src()->name(), "/CastTo",
-                                        new_dst_dtype_name, "_", i++),
-                           "Cast");
-  cast_builder.Attr("DstT", desired_dst_dtype)
-      .Attr("SrcT", src_dtype)
-      .Attr("Truncate", false)
-      .Input(edge->src(), edge->src_output());
-
-  TF_ASSIGN_OR_RETURN(std::string cluster_name, FindTPUClusterName(edge));
-  if (!cluster_name.empty()) cast_builder.Attr("_tpu_replicate", cluster_name);
-
-  // Some rare models have outside compilation tags that need to be propagated
-  // so the cast is also outside compiled.
-  const AttrValue* attr = edge->src()->attrs().Find(kXlaOutsideCompilationAttr);
-  if (attr != nullptr && attr->has_s()) {
-    cast_builder.Attr(kXlaOutsideCompilationAttr, attr->s());
-  }
-
-  Node* cast_node = nullptr;
-  TF_RETURN_IF_ERROR(cast_builder.Finalize(graph, &cast_node));
-  VLOG(4) << "Adding Cast node: " << cast_node->name();
-
-  graph->RemoveEdge(edge);
-  graph->AddEdge(cast_node, 0, edge->dst(), edge->dst_input());
-
-  return cast_node;
 }
 
 absl::Status WrapNodeFloatValue(
@@ -1010,9 +1089,12 @@ absl::Status RemoveDuplicateCastNodes(Graph* graph) {
   return absl::OkStatus();
 }
 
-static absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
-  if (restore_out_edge.dst()->type_string() == "AssignVariableOp")
+namespace {
+
+absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
+  if (restore_out_edge.dst()->type_string() == "AssignVariableOp") {
     return absl::OkStatus();
+  }
   if (restore_out_edge.dst()->type_string() != "Identity") {
     return absl::UnimplementedError(
         "Unable to convert checkpoint to bfloat16 because updating the restore "
@@ -1028,8 +1110,12 @@ static absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
   // AssignVariable op during VarFloatToBfloat16. Update the cast to reflect
   // the new type.
   for (const Edge* identity_out_edge : identity->out_edges()) {
-    if (identity_out_edge->IsControlEdge()) continue;
-    if (identity_out_edge->dst()->type_string() != "Cast") continue;
+    if (identity_out_edge->IsControlEdge()) {
+      continue;
+    }
+    if (identity_out_edge->dst()->type_string() != "Cast") {
+      continue;
+    }
     Node* cast = identity_out_edge->dst();
     cast->ClearAttr("SrcT");
     cast->AddAttr("SrcT", identity->attrs().Find("T")->type());
@@ -1037,109 +1123,102 @@ static absl::Status FixRestoreAssignDType(const Edge& restore_out_edge) {
   return absl::OkStatus();
 }
 
-static absl::Status FixRestoreDTypes(
-    const ::gtl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
-    Node* restore_node) {
-  // Record the dtypes for each tensor in the checkpoint.
-  ::gtl::linked_hash_map<int, DataType> checkpoint_types;
-  Node* tensor_names_node = nullptr;
-  TF_RETURN_IF_ERROR(restore_node->input_node(1, &tensor_names_node));
-  const TensorProto& tensor =
-      tensor_names_node->attrs().Find("value")->tensor();
-  const auto& tensor_names = tensor.string_val();
-  for (int index = 0; index < tensor_names.size(); index++) {
-    const std::string& tensor_name = tensor_names[index];
-    // 2.x saved models have a second RestoreV2 op that contains only one
-    // tensor called "_CHECKPOINTABLE_OBJECT_GRAPH". This RestoreV2 op does not
-    // need to be rewritten.
-    if (tensor_name == "_CHECKPOINTABLE_OBJECT_GRAPH") return absl::OkStatus();
-    checkpoint_types[index] = checkpoint_tensors.at(tensor_name).dtype();
-  }
-
-  // Cast any variable output from the RestoreV2 whose type does not match its
-  // checkpoint type.
-  std::vector<DataType> output_dtypes(restore_node->num_outputs());
-  for (const Edge* edge : GetOutEdges(restore_node)) {
-    // Skip over any control edges.
-    if (edge->dst_input() < 0) continue;
-
-    const DataType checkpoint_dtype = checkpoint_types.at(edge->src_output());
-    const DataType dst_dtype = edge->dst()->input_type(edge->dst_input());
-    if (checkpoint_dtype != dst_dtype)
-      TF_RETURN_IF_ERROR(FixRestoreAssignDType(*edge));
-
-    output_dtypes[edge->src_output()] =
-        edge->dst()->input_type(edge->dst_input());
-  }
-
-  // Update the RestoreV2 dtypes.
-  DataTypeVector dtype_vec;
-  dtype_vec.assign(output_dtypes.begin(), output_dtypes.end());
-  restore_node->ClearAttr("dtypes");
-  restore_node->AddAttr("dtypes", dtype_vec);
-
-  return absl::OkStatus();
-}
-
-static absl::Status FixSaveDTypes(
-    const ::gtl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
-    Graph* graph, Node* save_node) {
-  // Record the dtypes for each tensor in the checkpoint.
-  ::gtl::linked_hash_map<int, DataType> checkpoint_types;
-  Node* tensor_names_node = nullptr;
-  TF_RETURN_IF_ERROR(save_node->input_node(1, &tensor_names_node));
-  const TensorProto& tensor =
-      tensor_names_node->attrs().Find("value")->tensor();
-  const auto& tensor_names = tensor.string_val();
-  for (int index = 0; index < tensor_names.size(); index++) {
-    const std::string& tensor_name = tensor_names[index];
-    // 2.x saved models have a second SaveV2 op that contains only one
-    // tensor called "_CHECKPOINTABLE_OBJECT_GRAPH". This SaveV2 op does not
-    // need to be rewritten.
-    if (tensor_name == "_CHECKPOINTABLE_OBJECT_GRAPH") return absl::OkStatus();
-    checkpoint_types[index] = checkpoint_tensors.at(tensor_name).dtype();
-  }
-
-  // Cast any variable input to the SaveV2 whose type does not match its
-  // checkpoint type.
-  std::vector<DataType> input_dtypes(save_node->num_inputs() - 3);
-  for (const Edge* edge : GetInEdges(save_node)) {
-    // Skip over the non-variable inputs.
-    if (absl::StrContains(edge->src()->name(), "ShardedFilename") ||
-        absl::StrContains(edge->src()->name(), "tensor_names") ||
-        absl::StrContains(edge->src()->name(), "shape_and_slices")) {
+// Looks up checkpoint dtypes for `io_node` (`RestoreV2` or `SaveV2`).
+absl::StatusOr<DataTypeVector> LookupCheckpointDTypes(
+    const absl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
+    const Node* io_node) {
+  TF_ASSIGN_OR_RETURN(const std::vector<std::string> tensor_names,
+                      ReadIoTensorNames(io_node));
+  DataTypeVector dtypes;
+  dtypes.reserve(tensor_names.size());
+  for (const std::string& tensor_name : tensor_names) {
+    // TF2 SavedModels store object-graph metadata as a DT_STRING entry.
+    if (tensor_name == "_CHECKPOINTABLE_OBJECT_GRAPH") {
+      dtypes.push_back(DT_STRING);
       continue;
     }
-    // Skip over any control edges.
-    if (edge->src_output() < 0) continue;
+    auto it = checkpoint_tensors.find(tensor_name);
+    if (it == checkpoint_tensors.end()) {
+      return absl::NotFoundError(
+          absl::StrCat("Tensor ", tensor_name, " not found in checkpoint."));
+    }
+    dtypes.push_back(it->second.dtype());
+  }
+  return dtypes;
+}
 
-    // Calculate the adjusted index for this tensor. The first three inputs
-    // to SaveV2 are ShardedFilename, tensor_names and shape_and_slices so
-    // subtract three from input edge number to get the index of the tensor.
-    const int index = edge->dst_input() - 3;
-    const DataType src_dtype = edge->src()->output_type(edge->src_output());
-    const DataType checkpoint_dtype = checkpoint_types.at(index);
+// Updates `restore_node` output dtypes and inserts casts where needed.
+absl::Status FixRestoreDTypes(
+    const absl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
+    Node* restore_node) {
+  TF_ASSIGN_OR_RETURN(const DataTypeVector output_dtypes,
+                      LookupCheckpointDTypes(checkpoint_tensors, restore_node));
 
-    if (checkpoint_dtype == DT_BFLOAT16 && src_dtype != checkpoint_dtype)
-      TF_RETURN_IF_ERROR(CastFloatTensor(graph, edge->src(), edge->src_output(),
-                                         src_dtype, checkpoint_dtype));
-    input_dtypes[index] = checkpoint_dtype;
+  for (const Edge* edge : GetOutEdges(restore_node)) {
+    if (edge->IsControlEdge()) {
+      continue;
+    }
+    if (edge->src_output() < 0 ||
+        edge->src_output() >= static_cast<int>(output_dtypes.size())) {
+      return OutOfBoundsError(restore_node->name(), edge->src_output());
+    }
+    DataType destination_dtype;
+    TF_RETURN_IF_ERROR(InputTypeForNode(edge->dst()->def(),
+                                        edge->dst()->op_def(),
+                                        edge->dst_input(), &destination_dtype));
+    if (output_dtypes[edge->src_output()] != destination_dtype) {
+      TF_RETURN_IF_ERROR(FixRestoreAssignDType(*edge));
+    }
   }
 
-  // Update the SaveV2 dtypes.
-  DataTypeVector dtype_vec;
-  dtype_vec.assign(input_dtypes.begin(), input_dtypes.end());
-  save_node->ClearAttr("dtypes");
-  save_node->AddAttr("dtypes", dtype_vec);
-
+  restore_node->ClearAttr(std::string(kDtypesAttr));
+  restore_node->AddAttr(std::string(kDtypesAttr), output_dtypes);
   return absl::OkStatus();
 }
+
+// Updates `save_node` input dtypes and inserts casts where needed.
+absl::Status FixSaveDTypes(
+    const absl::linked_hash_map<std::string, Tensor>& checkpoint_tensors,
+    Graph* graph, Node* save_node) {
+  TF_ASSIGN_OR_RETURN(const DataTypeVector input_dtypes,
+                      LookupCheckpointDTypes(checkpoint_tensors, save_node));
+
+  for (const Edge* edge : GetInEdges(save_node)) {
+    if (edge->IsControlEdge() || edge->dst_input() < 3) {
+      continue;
+    }
+    const int index = edge->dst_input() - 3;
+    if (index >= static_cast<int>(input_dtypes.size())) {
+      return OutOfBoundsError(save_node->name(), index);
+    }
+    const DataType checkpoint_dtype = input_dtypes[index];
+    DataType source_dtype;
+    TF_RETURN_IF_ERROR(OutputTypeForNode(edge->src()->def(),
+                                         edge->src()->op_def(),
+                                         edge->src_output(), &source_dtype));
+    if (checkpoint_dtype != source_dtype &&
+        (source_dtype == DT_FLOAT || source_dtype == DT_BFLOAT16) &&
+        (checkpoint_dtype == DT_FLOAT || checkpoint_dtype == DT_BFLOAT16)) {
+      TF_RETURN_IF_ERROR(
+          CastFloatEdge(graph, edge, source_dtype, checkpoint_dtype).status());
+    }
+  }
+
+  save_node->ClearAttr(std::string(kDtypesAttr));
+  save_node->AddAttr(std::string(kDtypesAttr), input_dtypes);
+  return absl::OkStatus();
+}
+
+}  // namespace
 
 absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
                                      const ConverterOptions& options) {
+  if (!HasCheckpointIndex(options.output_variables_filename_prefix())) {
+    return absl::OkStatus();
+  }
   // Read the newly updated checkpoint tensors. These tensors will be used
   // to determine which ops surrounding RestoreV2 and SaveV2 need to be updated.
-  ::gtl::linked_hash_map<std::string, Tensor> checkpoint_tensors;
+  absl::linked_hash_map<std::string, Tensor> checkpoint_tensors;
   TF_RETURN_IF_ERROR(ReadVariablesAsTensors(
       options.output_variables_filename_prefix(), &checkpoint_tensors));
 
@@ -1149,9 +1228,10 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
     restore_and_save_nodes.push_back(node);
   }
   for (Node* node : restore_and_save_nodes) {
-    if (node->type_string() == "RestoreV2")
+    if (node->type_string() == kRestoreV2Op) {
       TF_RETURN_IF_ERROR(FixRestoreDTypes(checkpoint_tensors, node));
-    if (node->type_string() == "SaveV2") {
+    }
+    if (node->type_string() == kSaveV2) {
       TF_RETURN_IF_ERROR(
           FixSaveDTypes(checkpoint_tensors, func->get_graph(), node));
     }
@@ -1161,8 +1241,8 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
   std::vector<FunctionInfo*> children_ptrs;
   TF_RETURN_IF_ERROR(func->get_children_ptrs(&children_ptrs));
   for (FunctionInfo* child : children_ptrs) {
-    if (absl::StrContains(child->name(), "traced_restore") ||
-        absl::StrContains(child->name(), "traced_save")) {
+    if (absl::StrContains(child->name(), kTracedRestoreSubstring) ||
+        absl::StrContains(child->name(), kTracedSaveSubstring)) {
       TF_RETURN_IF_ERROR(FixRestoreAndSaveDtypes(child, options));
     }
   }
@@ -1174,6 +1254,9 @@ absl::Status FixRestoreAndSaveDtypes(FunctionInfo* func,
 // Convert checkpoint values to BFloat16.
 absl::Status CheckpointToBFloat16(const ConverterOptions& options,
                                   FunctionInfo* bfloat16_func) {
+  if (!HasCheckpointIndex(options.input_variables_filename_prefix())) {
+    return absl::OkStatus();
+  }
   // Collect the variables that are used in the bfloat16_func.
   FuncArgsList func_args_list;
   TF_RETURN_IF_ERROR(
@@ -1216,7 +1299,7 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
         expansion_entries.pop();
         if (edge->IsControlEdge()) continue;
 
-        if (edge->src()->type_string() == "RestoreV2") {
+        if (edge->src()->type_string() == kRestoreV2Op) {
           restore_edge = edge;
           break;
         }
@@ -1226,14 +1309,13 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
       if (restore_edge == nullptr) continue;
 
       Node* restore = restore_edge->src();
-      int index = restore_edge->src_output();
+      const int index = restore_edge->src_output();
 
-      Node* tensor_names_node = nullptr;
-      TF_RETURN_IF_ERROR(restore->input_node(1, &tensor_names_node));
-
-      const TensorProto& tensor =
-          tensor_names_node->attrs().Find("value")->tensor();
-      const auto& tensor_names = tensor.string_val();
+      TF_ASSIGN_OR_RETURN(const std::vector<std::string> tensor_names,
+                          ReadIoTensorNames(restore));
+      if (index < 0 || index >= static_cast<int>(tensor_names.size())) {
+        return OutOfBoundsError(restore->name(), index);
+      }
       checkpoint_variables[tensor_names[index]] = variable;
     }
     if (restore_edge == nullptr)
@@ -1245,7 +1327,7 @@ absl::Status CheckpointToBFloat16(const ConverterOptions& options,
   }
 
   // Read Tensor values from saved params.
-  ::gtl::linked_hash_map<std::string, Tensor> var_tensors;
+  absl::linked_hash_map<std::string, Tensor> var_tensors;
   TF_RETURN_IF_ERROR(ReadVariablesAsTensors(
       options.input_variables_filename_prefix(), &var_tensors));
 
@@ -1286,6 +1368,7 @@ absl::Status GenerateFilterlists(
     ::gtl::linked_hash_set<std::string>& cpu_filterlist) {
   ::gtl::linked_hash_set<std::string> general_filterlist({
       // clang-format off
+    "AnonymousHashTable",
     "Assert",  // Unexpected behaviour if try to modify Assert.
     "Bucketize",
     "Const",
@@ -1293,7 +1376,30 @@ absl::Status GenerateFilterlists(
     "FakeQuantWithMinMaxVars",
     "FusedBatchNorm",
     "FusedBatchNormV3",
+    "HashTable",
+    "HashTableV2",
+    "InitializeTable",
+    "InitializeTableV2",
+    "InitializeTableFromTextFile",
+    "InitializeTableFromTextFileV2",
+    "LookupTableExport",
+    "LookupTableExportV2",
+    "LookupTableFind",
+    "LookupTableFindV2",
+    "LookupTableImport",
+    "LookupTableImportV2",
+    "LookupTableInsert",
+    "LookupTableInsertV2",
+    "LookupTableRemoveV2",
+    "LookupTableSize",
+    "LookupTableSizeV2",
     "MatrixSolve",
+    "MutableDenseHashTable",
+    "MutableDenseHashTableV2",
+    "MutableHashTable",
+    "MutableHashTableV2",
+    "MutableHashTableOfTensors",
+    "MutableHashTableOfTensorsV2",
     "NonMaxSuppressionV5",
     // Parse example related ops: "Tdense" does not support bfloat16.
     "ParseExample",
@@ -1339,12 +1445,13 @@ absl::Status GenerateFilterlists(
   if (options.bfloat16_scope() == ::orbax::BFloat16Scope::ALL &&
       !options.convert_checkpoint_bfloat16()) {
     // RestoreV2 is in bfloat16 scope under ALL mode.
-    cpu_filterlist.insert("RestoreV2");
+    cpu_filterlist.insert(std::string(kRestoreV2Op));
     // SaveV2 is in bfloat16 scope under ALL mode.
-    cpu_filterlist.insert("SaveV2");
+    cpu_filterlist.insert(kSaveV2);
   }
 
   if (!auto_generate_filterlist) return absl::OkStatus();
+  XlaOpRegistry::RegisterCompilationKernels();
 
   // Auto-generate filter list by checking kernel definitions.
   absl::string_view tpu_xla_jit_device = DEVICE_TPU_XLA_JIT;
@@ -1352,10 +1459,11 @@ absl::Status GenerateFilterlists(
   std::vector<FunctionInfo*> funcs;
   TF_RETURN_IF_ERROR(bfloat16_func->Find(
       [&](FunctionInfo* func) {
-        bool executes_on_tpu = func->ExecutesOnTpu();
+        const bool uses_tpu_filterlist = UsesTpuFilterlist(func, options);
         absl::string_view xla_jit_device =
-            executes_on_tpu ? tpu_xla_jit_device : cpu_xla_jit_device;
-        auto& filterlist = executes_on_tpu ? tpu_filterlist : cpu_filterlist;
+            uses_tpu_filterlist ? tpu_xla_jit_device : cpu_xla_jit_device;
+        absl::linked_hash_set<std::string>& filterlist =
+            uses_tpu_filterlist ? tpu_filterlist : cpu_filterlist;
 
         for (Node* node : func->get_graph()->nodes()) {
           if (filterlist.contains(node->type_string())) continue;
@@ -1504,7 +1612,7 @@ absl::Status FuncFloatToBFloat16(
       [](FunctionInfo* func) {
         return CastConstNodesToBfloat16(func->get_graph());
       }));
-  if (!options.bfloat16_cast_outside()) {
+  if (!options.bfloat16_cast_outside() && !bfloat16_func->IsRoot()) {
     TF_RETURN_IF_ERROR(
         CastNonVariableArgToBfloat16(bfloat16_func->get_graph()));
   }
@@ -1523,8 +1631,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         if (filterlist.contains("XlaCallModule")) {
           VLOG(4) << "Skip XlaCallModule Op, node is in filterlist";
           return absl::OkStatus();
@@ -1536,8 +1644,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         return ConvertGraphNodesToBfloat16(func->get_graph(), [&](Node* node) {
           // If the node type is in filterlist, or if the node is an _Arg or
           // _Retval node for While / If. _Arg and _Retval nodes for While / If
@@ -1545,7 +1653,8 @@ absl::Status FuncFloatToBFloat16(
           // skip it here.
           return (
               filterlist.contains(node->type_string()) ||
-              ((node->type_string() == "_Arg" ||
+              (!func->IsRoot() &&
+               (node->type_string() == "_Arg" ||
                 node->type_string() == "_Retval") &&
                (func->node_in_parent_graph()->type_string() == "While" ||
                 func->node_in_parent_graph()->type_string() == "If" ||
@@ -1577,7 +1686,7 @@ absl::Status FuncFloatToBFloat16(
       ControlFlowsToBFloat16));
 
   // 8. Cast to bfloat16 before _Retval, if bfloat16_cast_in_func.
-  if (!options.bfloat16_cast_outside()) {
+  if (!options.bfloat16_cast_outside() && !bfloat16_func->IsRoot()) {
     TF_RETURN_IF_ERROR(CastSrcOfRetvalToBfloat16(bfloat16_func->get_graph(),
                                                  bfloat16_arg_ret));
   }
@@ -1586,8 +1695,8 @@ absl::Status FuncFloatToBFloat16(
   TF_RETURN_IF_ERROR(bfloat16_func->RewriteGraphRecursively(
       kOptimFuncSuffix, RewriteGraphRecursivelyFilterFn,
       [&](FunctionInfo* func) {
-        auto& filterlist =
-            func->ExecutesOnTpu() ? tpu_filterlist : cpu_filterlist;
+        const absl::linked_hash_set<std::string>& filterlist =
+            UsesTpuFilterlist(func, options) ? tpu_filterlist : cpu_filterlist;
         return WrapBfloat16IncompatibleNodes(func->get_graph(), filterlist);
       }));
 
@@ -1599,7 +1708,9 @@ absl::Status FuncFloatToBFloat16(
       }));
 
   // 11. Convert Checkpoint to BFloat16.
-  if (options.convert_checkpoint_bfloat16()) {
+  if (options.convert_checkpoint_bfloat16() &&
+      (options.bfloat16_scope() != ::orbax::BFloat16Scope::ALL ||
+       bfloat16_func->IsRoot())) {
     TF_RETURN_IF_ERROR(CheckpointToBFloat16(options, bfloat16_func));
     TF_RETURN_IF_ERROR(
         FixRestoreAndSaveDtypes(bfloat16_func->GetRoot(), options));
@@ -1674,24 +1785,10 @@ absl::Status ApplyBFloat16Optimization(
 }
 
 absl::Status ApplyBfloat16OptimizationV2(
-    ::orbax::BFloat16OptimizationOptions bfloat16_options,
+    const BFloat16OptimizationOptions& bfloat16_options,
     FunctionInfo* xla_function_info,
-    std::map<std::string, tensorflow::SignatureDef>* signature_def) {
-  LOG(INFO) << "Applying bfloat16 optimization to "
-            << xla_function_info->name();
-
-  if (!bfloat16_options.skip_safety_checks()) {
-    absl::Status s =
-        ValidateGraphHasNoBFloat16Ops(xla_function_info->get_graph());
-    if (!s.ok()) {
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Encountered the following error when screening for bfloat16 ops ",
-          "which can cause problems with the bfloat16 optimization. To ",
-          "disable this set BFloat16OptimizationOptions's skip_safety_check. ",
-          "Error:\n\"", s.message(), "\""));
-    }
-  }
-
+    std::map<std::string, tensorflow::SignatureDef>* signature_def,
+    const InternalOptions& internal_options) {
   if (bfloat16_options.preserve_signature() &&
       bfloat16_options.scope() != BFloat16OptimizationOptions::ALL) {
     return absl::InvalidArgumentError(
@@ -1699,6 +1796,26 @@ absl::Status ApplyBfloat16OptimizationV2(
         "other scopes preserve the signature by default. Set "
         "preserve_signature to false, or change the scope of the bfloat16 "
         "optimization.");
+  }
+
+  if (xla_function_info == nullptr ||
+      xla_function_info->get_graph() == nullptr) {
+    return absl::InvalidArgumentError(
+        "xla_function_info must have a non-null graph.");
+  }
+  LOG(INFO) << "Applying bfloat16 optimization to "
+            << xla_function_info->name();
+
+  if (!bfloat16_options.skip_safety_checks()) {
+    absl::Status status =
+        ValidateGraphHasNoBFloat16Ops(xla_function_info->get_graph());
+    if (!status.ok()) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "Encountered the following error when screening for bfloat16 ops ",
+          "which can cause problems with the bfloat16 optimization. To ",
+          "disable this set BFloat16OptimizationOptions's skip_safety_check. ",
+          "Error:\n\"", status.message(), "\""));
+    }
   }
 
   std::vector<FunctionInfo*> bfloat16_function_infos;
@@ -1712,8 +1829,15 @@ absl::Status ApplyBfloat16OptimizationV2(
     case BFloat16OptimizationOptions::ALL:
       converter_options_v1.set_bfloat16_scope(::orbax::BFloat16Scope::ALL);
       if (bfloat16_options.preserve_signature()) {
-        TF_RETURN_IF_ERROR(xla_function_info->GetRoot()->get_children_ptrs(
-            &bfloat16_function_infos));
+        std::vector<FunctionInfo*> all_children;
+        TF_RETURN_IF_ERROR(
+            xla_function_info->GetRoot()->get_children_ptrs(&all_children));
+        for (FunctionInfo* child : all_children) {
+          if (!absl::StrContains(child->name(), kTracedSaveSubstring) &&
+              !absl::StrContains(child->name(), kTracedRestoreSubstring)) {
+            bfloat16_function_infos.push_back(child);
+          }
+        }
       } else {
         bfloat16_function_infos.push_back(xla_function_info->GetRoot());
       }
@@ -1731,7 +1855,9 @@ absl::Status ApplyBfloat16OptimizationV2(
   // bfloat16 is if the model signature should be preserved, in which case we
   // convert all children of root instead of root itself.
   if (bfloat16_options.preserve_signature()) {
-    TF_RET_CHECK(!bfloat16_function_infos.empty());
+    if (bfloat16_function_infos.empty()) {
+      return absl::OkStatus();
+    }
   } else {
     TF_RET_CHECK(bfloat16_function_infos.size() == 1);
   }
@@ -1748,6 +1874,20 @@ absl::Status ApplyBfloat16OptimizationV2(
   converter_options_v1.set_bfloat16_cast_outside(
       bfloat16_options.enable_cast_outside());
 
+  if (bfloat16_options.experimental().convert_checkpoint()) {
+    if (internal_options.input_model_dir().empty() ||
+        internal_options.output_model_dir().empty()) {
+      return absl::InvalidArgumentError(
+          "input_model_dir and output_model_dir must be set in "
+          "InternalOptions when convert_checkpoint is enabled.");
+    }
+    converter_options_v1.set_convert_checkpoint_bfloat16(true);
+    converter_options_v1.set_input_variables_filename_prefix(io::JoinPath(
+        internal_options.input_model_dir(), kVariablesName, kVariablesName));
+    converter_options_v1.set_output_variables_filename_prefix(io::JoinPath(
+        internal_options.output_model_dir(), kVariablesName, kVariablesName));
+  }
+
   for (FunctionInfo* bfloat16_function_info : bfloat16_function_infos) {
     TF_RET_CHECK(bfloat16_function_info != nullptr);
 
@@ -1760,27 +1900,67 @@ absl::Status ApplyBfloat16OptimizationV2(
                                *bfloat16_function_info->get_graph());
   }
 
+  if (converter_options_v1.convert_checkpoint_bfloat16() &&
+      bfloat16_options.preserve_signature()) {
+    TF_RETURN_IF_ERROR(CheckpointToBFloat16(converter_options_v1,
+                                            xla_function_info->GetRoot()));
+    TF_RETURN_IF_ERROR(FixRestoreAndSaveDtypes(xla_function_info->GetRoot(),
+                                               converter_options_v1));
+  }
+
   return absl::OkStatus();
 }
 
 absl::StatusOr<std::unique_ptr<FunctionInfo>> GetFunctionInfoFromGraphDef(
-    GraphDef& graph_def) {
+    const GraphDef& graph_def) {
   // Convert graph def to graph. graph will be passed to root_func which will
   // take ownership of the unique_ptr.
-  auto graph(std::make_unique<Graph>(OpRegistry::Global()));
-  ::tensorflow::ImportGraphDefOptions opts;
-  opts.validate_shape = false;
+  auto graph = std::make_unique<Graph>(OpRegistry::Global());
+  ImportGraphDefOptions options;
+  options.validate_shape = false;
   TF_RETURN_IF_ERROR(
-      ImportGraphDef(opts, graph_def, graph.get(), nullptr, nullptr));
+      ImportGraphDef(options, graph_def, graph.get(), nullptr, nullptr));
 
   // Build function tree.
-  ::gtl::linked_hash_map<std::string, int> func_overhead;
-  const FunctionLibraryDefinition flib_def = graph->flib_def();
+  absl::linked_hash_map<std::string, int> func_overhead;
   auto root_func = std::make_unique<FunctionInfo>("root");
   root_func->set_graph(&graph);
-  TF_RETURN_IF_ERROR(root_func->Build(flib_def, &func_overhead));
+  TF_RETURN_IF_ERROR(
+      root_func->Build(root_func->get_graph()->flib_def(), &func_overhead));
 
   return root_func;
+}
+
+absl::StatusOr<GraphDef> UpdateGraphDefUsingFunctionInfo(
+    FunctionInfo& function_info) {
+  if (function_info.get_graph() == nullptr) {
+    return absl::InvalidArgumentError("function_info graph must not be null.");
+  }
+  FunctionDefLibrary function_library;
+  TF_RETURN_IF_ERROR(function_info.LazyUpdate(&function_library));
+  TF_RETURN_IF_ERROR(
+      function_info.get_graph()->AddFunctionLibrary(function_library));
+  GraphDef graph_def;
+  function_info.get_graph()->ToGraphDef(&graph_def);
+  return graph_def;
+}
+
+absl::StatusOr<std::vector<FunctionInfo*>> GetXlaFunctionInfo(
+    FunctionInfo& function_info) {
+  std::vector<FunctionInfo*> xla_function_infos;
+  TF_RETURN_IF_ERROR(function_info.Find(
+      [](FunctionInfo* info) { return info->IsTopLevelXlaFunction(); },
+      &xla_function_infos));
+  const bool is_tpu_model = !xla_function_infos.empty() &&
+                            xla_function_infos.front()->IsTopLevelTpuFunction();
+  for (const FunctionInfo* xla_function_info : xla_function_infos) {
+    if (xla_function_info->IsTopLevelTpuFunction() != is_tpu_model) {
+      return absl::InvalidArgumentError(
+          "Both TPU and XLA GPU functions were found. Only one of the two "
+          "kinds is expected to be present.");
+    }
+  }
+  return xla_function_infos;
 }
 
 }  // namespace orbax
