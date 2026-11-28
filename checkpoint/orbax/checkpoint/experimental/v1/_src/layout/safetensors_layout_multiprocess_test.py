@@ -142,7 +142,7 @@ class ShardedSafetensorsLayoutTest(
 
     tensor_data = {"params.tensor": tensor_to_save}
     mesh = Mesh(np.array(jax.devices()).reshape(mesh_shape), mesh_axes)
-    st_path = self.test_dir / f"{self.id()}.safetensors"
+    st_path = self.test_dir / f"{self._testMethodName}.safetensors"
     if jax.process_index() == 0:
       np_save_file(tensor_data, st_path)
     test_utils.sync_global_processes(self.id())
